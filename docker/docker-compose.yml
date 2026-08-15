@@ -1,0 +1,99 @@
+# 生产环境编排：后端 API + Celery worker + 前端 + 基础设施
+# 服务端口见 .env.example 与 docs/operations.md
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pigeonoj}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pigeonoj}
+      POSTGRES_DB: ${POSTGRES_DB:-pigeonoj}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pigeonoj} -d ${POSTGRES_DB:-pigeonoj}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-pigeonoj}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-pigeonoj-minio-secret}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ../src/backend
+      dockerfile: Dockerfile
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pigeonoj}:${POSTGRES_PASSWORD:-pigeonoj}@db:5432/${POSTGRES_DB:-pigeonoj}
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    expose:
+      - "8000"
+
+  celery:
+    build:
+      context: ../src/backend
+      dockerfile: Dockerfile
+    command: celery -A app.worker.celery_app worker -l info --beat
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pigeonoj}:${POSTGRES_PASSWORD:-pigeonoj}@db:5432/${POSTGRES_DB:-pigeonoj}
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../src/frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"     # Nginx 托管构建产物，反代 /api -> backend:8000
+
+  # sandbox: nsjail 执行节点，可多实例横向扩容（按需启用）
+  # sandbox:
+  #   build:
+  #     context: ../src/sandbox
+  #     dockerfile: Dockerfile
+  #   privileged: true
+  #   depends_on:
+  #     - redis
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

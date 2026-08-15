@@ -1,0 +1,14 @@
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# 环境变量与本地配置
+.env
+.env.*
+!.env.example
+
+# 测试代码不进生产镜像（开发时本地执行）
+tests/

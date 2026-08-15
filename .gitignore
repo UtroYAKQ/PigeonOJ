@@ -1,0 +1,51 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- Node / 前端 ----
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# ---- 环境变量 ----
+.env
+.env.*
+!.env.example
+
+# ---- 日志 ----
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# ---- 运行时数据 / 上传 ----
+uploads/
+tmp/
+temp/
+*.sqlite
+*.sqlite3
+
+# ---- Docker 本地数据 ----
+.docker-data/
+
+# ---- OS / 编辑器 ----
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# ---- IDE / Claude Code 本地设置 ----
+.claude/settings.local.json

@@ -1,0 +1,20 @@
+# 后端镜像：python:3.12-slim + uvicorn
+# 构建上下文为 src/backend（见 docker/docker-compose.yml）
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# 先拷贝依赖清单安装，利用 Docker 层缓存
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 拷贝应用代码
+COPY . .
+
+EXPOSE 8000
+
+# 生产默认启动命令；开发环境由 docker-compose-dev.yml 覆盖为 --reload
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
