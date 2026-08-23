@@ -34,15 +34,13 @@ docker compose -f docker/docker-compose-dev.yml up --build
 # 生产（后端 + Celery + 前端 + 基础设施）
 docker compose -f docker/docker-compose.yml up -d
 
-# 构建本地 nsjail 沙箱基础镜像（判题节点镜像的底座，也用于冒烟验证）
+# 构建判题节点镜像（底座 sandbox:local 缺失时会先要求构建，见 run-local.bat 同逻辑）
 docker build -t sandbox:local src/judge/sandbox
+docker build -t pigeonoj/judge-node src/judge
 
-# 构建并启动判题节点容器（在另一台服务器上部署时改 SERVER_ADDRESS 为后端公网地址）
-SERVER_ADDRESS=host.docker.internal:50051 SERVER_TOKEN=dev-token \
-docker compose -f src/judge/docker-compose-node.yml up -d --build
-
-# 冒烟：沙箱镜像内跑一次示例（输入通过 stdin 传入）
-Get-Content .\src\judge\sandbox\examples\input.txt | docker compose -f docker/docker-compose-sandbox.yml run --rm -T sandbox python3.12 /sandbox/examples/Main.py
+# 启动判题节点容器（在另一台服务器上部署时改 SERVER_ADDRESS 为后端公网地址；
+# 配置模板 .env.node.example → 复制为 .env.node）
+docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
 ```
 
 ### 判题节点与沙箱说明
@@ -50,13 +48,13 @@ Get-Content .\src\judge\sandbox\examples\input.txt | docker compose -f docker/do
 - **后端进程不执行任何用户代码**。代码执行只发生在 `pigeonoj/judge-node` 容器内；
   后端仅提供 gRPC 网关（`:50051`）做注册认证、负载均衡派发与结果落库。
 - 节点镜像 = 沙箱基础镜像（Ubuntu 24.04 + 阿里云 APT 源 + nsjail 3.4 + Python/C++/Java 工具链）+ grpcio + 守护进程
-  （`src/judge/Dockerfile`）。基础镜像单独构建为 `sandbox:local` 供冒烟使用。
+  （`src/judge/Dockerfile`）。基础镜像单独构建为 `sandbox:local`。
 - 节点固定挂载两个宿主机目录：工作区 → 容器 `/sandbox`（每作业子目录自动创建/清理）、
   数据缓存 → 容器 `/cache`（按题目 data_version 复用）。绝不能配置为宿主机根目录、用户代码目录或 Docker socket。
 - 节点需要 `privileged: true`（nsjail 嵌套 namespace）并**只做出站连接**后端网关；不开放任何入站端口。
 - 配置来源：`src/judge/node/node.toml`，环境变量 `SERVER_ADDRESS / SERVER_TOKEN /
   JUDGE_NODE_ID / JUDGE_NODE_NAME / JUDGE_NODE_CAPACITY` 可覆盖。
-- 运行器为 `sandbox/run-in-nsjail.sh` 同源的执行语义：只允许源码和输入位于 `/sandbox`，
+- 执行语义：只允许源码和输入位于 `/sandbox`，
   Python/C++/Java 编译与运行均在 nsjail 内完成；C++/Java 一次提交只编译一次，逐测试点独立运行。
 - 正式判题限制由后端按 `sandbox_configs` 比例换算后随作业下发；不要把测试点期望输出或宿主机路径传给前端。
 
@@ -88,9 +86,7 @@ Get-Content .\src\judge\sandbox\examples\input.txt | docker compose -f docker/do
 | `JUDGE_GATEWAY_TOKENS` | 判题节点注册令牌（逗号分隔多个）；为空则网关不启动。节点 node.toml 的 server.token 需匹配其一 | 空 |
 | `JUDGE_GRPC_HOST` | 判题网关 gRPC 监听地址 | `0.0.0.0` |
 | `JUDGE_GRPC_PORT` | 判题网关 gRPC 监听端口 | `50051` |
-| `SANDBOX_IMAGE` | 本地 nsjail 沙箱镜像名（compose 构建产物标签，判题节点镜像的底座） | `sandbox:local` |
-| `SANDBOX_WORKSPACE_DIR` | 宿主机受控工作目录，挂载到容器 `/sandbox` | `../.docker-data/sandbox-work` |
-| `SANDBOX_EXAMPLES_DIR` | 本地示例目录，只读挂载到容器 `/sandbox/examples` | `../src/judge/sandbox/examples` |
+| `SANDBOX_IMAGE` | 沙箱基础镜像名（判题节点镜像的 FROM 底座，由 `src/judge/sandbox/Dockerfile` 构建） | `sandbox:local` |ox:local` |
 
 > 判题节点自身的配置（SERVER_ADDRESS / SERVER_TOKEN / JUDGE_NODE_ID / JUDGE_NODE_NAME /
 > JUDGE_NODE_CAPACITY）来自节点侧 `src/judge/node/node.toml`，环境变量可覆盖；

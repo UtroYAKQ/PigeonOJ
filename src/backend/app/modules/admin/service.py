@@ -3,8 +3,6 @@
 系统配置 / 日志 / 沙箱状态 / 举报处理；用户管理逻辑在 users.service（admin.routes 调用）。
 （模型配置服务随 AI 模块暂缓实现）
 
-注意：ConfigService 已迁移至 shared/config.py，保留此文件以兼容旧有导入。
-新代码请使用：from app.shared.config import ConfigService
 """
 from __future__ import annotations
 
@@ -19,14 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.admin.models import Report
 from app.modules.admin.repository import ConfigRepository, LogRepository, ReportRepository
 from app.modules.users.models import User
-from app.shared.config import ConfigService  # 从 shared 导入以兼容旧有代码
-from app.shared.errors import (
+from app.shared.common.config import ConfigService
+from app.shared.common.errors import (
     PARAM_FORMAT_INVALID,
     RESOURCE_NOT_FOUND,
     RESOURCE_STATE_CONFLICT,
     APIError,
 )
-from app.shared.redis import get_redis
+from app.shared.infra.redis import get_redis
 
 logger = logging.getLogger(__name__)
 

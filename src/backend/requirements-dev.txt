@@ -1,5 +1,0 @@
-# 测试依赖：pip install -r requirements-dev.txt
-# 集成测试需要本地 PostgreSQL（默认连 pigeonoj_test 库，见 tests/conftest.py）
-pytest
-pytest-asyncio
-httpx

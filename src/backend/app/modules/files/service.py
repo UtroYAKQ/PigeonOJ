@@ -5,8 +5,8 @@ import uuid
 
 from fastapi import UploadFile
 
-from app.shared.errors import APIError, PARAM_FORMAT_INVALID, SYSTEM_UPSTREAM_FAILURE
-from app.shared.storage import S3Error, get_storage
+from app.shared.common.errors import APIError, PARAM_FORMAT_INVALID, SYSTEM_UPSTREAM_FAILURE
+from app.shared.infra.storage import S3Error, get_storage
 
 _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 _MAX_AVATAR_BYTES = 2 * 1024 * 1024

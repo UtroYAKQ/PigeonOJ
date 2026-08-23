@@ -1,41 +1,13 @@
 import { apiRequest } from './request'
-import type { PageResult, ProblemDetail, ProblemSummary, TestCaseDraft } from './types'
-
-export interface ProblemListQuery {
-  page?: number
-  page_size?: number
-  difficulty?: string
-  keyword?: string
-  tag?: string
-  /** mine = 我的题目管理视图（创建者看全部自己的题目；管理角色看可管理范围） */
-  scope?: 'all' | 'mine'
-  status?: 'draft' | 'published' | 'archived'
-}
-
-export interface ProblemEditPayload {
-  title?: string
-  description?: string
-  input_description?: string | null
-  output_description?: string | null
-  solution?: string | null
-  difficulty?: string
-  visibility?: string
-  time_limit_ms?: number
-  memory_limit_mb?: number
-  spj?: boolean
-  spj_code?: string | null
-}
-
-export interface ProblemCreatePayload extends ProblemEditPayload {
-  title: string
-  description: string
-}
-
-/** 管理角色读取详情时返回测试点内容（含正式点回读，用于编辑） */
-export interface ProblemDetailEx extends ProblemDetail {
-  solution?: string | null
-  test_cases?: TestCaseDraft[] | null
-}
+import type {
+  PageResult,
+  ProblemCreatePayload,
+  ProblemDetailEx,
+  ProblemEditPayload,
+  ProblemListQuery,
+  ProblemSummary,
+  TestCaseDraft,
+} from '@/types'
 
 export function listProblems(query: ProblemListQuery = {}): Promise<PageResult<ProblemSummary>> {
   const params = new URLSearchParams()

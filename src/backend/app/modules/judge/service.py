@@ -35,7 +35,7 @@ from app.modules.judge.schemas import (
     VerifyRequest,
 )
 from app.modules.users.models import User
-from app.shared.errors import (
+from app.shared.common.errors import (
     APIError,
     AUTH_FORBIDDEN,
     PARAM_FORMAT_INVALID,
@@ -46,8 +46,8 @@ from app.shared.errors import (
     RESOURCE_STATE_CONFLICT,
     SYSTEM_UPSTREAM_FAILURE,
 )
-from app.shared.permissions import MANAGER_ROLE_CODES, is_manager as _is_manager
-from app.shared.storage import get_storage
+from app.shared.auth.permissions import MANAGER_ROLE_CODES, is_manager as _is_manager
+from app.shared.infra.storage import get_storage
 
 _ALLOWED_LANGUAGES = {"python3.12", "cpp17", "java21"}
 
@@ -221,6 +221,8 @@ class ProblemService:
     async def replace_cases(self, user: User, problem_id: uuid.UUID, body: TestCasesUpdate) -> None:
         problem = await self.get(problem_id)
         await self.require_manage(user, problem)
+        if problem.status == "archived":
+            raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑测试点", 409)
         if sum(item.score for item in body.cases if not item.is_sample) != 100:
             raise APIError(PARAM_FORMAT_INVALID, "正式测试点分值总和必须为 100", 400)
         old_rows = list((await self.db.scalars(select(TestCase).where(TestCase.problem_id == problem_id))).all())
@@ -424,7 +426,7 @@ class SubmissionService:
         """提交冷却（4001）与全局并发上限（4002），阈值取系统配置 sandbox 域。"""
         from app.modules.admin.models import SystemConfig
         from app.modules.judge.dispatcher import active_judge_count
-        from app.shared.redis import get_redis
+        from app.shared.infra.redis import get_redis
 
         rows = (
             await self.db.execute(select(SystemConfig).where(SystemConfig.category == "sandbox"))

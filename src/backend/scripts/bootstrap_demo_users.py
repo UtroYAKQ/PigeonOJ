@@ -9,8 +9,8 @@ import asyncio
 from sqlalchemy import select
 
 from app.modules.users.models import Role, User, UserRole
-from app.shared.database import SessionLocal
-from app.shared.security import hash_password
+from app.shared.infra.database import SessionLocal
+from app.shared.auth.security import hash_password
 
 DEMO_USERS = [
     ("admin@pigeonoj.dev", "Admin@123", "鸽子管理员", ["admin"]),

@@ -1,7 +1,7 @@
 """通用分页工具：统一分页参数定义、查询辅助函数和响应格式。
 
 使用方式：
-    from app.shared.pagination import PaginationParams, PaginatedResponse, paginate
+    from app.shared.common.pagination import PaginationParams, PaginatedResponse, paginate
 
     @router.get("/items")
     async def list_items(pagination: PaginationParams = Depends(), db = Depends(get_db)):

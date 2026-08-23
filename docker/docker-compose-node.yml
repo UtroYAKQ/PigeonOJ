@@ -1,25 +1,22 @@
 # 判题节点编排：在任意可出站访问后端网关的服务器上部署。
-# 使用：
-#   1. cp .env.node.example .env
-#   2. 编辑 .env 填入实际配置
-#   3. docker compose -f docker-compose-node.yml up -d --build
+# 配置统一来自 .env.node（模板见 .env.node.example）：
+#   docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
+# 节点只做出站连接后端网关，不开放任何入站端口；privileged 仅为 nsjail 嵌套 namespace 所需。
 services:
   judge-node:
     build:
-      context: ../src/judge
-      dockerfile: Dockerfile
+      context: ./src/judge
     image: pigeonoj/judge-node:latest
     privileged: true            # nsjail 嵌套 namespace 所需（受控节点信任边界）
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
-      SERVER_ADDRESS: ${SERVER_ADDRESS:?需设置后端网关地址}
-      SERVER_TOKEN: ${SERVER_TOKEN:?需设置注册令牌}
+      SERVER_ADDRESS: ${SERVER_ADDRESS:?请在 .env.node 设置后端网关地址}
+      SERVER_TOKEN: ${SERVER_TOKEN:?请在 .env.node 设置注册令牌}
+      JUDGE_NODE_ID: ${JUDGE_NODE_ID:-}
+      JUDGE_NODE_NAME: ${JUDGE_NODE_NAME:-}
+      JUDGE_NODE_CAPACITY: ${JUDGE_NODE_CAPACITY:-2}
     volumes:
-      # 宿主机工作区 → 容器 /sandbox（任务临时目录，每作业自动建/清）
-      - ${NODE_WORKSPACE_DIR:-./data/workspace}:/sandbox
-      # 题目数据缓存 → /cache（跨容器重启复用）
-      - ${NODE_CACHE_DIR:-./data/cache}:/cache
-    # 注意：不要使用 network_mode:none —— 节点需出站连接后端网关；
-    # 节点不开放任何入站端口。
+      # 宿主机工作区 → 容器 /sandbox（nsjail chroot 根，每作业子目录自动创建/清理）
+      - ${NODE_WORKSPACE_DIR:?请在 .env.node 设置工作区目录}:/sandbox
+      # 题目数据缓存 → /cache（按 data_version 复用，跨重启有效）
+      - ${NODE_CACHE_DIR:?请在 .env.node 设置缓存目录}:/cache

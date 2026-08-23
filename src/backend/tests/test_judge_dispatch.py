@@ -22,7 +22,7 @@ from app.modules.judge.gateway import (
 )
 from app.modules.judge.models import Problem, Submission, TestCase
 from app.modules.users.models import User
-from app.shared.database import SessionLocal
+from app.shared.infra.database import SessionLocal
 
 
 def _add_node(node_id: str, inflight: int = 0, capacity: int = 2) -> NodeConnection:
@@ -74,7 +74,7 @@ async def test_dispatch_picks_least_loaded_node():
 
 @pytest.mark.asyncio
 async def test_dispatch_returns_none_without_nodes():
-    from app.modules.judge.dispatcher import dispatch_submission
+    from app.modules.judge.gateway import dispatch_submission
 
     assert await dispatch_submission(uuid_mod.uuid4()) is None
 

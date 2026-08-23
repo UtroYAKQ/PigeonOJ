@@ -1,5 +1,5 @@
 /** 由当前 locale 动态生成的展示字典。 */
-import type { GlobalRoleCode, ReportStatus, ReportType, SandboxNodeStatus, UserStatus } from '@/api/types'
+import type { GlobalRoleCode, ReportStatus, ReportType, SandboxNodeStatus, UserStatus } from '@/types'
 import { i18n } from '@/i18n'
 export type TagType = 'primary' | 'success' | 'warning' | 'danger' | 'info'
 const t = (key: string): string => (i18n as unknown as { global: { t: (key: string) => string } }).global.t(key)

@@ -24,7 +24,7 @@ async def test_replace_cases_uploads_only_official_content(monkeypatch):
 
     storage = FakeStorage()
     monkeypatch.setattr("app.modules.judge.service.get_storage", lambda: storage)
-    from app.shared.database import SessionLocal
+    from app.shared.infra.database import SessionLocal
 
     async with SessionLocal() as db:
         user = User(email=f"content-{uuid4()}@example.test", password="hash", nickname="owner", email_verified=True)

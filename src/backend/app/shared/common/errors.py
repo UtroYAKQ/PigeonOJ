@@ -6,7 +6,7 @@
 """
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import HTTPException
+from fastapi.exceptions import HTTPException, RequestValidationError
 
 from app.shared.common.response import error
 
@@ -52,6 +52,22 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.http_status,
             content=error(exc.code, exc.message),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def _handle_validation_error(_request, exc: RequestValidationError):
+        # 路由函数执行前的参数校验失败（Query / Path / Body）统一转 1001 信封
+        errors = exc.errors()
+        if errors:
+            first = errors[0]
+            loc = ".".join(str(part) for part in first.get("loc", ()) if part not in ("body", "query"))
+            detail = first.get("msg") or "参数不合法"
+            message = f"{loc}: {detail}" if loc else detail
+        else:
+            message = "参数不合法"
+        return JSONResponse(
+            status_code=400,
+            content=error(PARAM_FORMAT_INVALID, message),
         )
 
     @app.exception_handler(HTTPException)

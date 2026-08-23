@@ -47,6 +47,15 @@ body { background: var(--app-canvas); color: var(--app-text); font-family: Inter
 .el-table { --el-table-header-bg-color: var(--app-surface-muted); --el-table-border-color: var(--app-border); --el-table-row-hover-bg-color: var(--el-color-primary-light-9); }
 .el-table th.el-table__cell { color: var(--app-text-muted); font-size: 12px; font-weight: 700; letter-spacing: .02em; }
 
+/* ---- 页面级共享类（docs/frontend.md 设计系统）：各视图复用，避免 scoped 样式重复 ---- */
+.page-stack { display: grid; gap: 20px; }
+.section-title { margin: 4px 0 10px; font-size: 14px; }
+.form-hint { margin: 8px 0 0; color: var(--app-text-muted); font-size: 12px; line-height: 1.5; }
+.result-box { max-height: 360px; overflow: auto; margin: 0; white-space: pre-wrap; word-break: break-all; border: 1px solid var(--app-border); border-radius: 9px; background: var(--app-surface-muted); padding: 10px 12px; font-family: var(--el-font-family-mono); font-size: 12px; }
+
+/* 分栏拖拽进行中：全局光标 + 禁止选中（题目详情页等可拖拽布局使用） */
+body.is-splitting { cursor: col-resize; user-select: none; }
+
 @media (max-width: 767px) {
   .el-card__header { padding: 0 16px; }
   .el-card__body { padding: 16px; }

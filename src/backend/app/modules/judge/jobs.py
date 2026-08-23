@@ -20,7 +20,7 @@ from app.modules.judge.models import Problem, SandboxConfig, Submission, TestCas
 from app.modules.judge.repository import JudgeRepository
 from app.modules.judge.service import finalize_verify_submission
 
-from app.shared.storage import get_storage
+from app.shared.infra.storage import get_storage
 
 
 @dataclass(frozen=True)

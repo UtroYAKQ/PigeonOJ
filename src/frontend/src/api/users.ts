@@ -3,14 +3,7 @@
  * 数据所有权：所有查询均限定当前登录用户（后端按 user_id 约束）。
  */
 import { apiRequest } from './request'
-import type { User, UserSession } from './types'
-
-export interface ProfilePatch {
-  nickname?: string
-  signature?: string | null
-  avatar_url?: string | null
-  theme?: 'light' | 'dark'
-}
+import type { ProfilePatch, User, UserSession } from '@/types'
 
 /** GET /users/me — 当前用户（auth） */
 export function getMe() {

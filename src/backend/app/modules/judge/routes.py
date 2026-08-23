@@ -23,11 +23,11 @@ from app.modules.judge.schemas import (
 )
 from app.modules.judge.service import ProblemService, SubmissionService
 from app.modules.users.models import User
-from app.shared.database import get_db
-from app.shared.deps import get_current_admin, get_current_user, get_optional_user
-from app.shared.errors import AUTH_NOT_LOGGED_IN, PARAM_FORMAT_INVALID, APIError
-from app.shared.pagination import PaginatedResponse, PaginationParams
-from app.shared.response import ok
+from app.shared.infra.database import get_db
+from app.modules.users.deps import get_current_admin, get_current_user, get_optional_user
+from app.shared.common.errors import AUTH_NOT_LOGGED_IN, PARAM_FORMAT_INVALID, APIError
+from app.shared.common.pagination import PaginatedResponse, PaginationParams
+from app.shared.common.response import ok
 
 router = APIRouter(tags=["judge"])
 

@@ -3,7 +3,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as adminApi from '@/api/admin'
-import type { GlobalRoleCode, User } from '@/api/types'
+import type { GlobalRoleCode, User } from '@/types'
 import { ROLE_NAME, USER_STATUS } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 const {t}=useI18n();const loading=ref(false);const list=ref<User[]>([]);const total=ref(0);const query=reactive({page:1,page_size:20,keyword:'',status:''});const roleDialog=ref(false);const roleTarget=ref<User|null>(null);const roleIds=ref<GlobalRoleCode[]>([]);const roleSaving=ref(false)

@@ -1,7 +1,7 @@
 """统一权限检查工具：角色常量定义 + 权限检查辅助函数。
 
 使用方式：
-    from app.shared.permissions import MANAGER_ROLE_CODES, require_manager_role
+    from app.shared.auth.permissions import MANAGER_ROLE_CODES, require_manager_role
 
     # 方式1：直接检查
     if await require_manager_role(db, user):
@@ -39,7 +39,7 @@ async def is_manager(db: AsyncSession, user: User) -> bool:
 
 async def require_manager_role(db: AsyncSession, user: User) -> None:
     """要求用户为管理角色，否则抛出权限错误。"""
-    from app.shared.errors import APIError, AUTH_FORBIDDEN
+    from app.shared.common.errors import APIError, AUTH_FORBIDDEN
 
     if not await is_manager(db, user):
         raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)

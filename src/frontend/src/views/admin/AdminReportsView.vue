@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as adminApi from '@/api/admin'
-import type { Report, ReportStatus, ReportType } from '@/api/types'
+import type { Report, ReportStatus, ReportType } from '@/types'
 import { REPORT_STATUS, REPORT_TYPE } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 const {t}=useI18n();const loading=ref(false);const list=ref<Report[]>([]);const total=ref(0);const query=reactive({page:1,page_size:20,status:'' as ReportStatus|''});const handleDialog=ref(false);const handleTarget=ref<Report|null>(null);const handleAction=ref<'handled'|'ignored'>('handled');const handling=ref(false)

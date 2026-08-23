@@ -27,7 +27,7 @@ from app.modules.users.models import User
 **正确做法**：
 ```python
 # ✅ 正确：业务模块导入 shared
-from app.shared.errors import APIError
+from app.shared.common.errors import APIError
 ```
 
 ### 1.2 模块间依赖规则
@@ -40,13 +40,13 @@ from app.shared.errors import APIError
 
 ## 二、新增共享模块
 
-### 2.1 `shared/pagination.py` - 通用分页
+### 2.1 `shared/common/pagination.py` - 通用分页
 
 **用途**：统一分页参数定义、查询辅助函数和响应格式。
 
 **使用方式**：
 ```python
-from app.shared.pagination import PaginationParams, PaginatedResponse, paginate
+from app.shared.common.pagination import PaginationParams, PaginatedResponse, paginate
 
 @router.get("/items")
 async def list_items(pagination: PaginationParams = Depends(), db = Depends(get_db)):
@@ -54,13 +54,13 @@ async def list_items(pagination: PaginationParams = Depends(), db = Depends(get_
     return ok(PaginatedResponse(items=rows, total=total, page=pagination.page, page_size=pagination.page_size))
 ```
 
-### 2.2 `shared/permissions.py` - 统一权限检查
+### 2.2 `shared/auth/permissions.py` - 统一权限检查
 
 **用途**：角色常量定义 + 权限检查辅助函数。
 
 **使用方式**：
 ```python
-from app.shared.permissions import MANAGER_ROLE_CODES, is_manager, require_manager_role
+from app.shared.auth.permissions import MANAGER_ROLE_CODES, is_manager, require_manager_role
 
 # 方式1：直接检查
 if await is_manager(db, user):
@@ -73,24 +73,22 @@ await require_manager_role(db, user)
 **关键常量**：
 - `MANAGER_ROLE_CODES = {"admin", "tutor", "team_creator"}` - 题目管理角色集合
 
-### 2.3 `shared/audit.py` - 审计日志
+### 2.3 `shared/common/audit.py` - 审计日志
 
 **用途**：登录日志、请求日志、异常日志写入（从 admin/audit.py 上提）。
 
 **使用方式**：
 ```python
-from app.shared.audit import write_login_log, write_request_log, write_exception_log
+from app.shared.common.audit import write_login_log, write_request_log, write_exception_log
 ```
 
-**注意**：保留 `admin/audit.py` 作为兼容层，新代码直接使用 `shared/audit.py`。
-
-### 2.4 `shared/config.py` - 配置服务
+### 2.4 `shared/common/config.py` - 配置服务
 
 **用途**：系统配置读取（从 admin/service.py 的 ConfigService 上提）。
 
 **使用方式**：
 ```python
-from app.shared.config import ConfigService
+from app.shared.common.config import ConfigService
 
 config = ConfigService(db)
 policy = await config.get_email_code_policy()
@@ -108,14 +106,8 @@ policy = await config.get_email_code_policy()
 
 **使用方式**：
 ```python
-# 新代码推荐
 from app.modules.users.deps import get_current_user, get_current_admin, parse_client_ip
-
-# 兼容旧有代码
-from app.shared.deps import get_current_user, get_current_admin
 ```
-
-**注意**：保留 `shared/deps.py` 作为兼容层，新代码直接使用 `users/deps.py`。
 
 ---
 
@@ -216,12 +208,21 @@ modules/
 
 | 变更 | 旧位置 | 新位置 | 兼容层 |
 |------|--------|--------|--------|
-| 分页工具 | 各模块重复实现 | `shared/pagination.py` | 无需 |
-| 权限检查 | `judge/service.py:53`, `files/routes.py:19` | `shared/permissions.py` | 无需 |
-| 审计日志 | `admin/audit.py` | `shared/audit.py` | `admin/audit.py` 保留 |
-| 配置服务 | `admin/service.py:ConfigService` | `shared/config.py` | `admin/service.py` 保留 |
-| 认证依赖 | `shared/deps.py` | `users/deps.py` | `shared/deps.py` 保留 |
+| 分页工具 | 各模块重复实现 | `shared/common/pagination.py` | 无需 |
+| 权限检查 | `judge/service.py:53`, `files/routes.py:19` | `shared/auth/permissions.py` | 无需 |
+| 审计日志 | `admin/audit.py` | `shared/common/audit.py` | 已删除 |
+| 配置服务 | `admin/service.py:ConfigService` | `shared/common/config.py` | 已删除 |
+| 认证依赖 | `shared/deps.py` | `users/deps.py` | 已删除 |
 | ORM 序列化 | 手写 dict | `judge/schemas.py` Response Schema | 无需 |
+
+**说明**：`shared/` 层现按职责拆分为三个子包，扁平兼容层文件已全部删除：
+
+```
+shared/
+  common/    # 通用工具：errors、response、pagination、validation、config、audit
+  infra/     # 基础设施：database、redis、storage、logging
+  auth/      # 安全：security、permissions
+```
 
 ---
 

@@ -1,6 +1,6 @@
 """pytest 集成测试配置：隔离测试库（pigeonoj_test）+ 隔离 Redis（db 15）。
 
-- 环境变量必须在导入 app 前设置（app.shared.database 的引擎在 import 时创建）
+- 环境变量必须在导入 app 前设置（app.shared.infra.database 的引擎在 import 时创建）
 - 每次测试会话重建表结构并种子角色 / 配置
 - 使用 httpx ASGITransport 走完整 ASGI 链路（含中间件）
 """
@@ -27,9 +27,9 @@ import app.modules.judge.models  # noqa: F401
 import app.modules.users.models  # noqa: F401
 from app.main import app
 from app.modules.users.models import Role, User, UserRole
-from app.shared.database import Base, SessionLocal, engine
-from app.shared.redis import get_redis
-from app.shared.security import hash_password
+from app.shared.infra.database import Base, SessionLocal, engine
+from app.shared.infra.redis import get_redis
+from app.shared.auth.security import hash_password
 
 ROLE_SEEDS = [
     ("11111111-1111-1111-1111-111111111111", "admin", "系统管理员"),
@@ -164,7 +164,7 @@ async def user_headers(client) -> dict[str, str]:
 async def register_user(client: httpx.AsyncClient, email: str, password: str = "Pass@123", nickname: str = "新用户") -> None:
     """验证码固定错误路径使用；正确验证码无法从测试侧获取（开发期打印在日志）。
     本助手通过直接调注册接口 + 直接写 Redis 验证码的方式完成注册闭环。"""
-    from app.shared.redis import redis_set_json
+    from app.shared.infra.redis import redis_set_json
 
     await redis_set_json(f"email:code:{email}:register", {"code": "123456", "attempts": 0}, 600)
     resp = await client.post(

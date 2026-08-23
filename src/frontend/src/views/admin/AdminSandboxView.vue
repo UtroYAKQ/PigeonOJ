@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as adminApi from '@/api/admin'
-import type { SandboxNode } from '@/api/types'
+import type { SandboxNode } from '@/types'
 import { SANDBOX_STATUS } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 const {t}=useI18n();const loading=ref(false);const nodes=ref<SandboxNode[]>([])

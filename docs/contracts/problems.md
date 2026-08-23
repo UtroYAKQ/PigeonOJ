@@ -173,7 +173,7 @@ CHECK (status <> 'published' OR is_verified)
 
 ## 当前基础前端页面
 
-前端已提供 `/problems` 题库列表、`/problems/{id}` 题面与 Monaco 代码编辑器、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
+前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端左右两栏独立滚动、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题面 / 输入输出说明 / 官方题解按 Markdown 渲染（markdown-it + DOMPurify，见 `docs/decisions/2026-08-23-problem-statement-markdown.md`），样例仍为等宽文本块并提供复制。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
 
 ## 关键流程 / 验收条件
 

@@ -1,11 +1,5 @@
 import { requestUpload } from './http'
-
-export interface UploadResult {
-  oss_id: string
-  url: string
-  content_type: string
-  size: number
-}
+import type { UploadResult } from '@/types'
 
 /** 上传当前用户头像；文件类型和大小由后端最终校验。 */
 export function uploadAvatar(file: File) {

@@ -29,7 +29,7 @@ if config.config_file_name is not None:
 from app.modules.admin import models as admin_models  # noqa: F401
 from app.modules.judge import models as judge_models  # noqa: F401
 from app.modules.users import models as users_models  # noqa: F401
-from app.shared.database import Base
+from app.shared.infra.database import Base
 
 target_metadata = Base.metadata
 

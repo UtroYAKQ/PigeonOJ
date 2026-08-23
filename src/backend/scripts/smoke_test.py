@@ -76,7 +76,7 @@ async def main() -> None:
         print("\nSMOKE OK")
         # 清理冒烟注册尝试（验证码错误不会创建用户）
         from app.modules.users.models import User
-        from app.shared.database import SessionLocal
+        from app.shared.infra.database import SessionLocal
         from sqlalchemy import delete, select
         async with SessionLocal() as db:
             u = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()

@@ -4,7 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import * as adminApi from '@/api/admin'
-import type { ConfigCategory, SystemConfigItem } from '@/api/types'
+import type { ConfigCategory, SystemConfigItem } from '@/types'
 import { configCategories } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 
@@ -70,11 +70,8 @@ async function saveEdit() {
 
 <template>
   <div class="configs-page">
-    <header class="page-heading">
-      <div><p class="page-heading__eyebrow">{{ t('nav.admin') }}</p><h1>{{ t('config.title') }}</h1><p>{{ t('config.descriptionText') }}</p></div>
-    </header>
     <el-card shadow="never" class="configs-card">
-    <el-tabs v-model="activeCategory" tab-position="left" class="configs__tabs">
+    <el-tabs v-model="activeCategory" class="configs__tabs">
       <el-tab-pane v-for="c in categories" :key="c.value" :name="c.value"><template #label>{{ c.label }}</template>
         <el-table v-loading="loading" :data="items" stripe>
           <el-table-column prop="config_key" :label="t('config.key')" width="260"><template #default="{ row }"><code>{{ row.config_key }}</code></template></el-table-column>
@@ -104,5 +101,5 @@ async function saveEdit() {
 </template>
 
 <style scoped>
-.configs-page{display:grid;gap:20px}.page-heading{display:flex;align-items:end;justify-content:space-between}.page-heading__eyebrow{margin:0 0 6px;color:var(--el-color-primary);font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.page-heading h1{margin:0;font-size:26px;letter-spacing:-.035em}.page-heading p:not(.page-heading__eyebrow){max-width:650px;margin:8px 0 0;color:var(--app-text-muted);font-size:13px;line-height:1.6}.configs__tabs :deep(.el-tabs__header){margin-right:24px}.configs__tabs :deep(.el-tabs__item){height:42px;line-height:42px;font-weight:650}.configs__tabs :deep(.el-tabs__content){padding:0;min-width:0}.configs__dialog-desc{margin:0 0 14px;color:var(--app-text-muted);font-size:13px}.configs__control{width:100%}.configs__number{width:220px}.configs__switches{display:flex;flex-wrap:wrap;gap:12px 18px}@media(max-width:720px){.configs__tabs{display:block}.configs__tabs :deep(.el-tabs__header){margin:0 0 16px}.configs__tabs :deep(.el-tabs__nav-wrap){overflow:auto}.configs__tabs :deep(.el-tabs__nav-scroll){overflow:visible}}
+.configs-page{display:grid;gap:20px}.configs__tabs :deep(.el-tabs__header){margin:0 0 16px}.configs__tabs :deep(.el-tabs__item){height:42px;line-height:42px;font-weight:650}.configs__tabs :deep(.el-tabs__content){padding:0;min-width:0}.configs__dialog-desc{margin:0 0 14px;color:var(--app-text-muted);font-size:13px}.configs__control{width:100%}.configs__number{width:220px}.configs__switches{display:flex;flex-wrap:wrap;gap:12px 18px}
 </style>

@@ -19,9 +19,9 @@ from app.modules.admin.schemas import (
 from app.modules.admin.service import AdminConfigService, LogService, ReportService, SandboxService
 from app.modules.users.models import User
 from app.modules.users.service import UserService
-from app.shared.database import get_db
-from app.shared.deps import get_current_admin
-from app.shared.response import ok
+from app.shared.infra.database import get_db
+from app.modules.users.deps import get_current_admin
+from app.shared.common.response import ok
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

@@ -18,6 +18,8 @@ const sectionTitle = computed(() => section.value?.meta?.titleKey ? t(String(sec
 
 const tabs = computed(() => {
   const currentSection = section.value
+  // 区块声明 hideSectionTabs（如管理后台）时导航由侧栏承载，不渲染二级标签栏
+  if (currentSection?.meta?.hideSectionTabs) return []
   const children = currentSection?.children ?? []
   // route.children 的 path 是相对于区块路由的（如 `configs`），
   // Element Plus router 菜单需要绝对路径（`/admin/configs`）才能正确导航和激活。

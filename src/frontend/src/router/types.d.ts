@@ -22,5 +22,7 @@ declare module 'vue-router' {
     placeholder?: { title?: string; titleKey?: string; description?: string; descriptionKey?: string; endpoints?: string[] }
     /** 对象上下文页面（详情、创建、提交结果等）；不进入区块二级导航 */
     contextPage?: boolean
+    /** 隐藏区块二级菜单栏（导航已由侧栏承载时使用，如管理后台空间） */
+    hideSectionTabs?: boolean
   }
 }

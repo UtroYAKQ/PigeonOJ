@@ -23,9 +23,9 @@ from app.modules.auth.schemas import (
 )
 from app.modules.users.models import User
 from app.modules.users.repository import RoleRepository, SessionRepository, UserRepository
-from app.shared.audit import write_login_log
-from app.shared.config import ConfigService
-from app.shared.errors import (
+from app.shared.common.audit import write_login_log
+from app.shared.common.config import ConfigService
+from app.shared.common.errors import (
     AUTH_INVALID_CREDENTIAL,
     RATE_LIMITED,
     RATE_SEND_TOO_FREQUENT,
@@ -33,9 +33,9 @@ from app.shared.errors import (
     RESOURCE_STATE_CONFLICT,
     APIError,
 )
-from app.shared.redis import redis_delete, redis_get_json, redis_incr, redis_set, redis_set_json
-from app.shared.security import generate_token, hash_password, hash_token, verify_password
-from app.shared.validation import validate_email, validate_nickname, validate_password
+from app.shared.infra.redis import redis_delete, redis_get_json, redis_incr, redis_set, redis_set_json
+from app.shared.auth.security import generate_token, hash_password, hash_token, verify_password
+from app.shared.common.validation import validate_email, validate_nickname, validate_password
 
 logger = logging.getLogger(__name__)
 

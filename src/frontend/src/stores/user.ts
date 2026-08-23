@@ -3,8 +3,7 @@ import { defineStore } from 'pinia'
 import * as authApi from '@/api/auth'
 import { TOKEN_STORAGE_KEY } from '@/api/http'
 import * as usersApi from '@/api/users'
-import type { GlobalRoleCode, User } from '@/api/types'
-import type { ProfilePatch } from '@/api/users'
+import type { GlobalRoleCode, ProfilePatch, User } from '@/types'
 import { applyTheme } from '@/utils/theme'
 
 function readToken(): string {

@@ -34,9 +34,10 @@ async def test_update_profile(client: httpx.AsyncClient) -> None:
     assert data["theme"] == "dark"
     assert data["signature"] == "你好世界"
 
-    # 非法主题 → Pydantic Literal 校验 422（先于业务层拦截）
+    # 非法主题 → Pydantic Literal 校验失败，统一转 1001 信封（docs/contracts/common.md 响应信封）
     resp = await client.put("/api/v1/users/me", json={"theme": "red"}, headers=headers)
-    assert resp.status_code == 422
+    assert resp.status_code == 400
+    assert resp.json()["code"] == 1001
 
 
 async def test_soft_delete(client: httpx.AsyncClient) -> None:

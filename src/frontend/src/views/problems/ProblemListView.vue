@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { listProblems } from '@/api/problems'
 import { useUserStore } from '@/stores/user'
-import type { PageResult, ProblemDifficulty, ProblemSummary } from '@/api/types'
+import type { PageResult, ProblemDifficulty, ProblemSummary } from '@/types'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -23,6 +23,11 @@ const statusFilter = ref<'' | 'draft' | 'published' | 'archived'>('')
 let searchTimer: number | undefined
 
 const isLoggedIn = computed(() => userStore.isLoggedIn)
+const statusLabelKey: Record<string, string> = {
+  draft: 'problems.list.statusDraft',
+  published: 'problems.list.statusPublished',
+  archived: 'problems.list.statusArchived',
+}
 
 async function load() {
   loading.value = true
@@ -44,39 +49,52 @@ async function load() {
   }
 }
 
-function onSearch() {
+function scheduleSearch() {
   window.clearTimeout(searchTimer)
   searchTimer = window.setTimeout(() => { page.value = 1; load() }, 300)
 }
+
+// 中文输入法组词过程不触发搜索（compositionend 后再统一触发）
+let composing = false
+function onKeywordInput() {
+  if (composing) return
+  scheduleSearch()
+}
+function onCompositionStart() { composing = true }
+function onCompositionEnd() {
+  composing = false
+  scheduleSearch()
+}
+
 function changeDifficulty() { page.value = 1; load() }
 function toggleMine() { page.value = 1; if (!mineOnly.value) statusFilter.value = ''; load() }
 function changeStatus() { page.value = 1; load() }
 function changePage(value: number) { page.value = value; load() }
+function changeSize(value: number) { pageSize.value = value; page.value = 1; load() }
 
 watch(isLoggedIn, (v) => { if (!v) { mineOnly.value = false; load() } })
 
 onMounted(load)
 </script>
+
 <template>
-  <div class="problems-page">
-    <header class="page-heading">
-      <div>
-        <p class="page-heading__eyebrow">{{ t('nav.problems') }}</p>
-        <h1>{{ t('problems.list.title') }}</h1>
-        <p>{{ t('problems.list.description') }}</p>
-      </div>
-      <div class="page-heading__actions">
-        <el-button :icon="Refresh" :loading="loading" @click="load">{{ t('action.refresh') }}</el-button>
-        <el-button type="primary" :icon="CirclePlus" @click="router.push('/problems/new')">{{ t('problems.list.create') }}</el-button>
-      </div>
-    </header>
+  <div class="problems-page page-stack">
     <el-card shadow="never" class="problems-card">
       <div class="problems-toolbar">
-        <el-input v-model="keyword" :prefix-icon="Search" :placeholder="t('problems.list.name')" clearable class="problems-toolbar__search" @input="onSearch"/>
+        <el-input
+          v-model="keyword"
+          :prefix-icon="Search"
+          :placeholder="t('problems.list.name')"
+          clearable
+          class="problems-toolbar__search"
+          @input="onKeywordInput"
+          @compositionstart="onCompositionStart"
+          @compositionend="onCompositionEnd"
+        />
         <el-select v-model="difficulty" :placeholder="t('problems.list.difficulty')" clearable class="problems-toolbar__difficulty" @change="changeDifficulty">
-          <el-option label="Easy" value="easy"/>
-          <el-option label="Medium" value="medium"/>
-          <el-option label="Hard" value="hard"/>
+          <el-option :label="t('problems.difficulty.easy')" value="easy"/>
+          <el-option :label="t('problems.difficulty.medium')" value="medium"/>
+          <el-option :label="t('problems.difficulty.hard')" value="hard"/>
         </el-select>
         <el-select v-if="mineOnly" v-model="statusFilter" :placeholder="t('common.allStatus')" clearable class="problems-toolbar__difficulty" @change="changeStatus">
           <el-option :label="t('problems.list.statusDraft')" value="draft"/>
@@ -84,19 +102,24 @@ onMounted(load)
           <el-option :label="t('problems.list.statusArchived')" value="archived"/>
         </el-select>
         <el-checkbox v-if="isLoggedIn" v-model="mineOnly" class="problems-toolbar__mine" @change="toggleMine">{{ t('problems.list.mineOnly') }}</el-checkbox>
+        <div class="problems-toolbar__actions">
+          <el-button :icon="Refresh" circle :loading="loading" :aria-label="t('action.refresh')" @click="load"/>
+          <el-button type="primary" :icon="CirclePlus" @click="router.push('/problems/new')">{{ t('problems.list.create') }}</el-button>
+        </div>
       </div>
+
       <el-table v-loading="loading" :data="problems" class="problems-table" @row-click="(row: ProblemSummary) => router.push(`/problems/${row.id}`)">
         <el-table-column prop="title" :label="t('problems.list.name')" min-width="280">
           <template #default="{ row }">
             <div class="problem-name">
               <strong>{{ row.title }}</strong>
-              <span>#{{ row.id.slice(0, 8) }}<template v-if="mineOnly"> · {{ row.visibility }}</template><template v-else-if="row.status !== 'published'"> · {{ row.status }}</template></span>
+              <span>#{{ (row.id || '').slice(0, 8) }}<template v-if="mineOnly"> · {{ t(`problems.visibility.${row.visibility}`) }}</template><template v-else-if="row.status !== 'published'"> · {{ t(statusLabelKey[row.status] ?? row.status) }}</template></span>
             </div>
           </template>
         </el-table-column>
         <el-table-column prop="difficulty" :label="t('problems.list.difficulty')" width="120">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.difficulty === 'hard' ? 'danger' : row.difficulty === 'medium' ? 'warning' : 'success'" effect="light">{{ row.difficulty }}</el-tag>
+            <el-tag size="small" :type="row.difficulty === 'hard' ? 'danger' : row.difficulty === 'medium' ? 'warning' : 'success'" effect="light">{{ t(`problems.difficulty.${row.difficulty}`) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column :label="t('problems.list.limits')" width="220">
@@ -107,10 +130,43 @@ onMounted(load)
         </el-table-column>
         <template #empty><el-empty :description="t('problems.list.empty')" :image-size="88"/></template>
       </el-table>
-      <div v-if="total > pageSize" class="problems-pagination">
-        <el-pagination background layout="prev, pager, next" :total="total" :page-size="pageSize" :current-page="page" @current-change="changePage"/>
+
+      <div class="problems-pagination">
+        <span class="problems-pagination__total">{{ t('problems.list.totalCount', { count: total }) }}</span>
+        <el-pagination
+          background
+          layout="prev, pager, next, sizes"
+          :total="total"
+          :page-size="pageSize"
+          :current-page="page"
+          :page-sizes="[20, 50, 100]"
+          @current-change="changePage"
+          @size-change="changeSize"
+        />
       </div>
     </el-card>
   </div>
 </template>
-<style scoped>.problems-page{display:grid;gap:20px}.page-heading{display:flex;align-items:end;justify-content:space-between;gap:16px}.page-heading__eyebrow{margin:0 0 6px;color:var(--el-color-primary);font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.page-heading h1{margin:0;font-size:26px;letter-spacing:-.035em}.page-heading p:not(.page-heading__eyebrow){margin:8px 0 0;color:var(--app-text-muted);font-size:13px}.page-heading__actions{display:flex;gap:10px;flex-wrap:wrap}.problems-toolbar{display:flex;justify-content:space-between;gap:12px;margin-bottom:18px}.problems-toolbar__search{width:300px}.problems-toolbar__difficulty{width:150px}.problems-toolbar__mine{margin-left:auto}.problems-table :deep(.el-table__row){cursor:pointer}.problem-name{display:grid;gap:4px}.problem-name strong{font-size:14px}.problem-name span,.problems-table__muted{color:var(--app-text-muted);font-size:12px}.problems-pagination{display:flex;justify-content:end;margin-top:16px}@media(max-width:600px){.page-heading{align-items:start;flex-direction:column}.page-heading__actions{width:100%}.page-heading__actions .el-button{flex:1}.problems-toolbar{flex-direction:column}.problems-toolbar__search,.problems-toolbar__difficulty{width:100%}}</style>
+
+<style scoped>
+.problems-toolbar { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+.problems-toolbar__search { width: 300px; }
+.problems-toolbar__difficulty { width: 150px; }
+.problems-toolbar__mine { margin: 0; }
+.problems-toolbar__actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.problems-table :deep(.el-table__row) { cursor: pointer; }
+.problem-name { display: grid; gap: 4px; }
+.problem-name strong { font-size: 14px; }
+.problem-name span, .problems-table__muted { color: var(--app-text-muted); font-size: 12px; }
+
+/* 分页常驻：总数 + 页容量始终可见（此前 total ≤ pageSize 时整块消失） */
+.problems-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+.problems-pagination__total { color: var(--app-text-muted); font-size: 13px; }
+
+@media (max-width: 600px) {
+  .problems-toolbar { flex-direction: column; }
+  .problems-toolbar__search, .problems-toolbar__difficulty { width: 100%; }
+  .problems-toolbar__actions { margin-left: 0; }
+  .problems-pagination { justify-content: center; }
+}
+</style>

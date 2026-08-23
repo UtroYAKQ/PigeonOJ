@@ -20,9 +20,9 @@ import grpc
 from app.config import get_settings
 from app.modules.judge import jobs
 from app.modules.judge.rpc_gen import judge_pb2, judge_pb2_grpc
-from app.shared.database import SessionLocal
-from app.shared.redis import get_redis
-from app.shared.storage import get_storage
+from app.shared.infra.database import SessionLocal
+from app.shared.infra.redis import get_redis
+from app.shared.infra.storage import get_storage
 
 logger = logging.getLogger(__name__)
 

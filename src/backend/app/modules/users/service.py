@@ -14,16 +14,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.users.models import User
 from app.modules.users.repository import RoleRepository, SessionRepository, UserRepository
 from app.modules.users.schemas import ProfileUpdate, UserPage, UserPublic
-from app.shared.errors import (
+from app.shared.common.errors import (
     AUTH_INVALID_CREDENTIAL,
     PARAM_FORMAT_INVALID,
     RESOURCE_NOT_FOUND,
     RESOURCE_STATE_CONFLICT,
     APIError,
 )
-from app.shared.redis import redis_delete
-from app.shared.security import verify_password
-from app.shared.validation import validate_nickname
+from app.shared.infra.redis import redis_delete
+from app.shared.auth.security import verify_password
+from app.shared.common.validation import validate_nickname
 
 logger = logging.getLogger(__name__)
 

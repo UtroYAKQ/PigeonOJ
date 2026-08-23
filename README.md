@@ -39,8 +39,8 @@ docker compose -f docker/docker-compose-dev.yml up --build
 # 生产环境（后端 + 前端 + 基础设施；判题节点见 src/judge）
 docker compose -f docker/docker-compose.yml up -d
 
-# 仅启动本地 nsjail 沙箱节点（源码/输入放入 sandbox-work volume）
-docker compose -f docker/docker-compose-sandbox.yml build
+# 判题节点（默认本机 1 个；配置见 .env.node.example → 复制为 .env.node）
+docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
 ```
 
 详细命令见 [docs/operations.md](docs/operations.md)。环境变量见 [.env.example](.env.example)，本地使用 `cp .env.example .env`。

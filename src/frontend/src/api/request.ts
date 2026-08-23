@@ -2,8 +2,7 @@
  * API 请求统一入口：直接调用真实后端（docs/contracts/common.md 统一响应信封）。
  */
 import { request as httpRequest } from './http'
-
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
+import type { HttpMethod } from '@/types'
 
 export async function apiRequest<T = unknown>(
   method: HttpMethod,

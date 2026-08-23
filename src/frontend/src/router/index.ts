@@ -87,34 +87,11 @@ export const layoutChildren: RouteRecordRaw[] = [
     },
   },
   {
-    path: 'user',
-    redirect: '/user/profile',
-    meta: { title: '用户设置', titleKey: 'nav.userSettings', icon: 'Setting', hidden: true, requiresAuth: true, sectionTitle: '用户设置' },
-    children: [
-      {
-        path: 'profile',
-        name: 'user-profile',
-        component: () => import('@/views/user/ProfileView.vue'),
-        meta: { title: '个人资料', titleKey: 'user.profile', icon: 'User', requiresAuth: true },
-      },
-      {
-        path: 'security',
-        name: 'user-security',
-        component: () => import('@/views/user/SecurityView.vue'),
-        meta: { title: '安全设置', titleKey: 'user.security', icon: 'Lock', requiresAuth: true },
-      },
-      {
-        path: 'sessions',
-        name: 'user-sessions',
-        component: () => import('@/views/user/SessionsView.vue'),
-        meta: { title: '会话管理', titleKey: 'user.sessions', icon: 'Odometer', requiresAuth: true },
-      },
-    ],
-  },
-  {
     path: 'admin',
     redirect: '/admin/users',
-    meta: { title: '管理后台', titleKey: 'nav.admin', icon: 'Monitor', roles: ['admin'], sectionTitle: '管理后台' },
+    // hidden：不在前台侧栏显示；入口在头像菜单，进入后侧栏整体切换为管理菜单
+    // hideSectionTabs：管理菜单已由侧栏承载，不再渲染内容区顶部二级标签栏
+    meta: { title: '管理后台', titleKey: 'nav.admin', icon: 'Monitor', roles: ['admin'], sectionTitle: '管理后台', hidden: true, hideSectionTabs: true },
     children: [
       {
         path: 'users',
@@ -145,6 +122,31 @@ export const layoutChildren: RouteRecordRaw[] = [
         name: 'admin-reports',
         component: () => import('@/views/admin/AdminReportsView.vue'),
         meta: { title: '举报管理', titleKey: 'nav.reports', icon: 'Warning', roles: ['admin'] },
+      },
+    ],
+  },
+  {
+    path: 'user',
+    redirect: '/user/profile',
+    meta: { title: '用户设置', titleKey: 'nav.userSettings', icon: 'Setting', hidden: true, requiresAuth: true, sectionTitle: '用户设置' },
+    children: [
+      {
+        path: 'profile',
+        name: 'user-profile',
+        component: () => import('@/views/user/ProfileView.vue'),
+        meta: { title: '个人资料', titleKey: 'user.profile', icon: 'User', requiresAuth: true },
+      },
+      {
+        path: 'security',
+        name: 'user-security',
+        component: () => import('@/views/user/SecurityView.vue'),
+        meta: { title: '安全设置', titleKey: 'user.security', icon: 'Lock', requiresAuth: true },
+      },
+      {
+        path: 'sessions',
+        name: 'user-sessions',
+        component: () => import('@/views/user/SessionsView.vue'),
+        meta: { title: '会话管理', titleKey: 'user.sessions', icon: 'Odometer', requiresAuth: true },
       },
     ],
   },

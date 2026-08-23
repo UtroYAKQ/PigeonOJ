@@ -7,7 +7,7 @@ import httpx
 from sqlalchemy import select
 
 from app.modules.users.models import User
-from app.shared.database import SessionLocal
+from app.shared.infra.database import SessionLocal
 
 from .conftest import api_login, register_user
 

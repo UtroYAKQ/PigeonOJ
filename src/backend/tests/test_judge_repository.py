@@ -9,7 +9,7 @@ from app.modules.users.models import User
 
 @pytest.mark.asyncio
 async def test_repository_loads_only_non_sample_cases():
-    from app.shared.database import SessionLocal
+    from app.shared.infra.database import SessionLocal
 
     async with SessionLocal() as db:
         user = User(email="judge-owner@example.test", password="hash", nickname="owner", email_verified=True)

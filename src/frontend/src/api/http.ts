@@ -2,17 +2,12 @@
 // code = 0 表示成功；非 0 抛 ApiError 并携带错误码 / 消息。
 
 import { i18n } from '@/i18n'
+import type { Envelope } from '@/types'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
 /** 会话 Token 的本地存储 key（与 stores/user.ts 共用） */
 export const TOKEN_STORAGE_KEY = 'pigeonoj.token'
-
-export interface Envelope<T = unknown> {
-  code: number
-  message: string
-  data: T
-}
 
 export class ApiError extends Error {
   readonly code: number

@@ -14,9 +14,9 @@ from app.modules.auth.schemas import (
 )
 from app.modules.auth.service import AuthService
 from app.modules.users.models import User
-from app.shared.database import get_db
-from app.shared.deps import get_bearer_token, get_current_user, parse_client_ip
-from app.shared.response import ok
+from app.shared.infra.database import get_db
+from app.modules.users.deps import get_bearer_token, get_current_user, parse_client_ip
+from app.shared.common.response import ok
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

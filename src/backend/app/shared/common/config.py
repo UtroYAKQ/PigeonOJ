@@ -1,7 +1,7 @@
 """系统配置服务：统一配置读取接口，解除 auth → admin 的反向依赖。
 
 使用方式：
-    from app.shared.config import ConfigService, get_config_service
+    from app.shared.common.config import ConfigService, get_config_service
 
     # 在 Service 中使用
     config = ConfigService(db)

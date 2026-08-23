@@ -84,8 +84,8 @@ services:
     ports:
       - "8080:80"     # Nginx 托管构建产物，反代 /api -> backend:8000
 
-  # sandbox: nsjail 执行节点，可多实例横向扩容（按需启用）
-  # 本地 nsjail 验证请使用 docker-compose-sandbox.yml；不要在生产编排中启用 privileged 沙箱。
+  # 判题节点：独立容器部署（见仓库根 docker-compose-node.yml 与 .env.node.example）；
+  # 后端进程不执行用户代码，代码执行只发生在判题节点容器内。
 
 volumes:
   pgdata:

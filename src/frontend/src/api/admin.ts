@@ -5,8 +5,10 @@
  */
 import { apiRequest } from './request'
 import type {
+  AdminUserQuery,
   ConfigCategory,
   GlobalRoleCode,
+  LogQuery,
   LogType,
   PageResult,
   Report,
@@ -14,16 +16,9 @@ import type {
   SandboxNode,
   SystemConfigItem,
   User,
-} from './types'
+} from '@/types'
 
 // ---------------- 用户管理 ----------------
-
-export interface AdminUserQuery {
-  page?: number
-  page_size?: number
-  keyword?: string
-  status?: string
-}
 
 /** GET /admin/users — 用户列表 */
 export function adminListUsers(query: AdminUserQuery = {}) {
@@ -75,14 +70,6 @@ export function adminUpdateConfigs(items: Array<{ id: string; config_value: unkn
 }
 
 // ---------------- 日志 ----------------
-
-export interface LogQuery {
-  page?: number
-  page_size?: number
-  keyword?: string
-  start?: string
-  end?: string
-}
 
 /** GET /admin/logs/:type — 日志查询（request / login / exception） */
 export function adminListLogs(type: LogType, query: LogQuery = {}) {

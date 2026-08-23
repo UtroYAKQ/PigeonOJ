@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from app.shared.errors import PARAM_FORMAT_INVALID, APIError
+from app.shared.common.errors import PARAM_FORMAT_INVALID, APIError
 
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 

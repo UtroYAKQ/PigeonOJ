@@ -25,12 +25,12 @@ from app.modules.auth import routes as auth_routes
 from app.modules.files import routes as files_routes
 from app.modules.judge import gateway, routes as judge_routes
 from app.modules.users import routes as users_routes
-from app.shared.audit import write_exception_log, write_request_log
-from app.shared.database import SessionLocal
-from app.shared.deps import parse_client_ip
-from app.shared.errors import register_exception_handlers
-from app.shared.logging import setup_logging
-from app.shared.response import ok
+from app.shared.common.audit import write_exception_log, write_request_log
+from app.shared.infra.database import SessionLocal
+from app.modules.users.deps import parse_client_ip
+from app.shared.common.errors import register_exception_handlers
+from app.shared.infra.logging import setup_logging
+from app.shared.common.response import ok
 
 logger = logging.getLogger(__name__)
 

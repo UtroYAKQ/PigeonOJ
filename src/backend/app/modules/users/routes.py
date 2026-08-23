@@ -8,10 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.users.schemas import PasswordConfirm, ProfileUpdate
 from app.modules.users.service import UserService
-from app.shared.database import get_db
-from app.shared.deps import get_current_user
-from app.shared.response import ok
-from app.shared.security import hash_token
+from app.shared.infra.database import get_db
+from app.modules.users.deps import get_current_user
+from app.shared.common.response import ok
+from app.shared.auth.security import hash_token
 from app.modules.users.models import User
 
 router = APIRouter(prefix="/users", tags=["users"])

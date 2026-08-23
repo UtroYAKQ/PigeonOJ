@@ -3,8 +3,8 @@ import JSZip from 'jszip'
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
+import type { TestCaseDraft } from '@/types'
 
-export interface TestCaseDraft { name: string; input: string; expected_output: string; is_sample: boolean; score: number; sort_order: number }
 const emit = defineEmits<{ imported: [cases: TestCaseDraft[]] }>()
 const { t } = useI18n(); const loading = ref(false); const input = ref<HTMLInputElement>()
 const MAX_ZIP = 20 * 1024 * 1024; const MAX_TOTAL = 100 * 1024 * 1024; const MAX_FILE = 2 * 1024 * 1024

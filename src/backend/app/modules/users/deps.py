@@ -18,15 +18,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.users.models import User
 from app.modules.users.repository import RoleRepository, SessionRepository, UserRepository
-from app.shared.database import get_db
-from app.shared.errors import (
+from app.shared.infra.database import get_db
+from app.shared.common.errors import (
     AUTH_FORBIDDEN,
     AUTH_NOT_LOGGED_IN,
     AUTH_SESSION_EXPIRED,
     APIError,
 )
-from app.shared.redis import redis_get, redis_set
-from app.shared.security import hash_token
+from app.shared.infra.redis import redis_get, redis_set
+from app.shared.auth.security import hash_token
 
 _SESSION_CACHE_TTL_BUFFER = 60  # 秒；缓存 TTL 略长于数据库过期时间，避免边界竞态
 

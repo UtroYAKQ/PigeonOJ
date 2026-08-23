@@ -7,12 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.files.service import FileService
 from app.modules.users.models import User
-from app.shared.database import get_db
-from app.shared.deps import get_current_user
-from app.shared.errors import APIError, AUTH_FORBIDDEN, RESOURCE_NOT_FOUND
-from app.shared.permissions import MANAGER_ROLE_CODES, get_user_role_codes
-from app.shared.response import ok
-from app.shared.storage import S3Error, get_storage
+from app.shared.infra.database import get_db
+from app.modules.users.deps import get_current_user
+from app.shared.common.errors import APIError, AUTH_FORBIDDEN, RESOURCE_NOT_FOUND
+from app.shared.auth.permissions import MANAGER_ROLE_CODES, get_user_role_codes
+from app.shared.common.response import ok
+from app.shared.infra.storage import S3Error, get_storage
 
 router = APIRouter(prefix="/files", tags=["files"])
 

@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from app.modules.judge.models import Problem, Submission
-from app.shared.database import SessionLocal
+from app.shared.infra.database import SessionLocal
 
 
 async def _create_problem(client, admin_headers, **overrides) -> dict:
@@ -44,6 +44,23 @@ async def test_create_defaults_and_draft_visibility(client, admin_headers):
     detail = resp.json()["data"]
     assert detail["can_manage"] is True
     assert "solution" in detail and "test_cases" in detail
+
+
+@pytest.mark.asyncio
+async def test_validation_failures_use_unified_envelope(client, admin_headers):
+    """Query / Body 校验失败（FastAPI 422）统一转 1001 信封（docs/contracts/common.md）。"""
+    resp = await client.get("/api/v1/problems?page=0")
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["code"] == 1001
+    assert set(body) >= {"code", "message", "data"}
+
+    resp = await client.get("/api/v1/problems?page_size=101")
+    assert resp.json()["code"] == 1001
+
+    resp = await client.post("/api/v1/problems", json={"title": "No Description"}, headers=admin_headers)
+    assert resp.status_code == 400
+    assert resp.json()["code"] == 1001
 
 
 @pytest.mark.asyncio
@@ -116,11 +133,17 @@ async def test_publish_requires_verification_and_cases(client, admin_headers, fa
     assert resp.json()["code"] == 0, resp.text
     assert resp.json()["data"]["status"] == "published"
 
-    # 归档后不可编辑、列表不可见
+    # 归档后不可编辑、不可重写测试点、列表不可见
     resp = await client.post(f"/api/v1/problems/{data['id']}/archive", headers=admin_headers)
     assert resp.json()["code"] == 0
     resp = await client.put(f"/api/v1/problems/{data['id']}", json={"title": "X"}, headers=admin_headers)
     assert resp.json()["code"] == 3002
+    resp = await client.put(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"cases": [{"name": "c", "input": "1", "expected_output": "2", "score": 100}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 3002  # 归档后编辑统一 3002（docs/contracts/problems.md 错误码）
     resp = await client.get("/api/v1/problems")
     assert all(item["id"] != data["id"] for item in resp.json()["data"]["items"])
 

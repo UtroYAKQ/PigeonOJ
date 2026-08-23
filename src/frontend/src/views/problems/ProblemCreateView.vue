@@ -5,8 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { uploadSpj } from '@/api/files'
 import { createProblem, getProblem, replaceTestCases, updateProblem } from '@/api/problems'
-import type { ProblemDetailEx } from '@/api/problems'
-import type { TestCaseDraft } from '@/api/types'
+import type { ProblemDetailEx, TestCaseDraft } from '@/types'
 import TestCaseImporter from '@/components/problem/TestCaseImporter.vue'
 
 const route = useRoute(); const router = useRouter(); const { t } = useI18n()
@@ -137,22 +136,18 @@ async function save() {
 onMounted(loadExisting)
 </script>
 <template>
-  <div v-loading="loading" class="problem-create">
-    <header class="page-heading">
-      <div>
-        <p class="page-heading__eyebrow">{{ t('nav.problems') }}</p>
-        <h1>{{ isEdit ? t('problems.create.editTitle') : t('problems.create.title') }}</h1>
-        <p>{{ t('problems.create.description') }}</p>
-      </div>
-      <div class="page-heading__actions">
-        <el-button @click="router.push('/problems')">{{ t('action.cancel') }}</el-button>
-        <el-button type="primary" :loading="saving" @click="save">{{ t('problems.create.saveDraft') }}</el-button>
-      </div>
-    </header>
-
+  <div v-loading="loading" class="problem-create page-stack">
     <div class="problem-create__grid">
       <el-card shadow="never" class="base-card">
-        <template #header>{{ t('problems.create.baseInfo') }}</template>
+        <template #header>
+          <div class="base-card__head">
+            <span>{{ t('problems.create.baseInfo') }}</span>
+            <div class="case-actions">
+              <el-button size="small" @click="router.push('/problems')">{{ t('action.cancel') }}</el-button>
+              <el-button size="small" type="primary" :loading="saving" @click="save">{{ t('problems.create.saveDraft') }}</el-button>
+            </div>
+          </div>
+        </template>
         <el-form label-position="top">
           <el-form-item :label="t('problems.create.name')"><el-input v-model="form.title" size="large"/></el-form-item>
           <el-form-item :label="t('problems.create.statement')"><el-input v-model="form.description" type="textarea" :rows="10"/></el-form-item>
@@ -167,7 +162,7 @@ onMounted(loadExisting)
           <div class="form-grid">
             <el-form-item :label="t('problems.list.difficulty')">
               <el-select v-model="form.difficulty">
-                <el-option label="Easy" value="easy"/><el-option label="Medium" value="medium"/><el-option label="Hard" value="hard"/>
+                <el-option :label="t('problems.difficulty.easy')" value="easy"/><el-option :label="t('problems.difficulty.medium')" value="medium"/><el-option :label="t('problems.difficulty.hard')" value="hard"/>
               </el-select>
             </el-form-item>
             <el-form-item :label="t('problems.create.visibility')">
@@ -224,4 +219,30 @@ onMounted(loadExisting)
     </div>
   </div>
 </template>
-<style scoped>.problem-create{display:grid;gap:20px;max-width:1180px}.page-heading{display:flex;align-items:end;justify-content:space-between;gap:16px}.page-heading__eyebrow{margin:0 0 6px;color:var(--el-color-primary);font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.page-heading h1{margin:0;font-size:26px;letter-spacing:-.035em}.page-heading p:not(.page-heading__eyebrow){margin:8px 0 0;color:var(--app-text-muted);font-size:13px}.page-heading__actions,.case-actions{display:flex;gap:10px}.problem-create__grid{display:grid;grid-template-columns:minmax(320px,1fr) minmax(360px,1fr);gap:18px;align-items:start}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.form-hint{margin:8px 0 0;color:var(--app-text-muted);font-size:12px;line-height:1.5}.solution-details{margin-bottom:18px}.solution-details summary{cursor:pointer;color:var(--app-text-muted);font-size:13px;margin-bottom:12px}.spj-row{display:flex;align-items:center;gap:10px}.spj-ref{color:var(--app-text-muted);font-size:12px;word-break:break-all}.case-header,.test-case__top{display:flex;align-items:center;justify-content:space-between;gap:10px}.test-cases{display:grid;gap:14px}.test-case{padding:14px;border:1px solid var(--app-border);border-radius:11px;background:var(--app-surface-muted)}.test-case__top{justify-content:flex-start}.test-case__index{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;color:var(--el-color-primary);background:var(--el-color-primary-light-8);font-size:12px;font-weight:750}.test-case__name{max-width:160px}.case-content{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}@media(max-width:900px){.problem-create__grid{grid-template-columns:1fr}}@media(max-width:760px){.page-heading,.case-header,.test-case__top{align-items:start;flex-direction:column}.form-grid,.case-content{grid-template-columns:1fr}}</style>
+<style scoped>
+/* form-hint 等共享类来自 assets/main.css；此处仅保留本页特有样式 */
+.problem-create { max-width: 1180px; }
+.case-actions { display: flex; gap: 10px; }
+.base-card__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
+.problem-create__grid { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr); gap: 18px; align-items: start; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.solution-details { margin-bottom: 18px; }
+.solution-details summary { cursor: pointer; color: var(--app-text-muted); font-size: 13px; margin-bottom: 12px; }
+.spj-row { display: flex; align-items: center; gap: 10px; }
+.spj-ref { color: var(--app-text-muted); font-size: 12px; word-break: break-all; }
+.case-header, .test-case__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.test-cases { display: grid; gap: 14px; }
+.test-case { padding: 14px; border: 1px solid var(--app-border); border-radius: 11px; background: var(--app-surface-muted); }
+.test-case__top { justify-content: flex-start; }
+.test-case__index { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: var(--el-color-primary); background: var(--el-color-primary-light-8); font-size: 12px; font-weight: 750; }
+.test-case__name { max-width: 160px; }
+.case-content { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+
+@media (max-width: 900px) {
+  .problem-create__grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .case-header, .test-case__top { align-items: start; flex-direction: column; }
+  .form-grid, .case-content { grid-template-columns: 1fr; }
+}
+</style>

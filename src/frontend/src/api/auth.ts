@@ -2,7 +2,7 @@
  * 认证模块 API（docs/contracts/users.md）：注册 / 登录 / 登出 / 找回密码 / 换绑邮箱。
  */
 import { apiRequest } from './request'
-import type { LoginResult } from './types'
+import type { LoginResult } from '@/types'
 
 /** POST /auth/email-code — 发送邮箱验证码（public） */
 export function sendEmailCode(email: string, purpose: string) {
