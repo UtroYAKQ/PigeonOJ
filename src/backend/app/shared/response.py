@@ -1,13 +1,11 @@
-"""统一响应信封 {code, message, data}。
+"""统一响应信封（兼容层，已迁移至 shared/common/response.py）。
 
-约定见 docs/contracts/common.md：code=0 表示成功，非 0 为错误码。
+保留此文件以兼容旧有导入：
+    from app.shared.response import ok, error
+
+新代码请直接使用：
+    from app.shared.common.response import ok, error
 """
-from typing import Any
+from app.shared.common.response import error, ok  # noqa: F401
 
-
-def ok(data: Any = None, message: str = "ok") -> dict:
-    return {"code": 0, "message": message, "data": data}
-
-
-def error(code: int, message: str, data: Any = None) -> dict:
-    return {"code": code, "message": message, "data": data}
+__all__ = ["ok", "error"]

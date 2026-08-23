@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+/* Element Plus 与 Tailwind 共用 html.dark。 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --app-canvas: #f6f8fc;
+  --app-surface: #ffffff;
+  --app-surface-muted: #f8faff;
+  --app-border: #e8edf5;
+  --app-text: #172033;
+  --app-text-muted: #6b778c;
+  --app-radius-sm: 10px;
+  --app-radius: 14px;
+  --app-radius-lg: 20px;
+  --app-shadow: 0 10px 28px rgba(38, 58, 92, .06);
+  --app-shadow-hover: 0 14px 36px rgba(38, 58, 92, .11);
+  --el-color-primary: #3867f4;
+  --el-color-primary-light-3: #7899fa;
+  --el-color-primary-light-5: #9eb5fb;
+  --el-color-primary-light-8: #e5ebff;
+  --el-color-primary-light-9: #f0f3ff;
+  --el-border-radius-base: 10px;
+}
+
+html.dark {
+  --app-canvas: #101521;
+  --app-surface: #171e2d;
+  --app-surface-muted: #1d2638;
+  --app-border: #29354a;
+  --app-text: #edf2ff;
+  --app-text-muted: #aab7ce;
+  --app-shadow: 0 12px 32px rgba(0, 0, 0, .22);
+  --app-shadow-hover: 0 16px 40px rgba(0, 0, 0, .32);
+}
+
+html, body, #app { min-width: 320px; min-height: 100%; margin: 0; }
+body { background: var(--app-canvas); color: var(--app-text); font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+* { box-sizing: border-box; }
+
+.el-card { border: 1px solid var(--app-border); border-radius: var(--app-radius); box-shadow: var(--app-shadow); }
+.el-card__header { min-height: 58px; display: flex; align-items: center; padding: 0 20px; border-bottom-color: var(--app-border); font-weight: 650; }
+.el-card__body { padding: 20px; }
+.el-button { font-weight: 600; }
+.el-button--primary { box-shadow: 0 6px 14px rgba(56, 103, 244, .2); }
+.el-input__wrapper, .el-select__wrapper { min-height: 38px; box-shadow: 0 0 0 1px var(--app-border) inset; }
+.el-table { --el-table-header-bg-color: var(--app-surface-muted); --el-table-border-color: var(--app-border); --el-table-row-hover-bg-color: var(--el-color-primary-light-9); }
+.el-table th.el-table__cell { color: var(--app-text-muted); font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+
+@media (max-width: 767px) {
+  .el-card__header { padding: 0 16px; }
+  .el-card__body { padding: 16px; }
+}

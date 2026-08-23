@@ -5,6 +5,7 @@
 """
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,10 +18,8 @@ class Settings(BaseSettings):
     # ---- PostgreSQL ----
     database_url: str = "postgresql+asyncpg://pigeonoj:pigeonoj@localhost:5432/pigeonoj"
 
-    # ---- Redis / Celery ----
+    # ---- Redis ----
     redis_url: str = "redis://localhost:6379/0"
-    celery_broker_url: str = "redis://localhost:6379/1"
-    celery_result_backend: str = "redis://localhost:6379/2"
 
     # ---- MinIO ----
     minio_endpoint: str = "localhost:9000"
@@ -28,6 +27,26 @@ class Settings(BaseSettings):
     minio_secret_key: str = "pigeonoj-minio-secret"
     minio_bucket: str = "pigeonoj"
     minio_secure: bool = False  # 生产（HTTPS）环境置 true
+
+    # ---- 判题节点网关（docs/contracts/judge.md 节点网关协议）----
+    # 后端不执行任何用户代码；代码执行只发生在注册的判题节点容器内。
+    # 注册令牌（逗号分隔多个）；为空则网关不启动。判题节点凭其一完成注册。
+    judge_gateway_tokens: str = ""
+    judge_grpc_host: str = "0.0.0.0"
+    judge_grpc_port: int = 50051
+    judge_heartbeat_interval_seconds: int = 10
+
+    @property
+    def gateway_tokens(self) -> list[str]:
+        return [item.strip() for item in self.judge_gateway_tokens.split(",") if item.strip()]
+
+    @field_validator(
+        "database_url", "redis_url", "minio_endpoint", mode="before"
+    )
+    @classmethod
+    def _strip_url_whitespace(cls, v: object) -> object:
+        """去除连接串首尾空白：cmd 中 `set VAR=...` 行尾误带空格会污染值（如 database "pigeonoj "）。"""
+        return v.strip() if isinstance(v, str) else v
 
     # ---- CORS ----
     # 开发默认全放行；生产建议改为具体来源列表（JSON 数组形式注入环境变量）

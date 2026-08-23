@@ -1,0 +1,20 @@
+# PigeonOJ 判题节点配置（容器内运行）
+# 环境变量可覆盖：SERVER_ADDRESS / SERVER_TOKEN / JUDGE_NODE_ID / JUDGE_NODE_NAME / JUDGE_NODE_CAPACITY
+# token 需与后端 JUDGE_GATEWAY_TOKENS 之一匹配。
+
+[server]
+address = "127.0.0.1:50051"   # 后端 gRPC 网关地址
+token = "dev-token"
+
+[node]
+id = ""                        # 留空自动 {hostname}-{pid}
+name = ""                      # 展示名（管理后台沙箱状态页）；留空同 id
+capacity = 2                   # 并发判题容量
+
+[paths]
+workspace = "/sandbox"         # 容器内固定；宿主机目录由 docker -v 提供
+data_cache = "/cache"
+
+[sandbox]
+nsjail_binary = "nsjail"
+nsjail_config = "/etc/pigeonoj/nsjail.cfg"

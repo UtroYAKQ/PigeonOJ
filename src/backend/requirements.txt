@@ -11,9 +11,18 @@ sqlalchemy[asyncio]
 alembic
 asyncpg
 
-# ============ 缓存 / 异步任务 ============
+# ============ 缓存 ============
 redis
-celery
+
+# ============ 判题节点网关（gRPC）============
+grpcio
+
+# ============ 安全 ============
+bcrypt                # 密码哈希
+
+# ============ 对象存储 ============
+minio                  # MinIO SDK（生产部署）
+python-multipart       # FastAPI multipart/form-data 上传
 
 # ============ AI 能力（业务阶段按需安装，见 docs/contracts/ai.md）============
 # langgraph

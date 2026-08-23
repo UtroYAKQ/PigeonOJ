@@ -1,20 +1,59 @@
 """FastAPI 应用入口。
 
-当前为骨架阶段：仅提供 /health 健康检查与统一响应信封，不含业务端点。
-业务路由按 docs/contracts/ 各模块契约，在下方「模块路由注册」处逐模块挂载。
+- 统一响应信封 {code, message, data}（docs/contracts/common.md）
+- 全量请求日志 → request_logs（含 request_id 追踪，docs/contracts/admin.md）
+- 未处理异常 → exception_logs
+- 模块路由：auth / users / files / judge（题库·判题）/ admin（统一前缀 /api/v1）
+- 判题节点 gRPC 网关（:50051）随应用生命周期启停（lifespan）
 """
-from fastapi import FastAPI
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+import traceback
+import uuid
+from contextlib import asynccontextmanager
+
+import grpc
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
+from app.modules.admin import routes as admin_routes
+from app.modules.auth import routes as auth_routes
+from app.modules.files import routes as files_routes
+from app.modules.judge import gateway, routes as judge_routes
+from app.modules.users import routes as users_routes
+from app.shared.audit import write_exception_log, write_request_log
+from app.shared.database import SessionLocal
+from app.shared.deps import parse_client_ip
 from app.shared.errors import register_exception_handlers
 from app.shared.logging import setup_logging
 from app.shared.response import ok
 
+logger = logging.getLogger(__name__)
+
 settings = get_settings()
 setup_logging(settings.log_level)
 
-app = FastAPI(title="PigeonOJ API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """应用生命周期：启动判题网关 gRPC 服务与巡检循环，退出时优雅关闭。"""
+    grpc_server = await gateway.start_grpc_server()
+    maint_task = asyncio.create_task(gateway.maintenance_loop())
+    yield
+    maint_task.cancel()
+    try:
+        await maint_task
+    except asyncio.CancelledError:
+        pass
+    if grpc_server is not None:
+        await grpc_server.stop(grace=5)
+
+
+app = FastAPI(title="PigeonOJ API", version="0.1.0", lifespan=lifespan)
 
 # CORS：开发默认全放行；生产按环境收紧（见 .env.example 与 docs/operations.md）
 app.add_middleware(
@@ -35,7 +74,57 @@ async def health() -> dict:
     return ok({"status": "ok"})
 
 
-# ---- 模块路由注册 ----
-# 骨架阶段不实现任何业务端点。后续按 docs/contracts/ 逐模块挂载，例如：
-#   from app.modules.auth import routes as auth_routes
-#   app.include_router(auth_routes.router, prefix="/api/v1")
+# ---- 请求日志中间件（request_logs + exception_logs） ----
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    request_id = uuid.uuid4().hex[:16]
+    request.state.request_id = request_id
+    start = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+    except Exception as exc:  # noqa: BLE001 - 需记录全部未处理异常
+        # 落库异常日志（不阻塞响应）
+        try:
+            async with SessionLocal() as db:
+                await write_exception_log(
+                    db,
+                    level="error",
+                    message=str(exc)[:2000],
+                    traceback=traceback.format_exc()[:8000],
+                    request_id=request_id,
+                    user_id=None,
+                )
+        except Exception:  # noqa: BLE001 - 日志写入失败不影响主流程
+            logger.exception("exception_log 写入失败")
+        raise
+    finally:
+        try:
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            path = request.url.path
+            if len(path) > 512:
+                path = path[:512]
+            async with SessionLocal() as db:
+                await write_request_log(
+                    db,
+                    request_id=request_id,
+                    method=request.method,
+                    path=path,
+                    status_code=status_code,
+                    user_id=None,
+                    ip_address=parse_client_ip(request.client.host if request.client else None),
+                    user_agent=request.headers.get("user-agent"),
+                    duration_ms=duration_ms,
+                )
+        except Exception:  # noqa: BLE001 - 日志写入失败不影响主流程
+            logger.exception("request_log 写入失败")
+    return response
+
+
+# ---- 模块路由注册（统一前缀 /api/v1） ----
+app.include_router(auth_routes.router, prefix="/api/v1")
+app.include_router(users_routes.router, prefix="/api/v1")
+app.include_router(files_routes.router, prefix="/api/v1")
+app.include_router(judge_routes.router, prefix="/api/v1")
+app.include_router(admin_routes.router, prefix="/api/v1")

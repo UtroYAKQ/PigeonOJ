@@ -1,4 +1,4 @@
-# 题库模块契约
+﻿# 题库模块契约
 
 > 题目统一存储（全站 / 团队）、标签、测试点、验题与代码编辑器草稿。可见性按 `team_id + visibility + status` 控制。
 
@@ -18,7 +18,7 @@
 | time_limit_ms | INT | NOT NULL DEFAULT 1000 | 时间限制（**C++ 基准**；其他语言按 `sandbox_configs` 语言比例换算有效限制，见 `judge.md`「语言限制换算」） |
 | memory_limit_mb | INT | NOT NULL DEFAULT 256 | 内存限制（**C++ 基准**；其他语言按 `sandbox_configs` 语言比例换算，并受 `memory_min_mb` 下限约束） |
 | spj | BOOLEAN | NOT NULL DEFAULT false | 是否启用特殊判题（SPJ） |
-| spj_code | VARCHAR(512) | NULL | SPJ checker 的 MinIO ossId；限 C++，沙箱内编译运行并受资源限制 |
+| spj_code | VARCHAR(512) | NULL | SPJ checker 的 MinIO ossId；限 C++，判题机内部读取，沙箱内编译一次后逐测试点运行并受资源限制 |
 | team_id | UUID | NULL, FK → teams.id | 归属团队；NULL=全站题目，非 NULL=团队题目（升级公开后保留溯源） |
 | owner_id | UUID | NOT NULL, FK → users.id | 创建者 |
 | visibility | VARCHAR(16) | NOT NULL DEFAULT 'public' | 全站题目：`private` / `public`；团队题目：`admin_visible` / `team_visible` / `public`（升级后） |
@@ -122,7 +122,8 @@ CHECK (status <> 'published' OR is_verified)
 
 - 题目按 `status + visibility` 双重控制访问（见下方可见性）；所有查询必须带可见性过滤
 - 草稿（`status='draft'`）仅创建者本人可见
-- 测试点 / SPJ 文件仅题目管理角色（`admin/tutor/team_creator/team_admin`）可读写；判题读取走服务端内部链路，不向前端暴露下载 / 预签名 URL
+- 官方题解 `solution` 仅题目管理角色（`admin/tutor/team_creator/team_admin`）与创建者可见
+- 测试点 / SPJ 文件仅题目管理角色（`admin/tutor/team_creator/team_admin`）可读写；管理角色读详情时回读测试点内容用于编辑；判题读取走服务端内部链路，不向前端暴露下载 / 预签名 URL
 - 提交结果不返回测试点期望输出（`expected_output`）
 - 用户代码草稿仅本人可读写（`WHERE user_id = ?`）
 
@@ -144,20 +145,21 @@ CHECK (status <> 'published' OR is_verified)
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| GET | /problems | public | 题库中心列表（公开） | 分页/标签/难度/关键字 | problem[] |
+| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：创建者见自己全部题目，管理角色（admin/tutor/team_creator）见可管理范围全量，可叠加 `status` 过滤 | 分页/标签/难度/关键字/scope/status | problem[] |
 | GET | /problems/{id} | public/owner | 题目详情（按可见性过滤） | - | problem |
 | POST | /problems | admin/tutor/team_creator/team_admin | 创建题目（公开/团队） | team_id?/title/.../visibility/limits | problem |
 | PUT | /problems/{id} | admin/tutor/team_creator/team_admin | 编辑题目 | ... | problem |
-| PUT | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 更新样例 / 测试点 | cases[]（样例为字符串；判题测试点含 ossId/score） | - |
-| POST | /problems/{id}/verify | admin/tutor/team_creator/team_admin（发起）/ 受邀验题人（凭 invite token 提交） | 发起验题 / 受邀人提交验题 | verifier_id?/invite?/code/language/result | verification |
+| PUT | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 更新样例 / 测试点 | cases[]（input、expected_output、is_sample、score、sort_order） | - |
+| POST | /problems/{id}/verify | admin/tutor/team_creator/team_admin（发起）/ 受邀验题人（凭 invite token 提交） | 发起验题 / 受邀人提交验题（双模式请求体：`code+language` 为提交，否则为发起） | verifier_id?/invite_expires_hours?/invite_token?/code?/language? | verification 或 submission_id |
 | GET | /verify-invites/{token} | public | 解析验题邀请链接 | - | {problem_id, problem_title, expires_at} |
-| POST | /problems/{id}/publish | admin/tutor/team_creator/team_admin | 发布（须验题通过） | - | problem |
+| POST | /problems/{id}/publish | admin/tutor/team_creator/team_admin | 发布（须验题通过 + 至少 1 个正式测试点） | - | problem |
 | POST | /problems/{id}/archive | admin/tutor/team_creator/team_admin | 下线归档 | - | problem |
-| POST | /problems/{id}/promote | admin/tutor/team_creator/team_admin | 团队题目升级公开（不可逆） | - | problem |
-| GET | /teams/{team_id}/problems | admin/tutor/team_creator/team_admin | 团队题库列表 | 分页/可见性 | problem[] |
-| POST | /files/upload | auth（头像）/ admin/tutor/team_creator/team_admin（测试点/SPJ） | 文件上传（multipart → ossId） | file, purpose（avatar/testcase/spj） | ossId |
+| POST | /problems/{id}/promote | admin/tutor/team_creator/team_admin | 团队题目升级公开（不可逆；teams 模块上线前返回 3002） | - | problem |
+| GET | /teams/{team_id}/problems | admin/tutor/team_creator/team_admin | 团队题库列表（随 teams 模块实现） | 分页/可见性 | problem[] |
+| POST | /files/upload/avatar | auth（头像） | 头像上传（multipart → ossId） | file | ossId |
+| POST | /files/upload/spj | admin/tutor/team_creator | SPJ checker 源码上传（multipart → ossId，≤16MB，仅 .cpp） | file | ossId |
 
-> 文件上传：对象 key 由服务端生成（不信任客户端路径），类型白名单（图片 jpg/png/webp、代码 cpp/py/java、文本 txt），大小上限头像 ≤2MB、测试点 / SPJ ≤16MB；上传后 ossId 回填 `test_cases.input_oss_id/expected_output_oss_id`、`problems.spj_code`。
+> 测试点不走独立上传接口：`PUT /problems/{id}/test-cases` 接收 UTF-8 的 `input` / `expected_output` 内容，每项 ≤2MB；样例写入 `sample_input` / `sample_output` 不上传 MinIO，正式测试点由后端生成对象 key 并分别上传：`problems/{problem_id}/cases/{case_id}/input` 与 `/output`，再回填 `input_oss_id` / `expected_output_oss_id`。不生成测试点归档 ZIP，前端 ZIP 只在浏览器内解压为内容。
 
 ## 错误码
 
@@ -169,12 +171,16 @@ CHECK (status <> 'published' OR is_verified)
 | 1001 | 400 | 测试点 / SPJ 文件类型或大小不符 |
 | 3003 | 409 | 重复发起验题（已有 pending 记录） |
 
+## 当前基础前端页面
+
+前端已提供 `/problems` 题库列表、`/problems/{id}` 题面与 Monaco 代码编辑器、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
+
 ## 关键流程 / 验收条件
 
 1. **题目生命周期**：创建默认 `status='draft'` → 编辑 / 维护测试点 → 验题 → `publish`（`status='published'`，CHECK 强制 `is_verified`）→ `archive`（`status='archived'`）。被题单 / 比赛引用时不得物理删除，仅归档。
 2. **升级公开**（仅团队题目）：`promote` 将 `visibility` 置 `public`，不可逆；`team_id` 保留溯源，`promoted_at` 记录时间。
 3. **验题**：发起 `POST /problems/{id}/verify`（或生成邀请链接 → `GET /verify-invites/{token}`）→ 受邀人提交代码 → 系统按题目测试点判题（复用 `submissions`，`submit_type='verify'`）→ 全部通过 → `problem_verifications.status='passed'` 且判题链路回写 `problems.is_verified / verified_by / verified_at`。
-4. **样例自测**：题目详情页展示样例字符串（`sample_input` / `sample_output`），提供「复制 / 一键填入」；用户填入编辑器后调 `POST /sandbox/sample-run`（见 `judge.md`）运行并查看比对结果，**不参与正式判题**。
+4. **样例自测**：题目详情页展示样例字符串（`sample_input` / `sample_output`）并提供复制；在线试运行能力规划由判题节点侧专用端点承担（当前后端不执行用户代码）。
 
 ## 明确不做
 

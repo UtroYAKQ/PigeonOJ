@@ -85,13 +85,7 @@ services:
       - "8080:80"     # Nginx 托管构建产物，反代 /api -> backend:8000
 
   # sandbox: nsjail 执行节点，可多实例横向扩容（按需启用）
-  # sandbox:
-  #   build:
-  #     context: ../src/sandbox
-  #     dockerfile: Dockerfile
-  #   privileged: true
-  #   depends_on:
-  #     - redis
+  # 本地 nsjail 验证请使用 docker-compose-sandbox.yml；不要在生产编排中启用 privileged 沙箱。
 
 volumes:
   pgdata:

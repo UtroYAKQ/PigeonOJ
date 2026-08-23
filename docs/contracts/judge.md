@@ -85,7 +85,8 @@ CHECK (
 - 用户只能读自己的提交历史（`WHERE user_id = ?`）；提交详情 `owner` 可见
 - 提交结果不返回测试点期望输出（`expected_output`）
 - 沙箱执行日志作为子记录按 `request_id` 归入 `request_logs.extra`，不单独建日志表
-- AI 自测（改代码后运行、AI 出题校验样例）走内联样例执行接口，不落 `submissions`
+- **后端进程不执行任何用户代码**：代码执行只发生在注册的判题节点容器内；
+  样例自测能力规划由判题节点侧开放专用端点承担，当前前端不提供在线试运行
 
 ## 端点
 
@@ -94,9 +95,8 @@ CHECK (
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | POST | /submissions | auth | 提交判题 | problem_id, language, code, submit_type, contest_id?/verification_id? | submission_id |
-| GET | /submissions/{id} | owner | 提交详情 | - | submission + case_results[] |
-| GET | /submissions | auth | 提交历史 | problem_id/contest_id/status | submission[] |
-| POST | /sandbox/sample-run | auth | 测试样例执行（内联） | code, language, input, expected_output? | actual_output, passed, time_used_ms, memory_used_kb, compile_error? |
+| GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细：状态/耗时/内存/得分/程序输出；不返回期望输出） | - | submission |
+| GET | /submissions | auth | 提交历史（本人，`WHERE user_id=?`） | problem_id/contest_id/status/分页 | submission[] |
 | GET | /sandbox/health | admin | 沙箱节点健康 | - | nodes[{id, status, load}] |
 
 > **提交校验**：语言须在 `sandbox_configs` 白名单且启用；代码大小上限 64KB（UTF-8 字节）；按 user+problem 提交冷却 + 全局并发上限做 Redis 频控。
@@ -113,28 +113,53 @@ CHECK (
 | 4002 | 429 | 全局判题并发上限触发排队 / 拒绝 |
 | 5001 | 502 | 上游沙箱执行失败 |
 
-## 判题流程（Celery 驱动）
+## 判题流程（gRPC 节点网关，已实现；无 Celery）
 
 ```
 用户提交代码
   → API 创建 submissions(status=pending)
-  → Celery enqueue (judge_submission, submission_id)
-  → 沙箱调度器按语言/资源/可用实例分配执行节点
-  → 沙箱按题目 C++ 基准限制 × 语言比例的有效限制编译运行
-  → 逐测试点判题，写 submission_test_case_results
-  → 汇总写 submissions(status/score/time/memory)
-  → 触发下游：比赛榜单更新(contest_rankings)、用户状态更新
+    · 语言白名单取 sandbox_configs 且 is_enabled
+    · user+problem 冷却（4001）与全局并发上限（4002），阈值来自系统配置 sandbox 域
+  → dispatch_submission：网关注册表按 in-flight 最少优先选节点；
+    build_job_bundle 原子认领（UPDATE ... WHERE status='pending'）后经 gRPC 流推送 SubmitJob
+  → 无在线节点：保持 pending，网关维护循环每 30s 重扫派发
+节点（pigeonoj/judge-node 容器，privileged，出站连接后端 :50051）
+  → 数据缓存未命中时 FetchProblemData 拉取测试点/SPJ（data_version 缓存于容器 /cache）
+  → 按 sandbox_configs 比例换算有效限制（时间 ×time_ratio；内存 max(×memory_ratio, memory_min_mb)）
+  → nsjail 原生编译一次、逐测试点独立运行，写 submission_test_case_results（输出落 MinIO）
+  → 回传 JudgeResult；汇总写 submissions；验题提交回写 verification 与 problems.is_verified
+维护循环兜底：pending>60s / judging>5min 重置重派（Redis SETNX 防并发重复投递）
 ```
+
+### 节点网关协议
+
+`.proto` 契约见 `protos/pigeonoj/judge/v1/judge.proto`（机器可读契约，stub 已生成入库于
+`app/modules/judge/rpc_gen` 与 `src/judge/node/gen`）：
+
+- `Connect(stream NodeMessage) returns (stream ServerMessage)`：节点生命周期主通道。
+  首条 Register 携带令牌（后端 `JUDGE_GATEWAY_TOKENS` 其一），不符即 UNAUTHENTICATED；
+  上行 Heartbeat / JudgeResult，下行 SubmitJob / CancelJob(预留)。
+- `FetchProblemData(ProblemDataRequest) returns (stream FileChunk)`：
+  按 `data_version` 流式传输 manifest / cases/<id>.in|.out / spj.cpp；
+  令牌经 metadata `x-node-token` 携带。数据指纹 = sha256(测试点数量|最大 updated_at)，
+  节点按 `<problem_id>-<data_version>` 缓存于容器 `/cache`，跨提交复用。
+- 断线语义：连接断开即离线，其名下 in-flight 提交由服务端重置 pending 并重派；
+  判题写入幂等，重复执行安全。
+
+### Judge Worker 边界
+
+Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息仅以 `submission_id` 为业务关联键。它经网关获取作业描述（代码内联、限制已换算、测试点仅元数据），通过 FetchProblemData 拉取数据文件到本地缓存；对 C++/Java 在编译阶段调用一次 nsjail 生成产物，随后每个测试点独立调用 nsjail 运行；Python 无编译阶段。节点将程序输出随结果回传，服务端存入 `submissions/{submission_id}/cases/{case_id}/output`，把测试点结果持久化到 `submission_test_case_results`，最后汇总更新 `submissions`。节点采集 stdout、stderr、退出码和资源数据，并在任务结束后清理临时目录。测试点期望输出只在判题节点与服务端内部流转，不进入公开响应；不接受用户可控 URL 或内联测试点 payload。
+
 
 要点：
 
 - 提交统一按 `submit_type` 区分场景：练习（默认）、比赛（`contest_id` 关联，含赛后补题）、验题（`verification_id` 关联，结果驱动 `problem_verifications.status`；验题通过同步回写 `problems.is_verified / verified_by / verified_at`）。
-- 队列由 Celery 承担，`sandbox_configs` 提供语言级运行参数（含输出大小、磁盘配额、CPU 核数、网络开关）与判题限制比例；`problems` 提供 **C++ 基准**内存 / 时间限制，判题按提交语言解析有效限制。
-- 判题比对模式：`problems.spj=false` 时默认比对（忽略行尾空白与末尾换行、行内严格）；`problems.spj=true` 时 SPJ checker 在沙箱内编译运行判定，checker 同样受沙箱资源限制。
+- 任务派发由 gRPC 网关承担，`sandbox_configs` 提供语言级运行参数（含输出大小、磁盘配额、CPU 核数、网络开关）与判题限制比例；`problems` 提供 **C++ 基准**内存 / 时间限制，判题按提交语言解析有效限制。
+- 判题比对模式：`problems.spj=false` 时默认比对（忽略行尾空白与末尾换行、行内严格）；`problems.spj=true` 时 SPJ checker 在沙箱内单独编译一次，并为每个测试点启动独立 nsjail，参数为 `checker <input文件> <answer文件> <output文件>`。checker 退出码 0=AC、1=WA、>=2 或超时/异常=system_error；checker 同样受沙箱资源限制。
 - 输出超限：程序输出超过沙箱输出上限时截断比对，判定 `output_limit_exceeded`，不再继续比对剩余输出。
 - 判题失败（沙箱异常、超时）自动重试，超过阈值转 `system_error`。
 - 判题结果仅返回用户程序输出与判定状态，不返回测试点期望输出。
-- AI 自测走内联样例执行接口，不落 `submissions`。
+- 后端进程不执行用户代码；样例自测能力规划由判题节点侧开放专用端点（暂缓）。
 
 ## 语言限制换算
 
@@ -152,33 +177,23 @@ CHECK (
 | 项 | 规范 |
 | --- | --- |
 | 时间测量 | wall-clock 与 CPU 时间双限：任一超有效时间限制（`time_limit_ms × time_ratio`）即判 `time_limit_exceeded` |
-| 内存测量 | 以进程峰值常驻内存（RSS，含子进程）为口径，超有效内存限制（`max(memory_limit_mb × memory_ratio, memory_min_mb)`）判 `memory_limit_exceeded`；Java 以 RSS 为准（不把 `-Xmx` 堆上限当判据），`-Xmx` 按有效内存换算、仅作运行时参数 |
+| 内存测量 | 以进程峰值常驻内存（RSS，含子进程）为口径，超有效内存限制（`max(memory_limit_mb × memory_ratio, memory_min_mb)`）判 `memory_limit_exceeded`；Java 以 RSS 为准（不把 `-Xmx` 堆上限当判据），`-Xmx` 按有效内存换算、仅作运行时参数。实现：nsjail 以 `--rlimit_as=<有效内存>` 硬性封顶地址空间（Java 例外，JVM 虚拟预留大，不施加），超限分配触发 MemoryError / bad_alloc 特征判 MLE；另有 /proc 树 RSS 采样作为展示参考值（嵌套 PID namespace 下对短命进程可能低估） |
 | 入口约定 | 三种语言统一入口：C++ `Main.cpp`、Java 主类固定 `Main`、Python `Main.py`，判题器据此拼接编译 / 运行命令 |
 | 编译命令 | cpp17：`g++ -std=c++17 -O2 -o Main Main.cpp`；java21：`javac Main.java`；python3.12：免编译 |
 | 运行命令 | cpp17：`./Main`；java21：`java -Xmx<堆上限> Main`（堆上限由有效内存换算，仅运行时用）；python3.12：`python3.12 Main.py` |
 | 标准流 | 逐测试点独立运行：测试点输入重定向 stdin，stdout 捕获为程序输出（写入 `submission_test_case_results.output`） |
 | 默认比对 | 忽略行尾空白与末尾换行、行内严格 |
-| SPJ 契约 | checker 编译 / 运行命令同 cpp17，进程参数：`checker <input文件> <answer文件> <output文件>`；退出码 0=AC、非 0=WA（其它非零退出可映射为 `system_error` 供排障）；checker 受沙箱资源限制 |
+| stderr 归集 | 执行器过滤 nsjail 自身的 `[I]`/`[W]` 日志行后仅返回/记录程序真实错误输出；nsjail 的 `[E]`/`[F]` 故障行保留用于执行器排障 |
+| SPJ 契约 | checker 使用 C++17 在 nsjail 内编译一次；每个测试点独立运行，参数：`checker <input文件> <answer文件> <output文件>`；退出码 0=AC、1=WA、>=2 或异常=system_error；checker 受沙箱资源限制 |
 | 输出上限 | 程序输出超出 `sandbox_configs.output_limit_kb` 截断并判 `output_limit_exceeded` |
 
-> 上表为文档约定；实际编译 / 运行命令以 `sandbox_configs` 语言级配置为准，沙箱节点按配置拼接，所有执行均在 nsjail 隔离内完成。
-
-## 测试样例执行接口（内联）
-
-```
-调用方（用户或 AI）
-  → POST /sandbox/sample-run { code, language, input, expected_output? }
-  → 沙箱编译并运行，返回实际输出
-  → 若有 expected_output 则做比对，返回 passed
-  → 样例数据全部内联传入，不读取数据库/对象存储的测试点文件
-```
-
-适用场景：用户编辑器「试运行样例」自测、AI 修改代码后自测、AI 出题生成样例后校验样例正确性。
+> 上表为文档约定；实际编译 / 运行命令以 `sandbox_configs` 语言级配置为准。判题节点负责准备与沙箱 `/sandbox` 挂载根一致的本地临时工作目录，并将容器内路径转换为 jail 内 `/sandbox/<relative-job-path>` 的绝对路径；nsjail 执行器只接收受控 argv 和 jail 可见路径，不使用 shell 拼接。沙箱不访问 MinIO、数据库或公网，所有执行均在 nsjail 隔离内完成。
 
 ## 明确不做
 
 - 不单独建判题日志表（明细在 `submission_test_case_results` + `submissions`，沙箱日志归入 `request_logs.extra`）
 - 不单独建验题判题表（验题复用 `submissions`，`submit_type='verify'`）
-- 沙箱默认禁止网络访问，不提供例外开关（SSRF 防护）
-- 测试点对象不向前端暴露下载 / 预签名 URL（判题节点独立只读账号内部拉取）
+- 沙箱默认禁止网络访问，不提供例外开关（SSRF 防护）；不提供用户可控 URL 执行接口，代码和测试点由判题节点从内部存储准备到本地临时目录
+- **后端进程不执行任何用户代码**（无内联执行端点；样例试运行能力规划由节点侧专用端点承担）
+- 测试点对象不向前端暴露下载 / 预签名 URL（判题节点经网关认证后按 data_version 拉取）
 - 不做 per-problem 语言级限制覆盖（C++ 基准 + `sandbox_configs` 全局语言比例即可，见 `docs/decisions/2026-08-15-language-limit-ratio.md`）

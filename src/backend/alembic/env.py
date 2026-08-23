@@ -24,9 +24,14 @@ config.set_main_option("sqlalchemy.url", get_settings().database_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 后续各模块 models.py 定义后，在此聚合 import 并赋给 target_metadata，
+# 各模块 models.py 在此聚合 import 并赋给 target_metadata，
 # 供 `alembic revision --autogenerate` 使用；迁移 SQL 仍为表结构唯一来源。
-target_metadata = None
+from app.modules.admin import models as admin_models  # noqa: F401
+from app.modules.judge import models as judge_models  # noqa: F401
+from app.modules.users import models as users_models  # noqa: F401
+from app.shared.database import Base
+
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

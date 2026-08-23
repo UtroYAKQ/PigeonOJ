@@ -83,7 +83,8 @@
 | POST | /auth/change-password | auth | 修改密码 | old_password, new_password | - |
 | POST | /auth/change-email | auth | 换绑邮箱 | new_email, code | - |
 | GET | /users/me | auth | 当前用户 | - | user |
-| PUT | /users/me | auth | 更新资料 | nickname/signature/theme/avatar | user |
+| PUT | /users/me | auth | 更新资料 | nickname/signature/theme/avatar（头像必须为当前用户 MinIO `oss_id`） | user |
+| POST | /files/upload/avatar | auth | 上传头像 | multipart file，≤2MB，JPG/PNG/WEBP/GIF | oss_id / url |
 | DELETE | /users/me | auth | 注销账号（软注销） | password | - |
 | GET | /users/me/sessions | auth | 会话列表 | - | session[] |
 | DELETE | /users/me/sessions/{sid} | owner | 注销指定会话 | - | - |

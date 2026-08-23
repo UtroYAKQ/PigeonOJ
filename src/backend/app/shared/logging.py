@@ -1,11 +1,11 @@
-"""日志配置：统一格式与级别（从 config 读取 LOG_LEVEL）。"""
-import logging
-import sys
+"""日志配置（兼容层，已迁移至 shared/infra/logging.py）。
 
+保留此文件以兼容旧有导入：
+    from app.shared.logging import setup_logging
 
-def setup_logging(level: str = "INFO") -> None:
-    logging.basicConfig(
-        level=level.upper(),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        stream=sys.stdout,
-    )
+新代码请直接使用：
+    from app.shared.infra.logging import setup_logging
+"""
+from app.shared.infra.logging import setup_logging  # noqa: F401
+
+__all__ = ["setup_logging"]

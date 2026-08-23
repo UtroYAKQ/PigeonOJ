@@ -1,6 +1,8 @@
 # AI 模块契约
 
 > AI 聊天、改码、编译纠错、出题、Token 用量与模型配置。AI 编排用 LangGraph，模型调用统一经 LiteLLM。
+>
+> **实现状态**：本模块（含 `model_configs` / `user_token_stats` 表与相关端点）当前**暂缓实现**，代码中未包含；后续按本契约落地。
 
 ## 数据模型
 

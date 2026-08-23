@@ -1,0 +1,23 @@
+import { apiRequest } from './request'
+import type { PageResult, ProblemLanguage, Submission, SubmissionStatus } from './types'
+
+export function createSubmission(body: { problem_id: string; language: ProblemLanguage; code: string }): Promise<{ submission_id: string; status: string }> {
+  return apiRequest('POST', '/submissions', body)
+}
+
+export interface SubmissionListQuery {
+  page?: number
+  page_size?: number
+  problem_id?: string
+  status?: SubmissionStatus
+}
+export function listSubmissions(query: SubmissionListQuery = {}): Promise<PageResult<Submission>> {
+  const params = new URLSearchParams()
+  if (query.page) params.set('page', String(query.page))
+  if (query.page_size) params.set('page_size', String(query.page_size))
+  if (query.problem_id) params.set('problem_id', query.problem_id)
+  if (query.status) params.set('status', query.status)
+  const qs = params.toString()
+  return apiRequest('GET', `/submissions${qs ? `?${qs}` : ''}`)
+}
+export function getSubmission(id: string): Promise<Submission> { return apiRequest('GET', `/submissions/${id}`) }

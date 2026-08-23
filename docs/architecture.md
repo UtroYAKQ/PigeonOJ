@@ -15,7 +15,7 @@
 | 缓存 / 队列 | Redis | 7 | 会话、邀请链接、限流、Celery 队列 |
 | 对象存储 | MinIO | - | 测试点、头像、图片 |
 | 代码沙箱 | nsjail | - | 进程级隔离，限制 CPU / 内存 / 时间 / 进程 / 文件系统 |
-| 前端 | Vue 3 + Pinia + Element Plus | - | |
+| 前端 | Vue 3 + Pinia + Element Plus + Tailwind CSS | - | Tailwind v4 辅助布局（见 `docs/decisions/2026-08-17-frontend-tailwind.md`） |
 | 代码编辑器 | Monaco Editor | - | |
 | 部署 | Docker Compose | - | |
 
@@ -29,6 +29,7 @@
 - **独立沙箱日志表 / 独立验题判题表** — 沙箱执行日志作为 `request_logs.extra` 子记录，验题判题复用 `submissions`，均不单独建表
 - **权限表（`permissions` / `role_permissions`）** — 功能权限不落表，应用层按角色 code 分支判定
 - **Kubernetes / Docker Swarm** — 用 Docker Compose，沙箱可横向扩容
+- **把本地 nsjail Docker 编排直接当生产方案** — 本地验证编排使用 `privileged`，生产必须改为受控节点、最小 capability 与任务级资源配置
 - **NoSQL 存储业务实体** — 业务实体统一 PostgreSQL；Redis 只放短生命周期数据（邀请链接、会话热点、限流计数、沙箱节点状态）
 
 ## 分层架构
@@ -83,7 +84,9 @@ src/backend/
 | 题单 | 公开 / 团队题单 | `problem_sets`、`problem_set_items` | 题单 CRUD、题目编排 |
 | 比赛 | 公开 / 团队比赛、报名、榜单 | `contests`、`contest_problems`、`contest_registrations`、`contest_rankings` | 建赛 / 报名 / 提交 / 榜单 / 封榜 |
 | 判题 | 提交、调度、判题结果 | `submissions`、`submission_test_case_results` | 提交判题、历史查询 |
-| 沙箱 | 安全执行环境、自动调度、样例执行接口 | `sandbox_configs` | 判题 / 编译 / 运行 / 样例执行 / 健康检查 |
+| 沙箱 | nsjail 安全执行器；由 Judge Worker 调用，不直接承载公网业务 API | `sandbox_configs` | 编译 / 运行 / 资源限制 / 健康检查 |
+
+> 判题采用 Codeforces 风格的「调度器 → Judge Worker → nsjail 执行器」链路。Judge Worker 负责从内部存储准备代码与测试点到本地临时目录，沙箱不访问 MinIO、数据库或公网。
 | AI | 聊天、改码、编译纠错、出题、Token 统计 | `ai_conversations`、`ai_messages`、`ai_requests`、`user_token_stats`、`ai_generation_tasks` | AI 能力接入、用量统计 |
 | 社区 | 通知、消息、题解、讨论、评论、举报 | `notifications`、`messages`、`solutions`、`posts`、`comments`、`reports` | 社区互动 |
 | 系统配置 | 站点 / 认证 / 团队 / 比赛 / 模型 / 沙箱 / 日志 / 社区配置 | `system_configs`、`model_configs`、`sandbox_configs` | 配置管理 |
@@ -125,8 +128,13 @@ src/backend/
 ## 前端约定
 
 - 页面级组件管理状态（Pinia），展示型组件纯渲染
+- 前端用户可见文案通过 vue-i18n 管理，默认中文并支持 English 切换；上传统一走 `src/api/files.ts`
+- **国际化要求**：所有面向用户的静态文案（页面、组件、路由标题、菜单、表格列、表单标签/占位符、空状态、弹窗、通知、导出表头及展示字典）必须使用 `src/i18n/` 中的 key，不得在 Vue/TS 中硬编码自然语言；新增或修改文案时必须同时提供 `zh-CN` 与 `en-US` 翻译。服务端返回的业务错误信息可按原样展示，但前端兜底错误提示必须国际化。
 - 每个数据视图覆盖 loading / error / empty / success 四种状态
 - 通过统一 API 层调用后端，统一处理响应信封 `{ code, message, data }`
+- 整体布局：左侧边栏为菜单（折叠可收纳），**用户设置在侧边栏底部用户卡**（头像下拉进入个人资料 / 安全设置 / 会话管理）；右侧为顶栏 + 内容区，**区块（路由下 ≥2 个子页）时在内容区顶部自动渲染二级菜单栏**（如管理后台 5 个子页、用户设置 3 个子页），区块子页仅 1 个时不显示
+- 路由权限：菜单与路由按 `meta.roles` 过滤（管理后台仅 `admin`），路由守卫做登录 / 角色校验（见 `docs/architecture.md` 权限设计）
+- **样式约定**：组件样式归 Element Plus；页面布局 / 间距 / 排版用 Tailwind CSS v4 原子类（`dark:` 变体与 EP `html.dark` 暗色策略对齐），见 `docs/decisions/2026-08-17-frontend-tailwind.md`
 - 题目样例提供「复制 / 一键填入」入口：用户可将样例输入一键填入编辑器输入框，通过测试样例接口运行
 - 写题界面左半展示题目内容并可切换 AI 聊天窗口，右半为 Monaco 编辑器
 - AI 修改代码必须展示 diff 等用户确认后应用，前端不得直接覆盖编辑器代码
@@ -139,7 +147,7 @@ src/backend/
 - AI 修改代码必须用户确认后应用，避免自动覆盖用户代码
 - 全部资源访问按 RBAC + 资源级可见性双重校验
 - 提交限频：按用户 + 题目提交冷却 + 全局判题并发上限（Redis 频控）；提交代码大小上限 64KB（UTF-8 字节）
-- 文件上传：对象 key 由服务端生成（不信任客户端路径），类型白名单，大小上限（头像 ≤2MB、测试点 / SPJ ≤16MB）
+- 文件上传：统一文件 Service 写入 MinIO；对象 key 由服务端生成（不信任客户端路径），类型白名单，大小上限（头像 ≤2MB、测试点 / SPJ ≤16MB）；前端通过统一 multipart 上传工具调用文件接口
 - 不硬编码密钥 / token / 密码 / URL；不在日志记录敏感信息
 
 ## 权限设计（RBAC）

@@ -1,0 +1,25 @@
+# 判题节点编排：在任意可出站访问后端网关的服务器上部署。
+# 使用：
+#   1. cp .env.node.example .env
+#   2. 编辑 .env 填入实际配置
+#   3. docker compose -f docker-compose-node.yml up -d --build
+services:
+  judge-node:
+    build:
+      context: ../src/judge
+      dockerfile: Dockerfile
+    image: pigeonoj/judge-node:latest
+    privileged: true            # nsjail 嵌套 namespace 所需（受控节点信任边界）
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SERVER_ADDRESS: ${SERVER_ADDRESS:?需设置后端网关地址}
+      SERVER_TOKEN: ${SERVER_TOKEN:?需设置注册令牌}
+    volumes:
+      # 宿主机工作区 → 容器 /sandbox（任务临时目录，每作业自动建/清）
+      - ${NODE_WORKSPACE_DIR:-./data/workspace}:/sandbox
+      # 题目数据缓存 → /cache（跨容器重启复用）
+      - ${NODE_CACHE_DIR:-./data/cache}:/cache
+    # 注意：不要使用 network_mode:none —— 节点需出站连接后端网关；
+    # 节点不开放任何入站端口。

@@ -1,4 +1,4 @@
-<p align="center">
+﻿<p align="center">
   <img alt="Docs First" src="https://img.shields.io/badge/Docs--First-blue?style=flat-square" />
   <img alt="OJ + AI" src="https://img.shields.io/badge/OJ%20%2B%20AI-teal?style=flat-square" />
   <img alt="Platform" src="https://img.shields.io/badge/Type-Platform-purple?style=flat-square" />
@@ -36,8 +36,11 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 # 开发环境（PostgreSQL + Redis + MinIO + 后端）
 docker compose -f docker/docker-compose-dev.yml up --build
 
-# 生产环境（后端 + Celery + 前端 + 基础设施）
+# 生产环境（后端 + 前端 + 基础设施；判题节点见 src/judge）
 docker compose -f docker/docker-compose.yml up -d
+
+# 仅启动本地 nsjail 沙箱节点（源码/输入放入 sandbox-work volume）
+docker compose -f docker/docker-compose-sandbox.yml build
 ```
 
 详细命令见 [docs/operations.md](docs/operations.md)。环境变量见 [.env.example](.env.example)，本地使用 `cp .env.example .env`。
@@ -46,7 +49,7 @@ docker compose -f docker/docker-compose.yml up -d
 
 | 类别 | 选型 |
 | --- | --- |
-| 后端 | FastAPI · SQLAlchemy · Alembic · Celery · LangGraph · LiteLLM |
+| 后端 | FastAPI · SQLAlchemy · Alembic · gRPC（判题节点网关）· LangGraph · LiteLLM |
 | 存储 | PostgreSQL · Redis · MinIO |
 | 沙箱 | nsjail（进程级隔离代码执行） |
 | 前端 | Vue 3 · Pinia · Element Plus · Monaco Editor |
@@ -76,9 +79,9 @@ docker compose -f docker/docker-compose.yml up -d
 | `docs/workflow.md` | AI 如何读文档、同步文档、写报告 |
 | `docs/decisions/` | 架构决策记录 |
 | `docker/` | Docker Compose 编排（生产 / 开发） |
-| `src/backend` / `src/frontend` / `src/sandbox` | 后端 / 前端 / 沙箱服务（前后端骨架已就位，沙箱待实现） |
+| `src/backend` / `src/frontend` / `src/sandbox` | 后端 / 前端 / 沙箱服务（后端与前端按契约实现中；沙箱 nsjail 执行器已就位） |
 
 ## 说明
 
-- 当前阶段：文档契约已完成，前后端**基础骨架已就位**（`src/backend` + `src/frontend`，不含业务），业务功能按 `docs/contracts/` 各模块契约逐步实现。
+- 当前阶段：文档契约已完成。**后端已实现 auth / users / admin / files / judge（题库·判题·沙箱节点调度）模块**（含 Alembic 迁移与集成测试）；**前端已实现整体布局**（左菜单 + 底部用户区 + 顶部二级菜单）与**用户 / 管理 / 题库**页面，直连真实后端 API（题库含列表分页筛选、写题/编辑、样例自测、提交判题与测试点明细）。判题链路为「调度器 + 节点专属队列 + 心跳负载 + beat 兜底重调度」架构，本地由 `run-local.bat` 一键拉起。其余业务功能（比赛 / 团队 / 题单 / AI / 社区等）按 `docs/contracts/` 各模块契约逐步实现（AI 模块及其模型配置 / Token 用量暂缓；团队题目可见性与验题邀请的团队侧随 teams 模块接入）。
 - 沙箱执行环境首批支持 Python 3.12、C++17、Java 21。

@@ -109,11 +109,15 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | POST | /admin/users/{id}/freeze | admin | 冻结（与安全策略同款，立即拦截登录；可人工解冻） | reason | - |
 | POST | /admin/users/{id}/unfreeze | admin | 解冻 | - | - |
 | GET/PUT | /admin/configs | admin | 系统配置（分域） | - | - |
+| POST | /files/upload/avatar | auth | 上传当前用户头像到 MinIO | multipart file（≤2MB，JPG/PNG/WEBP/GIF） | oss_id / url |
+| GET | /files/{object_key} | public | 读取头像等公开文件；不允许读取测试点 | object_key（仅 users/ 前缀） | binary |
 | GET/PUT | /admin/models | admin | 大模型配置 | - | - |
 | GET | /admin/token-stats | admin | 用户 Token 用量统计 | 分页 | stat[] |
 | GET | /admin/logs/{type} | admin | 日志查询 / 筛选 / 导出 | 时间范围/条件 | log[] |
 | GET | /admin/sandbox/status | admin | 沙箱状态展示（读 Redis） | - | nodes[] |
 | GET | /admin/reports | admin | 举报列表 / 处理 | 分页/状态 | report[] |
+
+> **实现状态**：`GET/PUT /admin/models` 与 `GET /admin/token-stats` 随 AI 模块暂缓实现（当前未提供对应端点与表结构），其余端点已实现。
 
 > **账号状态语义**：`frozen`（冻结：安全策略自动触发或管理员手动冻结，可到期自动解冻或人工解冻）与 `banned`（封禁：管理员主动封禁，仅可人工解封）均拦截登录；区分见 `users.md`「账号状态语义」。
 
@@ -134,6 +138,6 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 
 ## 明确不做
 
-- 不暴露测试点对象下载 / 预签名 URL（判题内部链路）
+- 文件上传由服务端校验类型 / 大小并生成对象 key；头像对象使用 `users/{user_id}/avatar/{uuid}`，测试点对象不暴露下载 / 预签名 URL（判题内部链路）
 - 日志请求体不回传明文（脱敏摘要）
 - Token 用量仅统计、不做额度控制
