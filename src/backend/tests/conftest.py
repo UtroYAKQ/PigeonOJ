@@ -24,7 +24,10 @@ from sqlalchemy import select
 
 import app.modules.admin.models  # noqa: F401  (注册到 Base.metadata)
 import app.modules.judge.models  # noqa: F401
+import app.modules.problems.models  # noqa: F401
 import app.modules.users.models  # noqa: F401
+import app.shared.infra.audit  # noqa: F401  (平台表：审计日志)
+import app.shared.infra.system_config  # noqa: F401  (平台表：系统配置)
 from app.main import app
 from app.modules.users.models import Role, User, UserRole
 from app.shared.infra.database import Base, SessionLocal, engine
@@ -54,6 +57,13 @@ CONFIG_SEEDS = [
     ("auth_email", "email.code.expire_seconds", 600, "验证码有效期（秒）"),
     ("auth_email", "email.code.resend_seconds", 60, "验证码重发间隔（秒）"),
     ("auth_email", "email.code.max_attempts", 5, "验证码最大尝试次数"),
+    ("auth_email", "email.verify_enabled", True, "注册是否需要邮箱验证码"),
+    ("auth_email", "email.smtp.host", "", "SMTP 服务器地址（留空则验证码打印到后端日志）"),
+    ("auth_email", "email.smtp.port", 465, "SMTP 端口（465 SSL / 587 STARTTLS）"),
+    ("auth_email", "email.smtp.username", "", "SMTP 用户名"),
+    ("auth_email", "email.smtp.password", "", "SMTP 密码 / 授权码（管理接口掩码返回）"),
+    ("auth_email", "email.smtp.sender", "", "发件人地址（留空用 SMTP 用户名）"),
+    ("auth_email", "email.smtp.use_ssl", True, "是否使用 SSL 直连（false 时用 STARTTLS）"),
     ("team", "invite.expire_hours", 72, "邀请链接有效期（小时）"),
     ("team", "team.apply.review_rule", "manual", "加入审批规则"),
     ("contest", "contest.freeze_default_seconds", 3600, "封榜默认时长（秒）"),
@@ -81,8 +91,8 @@ async def prepare_db():
             await db.flush()
             for code in role_codes:
                 db.add(UserRole(user_id=user.id, role_id=role_map[code], scope="global", object_id=None))
-        from app.modules.admin.models import SystemConfig
         from app.modules.judge.models import SandboxConfig
+        from app.shared.infra.system_config import SystemConfig
 
         for category, key, value, desc in CONFIG_SEEDS:
             db.add(SystemConfig(category=category, config_key=key, config_value=value, description=desc))
@@ -141,6 +151,7 @@ class FakeStorage:
 def fake_storage(monkeypatch) -> FakeStorage:
     storage = FakeStorage()
     for target in (
+        "app.modules.problems.service.get_storage",
         "app.modules.judge.service.get_storage",
         "app.modules.judge.jobs.get_storage",
         "app.modules.judge.gateway.get_storage",

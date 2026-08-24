@@ -11,13 +11,12 @@ import logging
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.admin.models import Report
-from app.modules.admin.repository import ConfigRepository, LogRepository, ReportRepository
-from app.modules.users.models import User
-from app.shared.common.config import ConfigService
+from app.modules.admin.repository import ReportRepository
+from app.modules.users.api import User, get_nicknames
+from app.shared.infra.audit import LogRepository
+from app.shared.infra.system_config import ConfigRepository
 from app.shared.common.errors import (
     PARAM_FORMAT_INVALID,
     RESOURCE_NOT_FOUND,
@@ -28,25 +27,35 @@ from app.shared.infra.redis import get_redis
 
 logger = logging.getLogger(__name__)
 
+# 敏感配置键后缀：列表返回时掩码，更新时该值表示「保持原值」
+_PASSWORD_KEY_SUFFIX = ".password"
+_PASSWORD_MASK = "******"
 
-class AdminConfigService(ConfigService):
-    """管理后台专用的配置服务，扩展了配置列表查询和更新功能。"""
+
+def _is_secret_key(config_key: str) -> bool:
+    return config_key.endswith(_PASSWORD_KEY_SUFFIX)
+
+
+class AdminConfigService:
+    """管理后台专用的配置服务：在平台配置读取之上扩展列表查询与更新。"""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+        self.repo = ConfigRepository(db)
 
     async def list_configs(self, category: str | None) -> list[dict]:
         rows = await self.repo.list_by_category(category)
         # 修改人：关联 users 取昵称（updated_by 为 UUID）
         updater_ids = {r.updated_by for r in rows if r.updated_by}
-        updater_names: dict[uuid.UUID, str] = {}
-        if updater_ids:
-            stmt = select(User.id, User.nickname).where(User.id.in_(updater_ids))
-            for uid, nickname in (await self.db.execute(stmt)).all():
-                updater_names[uid] = nickname
+        updater_names = await get_nicknames(self.db, list(updater_ids))
         return [
             {
                 "id": str(r.id),
                 "category": r.category,
                 "config_key": r.config_key,
-                "config_value": r.config_value,
+                "config_value": _PASSWORD_MASK
+                if _is_secret_key(r.config_key) and r.config_value
+                else r.config_value,
                 "description": r.description,
                 "updated_by": updater_names.get(r.updated_by) if r.updated_by else None,
                 "updated_at": r.updated_at.isoformat(),
@@ -62,7 +71,11 @@ class AdminConfigService(ConfigService):
             row = await self.repo.get_by_id(uuid.UUID(str(config_id)))
             if row is None:
                 raise APIError(RESOURCE_NOT_FOUND, f"配置不存在：{config_id}", 404)
-            row.config_value = item["config_value"]
+            value = item["config_value"]
+            # 敏感键：提交掩码值视为「未修改」，避免把密文回写覆盖真实值
+            if _is_secret_key(row.config_key) and value == _PASSWORD_MASK:
+                continue
+            row.config_value = value
             row.updated_by = admin.id
         await self.db.flush()
         return await self.list_configs(None)
@@ -137,11 +150,7 @@ class ReportService:
     async def list(self, page: int, page_size: int, status: str | None) -> dict:
         rows, total = await self.repo.list_page(page, page_size, status)
         reporter_ids = {r.reporter_id for r in rows}
-        nicknames: dict[uuid.UUID, str] = {}
-        if reporter_ids:
-            stmt = select(User.id, User.nickname).where(User.id.in_(reporter_ids))
-            for uid, nickname in (await self.db.execute(stmt)).all():
-                nicknames[uid] = nickname
+        nicknames = await get_nicknames(self.db, list(reporter_ids))
         items = [
             {
                 "id": str(r.id),

@@ -1,15 +1,72 @@
-"""用户中心集成测试（docs/contracts/users.md）：资料 / 注销 / 会话管理。
+"""用户中心集成测试（docs/contracts/users.md）：资料 / 注销 / 会话管理 / 注册开关。
 
 数据所有权：所有查询限定当前用户（越权访问他人会话 → 3001）。
 """
 from __future__ import annotations
 
 import httpx
-import pytest
+from sqlalchemy import select
+
+from app.shared.infra.database import SessionLocal
+from app.shared.infra.system_config import SystemConfig
 
 from .conftest import api_login, register_user
 
 PASSWORD = "Pass@123"
+
+
+async def _set_config(category: str, key: str, value) -> None:
+    async with SessionLocal() as db:
+        row = (
+            await db.execute(
+                select(SystemConfig).where(
+                    SystemConfig.category == category, SystemConfig.config_key == key
+                )
+            )
+        ).scalar_one()
+        row.config_value = value
+        await db.commit()
+
+
+async def test_register_disabled(client: httpx.AsyncClient) -> None:
+    """站点关闭注册（site.register_enabled=false）→ 2005，且不消耗已发验证码。"""
+    from app.shared.infra.redis import redis_set_json
+
+    await redis_set_json("email:code:closed@pigeonoj.dev:register", {"code": "123456", "attempts": 0}, 600)
+    await _set_config("site", "site.register_enabled", False)
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "closed@pigeonoj.dev", "code": "123456", "password": PASSWORD, "nickname": "被拒"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == 2005
+    # 恢复开关后原验证码仍可用（未被消耗）
+    await _set_config("site", "site.register_enabled", True)
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "closed@pigeonoj.dev", "code": "123456", "password": PASSWORD, "nickname": "通过"},
+    )
+    assert resp.json()["code"] == 0
+
+
+async def test_register_without_email_verification(client: httpx.AsyncClient) -> None:
+    """关闭邮箱验证（email.verify_enabled=false）→ 无验证码直接注册成功；开启时缺验证码 → 1002。"""
+    await _set_config("auth_email", "email.verify_enabled", False)
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "noverify@pigeonoj.dev", "password": PASSWORD, "nickname": "免验证"},
+    )
+    assert resp.json()["code"] == 0
+    token = await api_login(client, "noverify@pigeonoj.dev", PASSWORD)
+    assert token
+
+    await _set_config("auth_email", "email.verify_enabled", True)
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "needcode@pigeonoj.dev", "password": PASSWORD, "nickname": "缺验证码"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["code"] == 1002
 
 
 async def test_me_requires_login(client: httpx.AsyncClient) -> None:

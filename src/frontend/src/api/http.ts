@@ -35,18 +35,37 @@ export async function request<T = unknown>(path: string, options: RequestInit = 
   let resp: Response
   try {
     resp = await fetch(`${BASE_URL}${path}`, {
-      headers: { ...(isFormData ? {} : { 'Content-Type': 'application/json' }), ...authHeaders(), ...(options.headers ?? {}) },
+      headers: {
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+        ...authHeaders(),
+        ...(options.headers ?? {}),
+      },
       ...options,
     })
   } catch {
-    throw new ApiError(5000, (i18n as unknown as { global: { t: (key: string, params?: Record<string, unknown>) => string } }).global.t('app.networkError'))
+    throw new ApiError(
+      5000,
+      (
+        i18n as unknown as {
+          global: { t: (key: string, params?: Record<string, unknown>) => string }
+        }
+      ).global.t('app.networkError'),
+    )
   }
 
   let body: Envelope<T>
   try {
     body = (await resp.json()) as Envelope<T>
   } catch {
-    throw new ApiError(resp.status, (i18n as unknown as { global: { t: (key: string, params?: Record<string, unknown>) => string } }).global.t('app.badResponse', { status: resp.status }), resp.status)
+    throw new ApiError(
+      resp.status,
+      (
+        i18n as unknown as {
+          global: { t: (key: string, params?: Record<string, unknown>) => string }
+        }
+      ).global.t('app.badResponse', { status: resp.status }),
+      resp.status,
+    )
   }
 
   if (body.code !== 0) {

@@ -17,7 +17,7 @@
 | language | VARCHAR(32) | NOT NULL | `python3.12` / `cpp17` / `java21` |
 | code | TEXT | NOT NULL | 提交代码（应用层按 UTF-8 字节校验 ≤ 64KB，超出拒绝） |
 | status | VARCHAR(24) | NOT NULL DEFAULT 'pending' | `pending` / `judging` / `accepted` / `wrong_answer` / `time_limit_exceeded` / `memory_limit_exceeded` / `output_limit_exceeded` / `runtime_error` / `compile_error` / `system_error` |
-| score | INT | NOT NULL DEFAULT 0 | 总得分（IOI） |
+| score | INT | NOT NULL DEFAULT 0 | 总得分（服务端派生：练习 / 验题按满分 100 均分到各测试点、仅通过计分；OI 比赛中以比赛配置的单题分值平摊到测试点，随 contests 模块实现） |
 | time_used_ms | INT | NULL | 最大用时 |
 | memory_used_kb | INT | NULL | 最大内存 |
 | error_message | TEXT | NULL | 编译错误 / 运行错误信息 |
@@ -46,7 +46,7 @@ CHECK (
 | status | VARCHAR(24) | NOT NULL | 单测试点判题状态 |
 | time_used_ms | INT | NULL | |
 | memory_used_kb | INT | NULL | |
-| score | INT | NOT NULL DEFAULT 0 | 该测试点得分 |
+| score | INT | NOT NULL DEFAULT 0 | 该测试点得分（服务端派生：单点分值一致 = 单题满分 ÷ 测试点数，仅通过时计分；练习 / 验题满分为 100，OI 比赛为比赛配置的单题分值） |
 | output | TEXT | NULL | 运行输出（MinIO ossId，正文截断后落对象存储） |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
@@ -124,7 +124,7 @@ CHECK (
     build_job_bundle 原子认领（UPDATE ... WHERE status='pending'）后经 gRPC 流推送 SubmitJob
   → 无在线节点：保持 pending，网关维护循环每 30s 重扫派发
 节点（pigeonoj/judge-node 容器，privileged，出站连接后端 :50051）
-  → 数据缓存未命中时 FetchProblemData 拉取测试点/SPJ（data_version 缓存于容器 /cache）
+  → 数据缓存未命中时 FetchProblemData 拉取测试点（data_version 缓存于容器 /cache）
   → 按 sandbox_configs 比例换算有效限制（时间 ×time_ratio；内存 max(×memory_ratio, memory_min_mb)）
   → nsjail 原生编译一次、逐测试点独立运行，写 submission_test_case_results（输出落 MinIO）
   → 回传 JudgeResult；汇总写 submissions；验题提交回写 verification 与 problems.is_verified
@@ -140,7 +140,7 @@ CHECK (
   首条 Register 携带令牌（后端 `JUDGE_GATEWAY_TOKENS` 其一），不符即 UNAUTHENTICATED；
   上行 Heartbeat / JudgeResult，下行 SubmitJob / CancelJob(预留)。
 - `FetchProblemData(ProblemDataRequest) returns (stream FileChunk)`：
-  按 `data_version` 流式传输 manifest / cases/<id>.in|.out / spj.cpp；
+  按 `data_version` 流式传输 manifest / cases/<id>.in|.out；
   令牌经 metadata `x-node-token` 携带。数据指纹 = sha256(测试点数量|最大 updated_at)，
   节点按 `<problem_id>-<data_version>` 缓存于容器 `/cache`，跨提交复用。
 - 断线语义：连接断开即离线，其名下 in-flight 提交由服务端重置 pending 并重派；
@@ -155,7 +155,7 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 
 - 提交统一按 `submit_type` 区分场景：练习（默认）、比赛（`contest_id` 关联，含赛后补题）、验题（`verification_id` 关联，结果驱动 `problem_verifications.status`；验题通过同步回写 `problems.is_verified / verified_by / verified_at`）。
 - 任务派发由 gRPC 网关承担，`sandbox_configs` 提供语言级运行参数（含输出大小、磁盘配额、CPU 核数、网络开关）与判题限制比例；`problems` 提供 **C++ 基准**内存 / 时间限制，判题按提交语言解析有效限制。
-- 判题比对模式：`problems.spj=false` 时默认比对（忽略行尾空白与末尾换行、行内严格）；`problems.spj=true` 时 SPJ checker 在沙箱内单独编译一次，并为每个测试点启动独立 nsjail，参数为 `checker <input文件> <answer文件> <output文件>`。checker 退出码 0=AC、1=WA、>=2 或超时/异常=system_error；checker 同样受沙箱资源限制。
+- 判题比对模式：统一默认比对（忽略行尾空白与末尾换行、行内严格）；不支持 SPJ 特判（见 `docs/decisions/2026-08-24-team-first-problem-production.md`）。
 - 输出超限：程序输出超过沙箱输出上限时截断比对，判定 `output_limit_exceeded`，不再继续比对剩余输出。
 - 判题失败（沙箱异常、超时）自动重试，超过阈值转 `system_error`。
 - 判题结果仅返回用户程序输出与判定状态，不返回测试点期望输出。
@@ -184,7 +184,6 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 | 标准流 | 逐测试点独立运行：测试点输入重定向 stdin，stdout 捕获为程序输出（写入 `submission_test_case_results.output`） |
 | 默认比对 | 忽略行尾空白与末尾换行、行内严格 |
 | stderr 归集 | 执行器过滤 nsjail 自身的 `[I]`/`[W]` 日志行后仅返回/记录程序真实错误输出；nsjail 的 `[E]`/`[F]` 故障行保留用于执行器排障 |
-| SPJ 契约 | checker 使用 C++17 在 nsjail 内编译一次；每个测试点独立运行，参数：`checker <input文件> <answer文件> <output文件>`；退出码 0=AC、1=WA、>=2 或异常=system_error；checker 受沙箱资源限制 |
 | 输出上限 | 程序输出超出 `sandbox_configs.output_limit_kb` 截断并判 `output_limit_exceeded` |
 
 > 上表为文档约定；实际编译 / 运行命令以 `sandbox_configs` 语言级配置为准。判题节点负责准备与沙箱 `/sandbox` 挂载根一致的本地临时工作目录，并将容器内路径转换为 jail 内 `/sandbox/<relative-job-path>` 的绝对路径；nsjail 执行器只接收受控 argv 和 jail 可见路径，不使用 shell 拼接。沙箱不访问 MinIO、数据库或公网，所有执行均在 nsjail 隔离内完成。

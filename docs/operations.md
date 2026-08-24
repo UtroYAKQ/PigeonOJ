@@ -4,18 +4,15 @@
 
 ## 一键启动（Windows）
 
-双击仓库根目录的 `run-local.bat`：自动启动 PostgreSQL / MinIO / Redis 容器（本地镜像，不拉取），构建并冒烟验证 nsjail 沙箱，执行数据库迁移与演示账号引导，随后弹出两个窗口分别运行后端（8000）与前端（5173，真实 API 模式）。
+双击仓库根目录的 `run-local.bat`：自动启动 PostgreSQL / MinIO / Redis 容器（本地镜像，不拉取），构建沙箱基础层（`sandbox:local`）与判题节点镜像（`pigeonoj/judge-node`）并启动 1 个本地判题节点容器（首次自动复制 `.env.node.example` 为 `.env.node`），执行数据库迁移与演示账号引导，随后弹出两个窗口分别运行后端（8000，内含判题 gRPC 网关 :50051 与维护循环）与前端（5173，真实 API 模式）。
 
 ## 本地运行（不用 Docker）
 
 依赖：Python 3.12+、Node 20+、本地 PostgreSQL / Redis / MinIO。
 
 ```bash
-# 后端
+# 后端（判题 gRPC 网关 :50051 与维护循环随应用启动，需配置 JUDGE_GATEWAY_TOKENS）
 cd src/backend && pip install -r requirements.txt && alembic upgrade head && uvicorn app.main:app --reload
-
-# Celery worker（含 beat）
-cd src/backend && celery -A app.worker.celery_app worker -l info --beat
 
 # 前端
 cd src/frontend && npm install && npm run dev
@@ -28,10 +25,7 @@ cd src/frontend && npm install && npm run dev
 ## Docker 运行
 
 ```bash
-# 开发（PostgreSQL + Redis + MinIO + 后端热重载；前端本地 npm run dev）
-docker compose -f docker/docker-compose-dev.yml up --build
-
-# 生产（后端 + Celery + 前端 + 基础设施）
+# 生产（后端 + 前端 + 基础设施；判题 gRPC 网关随后端进程启动）
 docker compose -f docker/docker-compose.yml up -d
 
 # 构建判题节点镜像（底座 sandbox:local 缺失时会先要求构建，见 run-local.bat 同逻辑）
@@ -60,46 +54,78 @@ docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
 
 支持入口与执行规范见 [docs/contracts/judge.md](contracts/judge.md)。
 
+## 后端配置文件
+
+后端配置主文件是 `src/backend/backend.toml`（与判题节点 `node.toml` 同风格，随仓库提交、仅含开发默认值），
+`src/backend/app/config.py` 只负责加载。加载优先级（高 → 低）：
+
+1. 进程环境变量
+2. `.env`（仓库根目录，仅放需要覆盖的项）
+3. `backend.toml`
+
+```toml
+[app]     # environment / secret_key / log_level
+[database]  # url
+[redis]     # url
+[minio]     # endpoint / access_key / secret_key / bucket / secure
+[judge]     # gateway_tokens / grpc_host / grpc_port / heartbeat_interval_seconds
+[cors]      # origins
+```
+
+- TOML 分段键拍平为下划线字段名：`[minio] endpoint` → 环境变量 `MINIO_ENDPOINT`
+- 配置文件缺失时回落到环境变量；两者都缺则启动报错（fail fast）
+- Docker 部署时 `backend.toml` 随构建上下文进入镜像（`/app/backend.toml`），
+  敏感项用 `.env` / `environment:` 环境变量覆盖
+
 ## 环境变量
 
-所有变量列在 `.env.example`。本地使用：`cp .env.example .env`。
+变量清单见 `backend.toml` 与 `.env.example`；`.env` 仅用于覆盖，本地使用：`cp .env.example .env`。
 
 | 变量 | 说明 | 示例 |
 | --- | --- | --- |
-| `ENVIRONMENT` | 运行环境 | `development` / `production` |
-| `SECRET_KEY` | 会话 / 加密主密钥（生产必改） | 随机长字符串 |
-| `LOG_LEVEL` | 日志级别 | `INFO` |
-| `POSTGRES_USER` | PostgreSQL 用户 | `pigeonoj` |
-| `POSTGRES_PASSWORD` | PostgreSQL 密码 | `pigeonoj` |
-| `POSTGRES_DB` | PostgreSQL 库名 | `pigeonoj` |
-| `DATABASE_URL` | PostgreSQL 连接串 | `postgresql+asyncpg://pigeonoj:pigeonoj@localhost:5432/pigeonoj` |
-| `REDIS_URL` | Redis 连接串 | `redis://localhost:6379/0` |
-| `CELERY_BROKER_URL` | Celery Broker | `redis://localhost:6379/1` |
-| `CELERY_RESULT_BACKEND` | Celery 结果后端 | `redis://localhost:6379/2` |
-| `MINIO_ENDPOINT` | MinIO 端点 | `localhost:9000` |
-| `MINIO_ACCESS_KEY` | MinIO 访问密钥 | `pigeonoj` |
-| `MINIO_SECRET_KEY` | MinIO 密钥 | `pigeonoj-minio-secret` |
-| `MINIO_BUCKET` | MinIO 存储桶 | `pigeonoj` |
-| `MINIO_SECURE` | 是否启用 HTTPS（生产置 true） | `false` |
-| `MINIO_BUCKET` | MinIO 存储桶，文件 Service 启动时使用 | `pigeonoj` |
+| `ENVIRONMENT` | 运行环境（backend.toml `[app] environment`） | `development` / `production` |
+| `SECRET_KEY` | 会话 / 加密主密钥（生产必改，backend.toml `[app] secret_key`） | 随机长字符串 |
+| `LOG_LEVEL` | 日志级别（backend.toml `[app] log_level`） | `INFO` |
+| `POSTGRES_USER` | PostgreSQL 用户（仅 docker compose 基础设施服务使用） | `pigeonoj` |
+| `POSTGRES_PASSWORD` | PostgreSQL 密码（仅 docker compose 基础设施服务使用） | `pigeonoj` |
+| `POSTGRES_DB` | PostgreSQL 库名（仅 docker compose 基础设施服务使用） | `pigeonoj` |
+| `DATABASE_URL` | PostgreSQL 连接串（backend.toml `[database] url`） | `postgresql+asyncpg://pigeonoj:pigeonoj@localhost:5432/pigeonoj` |
+| `REDIS_URL` | Redis 连接串（backend.toml `[redis] url`） | `redis://localhost:6379/0` |
+| `MINIO_ENDPOINT` | MinIO 端点（backend.toml `[minio] endpoint`） | `localhost:9000` |
+| `MINIO_ACCESS_KEY` | MinIO 访问密钥（backend.toml `[minio] access_key`） | `pigeonoj` |
+| `MINIO_SECRET_KEY` | MinIO 密钥（backend.toml `[minio] secret_key`） | `pigeonoj-minio-secret` |
+| `MINIO_BUCKET` | MinIO 存储桶（backend.toml `[minio] bucket`） | `pigeonoj` |
+| `MINIO_SECURE` | 是否启用 HTTPS（生产置 true，backend.toml `[minio] secure`） | `false` |
 | `VITE_API_BASE_URL` | 前端 API 基址 | `http://localhost:8000/api/v1` |
-| `JUDGE_GATEWAY_TOKENS` | 判题节点注册令牌（逗号分隔多个）；为空则网关不启动。节点 node.toml 的 server.token 需匹配其一 | 空 |
-| `JUDGE_GRPC_HOST` | 判题网关 gRPC 监听地址 | `0.0.0.0` |
-| `JUDGE_GRPC_PORT` | 判题网关 gRPC 监听端口 | `50051` |
-| `SANDBOX_IMAGE` | 沙箱基础镜像名（判题节点镜像的 FROM 底座，由 `src/judge/sandbox/Dockerfile` 构建） | `sandbox:local` |ox:local` |
+| `JUDGE_GATEWAY_TOKENS` | 判题节点注册令牌，逗号分隔多个；为空则网关不启动（backend.toml `[judge] gateway_tokens`）。节点 node.toml 的 server.token 需匹配其一 | 空 |
+| `JUDGE_GRPC_HOST` | 判题网关 gRPC 监听地址（backend.toml `[judge] grpc_host`） | `0.0.0.0` |
+| `JUDGE_GRPC_PORT` | 判题网关 gRPC 监听端口（backend.toml `[judge] grpc_port`） | `50051` |
+| `TEST_DATABASE_URL` | 测试库连接串（覆盖 pytest 默认的 pigeonoj_test） | `postgresql+asyncpg://pigeonoj:pigeonoj@localhost:5432/pigeonoj_test` |
+
+> CORS 来源列表在 backend.toml `[cors] origins`（TOML 数组）；用环境变量覆盖时为 JSON 数组形式。
 
 > 判题节点自身的配置（SERVER_ADDRESS / SERVER_TOKEN / JUDGE_NODE_ID / JUDGE_NODE_NAME /
-> JUDGE_NODE_CAPACITY）来自节点侧 `src/judge/node/node.toml`，环境变量可覆盖；
-> 不属于后端环境变量。
+> JUDGE_NODE_CAPACITY / NODE_WORKSPACE_DIR / NODE_CACHE_DIR）见模板 `.env.node.example`，
+> 运行时默认值来自节点侧 `src/judge/node/node.toml`，环境变量可覆盖；不属于后端环境变量。
 
 > 大模型配置（各 AI 能力所用模型、API Key）在 `system_configs` / `model_configs` 中管理（Key 加密存储），不通过环境变量注入；`.env.example` 仅提供提供方级兜底 Key 的可选项。当前阶段 AI 模块（含模型配置 / Token 用量）暂缓实现。
 
 ## 测试
 
 ```bash
+npm run lint:check       # 前端静态检查（ESLint flat config：eslint-plugin-vue + typescript-eslint）
 pytest                  # 后端单元 + 集成测试（pytest + pytest-asyncio）
-npm test                # 前端单元测试（Vitest）
+npm test                # 前端单元测试（Vitest + jsdom；utils / constants/dict / api http 层）
 ```
+
+前端工程化约定（`src/frontend/`）：
+
+- 格式化由 Prettier 负责（`.prettierrc.json`），`npm run format` 一键格式化；ESLint 关闭格式类规则（`@vue/eslint-config-prettier/skip-formatting`），双工具不打架
+- ESLint 配置见 `eslint.config.js`（Vue essential + TS recommended）；`no-explicit-any` 暂关闭，存量清理后再开启
+- Vitest 配置在 `vite.config.ts` 的 `test` 块：jsdom 环境（dict.ts / http.ts 依赖 localStorage 与 DOMPurify）；测试与被测文件同目录，命名 `*.spec.ts`
+- ⚠️ 模板内联事件避免多条语句（如 `@click="a = 1; load()"`）：Prettier 折行后会生成非法模板表达式，统一收敛为 script 内方法
+
+> 导入规则检查无外部依赖（纯标准库 AST），改动后端任何 import 后建议先跑它再跑 pytest；规则见 `docs/architecture.md` 分层架构与 `docs/decisions/2026-08-24-backend-module-packaging.md`。
 
 后端集成测试需要本地 PostgreSQL / Redis（`src/backend/tests/conftest.py`）：
 
@@ -113,6 +139,7 @@ npm test                # 前端单元测试（Vitest）
 python -m scripts.bootstrap_demo_users   # 引导演示账号 admin/tutor/user（开发期联调用）
 python -m scripts.smoke_test             # 端到端冒烟（httpx ASGI 全链路）
 python scripts/verify_db.py              # 校验迁移与种子数据
+python scripts/check_import_rules.py     # 模块导入规则机械检查：shared 无业务依赖、跨模块仅经 api.py
 ```
 
 策略：
@@ -123,7 +150,7 @@ python scripts/verify_db.py              # 校验迁移与种子数据
 - 新增功能必须添加测试；变更后运行最相关测试，不必全量
 - 判题 / 沙箱相关测试在无沙箱环境标注 skip 或 mock，注明原因
 
-> 邮箱验证码：开发期未接入 SMTP，验证码打印在后端日志（`[email-code] ... code=xxxxxx`），便于本地联调。
+> 邮箱验证码发信：系统配置 `email.smtp.host` 为空（默认）时未接入 SMTP，验证码打印在后端日志（`[email-code] ... code=xxxxxx`），便于本地联调；在管理后台「认证邮箱」域配置 SMTP 服务器后走真实邮件发送，发送失败返回 `5001`。
 
 ## 生产检查清单
 

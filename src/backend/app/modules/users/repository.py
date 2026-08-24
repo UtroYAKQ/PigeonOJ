@@ -58,6 +58,13 @@ class UserRepository:
         items = list((await self.db.execute(stmt)).scalars().all())
         return items, int(total)
 
+    async def get_nicknames(self, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """批量读取昵称（管理列表展示用；缺失用户不出现在结果中）。"""
+        if not user_ids:
+            return {}
+        stmt = select(User.id, User.nickname).where(User.id.in_(user_ids))
+        return {uid: nickname for uid, nickname in (await self.db.execute(stmt)).all()}
+
 
 class SessionRepository:
     def __init__(self, db: AsyncSession) -> None:
@@ -116,14 +123,6 @@ class SessionRepository:
             .execution_options(synchronize_session=False)
         )
 
-    async def touch_active(self, session_id: uuid.UUID, now: datetime) -> None:
-        await self.db.execute(
-            update(UserSession)
-            .where(UserSession.id == session_id)
-            .values(last_active_at=now)
-            .execution_options(synchronize_session=False)
-        )
-
 
 class RoleRepository:
     def __init__(self, db: AsyncSession) -> None:
@@ -132,10 +131,6 @@ class RoleRepository:
     async def get_by_code(self, code: str) -> Role | None:
         stmt = select(Role).where(Role.code == code)
         return (await self.db.execute(stmt)).scalar_one_or_none()
-
-    async def list_all(self) -> list[Role]:
-        stmt = select(Role).order_by(Role.code)
-        return list((await self.db.execute(stmt)).scalars().all())
 
     async def get_global_role_codes(self, user_id: uuid.UUID) -> list[str]:
         """读取用户全局角色 code 列表（scope='global'、object_id IS NULL）。"""

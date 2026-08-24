@@ -2,18 +2,55 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
-import { uploadSpj } from '@/api/files'
+
 import { createProblem, getProblem, replaceTestCases, updateProblem } from '@/api/problems'
+import { message } from '@/utils/feedback'
 import type { ProblemDetailEx, TestCaseDraft } from '@/types'
 import TestCaseImporter from '@/components/problem/TestCaseImporter.vue'
+import VerifyPublishPanel from '@/components/problem/VerifyPublishPanel.vue'
 
-const route = useRoute(); const router = useRouter(); const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
+const { t } = useI18n()
 const isEdit = computed(() => Boolean(route.params.id))
-const saving = ref(false); const loading = ref(false); const uploadingSpj = ref(false)
+const saving = ref(false)
+const loading = ref(false)
 const problemId = ref<string | null>(null)
 const problemStatus = ref('draft')
-const spjInput = ref<HTMLInputElement>()
+const showSolution = ref(false)
+/** 完整详情（含验题状态），供「验题与发布」步骤使用 */
+const detail = ref<ProblemDetailEx | null>(null)
+
+// ---- 分步向导 ----
+const step = ref(0)
+const stepItems = computed(() => [
+  { title: t('problems.wizard.basic') },
+  { title: t('problems.wizard.cases') },
+  { title: t('problems.wizard.verifyPublish') },
+])
+function validateStep(index: number): boolean {
+  if (index === 0) {
+    if (!form.title.trim() || !form.description.trim()) {
+      message.error(t('problems.wizard.stepNeedBasic'))
+      return false
+    }
+    return true
+  }
+  if (index === 1) {
+    if (!cases.value.length || cases.value.some((item) => !item.input && !item.expected_output)) {
+      message.error(t('problems.wizard.stepNeedCases'))
+      return false
+    }
+    return true
+  }
+  return true
+}
+function nextStep() {
+  if (validateStep(step.value)) step.value = Math.min(2, step.value + 1)
+}
+function prevStep() {
+  step.value = Math.max(0, step.value - 1)
+}
 
 const form = reactive({
   title: '',
@@ -25,38 +62,32 @@ const form = reactive({
   visibility: 'public',
   time_limit_ms: 1000,
   memory_limit_mb: 256,
-  spj: false,
-  spj_code: '' as string | null,
 })
-const cases = ref<TestCaseDraft[]>([{ name: '1', input: '', expected_output: '', is_sample: false, score: 100, sort_order: 1 }])
+const cases = ref<TestCaseDraft[]>([
+  { name: '1', input: '', expected_output: '', is_sample: false, sort_order: 1 },
+])
 
 function addCase() {
-  cases.value.push({ name: String(cases.value.length + 1), input: '', expected_output: '', is_sample: false, score: 0, sort_order: cases.value.length + 1 })
+  cases.value.push({
+    name: String(cases.value.length + 1),
+    input: '',
+    expected_output: '',
+    is_sample: false,
+    sort_order: cases.value.length + 1,
+  })
 }
-function removeCase(index: number) { cases.value.splice(index, 1) }
-function importCases(items: TestCaseDraft[]) { cases.value = items; normalize() }
+function removeCase(index: number) {
+  cases.value.splice(index, 1)
+}
+function importCases(items: TestCaseDraft[]) {
+  cases.value = items
+  normalize()
+}
 function normalize() {
   cases.value.forEach((item, index) => {
     item.sort_order = index + 1
     if (!item.name) item.name = String(index + 1)
   })
-}
-
-async function chooseSpj(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  uploadingSpj.value = true
-  try {
-    const result = await uploadSpj(file)
-    form.spj = true
-    form.spj_code = result.oss_id
-    ElMessage.success(t('problems.create.spjUploaded'))
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('problems.create.spjUploadFailed'))
-  } finally {
-    uploadingSpj.value = false
-    if (spjInput.value) spjInput.value.value = ''
-  }
 }
 
 function payload() {
@@ -70,51 +101,54 @@ function payload() {
     visibility: form.visibility,
     time_limit_ms: form.time_limit_ms,
     memory_limit_mb: form.memory_limit_mb,
-    spj: form.spj,
-    spj_code: form.spj ? form.spj_code : null,
   }
 }
 
 async function loadExisting() {
-  if (!isEdit.value) return
+  if (!problemId.value) return
   loading.value = true
   try {
-    const detail: ProblemDetailEx = await getProblem(String(route.params.id))
-    if (!detail.can_manage) throw new Error(t('problems.create.noPermission'))
-    problemId.value = detail.id
-    problemStatus.value = detail.status
+    const loaded: ProblemDetailEx = await getProblem(String(problemId.value))
+    if (!loaded.can_manage) throw new Error(t('problems.create.noPermission'))
+    detail.value = loaded
+    problemStatus.value = loaded.status
     Object.assign(form, {
-      title: detail.title,
-      description: detail.description,
-      input_description: detail.input_description ?? '',
-      output_description: detail.output_description ?? '',
-      solution: detail.solution ?? '',
-      difficulty: detail.difficulty,
-      visibility: detail.visibility ?? 'public',
-      time_limit_ms: detail.time_limit_ms,
-      memory_limit_mb: detail.memory_limit_mb,
-      spj: detail.spj,
-      // spj_code 为 MinIO ossId，不回显内容，仅保留引用避免误清空
-      spj_code: null,
+      title: loaded.title,
+      description: loaded.description,
+      input_description: loaded.input_description ?? '',
+      output_description: loaded.output_description ?? '',
+      solution: loaded.solution ?? '',
+      difficulty: loaded.difficulty,
+      visibility: loaded.visibility ?? 'public',
+      time_limit_ms: loaded.time_limit_ms,
+      memory_limit_mb: loaded.memory_limit_mb,
     })
-    if (detail.test_cases?.length) cases.value = detail.test_cases.map(item => ({
-      name: item.name ?? '',
-      input: item.input ?? '',
-      expected_output: item.expected_output ?? '',
-      is_sample: item.is_sample,
-      score: item.score,
-      sort_order: item.sort_order,
-    }))
+    if (loaded.test_cases?.length)
+      cases.value = loaded.test_cases.map((item) => ({
+        name: item.name ?? '',
+        input: item.input ?? '',
+        expected_output: item.expected_output ?? '',
+        is_sample: item.is_sample,
+        sort_order: item.sort_order,
+      }))
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
-    router.push('/problems')
-  } finally { loading.value = false }
+    message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
+    router.push('/admin/problems')
+  } finally {
+    loading.value = false
+  }
 }
 
 async function save() {
   normalize()
-  if (!form.title || !form.description) { ElMessage.error(t('problems.create.baseInfoRequired')); return }
-  if (cases.value.some(item => !item.input && !item.expected_output)) { ElMessage.error(t('problems.create.contentRequired')); return }
+  if (!form.title || !form.description) {
+    message.error(t('problems.create.baseInfoRequired'))
+    return
+  }
+  if (cases.value.some((item) => !item.input && !item.expected_output)) {
+    message.error(t('problems.create.contentRequired'))
+    return
+  }
   saving.value = true
   try {
     let targetId = problemId.value
@@ -126,123 +160,258 @@ async function save() {
       await updateProblem(targetId, payload())
     }
     await replaceTestCases(targetId, cases.value)
-    ElMessage.success(isEdit.value ? t('problems.create.saved') : t('problems.create.draftCreated'))
-    router.push(`/problems/${targetId}`)
+    message.success(isEdit.value ? t('problems.create.saved') : t('problems.create.draftCreated'))
+    // 重载详情刷新验题状态（案例变更会触发「需重新验题」）；新建后直接跳到验题步骤
+    await loadExisting()
+    if (step.value === 0) step.value = 1
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('common.saveFailed'))
-  } finally { saving.value = false }
+    message.error(error instanceof Error ? error.message : t('common.saveFailed'))
+  } finally {
+    saving.value = false
+  }
 }
 
-onMounted(loadExisting)
-</script>
-<template>
-  <div v-loading="loading" class="problem-create page-stack">
-    <div class="problem-create__grid">
-      <el-card shadow="never" class="base-card">
-        <template #header>
-          <div class="base-card__head">
-            <span>{{ t('problems.create.baseInfo') }}</span>
-            <div class="case-actions">
-              <el-button size="small" @click="router.push('/problems')">{{ t('action.cancel') }}</el-button>
-              <el-button size="small" type="primary" :loading="saving" @click="save">{{ t('problems.create.saveDraft') }}</el-button>
-            </div>
-          </div>
-        </template>
-        <el-form label-position="top">
-          <el-form-item :label="t('problems.create.name')"><el-input v-model="form.title" size="large"/></el-form-item>
-          <el-form-item :label="t('problems.create.statement')"><el-input v-model="form.description" type="textarea" :rows="10"/></el-form-item>
-          <div class="form-grid">
-            <el-form-item :label="t('problems.create.inputDescription')"><el-input v-model="form.input_description" type="textarea" :rows="4"/></el-form-item>
-            <el-form-item :label="t('problems.create.outputDescription')"><el-input v-model="form.output_description" type="textarea" :rows="4"/></el-form-item>
-          </div>
-          <details class="solution-details">
-            <summary>{{ t('problems.create.solutionToggle') }}</summary>
-            <el-form-item :label="t('problems.create.solution')" class="solution-field"><el-input v-model="form.solution" type="textarea" :rows="5"/></el-form-item>
-          </details>
-          <div class="form-grid">
-            <el-form-item :label="t('problems.list.difficulty')">
-              <el-select v-model="form.difficulty">
-                <el-option :label="t('problems.difficulty.easy')" value="easy"/><el-option :label="t('problems.difficulty.medium')" value="medium"/><el-option :label="t('problems.difficulty.hard')" value="hard"/>
-              </el-select>
-            </el-form-item>
-            <el-form-item :label="t('problems.create.visibility')">
-              <el-select v-model="form.visibility">
-                <el-option :label="t('problems.create.visibilityPublic')" value="public"/>
-                <el-option :label="t('problems.create.visibilityPrivate')" value="private"/>
-              </el-select>
-            </el-form-item>
-            <el-form-item :label="t('problems.create.timeLimit')"><el-input-number v-model="form.time_limit_ms" :min="1"/></el-form-item>
-            <el-form-item :label="t('problems.create.memoryLimit')"><el-input-number v-model="form.memory_limit_mb" :min="16"/></el-form-item>
-          </div>
-          <el-form-item><el-checkbox v-model="form.spj">{{ t('problems.create.useSpj') }}</el-checkbox></el-form-item>
-          <template v-if="form.spj">
-            <el-form-item :label="t('problems.create.checkerFile')">
-              <div class="spj-row">
-                <el-button :loading="uploadingSpj" @click="spjInput?.click()">{{ t('problems.create.uploadChecker') }}</el-button>
-                <span v-if="form.spj_code" class="spj-ref">{{ form.spj_code }}</span>
-              </div>
-              <input ref="spjInput" type="file" accept=".cpp,.cc,.cxx" hidden @change="chooseSpj">
-              <p class="form-hint">{{ t('problems.create.checkerHint') }}</p>
-            </el-form-item>
-          </template>
-        </el-form>
-      </el-card>
+async function loadRouteProblem() {
+  if (isEdit.value) problemId.value = String(route.params.id)
+  await loadExisting()
+}
+onMounted(loadRouteProblem)
 
-      <el-card shadow="never">
+function cancelEdit() {
+  router.push('/admin/problems')
+}
+function onPublished() {
+  // 发布成功后回到管理工作台（前台详情页不承载管理动线）
+  router.push('/admin/problems')
+}
+
+const difficultyOptions = computed(() => [
+  { label: t('problems.difficulty.easy'), value: 'easy' },
+  { label: t('problems.difficulty.medium'), value: 'medium' },
+  { label: t('problems.difficulty.hard'), value: 'hard' },
+])
+const visibilityOptions = computed(() => [
+  { label: t('problems.create.visibilityPublic'), value: 'public' },
+  { label: t('problems.create.visibilityPrivate'), value: 'private' },
+])
+</script>
+
+<template>
+  <div class="page-stack">
+    <n-spin :show="loading">
+      <n-card :bordered="false">
         <template #header>
-          <div class="case-header">
-            <span>{{ t('problems.create.testCases') }}</span>
-            <div class="case-actions">
-              <TestCaseImporter @imported="importCases"/>
-              <el-button @click="addCase">{{ t('problems.create.addCase') }}</el-button>
-            </div>
+          <div class="card-head">
+            <span>{{ isEdit ? t('problems.create.editTitle') : t('problems.create.title') }}</span>
+            <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
           </div>
         </template>
-        <div v-if="cases.length" class="test-cases">
-          <div v-for="(item, index) in cases" :key="item.name + index" class="test-case">
-            <div class="test-case__top">
-              <span class="test-case__index">{{ index + 1 }}</span>
-              <el-input v-model="item.name" :placeholder="t('problems.create.caseName')" class="test-case__name"/>
-              <el-checkbox v-model="item.is_sample">{{ t('problems.create.sampleCase') }}</el-checkbox>
-              <el-input-number v-if="!item.is_sample" v-model="item.score" :min="0" :max="100" size="small"/>
-              <el-button link type="danger" @click="removeCase(index)">{{ t('problems.create.removeCase') }}</el-button>
+
+        <!-- 步骤条 -->
+        <n-steps :current="step + 1" size="small" class="wizard-steps">
+          <n-step v-for="item in stepItems" :key="item.title" :title="item.title" />
+        </n-steps>
+
+        <!-- 第一步：基础信息与题面 -->
+        <div v-if="step === 0" class="wizard-body">
+          <n-form label-placement="top">
+            <n-form-item :label="t('problems.create.name')">
+              <n-input v-model:value="form.title" size="large" />
+            </n-form-item>
+            <n-form-item :label="t('problems.create.statement')">
+              <n-input v-model:value="form.description" type="textarea" :rows="10" />
+            </n-form-item>
+            <div class="form-grid">
+              <n-form-item :label="t('problems.create.inputDescription')">
+                <n-input v-model:value="form.input_description" type="textarea" :rows="4" />
+              </n-form-item>
+              <n-form-item :label="t('problems.create.outputDescription')">
+                <n-input v-model:value="form.output_description" type="textarea" :rows="4" />
+              </n-form-item>
             </div>
-            <div class="case-content">
-              <el-input v-model="item.input" type="textarea" :rows="3" :placeholder="t('problems.create.inputContent')"/>
-              <el-input v-model="item.expected_output" type="textarea" :rows="3" :placeholder="t('problems.create.outputContent')"/>
+            <n-collapse-transition :show="showSolution">
+              <n-form-item :label="t('problems.create.solution')" class="solution-field">
+                <n-input v-model:value="form.solution" type="textarea" :rows="5" />
+              </n-form-item>
+            </n-collapse-transition>
+            <n-button
+              text
+              size="small"
+              type="primary"
+              class="solution-toggle"
+              @click="showSolution = !showSolution"
+            >
+              {{ t('problems.create.solutionToggle') }}
+            </n-button>
+            <div class="form-grid">
+              <n-form-item :label="t('problems.list.difficulty')">
+                <n-select v-model:value="form.difficulty" :options="difficultyOptions" />
+              </n-form-item>
+              <n-form-item :label="t('problems.create.visibility')">
+                <n-select v-model:value="form.visibility" :options="visibilityOptions" />
+              </n-form-item>
+              <n-form-item :label="t('problems.create.timeLimit')">
+                <n-input-number v-model:value="form.time_limit_ms" :min="1" class="w-full" />
+              </n-form-item>
+              <n-form-item :label="t('problems.create.memoryLimit')">
+                <n-input-number v-model:value="form.memory_limit_mb" :min="16" class="w-full" />
+              </n-form-item>
             </div>
-          </div>
-          <p class="form-hint">{{ t('problems.create.storageHint') }}</p>
+          </n-form>
         </div>
-        <el-empty v-else :description="t('problems.create.contentRequired')" :image-size="60"/>
-      </el-card>
-    </div>
+
+        <!-- 第二步：测试点与样例 -->
+        <div v-else-if="step === 1" class="wizard-body">
+          <div class="cases-toolbar">
+            <TestCaseImporter @imported="importCases" />
+            <n-button size="small" @click="addCase">{{ t('problems.create.addCase') }}</n-button>
+          </div>
+          <div v-if="cases.length" class="test-cases">
+            <div v-for="(item, index) in cases" :key="item.name + index" class="test-case">
+              <div class="case-top">
+                <span class="case-index">{{ index + 1 }}</span>
+                <n-input
+                  v-model:value="item.name"
+                  class="case-name"
+                  size="small"
+                  :placeholder="t('problems.create.caseName')"
+                />
+                <n-checkbox v-model:checked="item.is_sample" size="small">
+                  {{ t('problems.create.sampleCase') }}
+                </n-checkbox>
+                <n-button text type="error" size="small" @click="removeCase(index)">
+                  {{ t('problems.create.removeCase') }}
+                </n-button>
+              </div>
+              <div class="case-content">
+                <n-input
+                  v-model:value="item.input"
+                  type="textarea"
+                  :rows="3"
+                  :placeholder="t('problems.create.inputContent')"
+                />
+                <n-input
+                  v-model:value="item.expected_output"
+                  type="textarea"
+                  :rows="3"
+                  :placeholder="t('problems.create.outputContent')"
+                />
+              </div>
+            </div>
+            <p class="form-hint">{{ t('problems.create.storageHint') }}</p>
+          </div>
+          <n-empty v-else :description="t('problems.create.contentRequired')" />
+        </div>
+
+        <!-- 第三步：验题与发布 -->
+        <div v-else class="wizard-body">
+          <VerifyPublishPanel
+            v-if="detail"
+            :problem="detail"
+            @refresh="loadExisting"
+            @published="onPublished"
+          />
+          <n-empty v-else :description="t('problems.wizard.stepNeedBasic')" />
+        </div>
+
+        <!-- 步骤导航 / 保存 -->
+        <div class="wizard-footer">
+          <n-button v-if="step > 0" @click="prevStep">{{ t('problems.wizard.prev') }}</n-button>
+          <div class="wizard-footer__spacer" />
+          <n-button :loading="saving" @click="save">{{
+            problemId ? t('action.save') : t('problems.create.saveDraft')
+          }}</n-button>
+          <n-button v-if="step < 2" type="primary" @click="nextStep">{{
+            t('problems.wizard.next')
+          }}</n-button>
+        </div>
+      </n-card>
+    </n-spin>
   </div>
 </template>
-<style scoped>
-/* form-hint 等共享类来自 assets/main.css；此处仅保留本页特有样式 */
-.problem-create { max-width: 1180px; }
-.case-actions { display: flex; gap: 10px; }
-.base-card__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
-.problem-create__grid { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr); gap: 18px; align-items: start; }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.solution-details { margin-bottom: 18px; }
-.solution-details summary { cursor: pointer; color: var(--app-text-muted); font-size: 13px; margin-bottom: 12px; }
-.spj-row { display: flex; align-items: center; gap: 10px; }
-.spj-ref { color: var(--app-text-muted); font-size: 12px; word-break: break-all; }
-.case-header, .test-case__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.test-cases { display: grid; gap: 14px; }
-.test-case { padding: 14px; border: 1px solid var(--app-border); border-radius: 11px; background: var(--app-surface-muted); }
-.test-case__top { justify-content: flex-start; }
-.test-case__index { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: var(--el-color-primary); background: var(--el-color-primary-light-8); font-size: 12px; font-weight: 750; }
-.test-case__name { max-width: 160px; }
-.case-content { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
 
-@media (max-width: 900px) {
-  .problem-create__grid { grid-template-columns: 1fr; }
+<style scoped>
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.wizard-steps {
+  margin-bottom: 20px;
+}
+.wizard-body {
+  min-height: 320px;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+.solution-toggle {
+  margin-bottom: 16px;
+}
+.w-full {
+  width: 100%;
+}
+.cases-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.test-cases {
+  display: grid;
+  gap: 14px;
+}
+.test-case {
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-muted-bg);
+}
+.case-top {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+.case-index {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  color: var(--app-primary);
+  background: rgba(244, 81, 30, 0.09);
+  font-size: 12px;
+  font-weight: 600;
+}
+.case-name {
+  max-width: 160px;
+}
+.case-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+.wizard-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--app-border);
+}
+.wizard-footer__spacer {
+  flex: 1;
 }
 @media (max-width: 760px) {
-  .case-header, .test-case__top { align-items: start; flex-direction: column; }
-  .form-grid, .case-content { grid-template-columns: 1fr; }
+  .form-grid,
+  .case-content {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

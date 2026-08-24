@@ -5,15 +5,7 @@
 // ---------------- 系统配置 ----------------
 
 export type ConfigCategory =
-  | 'site'
-  | 'auth_email'
-  | 'team'
-  | 'contest'
-  | 'model'
-  | 'token'
-  | 'sandbox'
-  | 'log'
-  | 'community'
+  'site' | 'auth_email' | 'team' | 'contest' | 'model' | 'token' | 'sandbox' | 'log' | 'community'
 
 export interface SystemConfigItem {
   id: string

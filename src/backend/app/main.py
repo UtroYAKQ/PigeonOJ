@@ -1,9 +1,10 @@
-"""FastAPI 应用入口。
+"""FastAPI 应用入口（组合根：唯一允许直接引用各模块内部路由的位置）。
 
 - 统一响应信封 {code, message, data}（docs/contracts/common.md）
 - 全量请求日志 → request_logs（含 request_id 追踪，docs/contracts/admin.md）
 - 未处理异常 → exception_logs
-- 模块路由：auth / users / files / judge（题库·判题）/ admin（统一前缀 /api/v1）
+- 模块路由：users（认证·用户中心）/ files / problems（题库）/ judge（判题）/ admin
+  （统一前缀 /api/v1；跨模块业务调用走各模块 api.py 门面）
 - 判题节点 gRPC 网关（:50051）随应用生命周期启停（lifespan）
 """
 from __future__ import annotations
@@ -15,22 +16,24 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 
-import grpc
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.modules.admin import routes as admin_routes
-from app.modules.auth import routes as auth_routes
 from app.modules.files import routes as files_routes
 from app.modules.judge import gateway, routes as judge_routes
+from app.modules.problems import routes as problems_routes
 from app.modules.users import routes as users_routes
-from app.shared.common.audit import write_exception_log, write_request_log
-from app.shared.infra.database import SessionLocal
-from app.modules.users.deps import parse_client_ip
+from app.shared.infra.audit import write_exception_log, write_request_log
+from app.shared.infra.database import SessionLocal, get_db
+from app.modules.users.api import parse_client_ip
 from app.shared.common.errors import register_exception_handlers
 from app.shared.infra.logging import setup_logging
 from app.shared.common.response import ok
+from app.shared.infra.redis import close_redis
+from app.shared.infra.system_config import get_site_public_configs
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,7 @@ async def lifespan(_: FastAPI):
         pass
     if grpc_server is not None:
         await grpc_server.stop(grace=5)
+    await close_redis()
 
 
 app = FastAPI(title="PigeonOJ API", version="0.1.0", lifespan=lifespan)
@@ -72,6 +76,12 @@ register_exception_handlers(app)
 async def health() -> dict:
     """健康检查：返回统一信封 {code: 0, message: "ok", data: {...}}。"""
     return ok({"status": "ok"})
+
+
+@app.get("/api/v1/site-config", tags=["system"])
+async def site_config(db: AsyncSession = Depends(get_db)) -> dict:
+    """公开站点配置（未登录可读）：站点名 / Logo / ICP / 默认主题 / 注册开关。"""
+    return ok(await get_site_public_configs(db))
 
 
 # ---- 请求日志中间件（request_logs + exception_logs） ----
@@ -123,8 +133,8 @@ async def request_logging_middleware(request: Request, call_next):
 
 
 # ---- 模块路由注册（统一前缀 /api/v1） ----
-app.include_router(auth_routes.router, prefix="/api/v1")
 app.include_router(users_routes.router, prefix="/api/v1")
 app.include_router(files_routes.router, prefix="/api/v1")
+app.include_router(problems_routes.router, prefix="/api/v1")
 app.include_router(judge_routes.router, prefix="/api/v1")
 app.include_router(admin_routes.router, prefix="/api/v1")

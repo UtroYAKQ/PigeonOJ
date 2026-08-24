@@ -43,6 +43,7 @@ message ResourceLimits {
 message TestCaseFile {
   string test_case_id = 1;  // test_cases.id（回传结果时关联）
   string name = 2;          // 展示名，如 case1 / sample1
+  // [已废弃] 出题不设分值，分数由服务端按通过比例派生；字段号保留维持线格式兼容
   int32 score = 3;
   // 数据本体不内联：节点凭 data_version 经 FetchProblemData 拉取并缓存，
   // 文件约定 cases/<test_case_id>.in 与 .out。
@@ -55,7 +56,7 @@ message SubmitJob {
   ResourceLimits limits = 4;
   string problem_id = 5;
   string data_version = 6;  // 数据指纹；缓存未命中时先调 FetchProblemData
-  bool spj = 7;             // 数据包内含 spj.cpp 时启用特判流程
+  bool spj = 7;             // [已废弃] SPJ 特判整体移除（docs/decisions/2026-08-24-team-first-problem-production.md）；字段号保留维持线格式兼容，发送端不再赋值，接收端忽略
   repeated TestCaseFile cases = 8; // 仅元数据 + 排序；正式测试点（is_sample=false）
 }
 
@@ -88,6 +89,7 @@ message CaseResult {
   string status = 2;       // accepted / wrong_answer / tle / ...
   int32 time_used_ms = 3;
   int32 memory_used_kb = 4; // 预留：RSS 采样接入前为 0
+  // [已废弃] 分数由服务端派生；字段号保留维持线格式兼容
   int32 score = 5;
   bytes output = 6;         // 程序输出（已按输出上限截断）；服务端落 MinIO
 }
@@ -95,6 +97,7 @@ message CaseResult {
 message JudgeResult {
   string submission_id = 1;
   string status = 2;       // 汇总状态（accepted / compile_error / ...）
+  // [已废弃] 分数由服务端派生；字段号保留维持线格式兼容
   int32 score = 3;
   int32 time_used_ms = 4;  // 各测试点最大用时
   int32 memory_used_kb = 5;
@@ -110,6 +113,6 @@ message ProblemDataRequest {
 }
 
 message FileChunk {
-  string path = 1;   // 相对路径：cases/<test_case_id>.in|.out、spj.cpp、manifest.json
+  string path = 1;   // 相对路径：cases/<test_case_id>.in|.out、manifest.json
   bytes content = 2;
 }

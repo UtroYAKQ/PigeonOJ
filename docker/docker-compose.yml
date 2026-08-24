@@ -1,4 +1,4 @@
-# 生产环境编排：后端 API + Celery worker + 前端 + 基础设施
+# 生产环境编排：后端 API（内含判题 gRPC 网关）+ 前端 + 基础设施
 # 服务端口见 .env.example 与 docs/operations.md
 services:
   db:
@@ -58,22 +58,6 @@ services:
         condition: service_healthy
     expose:
       - "8000"
-
-  celery:
-    build:
-      context: ../src/backend
-      dockerfile: Dockerfile
-    command: celery -A app.worker.celery_app worker -l info --beat
-    env_file: ../.env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pigeonoj}:${POSTGRES_PASSWORD:-pigeonoj}@db:5432/${POSTGRES_DB:-pigeonoj}
-      REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
 
   frontend:
     build:

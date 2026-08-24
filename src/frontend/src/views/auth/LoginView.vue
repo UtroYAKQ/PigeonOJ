@@ -1,11 +1,176 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+
 import { useUserStore } from '@/stores/user'
-const router=useRouter();const route=useRoute();const userStore=useUserStore();const {t}=useI18n();const form=reactive({email:'',password:''});const loading=ref(false)
-async function onSubmit(){if(!form.email||!form.password)return ElMessage.warning(t('auth.enterEmailPassword'));loading.value=true;try{await userStore.login(form.email,form.password);ElMessage.success(t('auth.loginSuccess'));router.push(typeof route.query.redirect==='string'&&route.query.redirect?route.query.redirect:'/')}catch(e){ElMessage.error(e instanceof Error?e.message:t('auth.loginFailed'))}finally{loading.value=false}}
+import { useAppStore } from '@/stores/app'
+import { message } from '@/utils/feedback'
+
+const router = useRouter()
+const route = useRoute()
+const userStore = useUserStore()
+const appStore = useAppStore()
+const { t } = useI18n()
+const form = reactive({ email: '', password: '' })
+const loading = ref(false)
+async function onSubmit() {
+  if (!form.email || !form.password) {
+    message.warning(t('auth.enterEmailPassword'))
+    return
+  }
+  loading.value = true
+  try {
+    await userStore.login(form.email, form.password)
+    message.success(t('auth.loginSuccess'))
+    router.push(
+      typeof route.query.redirect === 'string' && route.query.redirect ? route.query.redirect : '/',
+    )
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('auth.loginFailed'))
+  } finally {
+    loading.value = false
+  }
+}
 </script>
-<template><div class="auth-page"><section class="auth-visual"><div class="auth-visual__brand"><span>🐦</span><strong>PigeonOJ</strong></div><div><p class="auth-visual__eyebrow">{{t('app.tagline')}}</p><h1>{{t('auth.loginTitle')}}</h1><p>{{t('home.intro')}}</p></div><div class="auth-visual__orb" aria-hidden="true">&lt;/&gt;</div></section><main class="auth-panel"><div class="auth-card"><div class="auth-card__heading"><p>{{t('app.name')}}</p><h2>{{t('auth.loginTitle')}}</h2></div><el-form label-position="top" class="auth-card__form" @submit.prevent="onSubmit"><el-form-item :label="t('auth.email')"><el-input v-model="form.email" placeholder="you@example.com" autocomplete="username" size="large"/></el-form-item><el-form-item :label="t('auth.password')"><el-input v-model="form.password" type="password" show-password :placeholder="t('auth.passwordPlaceholder')" autocomplete="current-password" size="large" @keyup.enter="onSubmit"/></el-form-item><el-button type="primary" size="large" class="auth-card__submit" :loading="loading" @click="onSubmit">{{t('user.login')}}</el-button></el-form><p class="auth-card__footer">{{t('auth.noAccount')}} <el-link type="primary" @click="router.push('/register')">{{t('auth.registerNow')}}</el-link></p></div></main></div></template>
-<style scoped>.auth-page{display:grid;grid-template-columns:minmax(360px,1.05fr) minmax(420px,.95fr);min-height:100dvh;background:var(--app-surface)}.auth-visual{position:relative;display:flex;flex-direction:column;justify-content:space-between;padding:44px clamp(36px,7vw,100px);overflow:hidden;color:#fff;background:linear-gradient(145deg,#19316c 0%,#3867f4 56%,#6c8afb 100%)}.auth-visual__brand{display:flex;align-items:center;gap:10px;font-size:19px}.auth-visual__brand span{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:rgba(255,255,255,.15);font-size:20px}.auth-visual h1{max-width:510px;margin:10px 0 14px;font-size:clamp(34px,4vw,54px);line-height:1.1;letter-spacing:-.05em}.auth-visual p{max-width:480px;margin:0;color:rgba(255,255,255,.76);font-size:15px;line-height:1.75}.auth-visual__eyebrow{color:#cfdbff!important;font-size:11px!important;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.auth-visual__orb{position:absolute;right:-70px;bottom:-60px;display:grid;place-items:center;width:280px;height:280px;border:1px solid rgba(255,255,255,.23);border-radius:50%;color:rgba(255,255,255,.18);font-size:90px;font-weight:800;transform:rotate(-16deg)}.auth-panel{display:grid;place-items:center;padding:32px;background:var(--app-canvas)}.auth-card{width:min(100%,420px);padding:38px;border:1px solid var(--app-border);border-radius:var(--app-radius-lg);background:var(--app-surface);box-shadow:var(--app-shadow)}.auth-card__heading p{margin:0 0 8px;color:var(--el-color-primary);font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.auth-card__heading h2{margin:0 0 28px;font-size:28px;letter-spacing:-.035em}.auth-card__form :deep(.el-form-item){margin-bottom:20px}.auth-card__form :deep(.el-form-item__label){font-weight:680}.auth-card__submit{width:100%;margin-top:6px}.auth-card__footer{margin:22px 0 0;text-align:center;color:var(--app-text-muted);font-size:13px}@media(max-width:800px){.auth-page{display:block}.auth-visual{min-height:220px;padding:28px}.auth-visual h1{font-size:32px}.auth-visual__orb{width:170px;height:170px;font-size:55px}.auth-panel{min-height:calc(100dvh - 220px);padding:24px 16px}.auth-card{padding:28px 24px}}</style>
+
+<template>
+  <div class="login-page">
+    <!-- 左侧品牌区：深色底 + 白字，参考模板登录页分栏 -->
+    <section class="brand-pane">
+      <header class="brand-pane__top" @click="router.push('/')">
+        <span class="brand-pane__mark">🐦</span>
+        <strong>{{ appStore.siteConfig.name || 'PigeonOJ' }}</strong>
+      </header>
+      <div class="brand-pane__body">
+        <h1>{{ t('auth.loginTitle') }}</h1>
+        <p>{{ t('home.intro') }}</p>
+      </div>
+      <footer class="brand-pane__foot">{{ t('app.tagline') }}</footer>
+    </section>
+
+    <main class="form-pane">
+      <n-card class="login-card" :bordered="false">
+        <h2 class="login-card__title">{{ t('user.login') }}</h2>
+        <n-form label-placement="top" @submit.prevent="onSubmit">
+          <n-form-item :label="t('auth.email')">
+            <n-input
+              v-model:value="form.email"
+              size="large"
+              placeholder="you@example.com"
+              autocomplete="username"
+            />
+          </n-form-item>
+          <n-form-item :label="t('auth.password')">
+            <n-input
+              v-model:value="form.password"
+              type="password"
+              show-password-on="click"
+              size="large"
+              :placeholder="t('auth.passwordPlaceholder')"
+              autocomplete="current-password"
+              @keyup.enter="onSubmit"
+            />
+          </n-form-item>
+          <n-button type="primary" size="large" block :loading="loading" attr-type="submit">
+            {{ t('user.login') }}
+          </n-button>
+        </n-form>
+        <p class="login-card__footer">
+          {{ t('auth.noAccount') }}
+          <n-button text type="primary" @click="router.push('/register')">{{
+            t('auth.registerNow')
+          }}</n-button>
+        </p>
+      </n-card>
+    </main>
+  </div>
+</template>
+
+<style scoped>
+.login-page {
+  display: grid;
+  grid-template-columns: minmax(360px, 1.05fr) minmax(420px, 0.95fr);
+  min-height: 100dvh;
+  background: #ffffff;
+}
+.brand-pane {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+  padding: 36px clamp(28px, 6vw, 80px);
+  background: #2b4c59;
+  color: rgba(255, 255, 255, 0.92);
+}
+.brand-pane__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  font-size: 17px;
+  cursor: pointer;
+}
+.brand-pane__mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 20px;
+}
+.brand-pane h1 {
+  margin: 0 0 14px;
+  max-width: 480px;
+  font-size: clamp(26px, 3vw, 34px);
+  line-height: 1.25;
+}
+.brand-pane p {
+  margin: 0;
+  max-width: 460px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: rgba(255, 255, 255, 0.72);
+}
+.brand-pane__foot {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.form-pane {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+.login-card {
+  width: min(100%, 400px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.login-card__title {
+  margin: 0 0 22px;
+  font-size: 20px;
+}
+.login-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 18px 0 0;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+}
+@media (max-width: 800px) {
+  .login-page {
+    grid-template-columns: 1fr;
+  }
+  .brand-pane {
+    padding: 24px;
+  }
+  .brand-pane__body {
+    display: none;
+  }
+  .brand-pane__foot {
+    display: none;
+  }
+}
+</style>

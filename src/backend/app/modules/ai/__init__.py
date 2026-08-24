@@ -1,5 +1,5 @@
 """AI：聊天、改码、编译纠错、出题、Token 统计。
 
-契约见 docs/contracts/ai.md；涉及 ai_conversations / ai_messages / ai_requests /
-user_token_stats / ai_generation_tasks / model_configs；模型 Key 加密存储。
+契约见 docs/contracts/ai.md（如存在）；题目内容经 app.modules.problems.api 读取，
+Token 用量统计写入 user_token_stats。落地时对外能力经本包 api.py 暴露。
 """

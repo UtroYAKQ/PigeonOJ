@@ -120,7 +120,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
    - 错误提交：`UPDATE ... SET attempts = attempts + 1 WHERE accepted = false AND is_frozen = false`
    - 首次通过：`UPDATE ... SET accepted = true, accepted_at = ..., penalty = ... WHERE accepted = false`（幂等，仅首次生效）
    - IOI：`UPDATE ... SET score = GREATEST(score, :new_score) WHERE is_frozen = false`
-5. **封榜 / 解封 / 结束**：由 Celery 周期任务 `contest_transition` 按比赛时间推进——封榜时刻置 `board_frozen=true`、榜单行冻结（`is_frozen`）；结束时解封、重算榜单、置 `status='finished'`、`board_frozen` 复位。封榜期间新提交只落 `submissions` 与 `submission_test_case_results`，不更新榜单行。
+5. **封榜 / 解封 / 结束**：由后端周期任务 `contest_transition` 按比赛时间推进——封榜时刻置 `board_frozen=true`、榜单行冻结（`is_frozen`）；结束时解封、重算榜单、置 `status='finished'`、`board_frozen` 复位。封榜期间新提交只落 `submissions` 与 `submission_test_case_results`，不更新榜单行。
 6. **赛后补题**：允许补题（`submissions.is_after_contest=true`），不计入榜单。
 
 ## 明确不做

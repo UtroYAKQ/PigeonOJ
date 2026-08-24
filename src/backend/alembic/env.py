@@ -28,7 +28,10 @@ if config.config_file_name is not None:
 # 供 `alembic revision --autogenerate` 使用；迁移 SQL 仍为表结构唯一来源。
 from app.modules.admin import models as admin_models  # noqa: F401
 from app.modules.judge import models as judge_models  # noqa: F401
+from app.modules.problems import models as problems_models  # noqa: F401
 from app.modules.users import models as users_models  # noqa: F401
+from app.shared.infra import audit as audit_models  # noqa: F401  (平台表：审计日志)
+from app.shared.infra import system_config as system_config_models  # noqa: F401  (平台表：系统配置)
 from app.shared.infra.database import Base
 
 target_metadata = Base.metadata

@@ -1,0 +1,32 @@
+# PigeonOJ 后端配置（唯一配置文件，与 src/judge/node/node.toml 同风格）
+# 优先级：进程环境变量 > .env > 本文件；生产部署用环境变量覆盖敏感项。
+# 字段含义见 docs/operations.md；本文件随仓库提交，仅含开发默认值。
+
+[app]
+environment = "development"                    # development / production
+secret_key = "change-me-to-a-random-string"    # 会话 / 加密主密钥（生产必改）
+log_level = "INFO"
+
+[database]
+url = "postgresql+asyncpg://pigeonoj:pigeonoj@localhost:5432/pigeonoj"
+
+[redis]
+url = "redis://localhost:6379/0"
+
+[minio]
+endpoint = "localhost:9000"
+access_key = "pigeonoj"
+secret_key = "pigeonoj-minio-secret"
+bucket = "pigeonoj"
+secure = false                                 # 生产（HTTPS）环境置 true
+
+[judge]
+# 判题节点网关（docs/contracts/judge.md 节点网关协议）
+# 后端不执行任何用户代码；代码执行只发生在注册的判题节点容器内。
+gateway_tokens = ""                            # 注册令牌（逗号分隔多个）；为空则网关不启动
+grpc_host = "0.0.0.0"
+grpc_port = 50051
+heartbeat_interval_seconds = 10
+
+[cors]
+origins = ["*"]                                # 开发默认全放行；生产改为具体来源列表

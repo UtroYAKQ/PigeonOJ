@@ -3,7 +3,9 @@ import type {
   PageResult,
   ProblemCreatePayload,
   ProblemDetailEx,
+  ProblemDifficulty,
   ProblemEditPayload,
+  ProblemLanguage,
   ProblemListQuery,
   ProblemSummary,
   TestCaseDraft,
@@ -39,9 +41,37 @@ export function publishProblem(id: string): Promise<ProblemSummary> {
 export function archiveProblem(id: string): Promise<ProblemSummary> {
   return apiRequest('POST', `/problems/${id}/archive`)
 }
-export function initVerification(id: string, body: { verifier_id?: string; invite_expires_hours?: number }): Promise<{ verification_id: string; invite?: { token: string; expires_at: string | null }; verifier_id?: string }> {
+export function initVerification(
+  id: string,
+  body: { verifier_id?: string; invite_expires_hours?: number },
+): Promise<{
+  verification_id: string
+  invite?: { token: string; expires_at: string | null }
+  verifier_id?: string
+}> {
   return apiRequest('POST', `/problems/${id}/verify`, body)
 }
-export function resolveVerifyInvite(token: string): Promise<{ problem_id: string; problem_title: string; expires_at: string | null }> {
+export function resolveVerifyInvite(
+  token: string,
+): Promise<{
+  problem_id: string
+  problem_title: string
+  expires_at: string | null
+  description: string
+  input_description?: string | null
+  output_description?: string | null
+  difficulty: ProblemDifficulty
+  time_limit_ms: number
+  memory_limit_mb: number
+  samples: Array<{ id: string; name: string; input: string; output: string }>
+}> {
   return apiRequest('GET', `/verify-invites/${token}`)
+}
+
+/** 自行验题：以当前账号提交验题代码（须存在 verifier_id=自己的进行中验题） */
+export function submitVerifyCode(
+  id: string,
+  body: { code: string; language: ProblemLanguage },
+): Promise<{ submission_id: string; status: string }> {
+  return apiRequest('POST', `/problems/${id}/verify`, body)
 }

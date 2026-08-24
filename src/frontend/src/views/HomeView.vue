@@ -3,8 +3,224 @@ import { ArrowRight, Collection, Trophy, UserFilled } from '@element-plus/icons-
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+
 import { useUserStore } from '@/stores/user'
-const router=useRouter();const userStore=useUserStore();const {t}=useI18n();const greeting=computed(()=>{if(!userStore.isLoggedIn)return t('home.welcome');const hour=new Date().getHours();const key=hour<6?'dawn':hour<12?'morning':hour<14?'noon':hour<18?'afternoon':'evening';return `${t(`home.${key}`)}，${userStore.user?.nickname??t('home.student')}`});const cards=computed(()=>[{title:t('nav.problems'),desc:t('home.problems'),to:'/problems',icon:Collection,tone:'blue'},{title:t('nav.contests'),desc:t('home.contests'),to:'/contests',icon:Trophy,tone:'amber'},{title:t('nav.teams'),desc:t('home.teams'),to:'/teams',icon:UserFilled,tone:'green'}])
+
+const router = useRouter()
+const userStore = useUserStore()
+const { t } = useI18n()
+const greeting = computed(() => {
+  if (!userStore.isLoggedIn) return t('home.welcome')
+  const hour = new Date().getHours()
+  const key =
+    hour < 6
+      ? 'dawn'
+      : hour < 12
+        ? 'morning'
+        : hour < 14
+          ? 'noon'
+          : hour < 18
+            ? 'afternoon'
+            : 'evening'
+  return `${t(`home.${key}`)}，${userStore.user?.nickname ?? t('home.student')}`
+})
+const cards = [
+  {
+    titleKey: 'nav.problems',
+    descKey: 'home.problems',
+    to: '/problems',
+    icon: Collection,
+    tone: 'primary',
+  },
+  {
+    titleKey: 'nav.contests',
+    descKey: 'home.contests',
+    to: '/contests',
+    icon: Trophy,
+    tone: 'warning',
+  },
+  {
+    titleKey: 'nav.teams',
+    descKey: 'home.teams',
+    to: '/teams',
+    icon: UserFilled,
+    tone: 'success',
+  },
+]
 </script>
-<template><div class="home"><section class="home__hero"><div><p class="home__kicker">{{t('app.name')}}</p><h1>{{greeting}}</h1><p class="home__intro">{{t('home.intro')}}</p><div v-if="!userStore.isLoggedIn" class="home__hero-actions"><el-button type="primary" size="large" @click="router.push('/register')">{{t('home.createAccount')}}<el-icon><ArrowRight/></el-icon></el-button><el-button size="large" @click="router.push('/login')">{{t('user.login')}}</el-button></div></div><div class="home__hero-art" aria-hidden="true"><span>🐦</span></div></section><section class="home__section"><div class="home__section-head"><div><p class="home__eyebrow">{{t('app.navigation')}}</p><h2>{{t('home.explore')}}</h2></div></div><div class="home__cards"><button v-for="card in cards" :key="card.to" class="home-card" :class="`home-card--${card.tone}`" @click="router.push(card.to)"><span class="home-card__icon"><el-icon><component :is="card.icon"/></el-icon></span><span class="home-card__content"><strong>{{card.title}}</strong><small>{{card.desc}}</small></span><el-icon class="home-card__arrow"><ArrowRight/></el-icon></button></div></section></div></template>
-<style scoped>.home{display:grid;gap:28px}.home__hero{min-height:260px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:36px 42px;border:1px solid color-mix(in srgb,var(--el-color-primary) 16%,var(--app-border));border-radius:var(--app-radius-lg);background:radial-gradient(circle at 88% 15%,#dce6ff 0,transparent 34%),linear-gradient(135deg,#fff 0,#f1f5ff 100%);box-shadow:var(--app-shadow)}.dark .home__hero{background:radial-gradient(circle at 88% 15%,#273f83 0,transparent 34%),linear-gradient(135deg,#171e2d 0,#1b2945 100%)}.home__kicker,.home__eyebrow{margin:0 0 8px;color:var(--el-color-primary);font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.home h1{max-width:720px;margin:0;font-size:clamp(28px,4vw,42px);line-height:1.16;letter-spacing:-.045em}.home__intro{max-width:610px;margin:14px 0 0;color:var(--app-text-muted);font-size:15px;line-height:1.7}.home__hero-actions{display:flex;gap:10px;margin-top:24px}.home__hero-actions :deep(.el-icon){margin-left:4px}.home__hero-art{width:142px;height:142px;display:grid;place-items:center;flex:0 0 auto;border-radius:42px;background:linear-gradient(145deg,var(--el-color-primary),#738ffa);box-shadow:0 18px 34px rgba(56,103,244,.25);transform:rotate(8deg)}.home__hero-art span{font-size:72px;transform:rotate(-8deg)}.home__section-head{display:flex;justify-content:space-between;align-items:end}.home__section-head h2{margin:0;font-size:20px;letter-spacing:-.025em}.home__cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:14px}.home-card{display:flex;align-items:center;gap:14px;width:100%;padding:18px;text-align:left;border:1px solid var(--app-border);border-radius:var(--app-radius);background:var(--app-surface);cursor:pointer;transition:transform .2s,box-shadow .2s,border-color .2s}.home-card:hover{transform:translateY(-3px);border-color:color-mix(in srgb,var(--el-color-primary) 32%,var(--app-border));box-shadow:var(--app-shadow-hover)}.home-card__icon{width:42px;height:42px;display:grid;place-items:center;flex:0 0 auto;border-radius:13px;font-size:20px}.home-card--blue .home-card__icon{color:#3867f4;background:#edf2ff}.home-card--amber .home-card__icon{color:#d98a00;background:#fff5df}.home-card--green .home-card__icon{color:#26945a;background:#e6f8ed}.home-card--violet .home-card__icon{color:#7d55da;background:#f0eaff}.home-card__content{display:grid;gap:4px;min-width:0}.home-card__content strong{font-size:15px}.home-card__content small{color:var(--app-text-muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.home-card__arrow{margin-left:auto;color:var(--app-text-muted)}@media(max-width:680px){.home__hero{min-height:unset;padding:28px;align-items:flex-start}.home__hero-art{display:none}.home__hero-actions{flex-wrap:wrap}.home__hero-actions .el-button{flex:1}.home__cards{grid-template-columns:1fr}}</style>
+
+<template>
+  <div class="home">
+    <!-- 欢迎横幅：主色描边卡片（工作台欢迎区） -->
+    <n-card class="home__hero" :bordered="false">
+      <div class="home__hero-body">
+        <p class="home__kicker">{{ t('app.name') }}</p>
+        <h1>{{ greeting }}</h1>
+        <p class="home__intro">{{ t('home.intro') }}</p>
+        <div v-if="!userStore.isLoggedIn" class="home__hero-actions">
+          <n-button type="primary" @click="router.push('/register')">
+            {{ t('home.createAccount') }}
+            <n-icon class="home__arrow" :component="ArrowRight" />
+          </n-button>
+          <n-button secondary @click="router.push('/login')">{{ t('user.login') }}</n-button>
+        </div>
+      </div>
+      <div class="home__hero-art" aria-hidden="true"><span>🐦</span></div>
+    </n-card>
+
+    <section>
+      <h2 class="home__section-title">{{ t('home.explore') }}</h2>
+      <div class="home__cards">
+        <button
+          v-for="card in cards"
+          :key="card.to"
+          type="button"
+          class="nav-card"
+          @click="router.push(card.to)"
+        >
+          <span class="nav-card__icon" :class="`nav-card__icon--${card.tone}`">
+            <n-icon size="18" :component="card.icon" />
+          </span>
+          <span class="nav-card__content">
+            <strong>{{ t(card.titleKey) }}</strong>
+            <small>{{ t(card.descKey) }}</small>
+          </span>
+          <n-icon class="nav-card__arrow" :component="ArrowRight" />
+        </button>
+      </div>
+    </section>
+  </div>
+</template>
+
+<style scoped>
+.home {
+  display: grid;
+  gap: 16px;
+}
+.home__hero :deep(.n-card__content) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.home__kicker {
+  margin: 0 0 8px;
+  color: var(--app-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.home h1 {
+  margin: 0;
+  max-width: 640px;
+  font-size: clamp(20px, 2.6vw, 28px);
+  line-height: 1.3;
+}
+.home__intro {
+  margin: 10px 0 0;
+  max-width: 560px;
+  color: var(--app-text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.home__hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.home__arrow {
+  margin-left: 4px;
+}
+.home__hero-art {
+  width: 88px;
+  height: 88px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  background: var(--app-muted-bg);
+}
+.home__hero-art span {
+  font-size: 44px;
+}
+.home__section-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.home__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.nav-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.nav-card:hover {
+  border-color: color-mix(in srgb, var(--app-primary) 45%, transparent);
+  box-shadow: 0 2px 10px rgba(244, 81, 30, 0.1);
+}
+.nav-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--app-primary);
+}
+.nav-card__icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 6px;
+}
+.nav-card__icon--primary {
+  color: var(--app-primary);
+  background: rgba(244, 81, 30, 0.09);
+}
+.nav-card__icon--warning {
+  color: #f0a020;
+  background: rgba(240, 160, 32, 0.1);
+}
+.nav-card__icon--success {
+  color: #18a058;
+  background: rgba(24, 160, 88, 0.1);
+}
+.nav-card__content {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.nav-card__content strong {
+  font-size: 14px;
+  color: var(--app-text);
+}
+.nav-card__content small {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-card__arrow {
+  margin-left: auto;
+  color: var(--app-text-secondary);
+}
+@media (max-width: 680px) {
+  .home__hero-art {
+    display: none;
+  }
+  .home__cards {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

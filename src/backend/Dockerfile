@@ -16,5 +16,5 @@ COPY . .
 
 EXPOSE 8000
 
-# 生产默认启动命令；开发环境由 docker-compose-dev.yml 覆盖为 --reload
+# 生产默认启动命令（判题 gRPC 网关随应用 lifespan 启动）
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

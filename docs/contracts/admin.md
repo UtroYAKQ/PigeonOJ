@@ -27,6 +27,8 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | site | `site.name` / `site.logo` / `site.icp` / `site.default_theme` | 站点基础配置 |
 | site | `site.register_enabled` | 注册开关 |
 | auth_email | `email.code.expire_seconds` / `email.code.resend_seconds` / `email.code.max_attempts` | 验证码安全策略 |
+| auth_email | `email.verify_enabled` | 注册邮箱验证开关（false 时注册无需验证码） |
+| auth_email | `email.smtp.host` / `port` / `username` / `password` / `sender` / `use_ssl` | SMTP 发信配置；host 为空时验证码打印到后端日志（本地开发兜底）。`*.password` 类键管理接口一律掩码返回（`******`），提交掩码值视为未修改 |
 | team | `invite.expire_hours` | 邀请链接默认有效期 |
 | team | `team.apply.review_rule` | 加入审批规则 |
 | contest | `contest.freeze_default_seconds` / `contest.penalty_factor_minutes` | 封榜 / 罚时系数默认 |
@@ -109,6 +111,7 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | POST | /admin/users/{id}/freeze | admin | 冻结（与安全策略同款，立即拦截登录；可人工解冻） | reason | - |
 | POST | /admin/users/{id}/unfreeze | admin | 解冻 | - | - |
 | GET/PUT | /admin/configs | admin | 系统配置（分域） | - | - |
+| GET | /site-config | public | 公开站点配置（白名单字段：name / logo / icp / default_theme / register_enabled / email_verify_enabled；前端壳层与注册页消费） | - | siteConfig |
 | POST | /files/upload/avatar | auth | 上传当前用户头像到 MinIO | multipart file（≤2MB，JPG/PNG/WEBP/GIF） | oss_id / url |
 | GET | /files/{object_key} | public | 读取头像等公开文件；不允许读取测试点 | object_key（仅 users/ 前缀） | binary |
 | GET/PUT | /admin/models | admin | 大模型配置 | - | - |
@@ -133,7 +136,7 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 
 1. **全局角色授权**：`PUT /admin/users/{id}/roles` 写 `user_roles`（`scope='global'`、`object_id=NULL`）；全局角色部分唯一索引兜底防重复。
 2. **封禁 / 解封、冻结 / 解冻**：写 `users.status`（`banned` / `frozen`），均立即拦截登录；`frozen` 可到期自动解冻，`banned` 仅人工解封。
-3. **系统配置**：按 `category` 分域读写 `system_configs`；修改人记录 `updated_by`。
+3. **系统配置**：按 `category` 分域读写 `system_configs`；修改人记录 `updated_by`。业务侧实时读库（无缓存），保存后立即生效；已接线消费方：`auth_email` 验证码策略 / 注册邮箱验证开关 / SMTP 发信、`sandbox` 冷却 / 并发、`site.register_enabled` 注册开关、`site` 公开展示字段（经 `/site-config`）。
 4. **日志**：`request_logs`（含沙箱子记录）、`login_logs`、`exception_logs` 按条件查询 / 导出。
 
 ## 明确不做

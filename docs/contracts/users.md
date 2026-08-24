@@ -76,7 +76,7 @@
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | POST | /auth/email-code | public | 发送验证码 | email, purpose | - |
-| POST | /auth/register | public | 注册 | email, code, password, nickname | - |
+| POST | /auth/register | public | 注册 | email, code（邮箱验证开启时必填）, password, nickname | - |
 | POST | /auth/login | public | 登录 | email, password | token, user |
 | POST | /auth/logout | auth | 登出 | - | - |
 | POST | /auth/reset-password | public | 重置密码 | email, code, new_password | - |
@@ -99,13 +99,14 @@
 | 2001 | 401 | 未登录 |
 | 2002 | 401 | 会话已过期 |
 | 2004 | 401 | 验证码错误 / 密码错误 / Token 无效 |
+| 2005 `REGISTER_DISABLED` | 403 | 站点未开放注册（`site.register_enabled=false`；校验先于验证码消费） |
 | 3002 | 409 | 邮箱已注册 / 账号已冻结或封禁 |
 | 4001 | 429 | 验证码发送过频（重发间隔内） |
 | 4002 | 429 | 登录失败超次触发限流（触发 `frozen`） |
 
 ## 关键流程 / 验收条件
 
-1. **注册**：`POST /auth/email-code`（purpose=register）→ 用户收码 → `POST /auth/register` 校验通过后创建 `users`（`email_verified=true`），验证码从 Redis 删除（一次性）。
+1. **注册**：`POST /auth/email-code`（purpose=register）→ 用户收码 → `POST /auth/register` 校验通过后创建 `users`（`email_verified=true`），验证码从 Redis 删除（一次性）。站点关闭注册（`site.register_enabled=false`）时返回 `2005` 且不消耗验证码；关闭邮箱验证（`email.verify_enabled=false`）时无需验证码直接注册。
 2. **登录**：校验密码 + 会话写入 `user_sessions` + Redis 热点缓存；登录失败超次触发 `status='frozen'`。
 3. **找回密码**：`email-code`（purpose=reset_password）→ `reset-password` 重置。
 4. **换绑邮箱**：`email-code`（purpose=change_email）→ `change-email`。

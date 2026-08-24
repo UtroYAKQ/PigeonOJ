@@ -1,8 +1,7 @@
 ﻿"""PigeonOJ 判题执行核心（独立副本，仅标准库依赖）。
 
-源同步自 src/backend/app/modules/judge/worker.py —— 两处需保持行为一致：
-后端本地样例执行(sample-run)与本节点的正式判题共用同一套编译/运行/比对语义。
-修改任一侧时必须同步另一侧。
+运行于判题节点容器内（由 node/daemon.py 调用），编译 / 运行 / 比对语义
+以 docs/contracts/judge.md 的「判题器执行规范」为准；修改时须同步该契约。
 """
 from __future__ import annotations
 
@@ -230,17 +229,6 @@ def _tree_rss_kb(root_pid: int) -> int:
         return 0
 
 
-@dataclass(frozen=True)
-class CheckerSpec:
-    binary_path: str
-    input_path: Path
-    answer_path: Path
-    jailed_input_path: str
-    jailed_answer_path: str
-    jailed_output_path: str
-    limits: ResourceLimits
-
-
 class PreparedSubmission:
     """一个提交的临时工作区和已完成编译的产物。"""
 
@@ -286,7 +274,7 @@ class PreparedSubmission:
     def compile_failed(self) -> bool:
         return self.compile_result is not None and self.compile_result.status != "ok"
 
-    def run_case(self, stdin: bytes, expected_stdout: bytes | None, limits: ResourceLimits, checker: "CheckerSpec | None" = None) -> ExecutionResult:
+    def run_case(self, stdin: bytes, expected_stdout: bytes | None, limits: ResourceLimits) -> ExecutionResult:
         if self._closed:
             raise JudgeWorkerError("submission workspace is closed")
         if self.compile_failed:
@@ -310,26 +298,6 @@ class PreparedSubmission:
         )
         if result.status != "ok":
             return result
-        if checker is not None:
-            output_path = checker.input_path.parent / "output"
-            output_path.write_bytes(result.stdout)
-            checker_result = self.worker.executor.run(
-                [checker.binary_path, checker.jailed_input_path, checker.jailed_answer_path, checker.jailed_output_path],
-                cwd=self.workdir,
-                stdin=b"",
-                limits=checker.limits,
-                output_limit=checker.limits.output_limit_kb * 1024,
-            )
-            if checker_result.status != "ok":
-                return ExecutionResult(
-                    "wrong_answer" if checker_result.exit_code == 1 else "system_error",
-                    result.stdout,
-                    b"",
-                    result.time_used_ms,
-                    result.memory_used_kb,
-                    result.exit_code,
-                )
-            return ExecutionResult("accepted", result.stdout, result.stderr, result.time_used_ms, result.memory_used_kb, result.exit_code)
         if expected_stdout is not None:
             return ExecutionResult(
                 "accepted" if _same_output(result.stdout, expected_stdout) else "wrong_answer",
@@ -364,7 +332,7 @@ class JudgeWorker:
         _validate_limits(limits)
         return PreparedSubmission(self, language, source, limits)
 
-    def execute_cases(self, cases: list[JudgeCase], compile_limits: ResourceLimits | None = None, checker_source: bytes | None = None) -> list[ExecutionResult]:
+    def execute_cases(self, cases: list[JudgeCase], compile_limits: ResourceLimits | None = None) -> list[ExecutionResult]:
         if not cases:
             return []
         language = cases[0].language
@@ -372,32 +340,10 @@ class JudgeWorker:
             raise JudgeWorkerError("one submission cannot mix languages")
         compile_limits = compile_limits or ResourceLimits(time_limit_ms=10_000)
         with self.prepare_submission(language, cases[0].source, compile_limits) as submission:
-            checker_path = None
-            if checker_source is not None:
-                checker_path = submission.workdir / "checker.cpp"
-                checker_path.write_bytes(checker_source)
-                jail_dir = submission._jail_workdir()
-                checker_compile = self.executor.run(["g++", "-std=c++17", "-O2", "-pipe", "-o", f"{jail_dir}/checker", f"{jail_dir}/checker.cpp"], cwd=submission.workdir, stdin=b"", limits=compile_limits, output_limit=compile_limits.output_limit_kb * 1024)
-                if checker_compile.status != "ok":
-                    return [ExecutionResult("system_error", b"", b"", checker_compile.time_used_ms, checker_compile.memory_used_kb, checker_compile.exit_code, compile=True)]
             results: list[ExecutionResult] = []
-            for index, case in enumerate(cases):
+            for case in cases:
                 _validate_case(case)
-                checker = None
-                if checker_path is not None:
-                    case_dir = submission.workdir / "cases" / str(index)
-                    case_dir.mkdir(parents=True, exist_ok=True)
-                    input_path = case_dir / "input"
-                    answer_path = case_dir / "answer"
-                    input_path.write_bytes(case.stdin)
-                    answer_path.write_bytes(case.expected_stdout or b"")
-                    jail_dir = submission._jail_workdir()
-                    checker = CheckerSpec(
-                        f"{jail_dir}/checker", input_path, answer_path,
-                        f"{jail_dir}/cases/{index}/input", f"{jail_dir}/cases/{index}/answer",
-                        f"{jail_dir}/cases/{index}/output", case.limits,
-                    )
-                results.append(submission.run_case(case.stdin, case.expected_stdout, case.limits, checker))
+                results.append(submission.run_case(case.stdin, case.expected_stdout, case.limits))
                 if results[-1].status in {"compile_error", "system_error"}:
                     break
             return results
@@ -489,7 +435,6 @@ __all__ = [
     "JudgeWorkerError",
     "NsjailExecutor",
     "PreparedSubmission",
-    "CheckerSpec",
     "ResourceLimits",
 ]
 

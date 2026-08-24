@@ -1,7 +1,7 @@
 """判题网关与负载均衡测试（无 Celery 架构）。
 
-覆盖：注册表选节点、作业构建原子认领、令牌认证、结果落库、断线回收、巡检重派。
-真实 gRPC 传输层由本机冒烟验证覆盖。
+覆盖：注册表选节点、作业构建原子认领、令牌验证、结果落库、断线回收、巡检重派。
+真实 gRPC 传输层由容器冒烟验证覆盖。
 """
 from __future__ import annotations
 
@@ -20,7 +20,8 @@ from app.modules.judge.gateway import (
     maintenance_loop,
     send_job,
 )
-from app.modules.judge.models import Problem, Submission, TestCase
+from app.modules.judge.models import Submission
+from app.modules.problems.models import Problem, TestCase
 from app.modules.users.models import User
 from app.shared.infra.database import SessionLocal
 
@@ -49,8 +50,7 @@ async def _seed_problem_with_case(storage) -> str:
         case_id = uuid_mod.uuid4()
         db.add(TestCase(id=case_id, problem_id=problem.id, name="c1",
                         input_oss_id=f"cases/{case_id}.in",
-                        expected_output_oss_id=f"cases/{case_id}.out",
-                        score=100, sort_order=1))
+                        expected_output_oss_id=f"cases/{case_id}.out", sort_order=1))
         await db.commit()
         pid = str(problem.id)
     storage.store[f"cases/{case_id}.in"] = (b"1\n", "text/plain")
@@ -81,7 +81,7 @@ async def test_dispatch_returns_none_without_nodes():
 
 @pytest.mark.asyncio
 async def test_send_job_claims_and_pushes(client, admin_headers, fake_storage):
-    """注册假节点 → API 提交 → 网关下行队列收到 SubmitJob 且提交已被认领 judging。"""
+    """注册假节点 → API 提交 → 网关下发：队列收到 SubmitJob 且提交已被置为 judging。"""
     pid = await _seed_problem_with_case(fake_storage)
     conn = _add_node("gw-1")
 
@@ -97,7 +97,7 @@ async def test_send_job_claims_and_pushes(client, admin_headers, fake_storage):
     assert msg.WhichOneof("payload") == "job"
     assert msg.job.submission_id == sid
     assert msg.job.language == "cpp17"
-    assert len(msg.job.cases) == 1 and msg.job.cases[0].score == 100
+    assert len(msg.job.cases) == 1 and msg.job.cases[0].name
     assert sid in conn.inflight
 
     async with SessionLocal() as db:
@@ -107,7 +107,7 @@ async def test_send_job_claims_and_pushes(client, admin_headers, fake_storage):
 
 @pytest.mark.asyncio
 async def test_send_job_rejects_non_pending(client, admin_headers):
-    """非 pending 提交（如已完成）不被重复派发。"""
+    """非 pending 提交（如已完成）不允许重复派发。"""
     uid = uuid_mod.UUID(await _any_user_id())
     async with SessionLocal() as db:
         problem = Problem(title="P-x", description="D", owner_id=uid)
@@ -126,7 +126,7 @@ async def test_send_job_rejects_non_pending(client, admin_headers):
 
 
 def test_token_auth_requires_configured_tokens():
-    assert _token_ok("") is False       # 未配置令牌 → 全拒绝（网关不启动）
+    assert _token_ok("") is False       # 未配置网关令牌 → 全部拒绝（网关不启动）
     assert _token_ok("whatever") is False
 
 
@@ -152,7 +152,7 @@ async def test_disconnect_resets_inflight_to_pending(client, admin_headers, fake
 
 @pytest.mark.asyncio
 async def test_maintenance_rescans_stale_pending(client, admin_headers, fake_storage):
-    """派发后人为把 updated_at 置旧 → 巡检循环应再次投递到节点队列。"""
+    """派发后人为把 updated_at 拨旧 → 巡检循环应再次投递到节点队列。"""
     pid = await _seed_problem_with_case(fake_storage)
     conn = _add_node("gw-4")
 
@@ -165,7 +165,7 @@ async def test_maintenance_rescans_stale_pending(client, admin_headers, fake_sto
     first = await asyncio.wait_for(conn.outbox.get(), timeout=5)
     del first
 
-    # 重置回 pending 并把 updated_at 拨旧，模拟"派发丢失"
+    # 重置为 pending 并把 updated_at 拨旧，模拟派发丢失
     async with SessionLocal() as db:
         row = await db.get(Submission, uuid_mod.UUID(sid))
         row.status = "pending"

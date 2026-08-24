@@ -1,13 +1,9 @@
 import { apiRequest } from './request'
-import type {
-  PageResult,
-  ProblemLanguage,
-  Submission,
-  SubmissionCreatePayload,
-  SubmissionListQuery,
-} from '@/types'
+import type { PageResult, Submission, SubmissionCreatePayload, SubmissionListQuery } from '@/types'
 
-export function createSubmission(body: SubmissionCreatePayload): Promise<{ submission_id: string; status: string }> {
+export function createSubmission(
+  body: SubmissionCreatePayload,
+): Promise<{ submission_id: string; status: string }> {
   return apiRequest('POST', '/submissions', body)
 }
 
@@ -20,4 +16,6 @@ export function listSubmissions(query: SubmissionListQuery = {}): Promise<PageRe
   const qs = params.toString()
   return apiRequest('GET', `/submissions${qs ? `?${qs}` : ''}`)
 }
-export function getSubmission(id: string): Promise<Submission> { return apiRequest('GET', `/submissions/${id}`) }
+export function getSubmission(id: string): Promise<Submission> {
+  return apiRequest('GET', `/submissions/${id}`)
+}

@@ -1,46 +1,21 @@
-"""Judge Worker 数据访问边界：只在内部读取提交和非样例测试点。"""
+"""Judge Worker 数据访问边界：只在内部读取提交和非样例测试点。
+
+题目 / 测试点模型经 problems.api 门面引用（judge → problems 单向依赖）。
+"""
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.judge.models import Problem, Submission, SubmissionTestCaseResult, TestCase
-
-
-@dataclass(frozen=True)
-class SubmissionBundle:
-    submission: Submission
-    problem: Problem
-    test_cases: list[TestCase]
+from app.modules.judge.models import Submission, SubmissionTestCaseResult
+from app.modules.problems import api as problems
 
 
 class JudgeRepository:
-    async def get_bundle(self, db: AsyncSession, submission_id: uuid.UUID) -> SubmissionBundle | None:
-        submission = await db.get(Submission, submission_id)
-        if submission is None:
-            return None
-        problem = await db.get(Problem, submission.problem_id)
-        if problem is None:
-            return None
-        cases = list(
-            (await db.execute(
-                select(TestCase)
-                .where(TestCase.problem_id == submission.problem_id, TestCase.is_sample.is_(False))
-                .order_by(TestCase.sort_order, TestCase.id)
-            )).scalars()
-        )
-        return SubmissionBundle(submission, problem, cases)
-
-    async def mark_judging(self, db: AsyncSession, submission: Submission) -> None:
-        submission.status = "judging"
-        submission.error_message = None
-        await db.flush()
-
     async def write_case_result(
-        self, db: AsyncSession, submission_id: uuid.UUID, test_case: TestCase, *, status: str,
+        self, db: AsyncSession, submission_id: uuid.UUID, test_case: problems.TestCase, *, status: str,
         time_used_ms: int | None, memory_used_kb: int | None, score: int, output: str | None,
     ) -> None:
         record = await db.scalar(

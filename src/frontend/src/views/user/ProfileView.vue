@@ -1,12 +1,228 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
 import { reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+
 import { uploadAvatar } from '@/api/files'
 import { useUserStore } from '@/stores/user'
+import { message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
-const userStore=useUserStore();const {t}=useI18n();const form=reactive({nickname:'',signature:'',avatar_url:'',theme:'light'});const saved=ref(true);const saving=ref(false);const uploadingAvatar=ref(false)
-watch(()=>userStore.user,u=>{if(u){form.nickname=u.nickname??'';form.signature=u.signature??'';form.avatar_url=u.avatar_url??'';form.theme=u.theme??'light'}},{immediate:true});watch(form,()=>saved.value=false);function avatarSrc(ossId:string){return ossId?`/api/v1/files/${ossId}`:undefined}async function onAvatarChange(uploadFile:{raw?:File}){const file=uploadFile.raw;if(!file)return;const allowed=['image/jpeg','image/png','image/webp','image/gif'];if(!allowed.includes(file.type)||file.size>2*1024*1024)return ElMessage.warning(t('profile.invalidAvatar'));uploadingAvatar.value=true;try{const result=await uploadAvatar(file);form.avatar_url=result.oss_id;ElMessage.success(t('profile.uploadSuccess'))}catch(e){ElMessage.error(e instanceof Error?e.message:t('profile.uploadFailed'))}finally{uploadingAvatar.value=false}}async function onSave(){if(!form.nickname.trim())return ElMessage.warning(t('profile.nicknameRequired'));saving.value=true;try{await userStore.updateProfile({nickname:form.nickname.trim(),signature:form.signature||null,avatar_url:form.avatar_url||null,theme:form.theme as 'light'|'dark'});saved.value=true;ElMessage.success(t('profile.saved'))}catch(e){ElMessage.error(e instanceof Error?e.message:t('config.saveFailed'))}finally{saving.value=false}}
+
+const userStore = useUserStore()
+const { t } = useI18n()
+const form = reactive({ nickname: '', signature: '', avatar_url: '', theme: 'light' })
+const saved = ref(true)
+const saving = ref(false)
+const uploadingAvatar = ref(false)
+const avatarInput = ref<HTMLInputElement>()
+watch(
+  () => userStore.user,
+  (u) => {
+    if (u) {
+      form.nickname = u.nickname ?? ''
+      form.signature = u.signature ?? ''
+      form.avatar_url = u.avatar_url ?? ''
+      form.theme = u.theme ?? 'light'
+    }
+  },
+  { immediate: true },
+)
+watch(form, () => (saved.value = false))
+function avatarSrc(ossId: string) {
+  return ossId ? `/api/v1/files/${ossId}` : undefined
+}
+async function onAvatarChosen(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  if (!allowed.includes(file.type) || file.size > 2 * 1024 * 1024) {
+    message.warning(t('profile.invalidAvatar'))
+    input.value = ''
+    return
+  }
+  uploadingAvatar.value = true
+  try {
+    const result = await uploadAvatar(file)
+    form.avatar_url = result.oss_id
+    message.success(t('profile.uploadSuccess'))
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('profile.uploadFailed'))
+  } finally {
+    uploadingAvatar.value = false
+    input.value = ''
+  }
+}
+async function onSave() {
+  if (!form.nickname.trim()) {
+    message.warning(t('profile.nicknameRequired'))
+    return
+  }
+  saving.value = true
+  try {
+    await userStore.updateProfile({
+      nickname: form.nickname.trim(),
+      signature: form.signature || null,
+      avatar_url: form.avatar_url || null,
+      theme: form.theme as 'light' | 'dark',
+    })
+    saved.value = true
+    message.success(t('profile.saved'))
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('config.saveFailed'))
+  } finally {
+    saving.value = false
+  }
+}
 </script>
-<template><div class="profile-page"><div class="profile-page__grid"><el-card shadow="never" class="profile-identity"><div class="profile-identity__avatar"><el-avatar :size="104" :src="avatarSrc(form.avatar_url)">{{(form.nickname||'?').slice(0,1)}}</el-avatar><el-upload :show-file-list="false" :auto-upload="false" accept="image/jpeg,image/png,image/webp,image/gif" @change="onAvatarChange"><el-button :loading="uploadingAvatar">{{form.avatar_url?t('action.change'):t('action.upload')}}</el-button></el-upload></div><div class="profile-identity__user"><strong>{{form.nickname||'—'}}</strong><span>{{userStore.user?.email}}</span></div><p>{{t('profile.avatarHint')}}</p><el-divider/><dl><div><dt>{{t('profile.email')}}</dt><dd><span>{{userStore.user?.email}}</span><el-tag v-if="userStore.user?.email_verified" size="small" type="success">{{t('profile.verified')}}</el-tag><el-tag v-else size="small" type="warning">{{t('profile.unverified')}}</el-tag></dd></div><div><dt>{{t('profile.createdAt')}}</dt><dd>{{formatDateTime(userStore.user?.created_at)}}</dd></div></dl></el-card><el-card shadow="never" class="profile-form"><template #header><div class="profile-form__head"><span>{{t('profile.title')}}</span><div class="profile-form__save"><el-tag v-if="!saved" type="warning" effect="light">{{t('profile.unsaved')}}</el-tag><el-button size="small" type="primary" :loading="saving" @click="onSave">{{t('profile.saveChanges')}}</el-button></div></div></template><el-form label-position="top"><el-form-item :label="t('profile.nickname')"><el-input v-model="form.nickname" maxlength="64" show-word-limit size="large"/></el-form-item><el-form-item :label="t('profile.signature')"><el-input v-model="form.signature" maxlength="255" show-word-limit :placeholder="t('profile.signatureHint')" size="large"/></el-form-item><el-form-item :label="t('profile.theme')"><el-radio-group v-model="form.theme" class="profile-form__themes"><el-radio value="light" border>{{t('profile.light')}}</el-radio><el-radio value="dark" border>{{t('profile.dark')}}</el-radio></el-radio-group></el-form-item></el-form></el-card></div></div></template>
-<style scoped>.profile-page{display:grid;gap:20px;max-width:1040px}.profile-form__head{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}.profile-form__save{display:flex;align-items:center;gap:10px}.profile-page__grid{display:grid;grid-template-columns:minmax(270px,.72fr) minmax(0,1.28fr);gap:18px}.profile-identity__avatar{display:grid;justify-items:start;gap:14px}.profile-identity__user{display:grid;gap:4px;margin:22px 0 10px}.profile-identity__user strong{font-size:20px}.profile-identity__user span,.profile-identity>p{color:var(--app-text-muted);font-size:13px}.profile-identity dl{display:grid;gap:16px;margin:0}.profile-identity dl div{display:grid;gap:6px}.profile-identity dt{color:var(--app-text-muted);font-size:12px;font-weight:650}.profile-identity dd{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0;font-size:13px}.profile-form :deep(.el-form-item){margin-bottom:24px}.profile-form :deep(.el-form-item__label){font-weight:680}.profile-form__themes{display:flex;gap:10px}.profile-form__themes :deep(.el-radio){margin:0;padding:0 20px}@media(max-width:760px){.profile-page__grid{grid-template-columns:1fr}}</style>
+
+<template>
+  <div class="page-stack">
+    <div class="profile-grid">
+      <n-card :bordered="false">
+        <div class="identity-avatar">
+          <n-avatar round :size="104" :src="avatarSrc(form.avatar_url)">
+            {{ (form.nickname || '?').slice(0, 1) }}
+          </n-avatar>
+          <n-button :loading="uploadingAvatar" @click="avatarInput?.click()">
+            {{ form.avatar_url ? t('action.change') : t('action.upload') }}
+          </n-button>
+          <input
+            ref="avatarInput"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            hidden
+            @change="onAvatarChosen"
+          />
+        </div>
+        <div class="identity-user">
+          <strong>{{ form.nickname || '—' }}</strong>
+          <span>{{ userStore.user?.email }}</span>
+        </div>
+        <p class="identity-hint">{{ t('profile.avatarHint') }}</p>
+        <n-divider />
+        <dl class="identity-list">
+          <div>
+            <dt>{{ t('profile.email') }}</dt>
+            <dd>
+              <span>{{ userStore.user?.email }}</span>
+              <n-tag v-if="userStore.user?.email_verified" size="small" type="success" round>
+                {{ t('profile.verified') }}
+              </n-tag>
+              <n-tag v-else size="small" type="warning" round>{{
+                t('profile.unverified')
+              }}</n-tag>
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('profile.createdAt') }}</dt>
+            <dd>{{ formatDateTime(userStore.user?.created_at) }}</dd>
+          </div>
+        </dl>
+      </n-card>
+
+      <n-card :bordered="false">
+        <template #header>
+          <div class="form-head">
+            <span>{{ t('profile.title') }}</span>
+            <div class="form-head__save">
+              <n-tag v-if="!saved" type="warning" size="small" round>{{
+                t('profile.unsaved')
+              }}</n-tag>
+              <n-button size="small" type="primary" :loading="saving" @click="onSave">{{
+                t('profile.saveChanges')
+              }}</n-button>
+            </div>
+          </div>
+        </template>
+        <n-form label-placement="top">
+          <n-form-item :label="t('profile.nickname')">
+            <n-input v-model:value="form.nickname" size="large" maxlength="64" show-count />
+          </n-form-item>
+          <n-form-item :label="t('profile.signature')">
+            <n-input
+              v-model:value="form.signature"
+              size="large"
+              maxlength="255"
+              show-count
+              :placeholder="t('profile.signatureHint')"
+            />
+          </n-form-item>
+          <n-form-item :label="t('profile.theme')">
+            <n-radio-group v-model:value="form.theme">
+              <n-radio-button value="light">{{ t('profile.light') }}</n-radio-button>
+              <n-radio-button value="dark">{{ t('profile.dark') }}</n-radio-button>
+            </n-radio-group>
+          </n-form-item>
+        </n-form>
+      </n-card>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.profile-grid {
+  display: grid;
+  grid-template-columns: minmax(270px, 0.72fr) minmax(0, 1.28fr);
+  gap: 16px;
+}
+.identity-avatar {
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+}
+.identity-user {
+  display: grid;
+  gap: 4px;
+  margin: 22px 0 10px;
+}
+.identity-user strong {
+  font-size: 20px;
+}
+.identity-user span,
+.identity-hint {
+  color: var(--app-text-secondary);
+  font-size: 13px;
+}
+.identity-hint {
+  margin: 0;
+}
+.identity-list {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+}
+.identity-list div {
+  display: grid;
+  gap: 6px;
+}
+.identity-list dt {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.identity-list dd {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+}
+.form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.form-head__save {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+@media (max-width: 760px) {
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

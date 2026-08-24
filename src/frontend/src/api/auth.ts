@@ -10,7 +10,12 @@ export function sendEmailCode(email: string, purpose: string) {
 }
 
 /** POST /auth/register — 注册（public） */
-export function register(data: { email: string; code: string; password: string; nickname: string }) {
+export function register(data: {
+  email: string
+  code: string
+  password: string
+  nickname: string
+}) {
   return apiRequest<null>('POST', '/auth/register', data)
 }
 
@@ -31,7 +36,10 @@ export function resetPassword(data: { email: string; code: string; new_password:
 
 /** POST /auth/change-password — 修改密码（auth） */
 export function changePassword(oldPassword: string, newPassword: string) {
-  return apiRequest<null>('POST', '/auth/change-password', { old_password: oldPassword, new_password: newPassword })
+  return apiRequest<null>('POST', '/auth/change-password', {
+    old_password: oldPassword,
+    new_password: newPassword,
+  })
 }
 
 /** POST /auth/change-email — 换绑邮箱（auth） */

@@ -32,27 +32,29 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 
 ## 快速开始
 
-```bash
-# 开发环境（PostgreSQL + Redis + MinIO + 后端）
-docker compose -f docker/docker-compose-dev.yml up --build
+- **Windows 一键启动（推荐）**：双击根目录 `run-local.bat` —— 自动拉起 PostgreSQL / MinIO / Redis，构建沙箱基础层与判题节点镜像并启动 1 个本地判题节点，执行数据库迁移与演示账号引导，随后弹出后端（8000）与前端（5173）窗口。
+- **生产环境**（后端 + 前端 + 基础设施）：
 
-# 生产环境（后端 + 前端 + 基础设施；判题节点见 src/judge）
-docker compose -f docker/docker-compose.yml up -d
+  ```bash
+  docker compose -f docker/docker-compose.yml up -d
+  ```
 
-# 判题节点（默认本机 1 个；配置见 .env.node.example → 复制为 .env.node）
-docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
-```
+- **判题节点**（默认本机 1 个；配置模板 `.env.node.example` → 复制为 `.env.node`）：
 
-详细命令见 [docs/operations.md](docs/operations.md)。环境变量见 [.env.example](.env.example)，本地使用 `cp .env.example .env`。
+  ```bash
+  docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
+  ```
+
+详细命令见 [docs/operations.md](docs/operations.md)。后端配置主文件为 [src/backend/backend.toml](src/backend/backend.toml)（`.env` / 环境变量可覆盖，模板见 [.env.example](.env.example)，本地使用 `cp .env.example .env`）。
 
 ## 技术栈
 
 | 类别 | 选型 |
 | --- | --- |
-| 后端 | FastAPI · SQLAlchemy · Alembic · gRPC（判题节点网关）· LangGraph · LiteLLM |
+| 后端 | FastAPI · SQLAlchemy · Alembic · gRPC（判题节点网关）· LangGraph · LiteLLM（AI 依赖暂缓启用） |
 | 存储 | PostgreSQL · Redis · MinIO |
 | 沙箱 | nsjail（进程级隔离代码执行） |
-| 前端 | Vue 3 · Pinia · Element Plus · Monaco Editor |
+| 前端 | Vue 3 · Pinia · Naive UI · Tailwind CSS v4 · vue-i18n · Monaco Editor |
 | 部署 | Docker Compose |
 
 完整选型与「明确不使用的技术」见 [docs/architecture.md](docs/architecture.md)。
@@ -66,6 +68,8 @@ docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
 | [docs/architecture.md](docs/architecture.md) | 技术栈、分层、模块、编码规范、安全规则、权限矩阵 | 写代码前必读 |
 | [docs/contracts/](docs/contracts/index.md) | 数据模型、API 契约、错误码（按模块拆分） | 改表结构 / API / 错误码时 |
 | [docs/operations.md](docs/operations.md) | 测试、部署、环境变量 | 改配置 / 环境 / 测试时 |
+| [docs/frontend.md](docs/frontend.md) | 前端设计系统、布局、i18n 与质量门禁约定 | 改前端时必读 |
+| [docs/refactoring-notes.md](docs/refactoring-notes.md) | 后端重构变更与约定（api.py 门面等） | 重构后端模块时 |
 | [docs/decisions/](docs/decisions/) | 架构决策记录 | 做架构或选型决策前 |
 
 ## 仓库结构
@@ -76,12 +80,14 @@ docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
 | `docs/architecture.md` | 技术栈、分层、编码规范、安全规则 |
 | `docs/contracts/` | 数据模型、API 契约、错误码（按模块拆分） |
 | `docs/operations.md` | 测试、部署、环境变量 |
+| `docs/frontend.md` | 前端设计系统与实现契约 |
+| `docs/refactoring-notes.md` | 后端重构变更与约定 |
 | `docs/workflow.md` | AI 如何读文档、同步文档、写报告 |
 | `docs/decisions/` | 架构决策记录 |
-| `docker/` | Docker Compose 编排（生产 / 开发） |
-| `src/backend` / `src/frontend` / `src/sandbox` | 后端 / 前端 / 沙箱服务（后端与前端按契约实现中；沙箱 nsjail 执行器已就位） |
+| `docker/` | Docker Compose 编排（生产；判题节点编排见根目录 `docker-compose-node.yml`） |
+| `src/backend` / `src/frontend` / `src/judge` | 后端 / 前端 / 判题节点（含 nsjail 沙箱镜像与节点守护进程） |
 
 ## 说明
 
-- 当前阶段：文档契约已完成。**后端已实现 auth / users / admin / files / judge（题库·判题·沙箱节点调度）模块**（含 Alembic 迁移与集成测试）；**前端已实现整体布局**（左菜单 + 底部用户区 + 顶部二级菜单）与**用户 / 管理 / 题库**页面，直连真实后端 API（题库含列表分页筛选、写题/编辑、样例自测、提交判题与测试点明细）。判题链路为「调度器 + 节点专属队列 + 心跳负载 + beat 兜底重调度」架构，本地由 `run-local.bat` 一键拉起。其余业务功能（比赛 / 团队 / 题单 / AI / 社区等）按 `docs/contracts/` 各模块契约逐步实现（AI 模块及其模型配置 / Token 用量暂缓；团队题目可见性与验题邀请的团队侧随 teams 模块接入）。
+- 当前阶段：文档契约已完成。**后端已实现 users（认证 / 用户中心 / 用户管理）/ files / problems（题库 · 测试点 · 验题记录）/ judge（提交判题调度 · 沙箱配置 · gRPC 节点网关）/ admin 模块**（含 Alembic 迁移与集成测试；模块间经 `api.py` 门面通信，规则由 `scripts/check_import_rules.py` 检查）；**前端已实现整体布局**（左侧固定图标栏 + 顶栏面包屑/用户菜单 + 区块二级菜单）与**用户 / 管理 / 题库**页面，直连真实后端 API（题库含列表分页筛选、写题/编辑、提交判题与测试点明细；样例支持复制输入，在线试运行规划中），已建立 ESLint / Prettier / Vitest 质量门禁。判题链路为「后端 gRPC 网关 + 判题节点双向流注册/心跳负载 + 维护循环兜底重调度」架构——后端进程不执行任何用户代码，本地由 `run-local.bat` 一键拉起。其余业务功能（比赛 / 团队 / 题单 / AI / 社区等）按 `docs/contracts/` 各模块契约逐步实现（AI 模块及其模型配置 / Token 用量暂缓；团队题目可见性与验题邀请的团队侧随 teams 模块接入）。
 - 沙箱执行环境首批支持 Python 3.12、C++17、Java 21。

@@ -1,12 +1,152 @@
 <script setup lang="ts">
 import { Monitor, Refresh } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+
 import * as usersApi from '@/api/users'
+import { dialog, message } from '@/utils/feedback'
 import type { UserSession } from '@/types'
 import { formatDateTime } from '@/utils/format'
-const {t}=useI18n();const loading=ref(false);const sessions=ref<UserSession[]>([]);async function load(){loading.value=true;try{sessions.value=await usersApi.listSessions()}catch(e){ElMessage.error(e instanceof Error?e.message:t('common.loadFailed'))}finally{loading.value=false}}onMounted(load);async function onRevoke(session:UserSession){try{await ElMessageBox.confirm(t('sessions.revokeConfirm',{device:session.device_info??t('common.unknownDevice')}),t('sessions.revokeTitle'),{type:'warning',confirmButtonText:t('action.revoke'),cancelButtonText:t('action.cancel')})}catch{return}try{await usersApi.revokeSession(session.id);ElMessage.success(t('sessions.revoked'));await load()}catch(e){ElMessage.error(e instanceof Error?e.message:t('common.operationFailed'))}}
+
+const { t } = useI18n()
+const loading = ref(false)
+const sessions = ref<UserSession[]>([])
+async function load() {
+  loading.value = true
+  try {
+    sessions.value = await usersApi.listSessions()
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('common.loadFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
+function onRevoke(session: UserSession) {
+  dialog.warning({
+    title: t('sessions.revokeTitle'),
+    content: t('sessions.revokeConfirm', {
+      device: session.device_info ?? t('common.unknownDevice'),
+    }),
+    positiveText: t('action.revoke'),
+    negativeText: t('action.cancel'),
+    onPositiveClick: async () => {
+      try {
+        await usersApi.revokeSession(session.id)
+        message.success(t('sessions.revoked'))
+        await load()
+      } catch (e) {
+        message.error(e instanceof Error ? e.message : t('common.operationFailed'))
+      }
+    },
+  })
+}
 </script>
-<template><div class="sessions-page"><el-card shadow="never"><template #header><div class="sessions-card__head"><span>{{t('sessions.title')}}</span><el-button :icon="Refresh" size="small" :loading="loading" @click="load">{{t('action.refresh')}}</el-button></div></template><el-table v-loading="loading" :data="sessions"><el-table-column :label="t('sessions.device')" min-width="190"><template #default="{row}"><div class="sessions-device"><span class="sessions-device__icon"><el-icon><Monitor/></el-icon></span><div><strong>{{row.device_info??t('common.unknownDevice')}}</strong><small>{{row.ip_address}}</small></div><el-tag v-if="row.current" size="small" type="success">{{t('common.current')}}</el-tag></div></template></el-table-column><el-table-column :label="t('sessions.lastActive')" width="170"><template #default="{row}">{{formatDateTime(row.last_active_at)}}</template></el-table-column><el-table-column :label="t('sessions.loginAt')" width="170"><template #default="{row}">{{formatDateTime(row.created_at)}}</template></el-table-column><el-table-column :label="t('sessions.expiresAt')" width="170"><template #default="{row}">{{formatDateTime(row.expires_at)}}</template></el-table-column><el-table-column :label="t('sessions.operations')" width="120" fixed="right"><template #default="{row}"><el-button link type="danger" :disabled="row.current" @click="onRevoke(row)">{{row.current?t('sessions.currentSession'):t('action.revoke')}}</el-button></template></el-table-column><template #empty><el-empty :description="t('sessions.empty')" :image-size="88"/></template></el-table><p class="sessions-tip">{{t('sessions.tip')}}</p></el-card></div></template>
-<style scoped>.sessions-page{display:grid;gap:20px;max-width:1180px}.sessions-card__head{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}.sessions-device{display:flex;align-items:center;gap:10px}.sessions-device__icon{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;color:var(--el-color-primary);background:var(--el-color-primary-light-9)}.sessions-device>div{display:grid;gap:3px}.sessions-device strong{font-size:13px}.sessions-device small{color:var(--app-text-muted);font-size:11px}.sessions-device .el-tag{margin-left:auto}.sessions-tip{margin:14px 0 0;padding:10px 12px;border-radius:9px;color:var(--app-text-muted);background:var(--app-surface-muted);font-size:12px;line-height:1.55}</style>
+
+<template>
+  <div class="page-stack">
+    <n-card :bordered="false">
+      <template #header>
+        <div class="sessions-head">
+          <span>{{ t('sessions.title') }}</span>
+          <n-button size="small" secondary :loading="loading" @click="load">
+            <template #icon>
+              <n-icon :component="Refresh" />
+            </template>
+            {{ t('action.refresh') }}
+          </n-button>
+        </div>
+      </template>
+
+      <n-list v-if="sessions.length" hoverable clickable>
+        <n-list-item v-for="session in sessions" :key="session.id">
+          <div class="session-row">
+            <div class="session-device">
+              <span class="session-device__icon"><n-icon :component="Monitor" /></span>
+              <div class="session-device__meta">
+                <strong>{{ session.device_info ?? t('common.unknownDevice') }}</strong>
+                <small>{{ session.ip_address }}</small>
+              </div>
+              <n-tag v-if="session.current" size="small" type="success" round>
+                {{ t('common.current') }}
+              </n-tag>
+            </div>
+            <div class="session-times">
+              <span>{{ t('sessions.lastActive') }}：{{ formatDateTime(session.last_active_at) }}</span>
+              <span>{{ t('sessions.loginAt') }}：{{ formatDateTime(session.created_at) }}</span>
+              <span>{{ t('sessions.expiresAt') }}：{{ formatDateTime(session.expires_at) }}</span>
+            </div>
+            <n-button
+              text
+              type="error"
+              :disabled="session.current"
+              @click="() => onRevoke(session)"
+            >
+              {{ session.current ? t('sessions.currentSession') : t('action.revoke') }}
+            </n-button>
+          </div>
+        </n-list-item>
+      </n-list>
+      <n-spin v-else :show="loading">
+        <n-empty :description="t('sessions.empty')" />
+      </n-spin>
+
+      <p class="form-hint">{{ t('sessions.tip') }}</p>
+    </n-card>
+  </div>
+</template>
+
+<style scoped>
+.sessions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.session-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.2fr) minmax(0, 2fr) auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+.session-device {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.session-device__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: var(--app-primary);
+  background: rgba(244, 81, 30, 0.09);
+}
+.session-device__meta {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.session-device__meta strong {
+  font-size: 13px;
+}
+.session-device__meta small {
+  color: var(--app-text-secondary);
+  font-size: 11px;
+}
+.session-times {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+@media (max-width: 860px) {
+  .session-row {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

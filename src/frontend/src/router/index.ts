@@ -2,15 +2,15 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 
 import { useUserStore } from '@/stores/user'
+import { useAppStore } from '@/stores/app'
 import { i18n } from '@/i18n'
 
 /**
  * 布局下的区块路由（侧边栏菜单数据源）。
  * 规则：
- * - meta.title 作为侧边栏 / 二级菜单项文案
- * - meta.hidden 从侧边栏隐藏（用户设置入口在底部用户卡）
+ * - meta.titleKey 作为侧边栏 / 浏览器标题文案
+ * - meta.hidden 从侧边栏隐藏（用户设置与管理后台由头像菜单进入）
  * - meta.roles 做权限过滤（管理后台仅 admin）
- * - 区块（有 children 的路由）子项 ≥ 2 时，右侧内容区顶部渲染二级菜单栏（SectionTabs）
  */
 export const layoutChildren: RouteRecordRaw[] = [
   {
@@ -22,7 +22,7 @@ export const layoutChildren: RouteRecordRaw[] = [
   {
     path: 'problems',
     redirect: '/problems/list',
-    meta: { title: '题库', titleKey: 'nav.problems', icon: 'Collection', sectionTitle: '题库' },
+    meta: { title: '题库', titleKey: 'nav.problems', icon: 'Collection' },
     children: [
       {
         path: 'list',
@@ -31,28 +31,29 @@ export const layoutChildren: RouteRecordRaw[] = [
         meta: { title: '题库', titleKey: 'nav.problems', icon: 'Collection' },
       },
       {
-        path: 'new',
-        name: 'problem-create',
-        component: () => import('@/views/problems/ProblemCreateView.vue'),
-        meta: { title: '创建题目', titleKey: 'problems.create.title', requiresAuth: true, hidden: true, contextPage: true },
-      },
-      {
-        path: ':id/edit',
-        name: 'problem-edit',
-        component: () => import('@/views/problems/ProblemCreateView.vue'),
-        meta: { title: '编辑题目', titleKey: 'problems.create.editTitle', requiresAuth: true, hidden: true, contextPage: true },
-      },
-      {
+        // 前台仅消费：详情 / 提交结果；出题入口统一在管理后台
         path: ':id',
         name: 'problem-detail',
         component: () => import('@/views/problems/ProblemDetailView.vue'),
-        meta: { title: '题目详情', titleKey: 'problems.detail.title', requiresAuth: true, hidden: true, contextPage: true },
+        meta: {
+          title: '题目详情',
+          titleKey: 'problems.detail.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+        },
       },
       {
         path: ':problemId/submissions/:id',
         name: 'submission-detail',
         component: () => import('@/views/problems/SubmissionView.vue'),
-        meta: { title: '评测结果', titleKey: 'problems.submission.title', requiresAuth: true, hidden: true, contextPage: true },
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+        },
       },
     ],
   },
@@ -67,7 +68,11 @@ export const layoutChildren: RouteRecordRaw[] = [
       placeholder: {
         titleKey: 'nav.contests',
         descriptionKey: 'placeholder.contestsDescription',
-        endpoints: ['GET /api/v1/contests', 'POST /api/v1/contests/{id}/register', 'GET /api/v1/contests/{id}/rankings'],
+        endpoints: [
+          'GET /api/v1/contests',
+          'POST /api/v1/contests/{id}/register',
+          'GET /api/v1/contests/{id}/rankings',
+        ],
       },
     },
   },
@@ -88,11 +93,71 @@ export const layoutChildren: RouteRecordRaw[] = [
   },
   {
     path: 'admin',
-    redirect: '/admin/users',
+    // staff 会话即可进入；tutor 落地题目管理，admin 落地用户管理
+    redirect: () => {
+      const userStore = useUserStore()
+      return userStore.hasAnyRole(['admin']) ? '/admin/users' : '/admin/problems'
+    },
     // hidden：不在前台侧栏显示；入口在头像菜单，进入后侧栏整体切换为管理菜单
-    // hideSectionTabs：管理菜单已由侧栏承载，不再渲染内容区顶部二级标签栏
-    meta: { title: '管理后台', titleKey: 'nav.admin', icon: 'Monitor', roles: ['admin'], sectionTitle: '管理后台', hidden: true, hideSectionTabs: true },
+    meta: {
+      title: '管理后台',
+      titleKey: 'nav.admin',
+      icon: 'Monitor',
+      roles: ['admin', 'tutor'],
+      hidden: true,
+    },
     children: [
+      {
+        // 出题工作台（管理后台唯一面向 tutor 的区块）；上下文页挂其下
+        path: 'problems',
+        name: 'admin-problems-section',
+        meta: {
+          title: '题目管理',
+          titleKey: 'nav.problemsManage',
+          icon: 'Collection',
+          roles: ['admin', 'tutor'],
+        },
+        children: [
+          {
+            path: '',
+            name: 'problem-mine',
+            component: () => import('@/views/problems/ProblemMineView.vue'),
+            meta: {
+              title: '题目管理',
+              titleKey: 'nav.problemsManage',
+              icon: 'Collection',
+              roles: ['admin', 'tutor'],
+              requiresAuth: true,
+            },
+          },
+          {
+            path: 'new',
+            name: 'problem-create',
+            component: () => import('@/views/problems/ProblemCreateView.vue'),
+            meta: {
+              title: '创建题目',
+              titleKey: 'problems.create.title',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            path: ':id/edit',
+            name: 'problem-edit',
+            component: () => import('@/views/problems/ProblemCreateView.vue'),
+            meta: {
+              title: '编辑题目',
+              titleKey: 'problems.create.editTitle',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+        ],
+      },
       {
         path: 'users',
         name: 'admin-users',
@@ -128,7 +193,13 @@ export const layoutChildren: RouteRecordRaw[] = [
   {
     path: 'user',
     redirect: '/user/profile',
-    meta: { title: '用户设置', titleKey: 'nav.userSettings', icon: 'Setting', hidden: true, requiresAuth: true, sectionTitle: '用户设置' },
+    meta: {
+      title: '用户设置',
+      titleKey: 'nav.userSettings',
+      icon: 'Setting',
+      hidden: true,
+      requiresAuth: true,
+    },
     children: [
       {
         path: 'profile',
@@ -146,7 +217,12 @@ export const layoutChildren: RouteRecordRaw[] = [
         path: 'sessions',
         name: 'user-sessions',
         component: () => import('@/views/user/SessionsView.vue'),
-        meta: { title: '会话管理', titleKey: 'user.sessions', icon: 'Odometer', requiresAuth: true },
+        meta: {
+          title: '会话管理',
+          titleKey: 'user.sessions',
+          icon: 'Odometer',
+          requiresAuth: true,
+        },
       },
     ],
   },
@@ -172,6 +248,13 @@ const router = createRouter({
       component: () => import('@/views/auth/RegisterView.vue'),
       meta: { title: '注册', titleKey: 'user.register', public: true },
     },
+    {
+      // 验题邀请落地页：凭链接令牌提交验题代码（公开，登录后回到本页）
+      path: '/verify/:token',
+      name: 'verify-invite',
+      component: () => import('@/views/problems/VerifyInviteView.vue'),
+      meta: { title: '验题邀请', titleKey: 'problems.verify.title', public: true },
+    },
     // 未匹配路由：回首页
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
@@ -196,10 +279,19 @@ router.beforeEach(async (to) => {
 function setDocumentTitle(meta: { titleKey?: string; title?: string }) {
   const translate = (i18n as unknown as { global: { t: (key: string) => string } }).global.t
   const title = meta.titleKey ? translate(String(meta.titleKey)) : meta.title
-  document.title = title ? `${title} · PigeonOJ` : 'PigeonOJ'
+  // 站点名来自 GET /site-config（stores/app），未加载完成时回退 PigeonOJ
+  const siteName = useAppStore().siteConfig.name || 'PigeonOJ'
+  document.title = title ? `${title} · ${siteName}` : siteName
+}
+
+/** 站点配置异步加载完成后刷新标签标题（App.vue watch 调用）。 */
+export function refreshDocumentTitle() {
+  setDocumentTitle(router.currentRoute.value.meta)
 }
 
 router.afterEach((to) => setDocumentTitle(to.meta))
-window.addEventListener('pigeonoj:locale-change', () => setDocumentTitle(router.currentRoute.value.meta))
+window.addEventListener('pigeonoj:locale-change', () =>
+  setDocumentTitle(router.currentRoute.value.meta),
+)
 
 export default router

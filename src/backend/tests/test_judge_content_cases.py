@@ -3,9 +3,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from app.modules.judge.models import Problem, TestCase as JudgeTestCase
-from app.modules.judge.schemas import TestCaseItem as JudgeTestCaseItem, TestCasesUpdate as JudgeTestCasesUpdate
-from app.modules.judge.service import ProblemService
+from app.modules.problems.models import Problem, TestCase as JudgeTestCase
+from app.modules.problems.schemas import TestCaseItem as JudgeTestCaseItem, TestCasesUpdate as JudgeTestCasesUpdate
+from app.modules.problems.service import ProblemService
 from app.modules.users.models import User
 
 
@@ -23,7 +23,7 @@ async def test_replace_cases_uploads_only_official_content(monkeypatch):
             self.deletes.append(key)
 
     storage = FakeStorage()
-    monkeypatch.setattr("app.modules.judge.service.get_storage", lambda: storage)
+    monkeypatch.setattr("app.modules.problems.service.get_storage", lambda: storage)
     from app.shared.infra.database import SessionLocal
 
     async with SessionLocal() as db:
@@ -36,7 +36,7 @@ async def test_replace_cases_uploads_only_official_content(monkeypatch):
         await db.commit()
         await ProblemService(db).replace_cases(user, problem.id, JudgeTestCasesUpdate(cases=[
             JudgeTestCaseItem(name="sample", is_sample=True, input="1", expected_output="1"),
-            JudgeTestCaseItem(name="hidden", input="2", expected_output="4", score=100),
+            JudgeTestCaseItem(name="hidden", input="2", expected_output="4"),
         ]))
         await db.commit()
         assert len(storage.puts) == 2

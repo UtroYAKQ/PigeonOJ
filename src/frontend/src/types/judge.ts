@@ -3,7 +3,17 @@
  */
 import type { ProblemLanguage } from './problem'
 
-export type SubmissionStatus = 'pending' | 'judging' | 'accepted' | 'wrong_answer' | 'time_limit_exceeded' | 'memory_limit_exceeded' | 'output_limit_exceeded' | 'runtime_error' | 'compile_error' | 'system_error'
+export type SubmissionStatus =
+  | 'pending'
+  | 'judging'
+  | 'accepted'
+  | 'wrong_answer'
+  | 'time_limit_exceeded'
+  | 'memory_limit_exceeded'
+  | 'output_limit_exceeded'
+  | 'runtime_error'
+  | 'compile_error'
+  | 'system_error'
 
 export interface Submission {
   id: string
@@ -37,9 +47,10 @@ export interface SubmissionListQuery {
   status?: SubmissionStatus
 }
 
-/** 创建提交载荷（POST /submissions） */
+/** 创建提交载荷（POST /submissions）；携带 invite_token 时为验题提交（submit_type=verify） */
 export interface SubmissionCreatePayload {
   problem_id: string
   language: ProblemLanguage
   code: string
+  invite_token?: string
 }

@@ -8,7 +8,7 @@ declare module 'vue-router' {
     titleKey?: string
     /** 菜单图标名（key 见 @/layout/icon.ts） */
     icon?: string
-    /** 是否在侧边栏隐藏（如「用户设置」入口位于底部用户卡） */
+    /** 是否在侧边栏隐藏（用户设置 / 管理后台由头像菜单进入） */
     hidden?: boolean
     /** 需要的全局角色 code 列表（满足任一即可，见 docs/architecture.md 权限设计） */
     roles?: string[]
@@ -16,13 +16,20 @@ declare module 'vue-router' {
     requiresAuth?: boolean
     /** 公开页面（登录 / 注册），跳过登录校验 */
     public?: boolean
-    /** 区块标题：右侧二级菜单栏左侧标识（如「管理后台」「用户设置」） */
-    sectionTitle?: string
     /** 占位页配置（尚未实现的模块页面） */
-    placeholder?: { title?: string; titleKey?: string; description?: string; descriptionKey?: string; endpoints?: string[] }
-    /** 对象上下文页面（详情、创建、提交结果等）；不进入区块二级导航 */
+    placeholder?: {
+      title?: string
+      titleKey?: string
+      description?: string
+      descriptionKey?: string
+      endpoints?: string[]
+    }
+    /** 对象上下文页面（详情、创建、提交结果等）；不进入侧边栏菜单 */
     contextPage?: boolean
-    /** 隐藏区块二级菜单栏（导航已由侧栏承载时使用，如管理后台空间） */
-    hideSectionTabs?: boolean
+    /**
+     * 面包屑父级工作台：上下文页在面包屑中挂到所属工作台下，
+     * 如 管理后台/题目管理/编辑题目（{ titleKey: 'nav.problemsManage', path: '/admin/problems' }）
+     */
+    breadcrumbParent?: { titleKey: string; path: string }
   }
 }

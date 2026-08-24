@@ -93,7 +93,9 @@ export function adminSandboxStatus() {
 // ---------------- 举报 ----------------
 
 /** GET /admin/reports — 举报列表 */
-export function adminListReports(query: { page?: number; page_size?: number; status?: ReportStatus | '' } = {}) {
+export function adminListReports(
+  query: { page?: number; page_size?: number; status?: ReportStatus | '' } = {},
+) {
   const params = new URLSearchParams()
   if (query.page) params.set('page', String(query.page))
   if (query.page_size) params.set('page_size', String(query.page_size))

@@ -1,15 +1,336 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { NButton, NTag } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
+
 import * as adminApi from '@/api/admin'
 import type { ExceptionLogRow, LoginLogRow, LogType, RequestLogRow } from '@/types'
-import { LOG_LEVEL } from '@/constants/dict'
+import { LOG_LEVEL, toNaiveTagType } from '@/constants/dict'
 import { downloadCsv } from '@/utils/csv'
 import { formatDateTime } from '@/utils/format'
-const {t}=useI18n();const loading=ref(false);const type=ref<LogType>('request');const rows=ref<unknown[]>([]);const total=ref(0);const query=reactive({page:1,page_size:20,keyword:'',range:null as [string,string]|null});const typeLabel=(v:LogType)=>t(`admin.logs.${v}`)
-async function load(){loading.value=true;try{const res=await adminApi.adminListLogs(type.value,{page:query.page,page_size:query.page_size,keyword:query.keyword||undefined,start:query.range?.[0],end:query.range?.[1]});rows.value=res.items;total.value=res.total}catch(e){ElMessage.error(e instanceof Error?e.message:t('common.loadFailed'))}finally{loading.value=false}}watch(type,()=>{query.page=1;load()});onMounted(load);function onSearch(){query.page=1;load()}function onReset(){query.keyword='';query.range=null;query.page=1;load()}const searchPlaceholder=computed(()=>t(type.value==='request'?'admin.logs.requestSearch':type.value==='login'?'admin.logs.loginSearch':'admin.logs.exceptionSearch'))
-function exportCsv(){if(!rows.value.length)return ElMessage.warning(t('admin.logs.noExport'));const stamp=new Date().toISOString().slice(0,10);if(type.value==='request'){const list=rows.value as RequestLogRow[];downloadCsv(`request-logs-${stamp}.csv`,[t('admin.logs.requestId'),t('admin.logs.userId'),t('admin.logs.method'),t('admin.logs.path'),t('admin.logs.code'),'IP',t('admin.logs.duration'),t('admin.logs.time')],list.map(r=>[r.request_id,r.user_id??'',r.method,r.path,r.status_code,r.ip_address??'',r.duration_ms??'',formatDateTime(r.created_at)]))}else if(type.value==='login'){const list=rows.value as LoginLogRow[];downloadCsv(`login-logs-${stamp}.csv`,[t('admin.logs.userId'),t('auth.email'),t('admin.logs.action'),'IP',t('admin.logs.result'),t('admin.logs.reason'),t('admin.logs.time')],list.map(r=>[r.user_id??'',r.email??'',r.action,r.ip_address??'',r.success?t('common.yes'):t('common.no'),r.reason??'',formatDateTime(r.created_at)]))}else{const list=rows.value as ExceptionLogRow[];downloadCsv(`exception-logs-${stamp}.csv`,[t('admin.logs.level'),t('admin.logs.message'),t('admin.logs.requestId'),t('admin.logs.userId'),t('admin.logs.time')],list.map(r=>[r.level,r.message,r.request_id??'',r.user_id??'',formatDateTime(r.created_at)]))}}
+import { message } from '@/utils/feedback'
+
+const { t } = useI18n()
+const loading = ref(false)
+const type = ref<LogType>('request')
+const rows = ref<unknown[]>([])
+const total = ref(0)
+const query = reactive({
+  page: 1,
+  page_size: 20,
+  keyword: '',
+  range: null as [number, number] | null,
+})
+async function load() {
+  loading.value = true
+  try {
+    const res = await adminApi.adminListLogs(type.value, {
+      page: query.page,
+      page_size: query.page_size,
+      keyword: query.keyword || undefined,
+      start: query.range ? new Date(query.range[0]).toISOString() : undefined,
+      end: query.range ? new Date(query.range[1]).toISOString() : undefined,
+    })
+    rows.value = res.items
+    total.value = res.total
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('common.loadFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+watch(type, () => {
+  query.page = 1
+  load()
+})
+onMounted(load)
+function onSearch() {
+  query.page = 1
+  load()
+}
+function onReset() {
+  query.keyword = ''
+  query.range = null
+  query.page = 1
+  load()
+}
+function changePage(page: number) {
+  query.page = page
+  load()
+}
+function changeSize(size: number) {
+  query.page_size = size
+  query.page = 1
+  load()
+}
+
+const searchPlaceholder = computed(() =>
+  t(
+    type.value === 'request'
+      ? 'admin.logs.requestSearch'
+      : type.value === 'login'
+        ? 'admin.logs.loginSearch'
+        : 'admin.logs.exceptionSearch',
+  ),
+)
+
+function exportCsv() {
+  if (!rows.value.length) {
+    message.warning(t('admin.logs.noExport'))
+    return
+  }
+  const stamp = new Date().toISOString().slice(0, 10)
+  if (type.value === 'request') {
+    const list = rows.value as RequestLogRow[]
+    downloadCsv(
+      `request-logs-${stamp}.csv`,
+      [
+        t('admin.logs.requestId'),
+        t('admin.logs.userId'),
+        t('admin.logs.method'),
+        t('admin.logs.path'),
+        t('admin.logs.code'),
+        'IP',
+        t('admin.logs.duration'),
+        t('admin.logs.time'),
+      ],
+      list.map((r) => [
+        r.request_id,
+        r.user_id ?? '',
+        r.method,
+        r.path,
+        r.status_code,
+        r.ip_address ?? '',
+        r.duration_ms ?? '',
+        formatDateTime(r.created_at),
+      ]),
+    )
+  } else if (type.value === 'login') {
+    const list = rows.value as LoginLogRow[]
+    downloadCsv(
+      `login-logs-${stamp}.csv`,
+      [
+        t('admin.logs.userId'),
+        t('auth.email'),
+        t('admin.logs.action'),
+        'IP',
+        t('admin.logs.result'),
+        t('admin.logs.reason'),
+        t('admin.logs.time'),
+      ],
+      list.map((r) => [
+        r.user_id ?? '',
+        r.email ?? '',
+        r.action,
+        r.ip_address ?? '',
+        r.success ? t('common.yes') : t('common.no'),
+        r.reason ?? '',
+        formatDateTime(r.created_at),
+      ]),
+    )
+  } else {
+    const list = rows.value as ExceptionLogRow[]
+    downloadCsv(
+      `exception-logs-${stamp}.csv`,
+      [
+        t('admin.logs.level'),
+        t('admin.logs.message'),
+        t('admin.logs.requestId'),
+        t('admin.logs.userId'),
+        t('admin.logs.time'),
+      ],
+      list.map((r) => [
+        r.level,
+        r.message,
+        r.request_id ?? '',
+        r.user_id ?? '',
+        formatDateTime(r.created_at),
+      ]),
+    )
+  }
+}
+
+const requestColumns = computed<DataTableColumns<RequestLogRow>>(() => [
+  { title: t('admin.logs.requestId'), key: 'request_id', width: 180 },
+  { title: t('admin.logs.method'), key: 'method', width: 80 },
+  { title: t('admin.logs.path'), key: 'path', minWidth: 220 },
+  { title: t('admin.logs.code'), key: 'status_code', width: 80 },
+  { title: 'IP', key: 'ip_address', width: 120 },
+  { title: t('admin.logs.duration'), key: 'duration_ms', width: 100 },
+  {
+    title: t('admin.logs.time'),
+    key: 'created_at',
+    width: 150,
+    render: (row) => formatDateTime(row.created_at),
+  },
+])
+const loginColumns = computed<DataTableColumns<LoginLogRow>>(() => [
+  { title: t('auth.email'), key: 'email', minWidth: 180 },
+  { title: t('admin.logs.action'), key: 'action', width: 120 },
+  { title: 'IP', key: 'ip_address', width: 130 },
+  {
+    title: t('admin.logs.result'),
+    key: 'success',
+    width: 80,
+    render: (row) =>
+      h(
+        NTag,
+        { size: 'small', type: row.success ? 'success' : 'error', bordered: false },
+        { default: () => (row.success ? t('common.success') : t('admin.logs.failed')) },
+      ),
+  },
+  { title: t('admin.logs.reason'), key: 'reason', minWidth: 160 },
+  {
+    title: t('admin.logs.time'),
+    key: 'created_at',
+    width: 150,
+    render: (row) => formatDateTime(row.created_at),
+  },
+])
+const exceptionColumns = computed<DataTableColumns<ExceptionLogRow>>(() => [
+  {
+    title: t('admin.logs.level'),
+    key: 'level',
+    width: 90,
+    render(row) {
+      return h(
+        NTag,
+        { size: 'small', type: toNaiveTagType(LOG_LEVEL[row.level]?.tag ?? 'info'), bordered: false },
+        { default: () => LOG_LEVEL[row.level]?.label ?? row.level },
+      )
+    },
+  },
+  { title: t('admin.logs.message'), key: 'message', minWidth: 260 },
+  { title: t('admin.logs.requestId'), key: 'request_id', width: 160 },
+  { title: t('admin.logs.userId'), key: 'user_id', width: 140 },
+  {
+    title: t('admin.logs.time'),
+    key: 'created_at',
+    width: 150,
+    render: (row) => formatDateTime(row.created_at),
+  },
+])
+
+const emptyText = computed(() =>
+  t(
+    type.value === 'request'
+      ? 'admin.logs.requestEmpty'
+      : type.value === 'login'
+        ? 'admin.logs.loginEmpty'
+        : 'admin.logs.exceptionEmpty',
+  ),
+)
 </script>
-<template><el-card shadow="never"><template #header><div class="logs__header"><span>{{t('admin.logs.title')}}</span><el-button size="small" :loading="loading" @click="exportCsv">{{t('action.export')}}</el-button></div></template><el-tabs v-model="type"><el-tab-pane v-for="logType in (['request','login','exception'] as LogType[])" :key="logType" :name="logType" :label="typeLabel(logType)"/></el-tabs><div class="logs__toolbar"><el-input v-model="query.keyword" :placeholder="searchPlaceholder" clearable class="logs__search" @keyup.enter="onSearch" @clear="onSearch"/><el-date-picker v-model="query.range" type="datetimerange" :range-separator="t('admin.logs.range')" :start-placeholder="t('admin.logs.start')" :end-placeholder="t('admin.logs.end')" value-format="YYYY-MM-DDTHH:mm:ss" class="logs__range" @change="onSearch"/><el-button type="primary" @click="onSearch">{{t('action.search')}}</el-button><el-button @click="onReset">{{t('action.reset')}}</el-button></div><el-table v-if="type==='request'" v-loading="loading" :data="rows as RequestLogRow[]" stripe><el-table-column prop="request_id" :label="t('admin.logs.requestId')" width="180"/><el-table-column prop="method" :label="t('admin.logs.method')" width="80"/><el-table-column prop="path" :label="t('admin.logs.path')" min-width="220"/><el-table-column prop="status_code" :label="t('admin.logs.code')" width="80"/><el-table-column prop="ip_address" label="IP" width="120"/><el-table-column prop="duration_ms" :label="t('admin.logs.duration')" width="100"/><el-table-column :label="t('admin.logs.time')" width="150"><template #default="{row}">{{formatDateTime(row.created_at)}}</template></el-table-column><template #empty><el-empty :description="t('admin.logs.requestEmpty')"/></template></el-table><el-table v-else-if="type==='login'" v-loading="loading" :data="rows as LoginLogRow[]" stripe><el-table-column prop="email" :label="t('auth.email')" min-width="180"/><el-table-column prop="action" :label="t('admin.logs.action')" width="120"/><el-table-column prop="ip_address" label="IP" width="130"/><el-table-column :label="t('admin.logs.result')" width="80"><template #default="{row}"><el-tag :type="row.success?'success':'danger'">{{row.success?t('common.success'):t('admin.logs.failed')}}</el-tag></template></el-table-column><el-table-column prop="reason" :label="t('admin.logs.reason')" min-width="160"/><el-table-column :label="t('admin.logs.time')" width="150"><template #default="{row}">{{formatDateTime(row.created_at)}}</template></el-table-column><template #empty><el-empty :description="t('admin.logs.loginEmpty')"/></template></el-table><el-table v-else v-loading="loading" :data="rows as ExceptionLogRow[]" stripe><el-table-column :label="t('admin.logs.level')" width="90"><template #default="{row}"><el-tag :type="LOG_LEVEL[row.level]?.tag??'info'">{{LOG_LEVEL[row.level]?.label??row.level}}</el-tag></template></el-table-column><el-table-column prop="message" :label="t('admin.logs.message')" min-width="260"/><el-table-column prop="request_id" :label="t('admin.logs.requestId')" width="160"/><el-table-column prop="user_id" :label="t('admin.logs.userId')" width="140"/><el-table-column :label="t('admin.logs.time')" width="150"><template #default="{row}">{{formatDateTime(row.created_at)}}</template></el-table-column><template #empty><el-empty :description="t('admin.logs.exceptionEmpty')"/></template></el-table><div class="logs__pager"><el-pagination v-model:current-page="query.page" v-model:page-size="query.page_size" :total="total" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" background @change="load"/></div></el-card></template>
-<style scoped>.logs__header,.logs__toolbar,.logs__pager{display:flex;align-items:center;gap:8px}.logs__header{justify-content:space-between}.logs__toolbar{margin:4px 0 14px;flex-wrap:wrap}.logs__search{width:240px}.logs__range{width:360px}.logs__pager{justify-content:flex-end;margin-top:14px}</style>
+
+<template>
+  <div class="page-fill">
+    <n-card :title="t('admin.logs.title')" :bordered="false">
+      <template #header-extra>
+        <n-button size="small" secondary :loading="loading" @click="exportCsv">{{
+          t('action.export')
+        }}</n-button>
+      </template>
+
+      <n-tabs v-model:value="type" type="line" animated>
+        <n-tab-pane name="request" :tab="t('admin.logs.request')" />
+        <n-tab-pane name="login" :tab="t('admin.logs.login')" />
+        <n-tab-pane name="exception" :tab="t('admin.logs.exception')" />
+      </n-tabs>
+
+      <div class="toolbar">
+        <n-input
+          v-model:value="query.keyword"
+          clearable
+          class="toolbar__search"
+          :placeholder="searchPlaceholder"
+          @keyup.enter="onSearch"
+          @clear="onSearch"
+        />
+        <n-date-picker
+          v-model:value="query.range"
+          type="datetimerange"
+          clearable
+          class="toolbar__range"
+          :start-placeholder="t('admin.logs.start')"
+          :end-placeholder="t('admin.logs.end')"
+          @update:value="onSearch"
+        />
+        <n-button type="primary" @click="onSearch">{{ t('action.search') }}</n-button>
+        <n-button secondary @click="onReset">{{ t('action.reset') }}</n-button>
+      </div>
+
+      <div class="table-fill">
+        <template v-if="loading || rows.length">
+          <n-data-table
+            v-if="type === 'request'"
+            class="table-fill"
+            :columns="requestColumns"
+            :data="(rows as RequestLogRow[])"
+            :loading="loading"
+            remote
+            :bordered="false"
+          />
+          <n-data-table
+            v-else-if="type === 'login'"
+            class="table-fill"
+            :columns="loginColumns"
+            :data="(rows as LoginLogRow[])"
+            :loading="loading"
+            :bordered="false"
+          />
+          <n-data-table
+            v-else
+            class="table-fill"
+            :columns="exceptionColumns"
+            :data="(rows as ExceptionLogRow[])"
+            :loading="loading"
+            :bordered="false"
+          />
+        </template>
+        <div v-else class="table-fill-empty">
+          <n-empty size="large" :description="emptyText" />
+        </div>
+      </div>
+
+      <div class="pager">
+        <n-pagination
+          :page="query.page"
+          :page-size="query.page_size"
+          :item-count="total"
+          :page-sizes="[10, 20, 50]"
+          show-size-picker
+          @update:page="changePage"
+          @update:page-size="changeSize"
+        />
+      </div>
+    </n-card>
+  </div>
+</template>
+
+<style scoped>
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+.toolbar__search {
+  width: 240px;
+}
+.toolbar__range {
+  width: 360px;
+}
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+@media (max-width: 700px) {
+  .toolbar__search,
+  .toolbar__range {
+    width: 100%;
+  }
+}
+</style>

@@ -1,31 +1,34 @@
 <script setup lang="ts">
-import { MoreFilled } from '@element-plus/icons-vue'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { NTag } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
+
 import { createSubmission, listSubmissions } from '@/api/judge'
-import { archiveProblem, getProblem, publishProblem } from '@/api/problems'
+import { getProblem } from '@/api/problems'
+import { dialog, message } from '@/utils/feedback'
 import CodeEditor from '@/components/CodeEditor.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
 import type { ProblemDetailEx, ProblemDifficulty, ProblemLanguage, Submission } from '@/types'
 
-const route = useRoute(); const router = useRouter(); const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
+const { t } = useI18n()
 const problem = ref<ProblemDetailEx | null>(null)
-const loading = ref(false); const submitting = ref(false)
-const publishing = ref(false); const archiving = ref(false)
+const loading = ref(false)
+const submitting = ref(false)
+const subsVisible = ref(false)
 const language = ref<ProblemLanguage>('cpp17')
 const mySubmissions = ref<Submission[]>([])
-const subsVisible = ref(false)
 
 const code = ref('')
 
-const statusTagType = computed(() => {
-  const s = problem.value?.status
-  return s === 'published' ? 'success' : s === 'archived' ? 'info' : 'warning'
-})
-function difficultyTagType(difficulty: ProblemDifficulty): 'success' | 'warning' | 'danger' {
-  return difficulty === 'hard' ? 'danger' : difficulty === 'medium' ? 'warning' : 'success'
+function statusTagType(s?: string): 'success' | 'warning' | 'default' {
+  return s === 'published' ? 'success' : s === 'archived' ? 'default' : 'warning'
+}
+function difficultyTagType(difficulty: ProblemDifficulty): 'error' | 'warning' | 'success' {
+  return difficulty === 'hard' ? 'error' : difficulty === 'medium' ? 'warning' : 'success'
 }
 const statusLabelKey: Record<string, string> = {
   draft: 'problems.list.statusDraft',
@@ -34,7 +37,12 @@ const statusLabelKey: Record<string, string> = {
 }
 
 async function copyText(text: string) {
-  try { await navigator.clipboard.writeText(text); ElMessage.success(t('problems.detail.copied')) } catch { ElMessage.error(t('common.operationFailed')) }
+  try {
+    await navigator.clipboard.writeText(text)
+    message.success(t('problems.detail.copied'))
+  } catch {
+    message.error(t('common.operationFailed'))
+  }
 }
 
 async function load() {
@@ -43,14 +51,18 @@ async function load() {
     problem.value = await getProblem(String(route.params.id))
     await loadMySubmissions()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
-  } finally { loading.value = false }
+    message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
+  } finally {
+    loading.value = false
+  }
 }
 async function loadMySubmissions() {
   try {
     const result = await listSubmissions({ problem_id: String(route.params.id), page_size: 5 })
     mySubmissions.value = result.items
-  } catch { /* 未登录等场景静默 */ }
+  } catch {
+    /* 未登录等场景静默 */
+  }
 }
 
 function openSubmission(row: Submission) {
@@ -58,50 +70,30 @@ function openSubmission(row: Submission) {
   router.push(`/problems/${route.params.id}/submissions/${row.id}`)
 }
 
-/** 卡片头三点菜单：编辑 / 发布 / 归档 */
-function onManage(command: string) {
-  if (!problem.value) return
-  if (command === 'edit') router.push(`/problems/${problem.value.id}/edit`)
-  else if (command === 'publish') doPublish()
-  else if (command === 'archive') doArchive()
-}
-
 async function submit() {
   if (!problem.value || submitting.value) return
-  // 提交前二次确认，避免误触
-  try {
-    await ElMessageBox.confirm(t('problems.detail.submitConfirm'), t('problems.detail.submit'), {
-      type: 'info',
-      confirmButtonText: t('problems.detail.submit'),
-      cancelButtonText: t('action.cancel'),
-    })
-  } catch { return }
-  submitting.value = true
-  try {
-    const result = await createSubmission({ problem_id: problem.value.id, language: language.value, code: code.value })
-    router.push(`/problems/${problem.value.id}/submissions/${result.submission_id}`)
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('problems.detail.submitFailed'))
-  } finally { submitting.value = false }
-}
-
-async function doPublish() {
-  if (!problem.value) return
-  publishing.value = true
-  try {
-    const updated = await publishProblem(problem.value.id)
-    problem.value = { ...problem.value, ...updated }
-    ElMessage.success(t('problems.detail.publishSuccess'))
-  } catch (error) { ElMessage.error(error instanceof Error ? error.message : t('common.operationFailed')) } finally { publishing.value = false }
-}
-async function doArchive() {
-  if (!problem.value) return
-  archiving.value = true
-  try {
-    const updated = await archiveProblem(problem.value.id)
-    problem.value = { ...problem.value, ...updated }
-    ElMessage.success(t('problems.detail.archiveSuccess'))
-  } catch (error) { ElMessage.error(error instanceof Error ? error.message : t('common.operationFailed')) } finally { archiving.value = false }
+  // 提交前二次确认，避免误触；取消则不发起请求
+  dialog.warning({
+    title: t('problems.detail.submit'),
+    content: t('problems.detail.submitConfirm'),
+    positiveText: t('problems.detail.submit'),
+    negativeText: t('action.cancel'),
+    onPositiveClick: async () => {
+      submitting.value = true
+      try {
+        const result = await createSubmission({
+          problem_id: problem.value!.id,
+          language: language.value,
+          code: code.value,
+        })
+        router.push(`/problems/${problem.value!.id}/submissions/${result.submission_id}`)
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : t('problems.detail.submitFailed'))
+      } finally {
+        submitting.value = false
+      }
+    },
+  })
 }
 
 onMounted(load)
@@ -147,22 +139,32 @@ function resetSplit() {
 
 /** 计算分栏可用高度：视口高度 - 分栏上方内容 - 滚动容器上下内边距，使两栏独立滚动而非整页滚动 */
 function updateSplitHeight() {
-  if (!isDesktop.value) { splitHeight.value = ''; return }
+  if (!isDesktop.value) {
+    splitHeight.value = ''
+    return
+  }
   const el = splitRef.value
   const scroller = el?.closest('.app-main') as HTMLElement | null
-  if (!el || !scroller) { splitHeight.value = ''; return }
+  if (!el || !scroller) {
+    splitHeight.value = ''
+    return
+  }
   const styles = getComputedStyle(scroller)
   const padTop = parseFloat(styles.paddingTop) || 0
   const padBottom = parseFloat(styles.paddingBottom) || 0
   // 分栏顶部相对滚动容器内容区顶部的距离（含已滚动量）
-  const topGap = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - padTop
+  const topGap =
+    el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - padTop
   // 可用高度 = 内容区总高(clientHeight 已含上下 padding) - 上 padding - 下 padding - 顶部距离；取整并留 1px 余量防亚像素溢出
   const height = Math.max(420, Math.floor(scroller.clientHeight - padTop - padBottom - topGap) - 1)
   splitHeight.value = `${height}px`
 }
 const layoutStyle = computed(() =>
   isDesktop.value
-    ? ({ '--split': `${ratio.value * 100}%`, height: splitHeight.value || undefined } as Record<string, string | undefined>)
+    ? ({ '--split': `${ratio.value * 100}%`, height: splitHeight.value || undefined } as Record<
+        string,
+        string | undefined
+      >)
     : {},
 )
 function onDesktopChange(event: MediaQueryListEvent) {
@@ -184,38 +186,69 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('pointerup', endResize)
 })
+
+const submissionColumns = computed<DataTableColumns<Submission>>(() => [
+  {
+    title: t('problems.detail.status'),
+    key: 'status',
+    minWidth: 150,
+    render(row) {
+      const type =
+        row.status === 'accepted'
+          ? 'success'
+          : ['pending', 'judging'].includes(row.status)
+            ? 'info'
+            : 'error'
+      return h(NTag, { size: 'small', type, bordered: false }, { default: () => t(`problems.status.${row.status}`) })
+    },
+  },
+  { title: t('problems.submission.score'), key: 'score', width: 80 },
+  {
+    title: t('problems.submission.time'),
+    key: 'time',
+    width: 110,
+    render: (row) => `${row.time_used_ms ?? '-'} ms`,
+  },
+  { title: t('problems.detail.language'), key: 'language', width: 120 },
+])
 </script>
 
 <template>
-  <div v-loading="loading" class="problem-detail">
-    <div v-if="problem" ref="splitRef" class="problem-detail__layout" :class="{ stacked: !isDesktop }" :style="layoutStyle">
+  <div class="problem-detail">
+    <div
+      v-if="problem"
+      ref="splitRef"
+      class="problem-detail__layout"
+      :class="{ stacked: !isDesktop }"
+      :style="layoutStyle"
+    >
       <!-- 左栏：题面（独立滚动） -->
       <section class="problem-detail__statement">
-        <el-card shadow="never" class="statement-card">
+        <n-card :bordered="false" class="statement-card" content-style="padding: 20px;">
           <template #header>
             <div class="statement-card__head">
               <div class="statement-card__heading">
                 <h2 class="statement-card__title">{{ problem.title }}</h2>
                 <div class="problem-detail__meta">
-                  <el-tag size="small" :type="difficultyTagType(problem.difficulty)" effect="light">{{ t(`problems.difficulty.${problem.difficulty}`) }}</el-tag>
+                  <n-tag size="small" round :type="difficultyTagType(problem.difficulty)">
+                    {{ t(`problems.difficulty.${problem.difficulty}`) }}
+                  </n-tag>
                   <span>{{ problem.time_limit_ms }} ms</span>
                   <span>{{ problem.memory_limit_mb }} MB</span>
-                  <el-tag size="small">{{ problem.spj ? 'SPJ' : t('problems.detail.standard') }}</el-tag>
-                  <el-tag v-if="problem.status !== 'published'" size="small" :type="statusTagType">{{ t(statusLabelKey[problem.status] ?? problem.status) }}</el-tag>
-                  <el-tag v-if="problem.visibility !== 'public'" size="small" type="info" effect="plain">{{ t(`problems.visibility.${problem.visibility}`) }}</el-tag>
-                  <el-tag v-for="tag in problem.tags" :key="tag" size="small" effect="plain">{{ tag }}</el-tag>
+                  <n-tag
+                    v-if="problem.status !== 'published'"
+                    size="small"
+                    round
+                    :type="statusTagType(problem.status)"
+                  >
+                    {{ t(statusLabelKey[problem.status] ?? problem.status) }}
+                  </n-tag>
+                  <n-tag v-if="problem.visibility !== 'public'" size="small" round>
+                    {{ t(`problems.visibility.${problem.visibility}`) }}
+                  </n-tag>
+                  <n-tag v-for="tag in problem.tags" :key="tag" size="small" round>{{ tag }}</n-tag>
                 </div>
               </div>
-              <el-dropdown v-if="problem.can_manage && problem.status !== 'archived'" trigger="click" @command="onManage">
-                <el-button :icon="MoreFilled" text circle aria-haspopup="menu"/>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="edit">{{ t('action.edit') }}</el-dropdown-item>
-                    <el-dropdown-item v-if="problem.status === 'draft'" divided command="publish">{{ t('problems.detail.publish') }}</el-dropdown-item>
-                    <el-dropdown-item command="archive">{{ t('problems.detail.archive') }}</el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
             </div>
           </template>
 
@@ -232,25 +265,41 @@ onBeforeUnmount(() => {
 
           <h3 class="statement-card__subtitle">{{ t('problems.detail.samples') }}</h3>
           <div v-if="problem.samples.length" class="samples">
-            <div v-for="(sample, index) in problem.samples" :key="sample.id ?? index" class="sample-block">
+            <div
+              v-for="(sample, index) in problem.samples"
+              :key="sample.id ?? index"
+              class="sample-block"
+            >
               <div class="sample-block__head">
                 <strong>#{{ index + 1 }} {{ sample.name }}</strong>
-                <el-button link size="small" @click="copyText(sample.input)">{{ t('problems.detail.copyInput') }}</el-button>
+                <n-button text size="small" @click="copyText(sample.input)">
+                  {{ t('problems.detail.copyInput') }}
+                </n-button>
               </div>
               <div class="sample-grid2">
-                <div><p class="sample-label">{{ t('problems.detail.stdin') }}</p><pre class="result-box sample-io">{{ sample.input || t('problems.detail.noOutput') }}</pre></div>
-                <div><p class="sample-label">{{ t('problems.submission.expectedOutput') }}</p><pre class="result-box sample-io">{{ sample.output || t('problems.detail.noOutput') }}</pre></div>
+                <div>
+                  <p class="sample-label">{{ t('problems.detail.stdin') }}</p>
+                  <pre class="result-box sample-io">{{
+                    sample.input || t('problems.detail.noOutput')
+                  }}</pre>
+                </div>
+                <div>
+                  <p class="sample-label">{{ t('problems.detail.expected') }}</p>
+                  <pre class="result-box sample-io">{{
+                    sample.output || t('problems.detail.noOutput')
+                  }}</pre>
+                </div>
               </div>
             </div>
             <p class="form-hint">{{ t('problems.detail.sampleHint') }}</p>
           </div>
-          <el-empty v-else :description="t('problems.detail.noSamples')" :image-size="60"/>
+          <n-empty v-else size="small" :description="t('problems.detail.noSamples')" />
 
           <template v-if="problem.solution">
             <h3 class="statement-card__subtitle">{{ t('problems.detail.solution') }}</h3>
             <MarkdownView :source="problem.solution" />
           </template>
-        </el-card>
+        </n-card>
       </section>
 
       <!-- 可拖拽分隔条 -->
@@ -268,38 +317,47 @@ onBeforeUnmount(() => {
       <section class="problem-detail__workbench">
         <div class="editor-shell">
           <div class="editor-toolbar">
-            <el-select v-model="language" class="editor-toolbar__language">
-              <el-option label="C++17" value="cpp17"/>
-              <el-option label="Python 3.12" value="python3.12"/>
-              <el-option label="Java 21" value="java21"/>
-            </el-select>
+            <n-select
+              v-model:value="language"
+              class="editor-toolbar__language"
+              :options="[
+                { label: 'C++17', value: 'cpp17' },
+                { label: 'Python 3.12', value: 'python3.12' },
+                { label: 'Java 21', value: 'java21' },
+              ]"
+            />
             <div class="editor-toolbar__actions">
-              <el-button @click="subsVisible = true">{{ t('problems.detail.mySubmissions') }}</el-button>
-              <el-button type="primary" :loading="submitting" @click="submit">{{ t('problems.detail.submit') }}</el-button>
+              <n-button secondary @click="subsVisible = true">{{
+                t('problems.detail.mySubmissions')
+              }}</n-button>
+              <n-button type="primary" :loading="submitting" @click="submit">{{
+                t('problems.detail.submit')
+              }}</n-button>
             </div>
           </div>
           <div class="editor-wrap">
-            <CodeEditor v-model="code" :language="language"/>
+            <CodeEditor v-model="code" :language="language" />
           </div>
         </div>
       </section>
     </div>
 
     <!-- 提交历史弹窗 -->
-    <el-dialog v-model="subsVisible" :title="t('problems.detail.mySubmissions')" width="min(720px, 92vw)" append-to-body>
-      <el-table v-if="mySubmissions.length" :data="mySubmissions" size="small" class="sub-table"
-        @row-click="openSubmission">
-        <el-table-column prop="status" :label="t('problems.detail.status')" min-width="150">
-          <template #default="{ row }"><el-tag size="small" :type="row.status === 'accepted' ? 'success' : ['pending', 'judging'].includes(row.status) ? 'info' : 'danger'">{{ t(`problems.status.${row.status}`) }}</el-tag></template>
-        </el-table-column>
-        <el-table-column prop="score" :label="t('problems.submission.score')" width="80"/>
-        <el-table-column :label="t('problems.submission.time')" width="110">
-          <template #default="{ row }">{{ row.time_used_ms ?? '-' }} ms</template>
-        </el-table-column>
-        <el-table-column prop="language" :label="t('problems.detail.language')" width="120"/>
-      </el-table>
-      <el-empty v-else :description="t('problems.detail.noSubmissions')" :image-size="60"/>
-    </el-dialog>
+    <n-modal
+      v-model:show="subsVisible"
+      preset="card"
+      :title="t('problems.detail.mySubmissions')"
+      style="width: min(720px, 92vw)"
+    >
+      <n-data-table
+        v-if="mySubmissions.length"
+        size="small"
+        :columns="submissionColumns"
+        :data="mySubmissions"
+        :row-props="(row: Submission) => ({ style: 'cursor: pointer;', onClick: () => openSubmission(row) })"
+      />
+      <n-empty v-else :description="t('problems.detail.noSubmissions')" />
+    </n-modal>
   </div>
 </template>
 
@@ -311,21 +369,78 @@ onBeforeUnmount(() => {
   gap: 4px;
   min-height: 420px;
 }
-.problem-detail__statement { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; padding-right: 6px; }
-.statement-card { flex: 1; }
+.problem-detail__statement {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 6px;
+}
+.statement-card {
+  flex: 1;
+}
+.statement-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.statement-card__heading {
+  min-width: 0;
+}
+.statement-card__title {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.35;
+}
+.problem-detail__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+.statement-card__subtitle {
+  margin: 20px 0 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--app-border);
+  font-size: 15px;
+}
 
-.statement-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%; }
-.statement-card__heading { min-width: 0; }
-.statement-card__title { margin: 0; font-size: 17px; line-height: 1.35; letter-spacing: -.02em; }
-.problem-detail__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; color: var(--app-text-muted); font-size: 12px; }
-.statement-card__subtitle { margin: 22px 0 8px; padding-top: 16px; border-top: 1px solid var(--app-border); font-size: 15px; letter-spacing: -.01em; }
-
-.samples { display: grid; gap: 14px; }
-.sample-block { border: 1px solid var(--app-border); border-radius: 11px; padding: 12px; background: var(--app-surface-muted); }
-.sample-block__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.sample-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.sample-label { margin: 0 0 6px; font-size: 12px; color: var(--app-text-muted); font-weight: 650; }
-.sample-io { max-height: 240px; min-height: 64px; }
+.samples {
+  display: grid;
+  gap: 14px;
+}
+.sample-block {
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--app-muted-bg);
+}
+.sample-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.sample-grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.sample-label {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  font-weight: 500;
+}
+.sample-io {
+  max-height: 240px;
+  min-height: 64px;
+}
 
 .problem-detail__divider {
   display: flex;
@@ -341,28 +456,67 @@ onBeforeUnmount(() => {
   content: '';
   width: 4px;
   height: 56px;
-  border-radius: 999px;
+  border-radius: var(--app-radius-sm, 4px);
   background: var(--app-border);
-  transition: background .15s ease, height .15s ease;
+  /* 功能性分隔条：仅背景色反馈，无尺寸/位移动画 */
+  transition: background-color 0.15s ease;
 }
 .problem-detail__divider:hover::before,
-.problem-detail__divider:focus-visible::before { background: var(--el-color-primary-light-3); height: 88px; }
+.problem-detail__divider:focus-visible::before {
+  background: var(--app-primary);
+}
 
-.problem-detail__workbench { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; }
-.editor-shell { flex: 1; display: flex; flex-direction: column; min-height: 260px; }
-.editor-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-.editor-toolbar__language { width: 150px; }
-.editor-toolbar__actions { margin-left: auto; display: flex; gap: 8px; }
-.editor-wrap { flex: 1; min-height: 0; }
-
-.sub-table :deep(.el-table__row) { cursor: pointer; }
+.problem-detail__workbench {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+}
+.editor-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+}
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.editor-toolbar__language {
+  width: 150px;
+}
+.editor-toolbar__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.editor-wrap {
+  flex: 1;
+  min-height: 0;
+}
 
 @media (max-width: 899px) {
-  .problem-detail__layout.stacked { display: block; }
-  .problem-detail__statement { overflow: visible; padding-right: 0; }
-  .problem-detail__divider { display: none; }
-  .editor-shell { min-height: 480px; }
-  .statement-card__head { flex-direction: column; }
-  .sample-grid2 { grid-template-columns: 1fr; }
+  .problem-detail__layout.stacked {
+    display: block;
+  }
+  .problem-detail__statement {
+    overflow: visible;
+    padding-right: 0;
+  }
+  .problem-detail__divider {
+    display: none;
+  }
+  .editor-shell {
+    min-height: 480px;
+  }
+  .statement-card__head {
+    flex-direction: column;
+  }
+  .sample-grid2 {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

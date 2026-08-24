@@ -4,7 +4,7 @@ import * as authApi from '@/api/auth'
 import { TOKEN_STORAGE_KEY } from '@/api/http'
 import * as usersApi from '@/api/users'
 import type { GlobalRoleCode, ProfilePatch, User } from '@/types'
-import { applyTheme } from '@/utils/theme'
+import { useAppStore } from '@/stores/app'
 
 function readToken(): string {
   try {
@@ -52,7 +52,7 @@ export const useUserStore = defineStore('user', {
       try {
         if (this.token) {
           this.user = await usersApi.getMe()
-          applyTheme(this.user.theme)
+          useAppStore().setTheme((this.user.theme ?? 'light') as 'light' | 'dark')
         }
       } catch {
         // token 失效：清除本地会话
@@ -69,7 +69,7 @@ export const useUserStore = defineStore('user', {
       this.token = res.token
       this.user = res.user
       persistToken(res.token)
-      applyTheme(res.user.theme)
+      useAppStore().setTheme((res.user.theme ?? 'light') as 'light' | 'dark')
       this.initialized = true
     },
 
@@ -87,7 +87,7 @@ export const useUserStore = defineStore('user', {
     /** 更新资料（昵称 / 签名 / 头像 / 主题） */
     async updateProfile(patch: ProfilePatch): Promise<User> {
       this.user = await usersApi.updateMe(patch)
-      if (patch.theme) applyTheme(patch.theme)
+      if (patch.theme) useAppStore().setTheme(patch.theme)
       return this.user
     },
 

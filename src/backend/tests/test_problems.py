@@ -1,13 +1,14 @@
-﻿"""题库模块集成测试：权限、可见性、生命周期、验题流程、提交历史（docs/contracts/problems.md）。"""
+"""题库模块集成测试：权限、可见性、生命周期、验题流程、提交历史（docs/contracts/problems.md）。"""
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
-from app.modules.judge.models import Problem, Submission
+from app.modules.judge.models import Submission
+from app.modules.problems.models import Problem
 from app.shared.infra.database import SessionLocal
 
 
@@ -96,6 +97,52 @@ async def test_list_pagination_and_filters(client, admin_headers):
 
 
 @pytest.mark.asyncio
+async def test_publish_blocked_when_cases_changed_after_verification(client, admin_headers, fake_storage):
+    data = await _create_problem(client, admin_headers)
+    pid = data["id"]
+    cases_url = f"/api/v1/problems/{pid}/test-cases"
+
+    resp = await client.put(
+        cases_url,
+        json={"cases": [{"name": "c1", "input": "1", "expected_output": "2"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    # 模拟验题通过：verified_at 对齐到测试点更新之后
+    async with SessionLocal() as db:
+        await db.execute(
+            text(
+                "UPDATE problems SET is_verified = true, verified_at = "
+                "(SELECT MAX(updated_at) FROM test_cases WHERE problem_id = :pid) + interval '1 minute' "
+                "WHERE id = :pid"
+            ),
+            {"pid": pid},
+        )
+        await db.commit()
+
+    # 未改案例 → 不要求重验
+    resp = await client.get(f"/api/v1/problems/{pid}")
+    assert resp.json()["data"]["needs_reverification"] is False
+
+    # 案例变更（updated_at 晚于 verified_at）→ 必须重新验题，发布被阻断
+    resp = await client.put(
+        cases_url,
+        json={"cases": [{"name": "c2", "input": "3", "expected_output": "4"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    resp = await client.get(f"/api/v1/problems/{pid}")
+    assert resp.json()["data"]["needs_reverification"] is True
+
+    resp = await client.post(f"/api/v1/problems/{pid}/publish", headers=admin_headers)
+    body = resp.json()
+    assert body["code"] == 3002, body
+    assert "重新验题" in body["message"]
+
+
+@pytest.mark.asyncio
 async def test_publish_requires_verification_and_cases(client, admin_headers, fake_storage):
     data = await _create_problem(client, admin_headers)
 
@@ -107,13 +154,13 @@ async def test_publish_requires_verification_and_cases(client, admin_headers, fa
         row.is_verified = True
         await db.commit()
 
-    # 仅样例、无正式测试点 → 3002
+    # 仅样例、无正式测试点 → 3002（发布须至少 1 个正式测试点）
     resp = await client.put(
         f"/api/v1/problems/{data['id']}/test-cases",
         json={"cases": [{"name": "s", "is_sample": True, "input": "1", "expected_output": "2"}]},
         headers=admin_headers,
     )
-    assert resp.json()["code"] == 1001  # 分值和 ≠ 100
+    assert resp.json()["code"] == 0
     resp = await client.post(f"/api/v1/problems/{data['id']}/publish", headers=admin_headers)
     assert resp.json()["code"] == 3002
 
@@ -122,7 +169,7 @@ async def test_publish_requires_verification_and_cases(client, admin_headers, fa
         json={
             "cases": [
                 {"name": "s", "is_sample": True, "input": "1", "expected_output": "2"},
-                {"name": "c1", "input": "1", "expected_output": "2", "score": 100},
+                {"name": "c1", "input": "1", "expected_output": "2"},
             ]
         },
         headers=admin_headers,
@@ -140,7 +187,7 @@ async def test_publish_requires_verification_and_cases(client, admin_headers, fa
     assert resp.json()["code"] == 3002
     resp = await client.put(
         f"/api/v1/problems/{data['id']}/test-cases",
-        json={"cases": [{"name": "c", "input": "1", "expected_output": "2", "score": 100}]},
+        json={"cases": [{"name": "c", "input": "1", "expected_output": "2"}]},
         headers=admin_headers,
     )
     assert resp.json()["code"] == 3002  # 归档后编辑统一 3002（docs/contracts/problems.md 错误码）
@@ -174,11 +221,13 @@ async def test_verification_invite_flow_and_writeback(client, admin_headers, use
     )
     assert resp.json()["code"] == 3003
 
-    # 公开解析邀请链接
+    # 公开解析邀请链接（返回题面与样例供受邀人查看）
     resp = await client.get(f"/api/v1/verify-invites/{invite_token}")
     parsed = resp.json()["data"]
     assert parsed["problem_id"] == problem_id
     assert parsed["problem_title"] == "A+B Problem"
+    assert parsed["description"]
+    assert isinstance(parsed["samples"], list)
 
     # 受邀人提交验题代码（凭 token，无需特定角色）
     resp = await client.post(
@@ -214,7 +263,7 @@ async def test_verification_invite_flow_and_writeback(client, admin_headers, use
 
     resp = await client.put(
         f"/api/v1/problems/{problem_id}/test-cases",
-        json={"cases": [{"name": "c1", "input": "1", "expected_output": "2", "score": 100}]},
+        json={"cases": [{"name": "c1", "input": "1", "expected_output": "2"}]},
         headers=admin_headers,
     )
     assert resp.json()["code"] == 0
@@ -267,10 +316,24 @@ async def test_submission_history_and_detail(client, admin_headers, user_headers
 
 
 @pytest.mark.asyncio
-async def test_promote_rejected_until_teams_module(client, admin_headers):
+async def test_promote_endpoint_removed(client, admin_headers):
+    """promote 通道已整体移除（团队题封闭，见 2026-08-24 决策记录）。"""
     data = await _create_problem(client, admin_headers)
     resp = await client.post(f"/api/v1/problems/{data['id']}/promote", headers=admin_headers)
-    assert resp.json()["code"] == 3002  # 仅团队题目可升级公开
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_spj_fields_rejected_on_update(client, admin_headers):
+    """ProblemUpdate extra=forbid：spj/spj_code 字段不再可写。"""
+    data = await _create_problem(client, admin_headers)
+    resp = await client.put(
+        f"/api/v1/problems/{data['id']}",
+        json={"spj": True},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["code"] == 1001  # 参数校验失败（extra 字段禁止）
 
 
 @pytest.mark.asyncio

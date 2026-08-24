@@ -4,82 +4,84 @@
 
 ## 目标与边界
 
-- 前端技术栈固定为 Vue 3、Vue Router、Pinia、Element Plus、Tailwind CSS v4 与 vue-i18n；未经决策记录不得替换或新增同类框架。
+- 前端技术栈固定为 Vue 3、Vue Router、Pinia、Naive UI、Tailwind CSS v4 与 vue-i18n；未经决策记录不得替换或新增同类框架。
+- 图标源使用 `@element-plus/icons-vue`（独立 SVG 组件库，在 `n-icon` 中渲染），路由 `meta.icon` 名称见 `layout/icon.ts`。
 - 页面服务于编程学习、训练、竞赛和管理场景：信息层级清晰、操作可预期、长时间管理任务易扫描。
 - 不以视觉效果牺牲可访问性、移动端可用性、加载性能或既有 RBAC 约束。
 
-## 设计系统
+## 设计系统（vue-fastapi-admin 风格）
 
-### 视觉层级
+硬约束与决策依据见 `docs/decisions/2026-08-24-naive-ui-nova-style.md`。参考模板：[vue-fastapi-admin](https://github.com/mizhexiaoxiao/vue-fastapi-admin)。
 
-1. **应用壳**：左侧固定 76px 图标导航栏、顶部上下文栏（左：面包屑；右：语言切换 + 用户菜单）、内容区构成稳定框架；导航用于定位，内容区专注完成任务。
-2. **定位与返回**：面包屑是唯一的页面位置标识，只反映真实层级（如 `题库/题目详情`、`管理后台/用户管理`）；首页与顶级区块互相平级，不进入面包屑。**页面内不设大标题、眉题与描述文案，不设独立「返回」按钮**——信息由面包屑承载，层级回退通过点击面包屑父级完成。
-3. **操作位置**：页面级主要操作放在内容首屏工具栏右侧或卡片头右侧；低频管理操作（编辑 / 发布 / 归档等）收进卡片头的三点下拉菜单（`MoreFilled` 圆形文本按钮）。每个操作区域最多一个 `primary` 按钮。
-4. **内容卡片**：仅用于独立业务区块。避免所有内容层层嵌套卡片；同类信息优先用留白和分隔线分组。
-5. **表格工作台**：筛选/搜索/导出放在表格上方工具栏，表格操作列固定于右侧，分页紧跟表格底部右侧。
-6. **危险与关键操作**：删除、封禁、注销等使用 `danger` 色和明确说明；不可逆操作必须二次确认。提交判题等关键动作同样需要确认框（如「确认提交当前代码进行评测？」），取消则不发起请求。
+### 色板与令牌
+
+- 主色橙 `#F4511E`（pressed `#D84315`）；info `#2080F0` / success `#18A058` / warning `#F0A020` / error `#D03050`；圆角 3px。
+- Naive UI 主题经 `settings/theme.ts` 的 `themeOverrides` 注入，**不使用** CSS 变量映射组件库主题。
+- 布局层 CSS 变量唯一来源为 `assets/main.css` 的 `:root` + `html.dark`：
+  `--app-primary` / `--app-content-bg`(浅 #f5f6fb · 深 #101014) / `--app-card-bg` /
+  `--app-chrome-bg` / `--app-border`(#efeff5) / `--app-text` / `--app-text-secondary` /
+  `--app-muted-bg`。组件只允许引用令牌，禁止硬编码色值；修改色板须同步
+  `settings/theme.ts` 与 CSS 变量两处。
+- 暗色模式由 `html.dark` class 驱动（Tailwind `dark:` 变体、Monaco 主题同步），
+  同时传给 `n-config-provider` 的 `darkTheme`；模式持久化 localStorage，
+  登录后跟随用户偏好（stores/app + stores/user）。
+
+### 应用壳
+
+1. **侧边栏**：展开 220px / 收起 64px（图标态，Naive 自带 tooltip 显示名称），白底右边框；顶部 Logo 🐦 主色块 + 主色粗体标题（站点名 / Logo 外链来自 `GET /site-config`，经 `stores/app` 驱动；Logo 未配置或非外链时回退默认图标），收起时仅图标；`n-menu accordion` 菜单，选中项左侧 4px 主色描边。窄屏 ≤991px 强制收起。
+2. **顶栏**：白底 60px 下边框；左侧汉堡折叠钮 + 面包屑（<667px 隐藏面包屑），右侧语言切换、明暗切换、头像菜单。
+3. **内容画布**：浅灰蓝 `--app-content-bg`；页面内容以白底无边框 `n-card` 承载，卡片间距 12–16px。
+4. **管理后台空间**：进入 `/admin` 后侧栏整体切换为管理菜单，底部固定「返回前台」；前台业务菜单不出现。`/admin` 面向 staff 会话（admin / tutor）：tutor 仅见「题目管理」，admin 见全部区块；落地页按角色分流（admin → 用户管理，tutor → 题目管理）。用户设置与管理后台入口都在头像菜单（路由 `meta.hidden`）。
+5. **面包屑**：只反映真实层级（如 管理后台/用户管理、题库/题目管理/编辑题目）；首页与顶级区块平级不入面包屑。上下文页经路由 meta 的 `breadcrumbParent` 挂到所属工作台层级下；页面内不设大标题与独立返回按钮，层级回退通过面包屑完成。
 
 ### 交互习惯
 
-- **工作台满高布局**：「题面 + 编辑器」类双栏工作台占满视口剩余高度，**整页不允许出现滚动条**，各栏内部独立滚动；卡片以 `flex: 1` 拉满所在栏，不留底部缝隙。
-- **详情页纵向分区**：详情/结果型页面卡片水平居中，内容自上而下分为三段——概要/运行信息在上、主体内容（如提交的代码）居中、明细表格（如评测点）在底部，段落间用分隔线区分。
-- **确认优先**：用户表达"提交/发布/注销"意图后先确认再执行；确认框标题复用动作名，正文描述后果。
-- **配置多分类横向排布**：系统配置等按域分类的页面使用横向 `el-tabs`，不用竖向标签位。
+- **危险与关键操作二次确认**：删除、封禁、注销、提交判题等先确认再执行；确认弹窗用 `utils/feedback.ts` 的 `$dialog.warning`，需要输入的确认（封禁原因、注销密码）用内联 `n-modal`；取消则不发起请求。
+- **命令式反馈统一走 `utils/feedback.ts`**（`message` / `dialog`，基于 createDiscreteApi），组件内不得自行再包 MessageProvider。
+- **配置多分类横向排布**：系统配置等按域分类的页面用横向 `n-tabs type="line"`。
+- 「题面 + 编辑器」类双栏工作台占满视口剩余高度，整页无滚动条、各栏独立滚动；比例持久化 localStorage；窄屏（<900px）退化为上下堆叠；分隔条提供 `role="separator"` 与提示文案。
 
-### 间距与响应式
+### 表格工作台
 
-- 优先采用 4px 基准间距：页面内常用 `8 / 12 / 16 / 24 / 32px`。
-- 内容区桌面端最小内边距 24px；窄屏缩至 16px。
-- 筛选栏必须允许换行；表格在窄屏应支持横向滚动或切换为摘要列表，不能压缩到不可读。
-- 侧栏在所有断点保持 76px 收缩态（图标 + EP 自带悬浮 tooltip），不做展开态。
+- 筛选 / 搜索 / 导出放在表格上方工具栏，允许换行；表格用 `n-data-table`（columns 数组 + render 函数，列文案随 locale 实时翻译）；行内操作用 `text` 按钮；分页紧跟表格底部右侧（`n-pagination show-size-picker`）。
+- **列表工作台撑满内容画布剩余高度**：根节点用共享类 `page-fill`（视口高 - 顶栏 - 内边距），卡片纵向 flex，表格区 `table-fill` 占满；无数据时空态经 `table-fill-empty` 在表格区域内垂直居中，避免整页松散。
+- 字典层标签类型（`constants/dict.ts` TagType 含 `danger`）渲染到 `n-tag` 时必须经 `toNaiveTagType()` 映射（danger → error）。
 
 ### 按钮与表单
 
-- 每个操作区域最多一个主按钮（`type="primary"`）；次要操作使用默认/朴素按钮，行内操作使用 `link` 按钮。
-- 删除、封禁、注销等使用 `danger`，文案需描述结果（例如“注销账号”而不是“确认”）。
-- 表单标签简短明确，必填/格式/范围使用控件规则和辅助文本表达；提交按钮放在表单末尾并展示 loading。
-- 统一覆盖 loading、error、empty、success 四种状态；错误信息要指向可恢复的下一步。
+- 每个操作区域最多一个主按钮；次要操作用 `secondary` / 默认按钮，行内操作用 `text` 按钮。
+- 删除、封禁、注销等用 `type="error"`，文案需描述结果。
+- 表单 `label-placement="top"`；必填/格式/范围用控件规则和辅助文本表达；提交按钮展示 loading。
+- 统一覆盖 loading（`n-spin` / table loading）、error、empty（`n-empty`）、success 状态；错误信息要指向可恢复的下一步。
 
 ### 可访问性
 
-- 图标按钮必须有可见文字、`aria-label` 或 `el-tooltip`。
+- 图标按钮必须有可见文字、`aria-label` 或 `n-tooltip`。
 - 不仅依靠颜色传递状态，状态标签应含文本。
-- 保持键盘可聚焦顺序；弹窗打开后焦点应留在弹窗内（使用 Element Plus 标准组件）。
+- 保持键盘可聚焦顺序；弹窗打开后焦点应留在弹窗内（使用 Naive 标准组件即满足）。
+
+### 题库信息架构（前台消费 / 后台生产）
+
+> 出题入口唯一收敛在管理后台，前台零管理痕迹（见 `docs/decisions/2026-08-24-team-first-problem-production.md`）。
+
+- **题库中心** `/problems/list`（公开）：纯浏览目录 —— 搜索 + 难度筛选 + 目录表格（标题 / 难度 / 限制），行点击进入题目详情练习。不含任何管理控件与切换器。
+- **题目详情** `/problems/:id`：题面 + 编辑器双栏消费页；不提供编辑 / 归档等管理菜单。
+- **题目管理** `/admin/problems`（admin / tutor）：管理工作台。状态标签页（全部 / 草稿 / 已发布 / 已归档）+ 搜索 / 难度筛选；表格列含状态与验题状态标签（需重验时警示），操作列按状态给动作 —— 草稿：编辑；已发布：详情 / 编辑 / 归档；已归档：详情。行点击：草稿 → 编辑向导，其余 → 详情。发布统一在编辑向导第三步完成，列表不提供独立发布入口。
+
+### 创建 / 编辑向导与验题
+
+- **分步向导** `/admin/problems/new`、`/admin/problems/:id/edit`：三步流程 —— ① 基础信息与题面 → ② 测试点与样例 → ③ 验题与发布；顶部 `n-steps`，底部「上一步 / 保存 / 下一步」，任意步骤可保存草稿（新建首次保存后停留在向导内，出现验题步骤）。
+- **第三步「验题与发布」**（共享组件 `VerifyPublishPanel.vue`）：状态标签（未验题 / 已于 X 通过验题 / 测试点或样例已变更需重新验题）；**自行验题** —— 语言选择 + Monaco 提交代码（先 `{verifier_id}=自己` 发起验题记录，再 `POST /problems/{id}/verify` 提交 `{code, language}`），判题通过即完成验题并跳评测结果页；或生成邀请链接发给他人验题。
+- **发布门禁以后端 `needs_reverification` 为准**：未验题，或测试点 / 样例晚于最近验题通过时间变更 ⇒ 发布按钮禁用（tooltip 说明），后端 publish 同样拒绝（3002）；纯题面改动不影响验题有效性。发布成功回管理工作台。
+
+### 验题邀请落地页
+
+- **验题落地页** `/verify/:token`（公开路由，独立布局）：解析 `GET /verify-invites/{token}` 展示题目概要、题面与样例；未登录引导登录并回跳本页；登录后提供语言选择 + Monaco 编辑器提交验题代码（`POST /problems/{id}/verify` 携带 `invite_token`，`submit_type=verify`），成功后跳评测结果页。链接不返回正式测试点内容与题解。
 
 ### 内容渲染与共享样式
 
-- 题面 / 输入输出说明 / 官方题解等 Markdown 富文本统一使用 `components/MarkdownView.vue` 渲染
-  （markdown-it `html:false` + DOMPurify 白名单过滤，见 `docs/decisions/2026-08-23-problem-statement-markdown.md`）；
-  禁止对用户可控内容直接 `v-html`。
-- 页面级共享类（`.page-stack` / `.section-title` / `.form-hint` /
-  `.result-box`）统一定义在 `assets/main.css`，各视图复用；scoped CSS 只写组件特有样式，
-  不允许跨视图复制同一规则。页头类样式（`.page-heading` 系列）已随「无页头」约定移除，不得回引。
-- 「题面 + 编辑器」类工作台页面（如题目详情）使用可拖拽双栏 + 独立滚动布局：
-  分隔条需可键盘/指针操作并提供 `role="separator"` 与提示文案，比例持久化到 localStorage，
-  窄屏（<900px）自动退化为上下堆叠；高度按视口精确计算并预留亚像素余量，保证整页零滚动条。
-
-## 路由与布局
-
-### 应用壳与用户菜单
-
-- 左侧边栏为**固定收缩态图标栏**（`el-menu collapse`），悬浮由 EP tooltip 显示名称；Logo 仅保留图形标识，点击返回首页。
-- **用户菜单位于顶栏右上角头像**：下拉只列功能项（个人资料 / 安全设置 / 会话管理 / 登出），不展示姓名与角色；未登录时右上角显示登录/注册按钮。
-- 头像菜单的入口项按所在空间切换：前台对管理员显示「管理后台」；后台空间内显示「回到前台」。管理后台从前台侧栏不可见（`meta.hidden: true`），唯一入口是头像菜单。
-
-### 管理后台空间
-
-- 管理后台是**独立工作空间**，复用同一布局外壳但侧栏菜单整体切换为管理菜单（用户/配置/日志/沙箱/举报），前台业务菜单不出现；后台内高亮精确定位到具体子页。
-- 后台区块标记 `hideSectionTabs: true`，内容区顶部不再渲染二级标签栏（导航已由侧栏承载）；侧栏底部固定「回到前台」退出区。
-
-### 面包屑与导航规则
-
-- 一级侧栏导航是业务区块入口；进入其子路由时，该一级菜单必须保持激活。
-- 有两个及以上**并列工作台页面**的区块才在内容区顶部显示二级导航；二级菜单的 index 必须是绝对路径，防止错误跳转。
-- **对象上下文页面**（如创建资源、资源详情、编辑、提交详情、评测结果）必须作为所属业务区块的嵌套路由，标记 `meta.contextPage: true` 与 `meta.hidden: true`，不显示为常驻二级导航项；它们通过面包屑和对象内局部 Tabs 导航，不设独立返回按钮区。
-- 例：`/problems/list` 是题库工作台；`/problems/new`、`/problems/:id`、`/problems/:problemId/submissions/:id` 是题库上下文页。进入任一上下文页时，一级“题库”必须保持激活。
-- 路由标题、菜单标题必须设置 `meta.titleKey`，由 i18n 生成页面标题与导航文本；`meta.title` 仅作兼容性后备。
-- 侧栏与二级目录属于导航层，禁止直接读取 `meta.title` 或 `sectionTitle` 展示；没有 `titleKey` 的路由不得进入导航目录，避免中文兼容字段泄漏到 English 界面。
-- 菜单及路由继续按照 `meta.roles` 过滤，前端显示不是权限校验的替代品。
+- 题面 / 输入输出说明 / 官方题解等 Markdown 富文本统一使用 `components/MarkdownView.vue` 渲染（markdown-it `html:false` + DOMPurify 白名单过滤，见 `docs/decisions/2026-08-23-problem-statement-markdown.md`）；禁止对用户可控内容直接 `v-html`。
+- 页面级共享类（`.page-stack` / `.section-title` / `.form-hint` / `.result-box`）统一定义在 `assets/main.css`，各视图复用；scoped CSS 只写组件特有样式，不允许跨视图复制同一规则。
 
 ## 国际化（强制）
 
@@ -87,33 +89,66 @@
 - 覆盖范围包括：路由标题、导航、按钮、表单标签与 placeholder、表格列、状态字典、筛选项、空状态、弹窗、Toast、兜底错误、CSV 导出表头和可见提示。
 - 每个新增或修改的 key 必须同时提供 `zh-CN` 和 `en-US` 内容；两种语言的 key 结构一致。
 - 后端返回的业务错误消息可以按原样呈现；前端生成的兜底错误必须国际化。
-- 用户切换语言后，菜单、页面标题、字典/标签和当前页面可见文案应即时更新，无需刷新。
+- 用户切换语言后，菜单、页面标题、字典/标签和当前页面可见文案应即时更新，无需刷新（Naive 组件文案经 n-config-provider 的 locale 提供）。
 
 ## 代码组织
 
 ```text
-src/frontend/src/
-  api/            # 统一 HTTP 与领域 API，不放组件展示逻辑
-  assets/         # 全局样式、设计 token
-  components/     # 跨领域可复用展示组件
-  i18n/           # locale、词典与语言工具
-  layout/         # 应用壳、导航、顶栏、用户区
-  stores/         # 跨页面状态
-  utils/          # 无 UI 副作用的工具函数
-  views/          # 路由页面，管理页面状态和编排
+src/frontend/
+  eslint.config.js   # ESLint flat config（Vue essential + TS recommended）
+  .prettierrc.json   # Prettier（格式化唯一权威；ESLint 关闭格式类规则）
+  vite.config.ts     # Vite 配置 + Vitest test 块（jsdom 环境）
+  src/
+    api/            # 统一 HTTP 与领域 API，不放组件展示逻辑；错误分支须有 *.spec.ts 用例
+    assets/         # 全局样式、布局层 CSS 变量
+    components/     # 跨领域可复用展示组件
+    constants/      # 展示字典（随 locale 动态翻译）
+    i18n/           # locale、词典与语言工具
+    layout/         # 应用壳：侧栏 / 顶栏 / 面包屑 / 用户区
+    router/         # 路由表与守卫（meta 驱动菜单 / 标题 / 权限）
+    settings/       # 布局尺寸与 Naive UI themeOverrides
+    stores/         # 跨页面状态（user 会话、app 壳状态）
+    types/          # 与 docs/contracts/ 对齐的共享类型，统一出口 @/types
+    utils/          # 无 UI 副作用的工具函数；feedback.ts 为全局消息/确认 API
+    views/          # 路由页面，管理页面状态和编排
 ```
 
 - 页面组件可管理请求、筛选、弹窗和本页状态；纯展示组件通过 props/emits 工作。
 - 通过 `api/` 调用后端，统一处理 `{ code, message, data }` 信封；组件不得直接拼接服务端基址。
-- 组件样式优先使用 Element Plus；布局、间距和响应式使用 Tailwind 原子类。确需 scoped CSS 时只写该组件特有样式。
+- 组件样式优先使用 Naive UI；布局、间距和响应式使用 Tailwind 原子类。确需 scoped CSS 时只写该组件特有样式。
 - 不在组件中硬编码环境 URL、密钥、Token 或权限绕过逻辑。
+- 单元测试与被测文件同目录，命名 `*.spec.ts`（utils / constants / api 层必须覆盖）。
+
+## 工具链与质量门禁
+
+| 工具 | 配置 | 命令 |
+| --- | --- | --- |
+| ESLint | `eslint.config.js` | `npm run lint:check`（自动修复用 `npm run lint`） |
+| Prettier | `.prettierrc.json` | `npm run format` |
+| Vitest | `vite.config.ts` 的 `test` 块 | `npm test` |
+| 类型检查 + 构建 | `tsconfig.json` | `npm run build` |
+
+- 格式类规则统一交给 Prettier，ESLint 经 `@vue/eslint-config-prettier/skip-formatting` 关闭重叠规则，双工具不打架。
+- 模板内联事件**禁止多条语句**（如 `@click="a = 1; load()"`）：Prettier 折行后会生成非法模板表达式，一律收敛为 script 内方法。
+- `@typescript-eslint/no-explicit-any` 暂关闭（存量清理后开启）；下划线前缀表示有意保留的未用变量。
+
+## 路由与导航规则
+
+- 一级侧栏导航是业务区块入口；进入其子路由时，该一级菜单必须保持激活（前台按 matched[1] 区块定位，后台按 `/admin/<区块>` 前缀定位）。
+- 单可见子路由的区块（如 题库→列表）在侧栏拍平为单项。
+- **对象上下文页面**（创建题目、编辑、提交详情、评测结果）是所属区块的嵌套路由，标记 `meta.contextPage: true` 与 `meta.hidden: true`；它们通过面包屑和页内导航定位，归属工作台用 `breadcrumbParent` 声明（如 编辑题目 → 管理后台/题目管理）。公开落地页（如验题邀请 `/verify/:token`）与登录/注册同级，独立于应用壳布局。
+- 路由标题、菜单标题必须设置 `meta.titleKey`，由 i18n 生成；`meta.title` 仅作兼容性后备。
+- 浏览器标签标题格式为「页面标题 · 站点名」、favicon 取站点配置 `site.logo`（外链 URL；未配置回退 🐦 默认图标），随 `GET /site-config` 异步生效。
+- 侧栏属于导航层，禁止直接读取 `meta.title` 展示；没有 `titleKey` 的路由不得进入导航目录。
+- 菜单及路由继续按照 `meta.roles` 过滤，前端显示不是权限校验的替代品。
 
 ## 前端验收与验证
 
 每次前端变更至少完成：
 
-1. `npm run build`（类型检查与生产构建）；
-2. `npm test`（存在相关测试时）；
-3. 涉及界面/交互时，在中文与 English 下分别检查关键页面、窄屏布局、loading/error/empty 状态；
-4. 涉及路由/导航时，验证菜单激活、子路由跳转、浏览器标题和权限过滤；
-5. 涉及 i18n 时，扫描新增的用户可见文案，确认不存在未迁移的硬编码文本。
+1. `npm run lint:check`（ESLint 静态检查；提交前可用 `npm run format` 统一 Prettier 格式）；
+2. `npm run build`（类型检查与生产构建）；
+3. `npm test`（Vitest 单元测试；新增 utils / api 层逻辑必须附带同目录 `*.spec.ts` 用例）；
+4. 涉及界面/交互时，在中文与 English 下分别检查关键页面、亮暗主题、窄屏布局、loading/error/empty 状态；
+5. 涉及路由/导航时，验证侧栏激活、子路由跳转、浏览器标题和权限过滤；
+6. 涉及 i18n 时，扫描新增的用户可见文案，确认不存在未迁移的硬编码文本。

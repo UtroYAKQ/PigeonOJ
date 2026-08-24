@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.modules.users.models import User
 from app.shared.infra.database import SessionLocal
+from app.shared.infra.system_config import SystemConfig
 
 from .conftest import api_login, register_user
 
@@ -88,6 +89,73 @@ async def test_admin_configs(client: httpx.AsyncClient, admin_headers: dict[str,
     updated = next(c for c in after if c["config_key"] == "site.name")
     assert updated["config_value"] == "PigeonOJ 测试"
     assert updated["updated_by"] == "管理员"
+
+
+async def test_site_config_public(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:
+    """公开站点配置：未登录可读，仅暴露白名单字段，且随管理端修改实时生效。"""
+    resp = await client.get("/api/v1/site-config")
+    assert resp.json()["code"] == 0
+    data = resp.json()["data"]
+    assert set(data) == {
+        "name", "logo", "icp", "default_theme",
+        "register_enabled", "email_verify_enabled",
+    }
+    assert data["register_enabled"] is True
+    assert data["email_verify_enabled"] is True
+
+    configs = (await client.get("/api/v1/admin/configs?category=site", headers=admin_headers)).json()["data"]
+    name_row = next(c for c in configs if c["config_key"] == "site.name")
+    reg_row = next(c for c in configs if c["config_key"] == "site.register_enabled")
+    await client.put(
+        "/api/v1/admin/configs",
+        json={"items": [
+            {"id": name_row["id"], "config_value": "鸽子 OJ"},
+            {"id": reg_row["id"], "config_value": False},
+        ]},
+        headers=admin_headers,
+    )
+    after = (await client.get("/api/v1/site-config")).json()["data"]
+    assert after["name"] == "鸽子 OJ"
+    assert after["register_enabled"] is False
+
+
+async def test_admin_smtp_password_masked(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:
+    """敏感配置（*.password）：列表掩码返回；提交掩码值视为未修改，提交新值才落库。"""
+    configs = (await client.get("/api/v1/admin/configs?category=auth_email", headers=admin_headers)).json()["data"]
+    pwd = next(c for c in configs if c["config_key"] == "email.smtp.password")
+    await client.put(
+        "/api/v1/admin/configs",
+        json={"items": [{"id": pwd["id"], "config_value": "smtp-secret-1"}]},
+        headers=admin_headers,
+    )
+
+    async def db_value() -> str:
+        async with SessionLocal() as db:
+            row = (
+                await db.execute(
+                    select(SystemConfig).where(SystemConfig.config_key == "email.smtp.password")
+                )
+            ).scalar_one()
+            return row.config_value
+
+    assert await db_value() == "smtp-secret-1"
+    # 掩码回写 → 保持原值
+    await client.put(
+        "/api/v1/admin/configs",
+        json={"items": [{"id": pwd["id"], "config_value": "******"}]},
+        headers=admin_headers,
+    )
+    assert await db_value() == "smtp-secret-1"
+    # 新值 → 落库；列表仍掩码显示
+    listed = (
+        await client.put(
+            "/api/v1/admin/configs",
+            json={"items": [{"id": pwd["id"], "config_value": "smtp-secret-2"}]},
+            headers=admin_headers,
+        )
+    ).json()["data"]
+    assert await db_value() == "smtp-secret-2"
+    assert next(c for c in listed if c["config_key"] == "email.smtp.password")["config_value"] == "******"
 
 
 async def test_admin_logs(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:

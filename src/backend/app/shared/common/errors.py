@@ -19,6 +19,7 @@ AUTH_NOT_LOGGED_IN = 2001  # 未登录
 AUTH_SESSION_EXPIRED = 2002  # 会话过期
 AUTH_FORBIDDEN = 2003  # 无权限
 AUTH_INVALID_CREDENTIAL = 2004  # 账号或密码错误
+REGISTER_DISABLED = 2005  # 站点未开放注册（docs/contracts/users.md）
 
 # ---- 30xx 资源 ----
 RESOURCE_NOT_FOUND = 3001  # 资源不存在

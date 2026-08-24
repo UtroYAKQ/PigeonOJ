@@ -112,7 +112,6 @@ async def _handle_result(result: judge_pb2.JudgeResult) -> None:
     payload = {
         "submission_id": result.submission_id,
         "status": result.status,
-        "score": result.score,
         "time_used_ms": result.time_used_ms,
         "memory_used_kb": result.memory_used_kb or None,
         "error_message": result.error_message or None,
@@ -122,7 +121,6 @@ async def _handle_result(result: judge_pb2.JudgeResult) -> None:
                 "status": c.status,
                 "time_used_ms": c.time_used_ms,
                 "memory_used_kb": c.memory_used_kb or None,
-                "score": c.score,
                 "output": c.output,
             }
             for c in result.cases
@@ -242,9 +240,8 @@ async def send_job(node_id: str, submission_id: uuid.UUID) -> bool:
             ),
             problem_id=bundle["problem_id"],
             data_version=bundle["data_version"],
-            spj=bundle["spj"],
             cases=[
-                judge_pb2.TestCaseFile(test_case_id=c["test_case_id"], name=c["name"], score=c["score"])
+                judge_pb2.TestCaseFile(test_case_id=c["test_case_id"], name=c["name"])
                 for c in bundle["cases"]
             ],
         )

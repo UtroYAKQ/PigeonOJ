@@ -1,62 +1,132 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
-/* Element Plus 与 Tailwind 共用 html.dark。 */
+/* Element Plus 已移除；Naive UI 主题经 JS themeOverrides 注入（src/settings/theme.ts），
+   此处仅保留布局层 CSS 变量与共享类。暗色模式由 html.dark 驱动（Tailwind / Monaco 同步）。 */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * 布局令牌（vue-fastapi-admin 风格，见 docs/frontend.md / docs/decisions/2026-08-24-naive-ui-nova-style.md）
+ */
 :root {
-  --app-canvas: #f6f8fc;
-  --app-surface: #ffffff;
-  --app-surface-muted: #f8faff;
-  --app-border: #e8edf5;
-  --app-text: #172033;
-  --app-text-muted: #6b778c;
-  --app-radius-sm: 10px;
-  --app-radius: 14px;
-  --app-radius-lg: 20px;
-  --app-shadow: 0 10px 28px rgba(38, 58, 92, .06);
-  --app-shadow-hover: 0 14px 36px rgba(38, 58, 92, .11);
-  --el-color-primary: #3867f4;
-  --el-color-primary-light-3: #7899fa;
-  --el-color-primary-light-5: #9eb5fb;
-  --el-color-primary-light-8: #e5ebff;
-  --el-color-primary-light-9: #f0f3ff;
-  --el-border-radius-base: 10px;
+  --app-primary: #f4511e;
+  --app-content-bg: #f5f6fb;
+  --app-card-bg: #ffffff;
+  --app-chrome-bg: #ffffff; /* 侧栏 / 头部 / 标签栏底色 */
+  --app-border: #efeff5;
+  --app-text: #333639;
+  --app-text-secondary: #666e75;
+  --app-muted-bg: #fafafc;
 }
 
 html.dark {
-  --app-canvas: #101521;
-  --app-surface: #171e2d;
-  --app-surface-muted: #1d2638;
-  --app-border: #29354a;
-  --app-text: #edf2ff;
-  --app-text-muted: #aab7ce;
-  --app-shadow: 0 12px 32px rgba(0, 0, 0, .22);
-  --app-shadow-hover: 0 16px 40px rgba(0, 0, 0, .32);
+  --app-primary: #f4511e;
+  --app-content-bg: #101014;
+  --app-card-bg: #18181c;
+  --app-chrome-bg: #18181c;
+  --app-border: #2c2c30;
+  --app-text: rgba(255, 255, 255, 0.82);
+  --app-text-secondary: rgba(255, 255, 255, 0.52);
+  --app-muted-bg: #202024;
 }
 
-html, body, #app { min-width: 320px; min-height: 100%; margin: 0; }
-body { background: var(--app-canvas); color: var(--app-text); font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
-* { box-sizing: border-box; }
+html,
+body,
+#app {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--app-content-bg);
+  color: var(--app-text);
+  /* 系统字体栈：可读性优先，不引入外部字体 */
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    sans-serif;
+}
+* {
+  box-sizing: border-box;
+}
 
-.el-card { border: 1px solid var(--app-border); border-radius: var(--app-radius); box-shadow: var(--app-shadow); }
-.el-card__header { min-height: 58px; display: flex; align-items: center; padding: 0 20px; border-bottom-color: var(--app-border); font-weight: 650; }
-.el-card__body { padding: 20px; }
-.el-button { font-weight: 600; }
-.el-button--primary { box-shadow: 0 6px 14px rgba(56, 103, 244, .2); }
-.el-input__wrapper, .el-select__wrapper { min-height: 38px; box-shadow: 0 0 0 1px var(--app-border) inset; }
-.el-table { --el-table-header-bg-color: var(--app-surface-muted); --el-table-border-color: var(--app-border); --el-table-row-hover-bg-color: var(--el-color-primary-light-9); }
-.el-table th.el-table__cell { color: var(--app-text-muted); font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+/* ---- 页面级共享类：各视图复用，避免 scoped 样式重复 ---- */
+.page-stack {
+  display: grid;
+  gap: 16px;
+}
 
-/* ---- 页面级共享类（docs/frontend.md 设计系统）：各视图复用，避免 scoped 样式重复 ---- */
-.page-stack { display: grid; gap: 20px; }
-.section-title { margin: 4px 0 10px; font-size: 14px; }
-.form-hint { margin: 8px 0 0; color: var(--app-text-muted); font-size: 12px; line-height: 1.5; }
-.result-box { max-height: 360px; overflow: auto; margin: 0; white-space: pre-wrap; word-break: break-all; border: 1px solid var(--app-border); border-radius: 9px; background: var(--app-surface-muted); padding: 10px 12px; font-family: var(--el-font-family-mono); font-size: 12px; }
+/* 列表工作台撑满内容画布：视口高 - 顶栏 60px - 内容区上下内边距 28px。
+   卡片纵向 flex；表格区 flex:1，无数据时空态在区域内垂直居中。 */
+.page-fill {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 88px);
+}
+.page-fill > .n-card {
+  display: flex;
+  flex-direction: column;
+}
+.page-fill > .n-card > .n-card__content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.table-fill {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.table-fill-empty {
+  flex: 1;
+  min-height: 320px;
+  display: grid;
+  place-items: center;
+}
+.section-title {
+  margin: 4px 0 10px;
+  font-size: 14px;
+}
+.form-hint {
+  margin: 8px 0 0;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.result-box {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  background: var(--app-muted-bg);
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+}
 
 /* 分栏拖拽进行中：全局光标 + 禁止选中（题目详情页等可拖拽布局使用） */
-body.is-splitting { cursor: col-resize; user-select: none; }
+body.is-splitting {
+  cursor: col-resize;
+  user-select: none;
+}
 
-@media (max-width: 767px) {
-  .el-card__header { padding: 0 16px; }
-  .el-card__body { padding: 16px; }
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

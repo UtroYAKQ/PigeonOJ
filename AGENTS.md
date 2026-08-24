@@ -9,6 +9,7 @@
 3. `docs/contracts/` — 数据模型、API 契约和错误码
 4. `docs/operations.md` — 测试、部署和环境变量
 5. `docs/workflow.md` — 文档同步工作流
+6. 修改前端时加读 `docs/frontend.md`；重构后端模块时加读 `docs/refactoring-notes.md`
 
 ## 工作规则
 
@@ -29,10 +30,10 @@
 ## 验证
 
 - 仅文档变更时，检查链接、路径和示例的一致性
-- 后端变更时，优先运行最相关的后端测试（`pytest`，见 `docs/operations.md`）
-- 前端变更时，优先运行最相关的前端测试
+- 后端变更时：`python scripts/check_import_rules.py` + 运行最相关的 pytest（见 `docs/operations.md`）
+- 前端变更时，依次运行 `npm run lint:check` / `npm test` / `npm run build`
 - 如果验证命令不可用，在最终回复中说明
 
 ## 领域约定
 
-PigeonOJ 是 OJ + AI 平台，技术栈 FastAPI / SQLAlchemy / Alembic / Celery / LangGraph / LiteLLM / PostgreSQL / Redis / MinIO / nsjail / Vue 3。判题与沙箱执行首批支持 Python 3.12、C++17、Java 21。
+PigeonOJ 是 OJ + AI 平台，技术栈 FastAPI / SQLAlchemy / Alembic / gRPC（判题节点网关）/ LangGraph / LiteLLM（AI 依赖暂缓启用）/ PostgreSQL / Redis / MinIO / nsjail / Vue 3。判题采用「后端 gRPC 网关 + 判题节点容器内 nsjail 执行」架构，后端进程不执行用户代码；首批支持 Python 3.12、C++17、Java 21。

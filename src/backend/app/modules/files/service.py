@@ -10,7 +10,6 @@ from app.shared.infra.storage import S3Error, get_storage
 
 _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 _MAX_AVATAR_BYTES = 2 * 1024 * 1024
-_MAX_SPJ_BYTES = 16 * 1024 * 1024
 
 
 class FileService:
@@ -32,29 +31,6 @@ class FileService:
         return {
             "oss_id": stored.object_key,
             "url": f"/api/v1/files/{stored.object_key}",
-            "content_type": stored.content_type,
-            "size": stored.size,
-        }
-
-    async def upload_spj(self, user_id: uuid.UUID, file: UploadFile) -> dict:
-        """SPJ checker 源码上传（docs/contracts/problems.md：≤16MB，返回 ossId）。"""
-        del user_id  # 预留：对象路径按题目归属组织时使用
-        content = await file.read(_MAX_SPJ_BYTES + 1)
-        if len(content) > _MAX_SPJ_BYTES:
-            raise APIError(PARAM_FORMAT_INVALID, "SPJ 文件大小不能超过 16MB", 400)
-        if not content:
-            raise APIError(PARAM_FORMAT_INVALID, "SPJ 文件不能为空", 400)
-        content_type = "text/x-c++src"
-        if not (file.filename or "").lower().endswith((".cpp", ".cc", ".cxx")):
-            raise APIError(PARAM_FORMAT_INVALID, "SPJ 仅支持 C++ 源码文件（.cpp）", 400)
-
-        object_key = f"problems/spj/{uuid.uuid4().hex}.cpp"
-        try:
-            stored = await get_storage().put_bytes(object_key, content, "text/x-c++src")
-        except (OSError, S3Error) as exc:
-            raise APIError(SYSTEM_UPSTREAM_FAILURE, "文件存储失败，请稍后重试", 503) from exc
-        return {
-            "oss_id": stored.object_key,
             "content_type": stored.content_type,
             "size": stored.size,
         }

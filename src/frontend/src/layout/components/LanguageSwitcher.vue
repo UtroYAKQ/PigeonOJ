@@ -5,28 +5,28 @@ import { useI18n } from 'vue-i18n'
 import { setLocale } from '@/i18n'
 
 const { locale, t } = useI18n()
-const current = computed(() => locale.value)
 
-function change(value: 'zh-CN' | 'en-US') {
-  setLocale(value)
+const options = computed(() => [
+  { label: t('app.localeZh'), key: 'zh-CN', disabled: locale.value === 'zh-CN' },
+  { label: t('app.localeEn'), key: 'en-US', disabled: locale.value === 'en-US' },
+])
+
+function change(key: string) {
+  if (key === 'zh-CN' || key === 'en-US') setLocale(key)
 }
 </script>
 
 <template>
-  <el-dropdown trigger="click" @command="change">
-    <el-button text class="language-switcher" :aria-label="t('app.language')">
-      <span class="language-switcher__globe">🌐</span>{{ current === 'zh-CN' ? t('app.localeZh') : 'EN' }}
-    </el-button>
-    <template #dropdown>
-      <el-dropdown-menu>
-        <el-dropdown-item command="zh-CN" :disabled="current === 'zh-CN'">{{ t('app.localeZh') }}</el-dropdown-item>
-        <el-dropdown-item command="en-US" :disabled="current === 'en-US'">{{ t('app.localeEn') }}</el-dropdown-item>
-      </el-dropdown-menu>
-    </template>
-  </el-dropdown>
+  <n-dropdown trigger="click" :options="options" @select="change">
+    <n-button quaternary size="small" :aria-label="t('app.language')">
+      <span class="language-switcher__globe">🌐</span>
+      {{ locale === 'zh-CN' ? t('app.localeZh') : 'EN' }}
+    </n-button>
+  </n-dropdown>
 </template>
 
 <style scoped>
-.language-switcher { color: var(--el-text-color-regular); }
-.language-switcher__globe { margin-right: 4px; }
+.language-switcher__globe {
+  margin-right: 4px;
+}
 </style>

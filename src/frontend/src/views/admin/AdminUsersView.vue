@@ -1,15 +1,395 @@
 <script setup lang="ts">
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { NAvatar, NButton, NTag } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
+
 import * as adminApi from '@/api/admin'
-import type { GlobalRoleCode, User } from '@/types'
-import { ROLE_NAME, USER_STATUS } from '@/constants/dict'
+import type { GlobalRoleCode, User, UserStatus } from '@/types'
+import { ROLE_NAME, USER_STATUS, toNaiveTagType } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
-const {t}=useI18n();const loading=ref(false);const list=ref<User[]>([]);const total=ref(0);const query=reactive({page:1,page_size:20,keyword:'',status:''});const roleDialog=ref(false);const roleTarget=ref<User|null>(null);const roleIds=ref<GlobalRoleCode[]>([]);const roleSaving=ref(false)
-async function load(){loading.value=true;try{const res=await adminApi.adminListUsers(query);list.value=res.items;total.value=res.total}catch(e){ElMessage.error(e instanceof Error?e.message:t('common.loadFailed'))}finally{loading.value=false}}onMounted(load);function onSearch(){query.page=1;load()}function onReset(){query.keyword='';query.status='';query.page=1;load()}function openRoleDialog(user:User){roleTarget.value=user;roleIds.value=[...(user.roles??[])];roleDialog.value=true}async function saveRoles(){if(!roleTarget.value)return;if(!roleIds.value.length)return ElMessage.warning(t('admin.users.keepRole'));roleSaving.value=true;try{await adminApi.adminSetRoles(roleTarget.value.id,roleIds.value);ElMessage.success(t('admin.users.rolesUpdated'));roleDialog.value=false;await load()}catch(e){ElMessage.error(e instanceof Error?e.message:t('common.updateFailed'))}finally{roleSaving.value=false}}
-async function withReason(action:'ban'|'freeze',user:User){const title=t(`admin.users.${action}`);try{const{value}=await ElMessageBox.prompt(t('admin.users.reasonPrompt',{action:title}),title,{confirmButtonText:t('action.confirm'),cancelButtonText:t('action.cancel'),inputPlaceholder:t(`admin.users.${action}Reason`),inputValidator:(v:string)=>v===''||v.length<=255||t('admin.users.reasonTooLong'),type:'warning'});if(action==='ban')await adminApi.adminBanUser(user.id,value);else await adminApi.adminFreezeUser(user.id,value);ElMessage.success(t('common.success'));await load()}catch(e){if(e==='cancel'||e==='close')return;ElMessage.error(e instanceof Error?e.message:t('common.operationFailed'))}}
-async function confirmState(action:'unban'|'unfreeze',user:User){try{await ElMessageBox.confirm(t(`admin.users.confirm${action==='unban'?'Unban':'Unfreeze'}`,{name:user.nickname}),t(`admin.users.${action}`),{type:'warning',confirmButtonText:t('action.confirm'),cancelButtonText:t('action.cancel')})}catch{return}try{if(action==='unban')await adminApi.adminUnbanUser(user.id);else await adminApi.adminUnfreezeUser(user.id);ElMessage.success(t('common.success'));await load()}catch(e){ElMessage.error(e instanceof Error?e.message:t('common.operationFailed'))}}
-const roleOptions=computed(()=>Object.entries(ROLE_NAME) as Array<[GlobalRoleCode,string]>);const statusOptions=computed(()=>Object.entries(USER_STATUS).map(([value,meta])=>({value,label:meta.label})))
+import { dialog, message } from '@/utils/feedback'
+
+const { t } = useI18n()
+const loading = ref(false)
+const list = ref<User[]>([])
+const total = ref(0)
+const query = reactive({
+  page: 1,
+  page_size: 20,
+  keyword: '',
+  status: '' as UserStatus | '',
+})
+const roleModal = ref(false)
+const roleTarget = ref<User | null>(null)
+const roleIds = ref<GlobalRoleCode[]>([])
+const roleSaving = ref(false)
+
+/** 封禁 / 冻结原因弹窗（可选输入，替代原 prompt） */
+const reasonVisible = ref(false)
+const reasonAction = ref<'ban' | 'freeze'>('ban')
+const reasonTarget = ref<User | null>(null)
+const reasonText = ref('')
+const reasonSubmitting = ref(false)
+
+async function load() {
+  loading.value = true
+  try {
+    const res = await adminApi.adminListUsers(query)
+    list.value = res.items
+    total.value = res.total
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('common.loadFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
+function onSearch() {
+  query.page = 1
+  load()
+}
+function onReset() {
+  query.keyword = ''
+  query.status = ''
+  query.page = 1
+  load()
+}
+
+const statusOptions = computed(() => [
+  { label: t('user.status.active'), value: 'active' },
+  { label: t('user.status.frozen'), value: 'frozen' },
+  { label: t('user.status.banned'), value: 'banned' },
+])
+
+const roleOptions = computed(() =>
+  (Object.keys(ROLE_NAME) as GlobalRoleCode[]).map((code) => ({
+    label: ROLE_NAME[code],
+    value: code,
+  })),
+)
+
+function openRoleDialog(user: User) {
+  roleTarget.value = user
+  roleIds.value = [...(user.roles ?? [])]
+  roleModal.value = true
+}
+async function saveRoles() {
+  if (!roleTarget.value) return
+  if (!roleIds.value.length) {
+    message.warning(t('admin.users.keepRole'))
+    return
+  }
+  roleSaving.value = true
+  try {
+    await adminApi.adminSetRoles(roleTarget.value.id, roleIds.value)
+    message.success(t('admin.users.rolesUpdated'))
+    roleModal.value = false
+    await load()
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('common.updateFailed'))
+  } finally {
+    roleSaving.value = false
+  }
+}
+
+/** 封禁 / 冻结：打开原因输入弹窗 */
+function openReason(action: 'ban' | 'freeze', user: User) {
+  reasonAction.value = action
+  reasonTarget.value = user
+  reasonText.value = ''
+  reasonVisible.value = true
+}
+async function submitReason() {
+  const action = reasonAction.value
+  const user = reasonTarget.value
+  if (!user) return
+  if (reasonText.value.length > 255) {
+    message.warning(t('admin.users.reasonTooLong'))
+    return
+  }
+  reasonSubmitting.value = true
+  try {
+    if (action === 'ban') await adminApi.adminBanUser(user.id, reasonText.value)
+    else await adminApi.adminFreezeUser(user.id, reasonText.value)
+    message.success(t('common.success'))
+    reasonVisible.value = false
+    await load()
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('common.operationFailed'))
+  } finally {
+    reasonSubmitting.value = false
+  }
+}
+
+function confirmState(action: 'unban' | 'unfreeze', user: User) {
+  dialog.warning({
+    title: t(`admin.users.${action}`),
+    content: t(
+      action === 'unban' ? 'admin.users.confirmUnban' : 'admin.users.confirmUnfreeze',
+      { name: user.nickname },
+    ),
+    positiveText: t('action.confirm'),
+    negativeText: t('action.cancel'),
+    onPositiveClick: async () => {
+      try {
+        if (action === 'unban') await adminApi.adminUnbanUser(user.id)
+        else await adminApi.adminUnfreezeUser(user.id)
+        message.success(t('common.success'))
+        await load()
+      } catch (e) {
+        message.error(e instanceof Error ? e.message : t('common.operationFailed'))
+      }
+    },
+  })
+}
+
+const columns = computed<DataTableColumns<User>>(() => [
+  {
+    title: t('admin.users.user'),
+    key: 'user',
+    minWidth: 200,
+    render(row) {
+      return h('div', { class: 'cell-user' }, [
+        h(
+          NAvatar,
+          { size: 32, round: true, src: row.avatar_url ?? undefined },
+          { default: () => (row.nickname ?? '?').slice(0, 1) },
+        ),
+        h('div', { class: 'cell-user__meta' }, [
+          h('div', null, row.nickname),
+          h('div', { class: 'cell-user__email' }, row.email),
+        ]),
+      ])
+    },
+  },
+  {
+    title: t('admin.users.role'),
+    key: 'roles',
+    minWidth: 150,
+    render(row) {
+      const roles = row.roles ?? []
+      if (!roles.length) return '—'
+      return roles.map((r) =>
+        h(
+          NTag,
+          { size: 'small', bordered: false, style: 'margin-right:4px' },
+          { default: () => ROLE_NAME[r] ?? r },
+        ),
+      )
+    },
+  },
+  {
+    title: t('admin.users.status'),
+    key: 'status',
+    width: 90,
+    render(row) {
+      const meta = USER_STATUS[row.status as keyof typeof USER_STATUS]
+      return h(
+        NTag,
+        { size: 'small', type: toNaiveTagType(meta?.tag ?? 'info'), bordered: false },
+        { default: () => meta?.label ?? row.status },
+      )
+    },
+  },
+  {
+    title: t('admin.users.lastLogin'),
+    key: 'last_login_at',
+    width: 150,
+    render: (row) => formatDateTime(row.last_login_at),
+  },
+  {
+    title: t('admin.users.registered'),
+    key: 'created_at',
+    width: 150,
+    render: (row) => formatDateTime(row.created_at),
+  },
+  {
+    title: t('action.edit'),
+    key: 'actions',
+    width: 220,
+    fixed: 'right',
+    render(row) {
+      const buttons: ReturnType<typeof h>[] = [
+        h(
+          NButton,
+          { text: true, type: 'primary', onClick: () => openRoleDialog(row) },
+          { default: () => t('admin.users.role') },
+        ),
+      ]
+      if (row.status === 'banned') {
+        buttons.push(
+          h(
+            NButton,
+            { text: true, type: 'success', onClick: () => confirmState('unban', row) },
+            { default: () => t('admin.users.unban') },
+          ),
+        )
+      } else if (row.status === 'frozen') {
+        buttons.push(
+          h(
+            NButton,
+            { text: true, type: 'success', onClick: () => confirmState('unfreeze', row) },
+            { default: () => t('admin.users.unfreeze') },
+          ),
+        )
+      } else if (row.status === 'active') {
+        buttons.push(
+          h(
+            NButton,
+            { text: true, type: 'warning', onClick: () => openReason('freeze', row) },
+            { default: () => t('admin.users.freeze') },
+          ),
+          h(
+            NButton,
+            { text: true, type: 'error', onClick: () => openReason('ban', row) },
+            { default: () => t('admin.users.ban') },
+          ),
+        )
+      }
+      return h('div', { class: 'cell-actions' }, buttons)
+    },
+  },
+])
 </script>
-<template><el-card shadow="never"><template #header>{{t('admin.users.title')}}</template><div class="mb-4 flex flex-wrap gap-2"><el-input v-model="query.keyword" :placeholder="t('admin.users.search')" clearable class="w-60" @keyup.enter="onSearch" @clear="onSearch"/><el-select v-model="query.status" :placeholder="t('common.allStatus')" clearable class="w-36" @change="onSearch"><el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value"/></el-select><el-button type="primary" @click="onSearch">{{t('action.search')}}</el-button><el-button @click="onReset">{{t('action.reset')}}</el-button></div><el-table v-loading="loading" :data="list" stripe><el-table-column :label="t('admin.users.user')" min-width="200"><template #default="{row}"><div class="flex items-center gap-2.5"><el-avatar :size="32" :src="row.avatar_url??undefined">{{(row.nickname??'?').slice(0,1)}}</el-avatar><div><div>{{row.nickname}}</div><div class="text-xs text-[var(--el-text-color-secondary)]">{{row.email}}</div></div></div></template></el-table-column><el-table-column :label="t('admin.users.role')" min-width="150"><template #default="{row}"><el-tag v-for="r in row.roles??[]" :key="r" size="small" class="mr-1" :type="r==='admin'?'danger':r==='tutor'?'warning':'info'">{{ROLE_NAME[r as GlobalRoleCode]??r}}</el-tag><span v-if="!row.roles?.length">—</span></template></el-table-column><el-table-column :label="t('admin.users.status')" width="90"><template #default="{row}"><el-tag size="small" :type="USER_STATUS[row.status as keyof typeof USER_STATUS]?.tag??'info'">{{USER_STATUS[row.status as keyof typeof USER_STATUS]?.label??row.status}}</el-tag></template></el-table-column><el-table-column :label="t('admin.users.lastLogin')" width="150"><template #default="{row}">{{formatDateTime(row.last_login_at)}}</template></el-table-column><el-table-column :label="t('admin.users.registered')" width="150"><template #default="{row}">{{formatDateTime(row.created_at)}}</template></el-table-column><el-table-column :label="t('action.edit')" width="220" fixed="right"><template #default="{row}"><el-button link type="primary" @click="openRoleDialog(row)">{{t('admin.users.role')}}</el-button><el-button v-if="row.status==='banned'" link type="success" @click="confirmState('unban',row)">{{t('admin.users.unban')}}</el-button><el-button v-else-if="row.status==='frozen'" link type="success" @click="confirmState('unfreeze',row)">{{t('admin.users.unfreeze')}}</el-button><template v-else-if="row.status==='active'"><el-button link type="warning" @click="withReason('freeze',row)">{{t('admin.users.freeze')}}</el-button><el-button link type="danger" @click="withReason('ban',row)">{{t('admin.users.ban')}}</el-button></template></template></el-table-column><template #empty><el-empty :description="t('admin.users.empty')" :image-size="80"/></template></el-table><div class="mt-4 flex justify-end"><el-pagination v-model:current-page="query.page" v-model:page-size="query.page_size" :total="total" :page-sizes="[10,20,50]" layout="total, sizes, prev, pager, next" background @change="load"/></div><el-dialog v-model="roleDialog" :title="t('admin.users.roleTitle',{name:roleTarget?.nickname??''})" width="420px"><el-checkbox-group v-model="roleIds"><el-checkbox v-for="[code,name] in roleOptions" :key="code" :value="code" class="mr-4">{{name}}</el-checkbox></el-checkbox-group><template #footer><el-button @click="roleDialog=false">{{t('action.cancel')}}</el-button><el-button type="primary" :loading="roleSaving" @click="saveRoles">{{t('action.save')}}</el-button></template></el-dialog></el-card></template>
+
+<template>
+  <div class="page-fill">
+    <n-card :title="t('admin.users.title')" :bordered="false">
+    <div class="toolbar">
+      <n-input
+        v-model:value="query.keyword"
+        clearable
+        class="toolbar__search"
+        :placeholder="t('admin.users.search')"
+        @keyup.enter="onSearch"
+        @clear="onSearch"
+      />
+      <n-select
+        v-model:value="query.status"
+        clearable
+        class="toolbar__status"
+        :options="statusOptions"
+        :placeholder="t('common.allStatus')"
+        @update:value="onSearch"
+      />
+      <n-button type="primary" @click="onSearch">{{ t('action.search') }}</n-button>
+      <n-button secondary @click="onReset">{{ t('action.reset') }}</n-button>
+    </div>
+
+    <n-data-table
+      v-if="loading || list.length"
+      class="table-fill"
+      :columns="columns"
+      :data="list"
+      :loading="loading"
+      :scroll-x="1000"
+      :bordered="false"
+    />
+    <div v-else class="table-fill-empty">
+      <n-empty size="large" :description="t('admin.users.empty')" />
+    </div>
+
+    <div class="pager">
+      <n-pagination
+        v-model:page="query.page"
+        v-model:page-size="query.page_size"
+        :item-count="total"
+        :page-sizes="[10, 20, 50]"
+        show-size-picker
+        @update:page="load"
+        @update:page-size="load"
+      />
+    </div>
+
+    <!-- 角色设置 -->
+    <n-modal
+      v-model:show="roleModal"
+      preset="card"
+      style="width: min(420px, 92vw)"
+      :title="t('admin.users.roleTitle', { name: roleTarget?.nickname ?? '' })"
+    >
+      <n-checkbox-group v-model:value="roleIds">
+        <div class="role-options">
+          <n-checkbox v-for="opt in roleOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
+        </div>
+      </n-checkbox-group>
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="roleModal = false">{{ t('action.cancel') }}</n-button>
+          <n-button type="primary" :loading="roleSaving" @click="saveRoles">{{
+            t('action.save')
+          }}</n-button>
+        </div>
+      </template>
+    </n-modal>
+
+    <!-- 封禁 / 冻结原因 -->
+    <n-modal
+      v-model:show="reasonVisible"
+      preset="dialog"
+      type="warning"
+      :title="reasonAction === 'ban' ? t('admin.users.ban') : t('admin.users.freeze')"
+      :positive-text="t('action.confirm')"
+      :negative-text="t('action.cancel')"
+      :loading="reasonSubmitting"
+      @positive-click="submitReason"
+      @negative-click="reasonVisible = false"
+    >
+      <p>{{ t('admin.users.reasonPrompt', { action: reasonAction === 'ban' ? t('admin.users.ban') : t('admin.users.freeze') }) }}</p>
+      <n-input
+        v-model:value="reasonText"
+        type="textarea"
+        maxlength="255"
+        show-count
+        :placeholder="reasonAction === 'ban' ? t('admin.users.banReason') : t('admin.users.freezeReason')"
+      />
+    </n-modal>
+    </n-card>
+  </div>
+</template>
+
+<style scoped>
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.toolbar__search {
+  width: 240px;
+}
+.toolbar__status {
+  width: 150px;
+}
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+.cell-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cell-user__meta .cell-user__email {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+.cell-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.role-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+</style>

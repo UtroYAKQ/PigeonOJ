@@ -15,6 +15,7 @@ import logging
 import os
 import socket
 import sys
+import time
 from pathlib import Path
 
 import grpc
@@ -146,26 +147,23 @@ class NodeDaemon:
             stdin = (data_dir / "cases" / f"{tc.test_case_id}.in").read_bytes()
             expected = (data_dir / "cases" / f"{tc.test_case_id}.out").read_bytes()
             cases.append(JudgeCase(job.language, job.code, stdin, expected, limits))
-        checker_source = (data_dir / "spj.cpp").read_bytes() if job.spj else None
-        results = self.executor.execute_cases(cases, compile_limits=compile_limits, checker_source=checker_source)
+        results = self.executor.execute_cases(cases, compile_limits=compile_limits)
 
-        total_score = 0
         max_time = 0
         case_results = []
+        # 分数由服务端按通过比例派生，节点只回传状态与用量
         for tc, res in zip(job.cases, results, strict=False):
-            score = tc.score if res.status == "accepted" else 0
-            total_score += score
             max_time = max(max_time, res.time_used_ms)
             case_results.append({
                 "test_case_id": tc.test_case_id, "status": res.status,
                 "time_used_ms": res.time_used_ms, "memory_used_kb": res.memory_used_kb or 0,
-                "score": score, "output": res.stdout,
+                "output": res.stdout,
             })
         status = aggregate_status([r.status for r in results])
         error_message = ""
         if results and results[0].compile:
             error_message = results[0].stderr.decode("utf-8", errors="replace")[:8000]
-        return {"submission_id": job.submission_id, "status": status, "score": total_score,
+        return {"submission_id": job.submission_id, "status": status,
                 "time_used_ms": max_time, "memory_used_kb": None,
                 "error_message": error_message, "cases": case_results}
 
@@ -182,7 +180,7 @@ def _to_result_message(result: dict) -> judge_pb2.NodeMessage:
             judge_pb2.CaseResult(
                 test_case_id=c["test_case_id"], status=c["status"],
                 time_used_ms=c["time_used_ms"], memory_used_kb=c["memory_used_kb"],
-                score=c["score"], output=c["output"],
+                output=c["output"],
             )
             for c in result.get("cases", [])
         ],

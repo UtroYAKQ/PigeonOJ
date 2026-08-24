@@ -2,120 +2,90 @@
 
 本文档记录 PigeonOJ 后端代码重构的变更和约定，供后续开发参考。
 
+> 当前模块分包以 `docs/decisions/2026-08-24-backend-module-packaging.md` 为准：
+> auth 并入 users、题单占位并入 problems、题库实体迁入 `problems/models.py`、
+> 平台表（system_configs / 审计日志）下沉 `shared/infra/`、各模块以 `api.py`
+> 为唯一对外出口，并由 `scripts/check_import_rules.py` 机械检查。
+
 ## 一、模块依赖规则
 
-### 1.1 shared 层隔离原则
+### 1.1 依赖方向（无环 DAG）
 
-`shared/` 层**不得依赖任何业务模块**（users、admin、judge 等）。
+```text
+users ← files / problems / admin      # 跨模块一律经 users.api
+problems ← judge                      # 判题读题目经 problems.api
+shared/infra ← 所有层                 # shared 不依赖任何业务模块
+```
 
-```
-正确依赖方向：
-shared → (无业务模块依赖)
-users  → shared
-admin  → shared, users
-judge  → shared, users
-auth   → shared, users, admin (受限)
-files  → shared, users
-```
+- `shared/**` **不得依赖任何业务模块**；平台表模型与服务（system_configs、审计日志）属横切基础设施，放 `shared/infra/`
+- 模块间只允许 `from app.modules.<Y>.api import ...`——每个模块的 `api.py` 是**唯一出口**，
+  其余文件（service / repository / models / deps / permissions…）视为私有实现
+- ORM 模型可经 `api.py` 再导出供跨模块查询；跨域状态变更由属主模块提供钩子函数
+  （如 `complete_verification`），调用方不直接改对方表的行
 
 **违规示例**：
+
 ```python
-# ❌ 错误：shared 层导入 users 模块
-from app.modules.users.models import User
+# ❌ 错误：直接引用对方私有文件
+from app.modules.problems.service import ProblemService
+# ❌ 错误：shared 层导入业务模块
+from app.modules.users.models import User  # in app/shared/**
 ```
 
 **正确做法**：
+
 ```python
+# ✅ 正确：经对方 api.py 门面
+from app.modules.problems.api import ProblemService
 # ✅ 正确：业务模块导入 shared
 from app.shared.common.errors import APIError
 ```
 
-### 1.2 模块间依赖规则
+### 1.2 机械检查
 
-- 模块间**禁止循环依赖**
-- 高层模块可依赖低层模块，反之不可
-- 横切关注点（审计、配置、权限）提取到 shared 层
+```bash
+cd src/backend && python scripts/check_import_rules.py   # AST 解析，退出码非 0 即违规
+```
+
+规则：① shared 禁止 import `app.modules.*`；② 跨模块只能 import 对方 `api.py`；
+③ 组合根豁免（`app/main.py`、`alembic/**`、`scripts/**`、`tests/**`）。
+新增模块必须提供 `api.py`（即使暂无导出）。
 
 ---
 
-## 二、新增共享模块
+## 二、shared 层现状
 
-### 2.1 `shared/common/pagination.py` - 通用分页
-
-**用途**：统一分页参数定义、查询辅助函数和响应格式。
-
-**使用方式**：
-```python
-from app.shared.common.pagination import PaginationParams, PaginatedResponse, paginate
-
-@router.get("/items")
-async def list_items(pagination: PaginationParams = Depends(), db = Depends(get_db)):
-    rows, total = await paginate(db, Item, [], Item.created_at, pagination)
-    return ok(PaginatedResponse(items=rows, total=total, page=pagination.page, page_size=pagination.page_size))
+```
+shared/
+  common/    # errors · response · pagination · validation
+  infra/     # database · redis · storage · logging · audit（审计日志表+写入）· system_config（系统配置表+读写）
+  auth/      # security（密码哈希 / token）
 ```
 
-### 2.2 `shared/auth/permissions.py` - 统一权限检查
-
-**用途**：角色常量定义 + 权限检查辅助函数。
-
-**使用方式**：
-```python
-from app.shared.auth.permissions import MANAGER_ROLE_CODES, is_manager, require_manager_role
-
-# 方式1：直接检查
-if await is_manager(db, user):
-    ...
-
-# 方式2：要求权限（否则抛异常）
-await require_manager_role(db, user)
-```
-
-**关键常量**：
-- `MANAGER_ROLE_CODES = {"admin", "tutor", "team_creator"}` - 题目管理角色集合
-
-### 2.3 `shared/common/audit.py` - 审计日志
-
-**用途**：登录日志、请求日志、异常日志写入（从 admin/audit.py 上提）。
-
-**使用方式**：
-```python
-from app.shared.common.audit import write_login_log, write_request_log, write_exception_log
-```
-
-### 2.4 `shared/common/config.py` - 配置服务
-
-**用途**：系统配置读取（从 admin/service.py 的 ConfigService 上提）。
-
-**使用方式**：
-```python
-from app.shared.common.config import ConfigService
-
-config = ConfigService(db)
-policy = await config.get_email_code_policy()
-```
-
-**注意**：admin 模块的 `AdminConfigService` 继承自 `ConfigService`，扩展了配置管理功能。
+| 能力 | 位置 | 使用方式 |
+| --- | --- | --- |
+| 通用分页 | `shared/common/pagination.py` | `from app.shared.common.pagination import PaginationParams, PaginatedResponse, paginate` |
+| 权限检查（题目管理角色） | `modules/users/permissions.py`（经 `users.api` 导出） | `from app.modules.users.api import MANAGER_ROLE_CODES, is_manager, require_manager_role` |
+| 审计日志写入 | `shared/infra/audit.py` | `from app.shared.infra.audit import write_login_log, write_request_log, write_exception_log` |
+| 系统配置读取 | `shared/infra/system_config.py` | `ConfigService(db).get_category_configs(...)`；admin 仅保留管理端点 |
 
 ---
 
-## 三、认证依赖迁移
+## 三、认证与用户上下文
 
-### 3.1 `users/deps.py` - 认证依赖
+### 3.1 认证依赖（users/deps.py）
 
-**用途**：当前用户 / 管理员校验（从 shared/deps.py 迁移）。
-
-**使用方式**：
 ```python
-from app.modules.users.deps import get_current_user, get_current_admin, parse_client_ip
+from app.modules.users.api import get_current_user, get_current_admin, parse_client_ip
 ```
+
+auth 包已并入 users：注册 / 登录 / 会话由 `AuthService` 承载，API 路径 `/api/v1/auth/*` 保持不变。
 
 ---
 
 ## 四、ORM 序列化规范
 
-### 4.1 Response Schema 定义
-
-为所有面向前端的实体定义 Response Schema（`judge/schemas.py`）：
+为所有面向前端的实体定义 Response Schema（现分属 `problems/schemas.py` 与 `judge/schemas.py`）：
 
 ```python
 class ProblemSummary(BaseModel):
@@ -123,15 +93,7 @@ class ProblemSummary(BaseModel):
     id: uuid.UUID
     title: str
     # ... 其他字段
-
-class SubmissionSummary(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: uuid.UUID
-    problem_id: uuid.UUID
-    # ... 其他字段
 ```
-
-### 4.2 使用方式
 
 ```python
 # ✅ 正确：使用 Pydantic model_validate
@@ -148,15 +110,15 @@ problem_dict = {"id": str(problem.id), "title": problem.title, ...}
 ### 5.1 commit/flush 规则
 
 **使用 `get_db` 依赖的路由**：
+
 - Service/Repository 层：使用 `flush()`（依赖 get_db 自动提交）
 - Routes 层：**特定场景**需要显式 `commit()`（见 5.2）
 
 **使用 `SessionLocal()` 的独立会话**：
+
 - 必须显式 `commit()`（如 gateway.py、jobs.py）
 
 ### 5.2 Routes 层显式 commit 场景
-
-以下场景需要在 Routes 层显式 commit：
 
 ```python
 # 场景1：dispatch_submission 需要读取已提交的数据
@@ -182,24 +144,21 @@ return ok(_summary(problem))
 modules/
   {module}/
     __init__.py      # 模块说明
-    models.py        # ORM 模型
+    api.py           # 对外门面（唯一出口；新增模块必须提供，即使暂无导出）
+    models.py        # ORM 模型（可选；每张表只有一个归属模块）
     schemas.py       # 请求/响应 Schema
     repository.py    # 数据访问层（可选）
     service.py       # 业务逻辑层
-    routes.py        # API 路由
+    routes.py        # API 路由（所在包不必与 URL 前缀一一对应，见决策记录 §5）
     deps.py          # 依赖注入（可选）
 ```
 
 ### 6.2 空模块处理
 
-待实现模块保留 `__init__.py` 骨架：
+待实现模块保留 `__init__.py` 骨架（如 teams / contests / ai / community）：
+
 ```python
 """模块名：功能说明。"""
-```
-
-已废弃模块的 `__init__.py` 添加迁移说明：
-```python
-"""模块名（兼容层，已迁移至 shared/xxx.py）。"""
 ```
 
 ---
@@ -209,26 +168,20 @@ modules/
 | 变更 | 旧位置 | 新位置 | 兼容层 |
 |------|--------|--------|--------|
 | 分页工具 | 各模块重复实现 | `shared/common/pagination.py` | 无需 |
-| 权限检查 | `judge/service.py:53`, `files/routes.py:19` | `shared/auth/permissions.py` | 无需 |
-| 审计日志 | `admin/audit.py` | `shared/common/audit.py` | 已删除 |
-| 配置服务 | `admin/service.py:ConfigService` | `shared/common/config.py` | 已删除 |
-| 认证依赖 | `shared/deps.py` | `users/deps.py` | 已删除 |
-| ORM 序列化 | 手写 dict | `judge/schemas.py` Response Schema | 无需 |
-
-**说明**：`shared/` 层现按职责拆分为三个子包，扁平兼容层文件已全部删除：
-
-```
-shared/
-  common/    # 通用工具：errors、response、pagination、validation、config、audit
-  infra/     # 基础设施：database、redis、storage、logging
-  auth/      # 安全：security、permissions
-```
+| 权限检查 | `judge/service.py`, `files/routes.py` → `shared/auth/permissions.py` | `modules/users/permissions.py`（shared 反向依赖业务，二次迁移） | 经 `users.api` 导入 |
+| 审计日志 | `admin/audit.py` → `shared/common/audit.py` | `shared/infra/audit.py`（含三张日志表模型） | 已删除 |
+| 配置服务 | `admin/service.py:ConfigService` → `shared/common/config.py` | `shared/infra/system_config.py`（含 system_configs 模型） | 已删除 |
+| 认证依赖 | `shared/deps.py` | `users/deps.py`（经 `users.api` 导出） | 已删除 |
+| auth 模块 | `modules/auth/*` | 并入 `modules/users/`（AuthService） | 已删除，URL 不变 |
+| 题库实体 | `judge/models.py` 中 Problem/TestCase 等 | `problems/models.py` | 无需 |
+| problem_sets 占位包 | `modules/problem_sets/` | 并入 `problems/`（契约文件不动） | 已删除 |
+| 跨模块通信 | 直接 import 对方 service/repository | 各模块 `api.py` 门面 | 机械检查 |
 
 ---
 
 ## 八、后续待优化
 
-1. **judge 模块拆分**：Problem 相关模型和服务迁移到 `problems/` 模块
-2. **统一 Repository 使用**：为 Problem、Submission 创建独立 Repository
+1. ~~judge 模块拆分：Problem 相关模型和服务迁移到 `problems/` 模块~~（已完成，见 2026-08-24 决策记录）
+2. **统一 Repository 使用**：为 Problem 创建独立 Repository（Submission 已有）
 3. **分页响应统一**：所有分页接口使用 `PaginatedResponse`
 4. **ORM 序列化统一**：为 admin、users 模块的实体定义 Response Schema

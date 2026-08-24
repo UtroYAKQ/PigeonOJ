@@ -1,25 +1,28 @@
 @echo off
-chcp 65001 >nul
 rem ============================================================
-rem  PigeonOJ å¼€å‘çŽ¯å¢ƒä¸€é”®å¯åŠ¨ï¼ˆWindowsï¼‰
-rem  - å¯åŠ¨ PostgreSQL / MinIO / Redisï¼ˆæœ¬åœ°é•œåƒï¼Œä¸æ‹‰å–ï¼‰
-rem  - æž„å»ºåˆ¤é¢˜èŠ‚ç‚¹é•œåƒï¼ˆå« nsjail æ²™ç®±å±‚ï¼‰å¹¶å¯åŠ¨ 1 ä¸ªæœ¬åœ°èŠ‚ç‚¹
-rem  - æ‰§è¡Œæ•°æ®åº“è¿ç§» + å¼•å¯¼æ¼”ç¤ºè´¦å·
-rem  - å¯åŠ¨åŽç«¯ (8000) ä¸Žå‰ç«¯ (5173)
-rem  è¯´æ˜Žï¼šåŽç«¯è¿›ç¨‹ä¸æ‰§è¡Œç”¨æˆ·ä»£ç ï¼›ä»£ç æ‰§è¡Œåªå‘ç”Ÿåœ¨åˆ¤é¢˜èŠ‚ç‚¹å®¹å™¨å†…ã€‚
+rem  PigeonOJ ¿ª·¢»·¾³Ò»¼üÆô¶¯£¨Windows£©
+rem  - Æô¶¯ PostgreSQL / MinIO / Redis£¨±¾µØ¾µÏñ£¬²»À­È¡£©
+rem  - ¹¹½¨ÅÐÌâ½Úµã¾µÏñ£¨º¬ nsjail É³Ïä²ã£©²¢Æô¶¯ 1 ¸ö±¾µØ½Úµã
+rem  - Ö´ÐÐÊý¾Ý¿âÇ¨ÒÆ + Òýµ¼ÑÝÊ¾ÕËºÅ
+rem  - Æô¶¯ºó¶Ë (8000) ÓëÇ°¶Ë (5173)
+rem  ËµÃ÷£ººó¶Ë½ø³Ì²»Ö´ÐÐÓÃ»§´úÂë£»´úÂëÖ´ÐÐÖ»·¢ÉúÔÚÅÐÌâ½ÚµãÈÝÆ÷ÄÚ¡£
+rem  ×¢Òâ£º±¾ÎÄ¼þº¬ÖÐÎÄ£¬±ØÐëÒÔ ANSI/GBK ±àÂë±£´æ£¨Îð´æÎª UTF-8£©¡£
 rem ============================================================
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
+rem Python ×Ó½ø³Ì£¨alembic / uvicorn / ½Å±¾£©Í³Ò» UTF-8 Ä£Ê½£¬
+rem ±ÜÃâÖÐÎÄÈÕÖ¾ÔÚ GBK ¿ØÖÆÌ¨´¥·¢ UnicodeEncodeError£¬ÒÔ¼° locale ±àÂë¶ÁÎÄ¼þ±¨´í
+set "PYTHONUTF8=1"
 
 echo ============================================
-echo   PigeonOJ å¼€å‘çŽ¯å¢ƒä¸€é”®å¯åŠ¨
+echo   PigeonOJ ¿ª·¢»·¾³Ò»¼üÆô¶¯
 echo ============================================
 
-rem ---------- 1. æ£€æŸ¥ Docker ----------
-echo [1/7] æ£€æŸ¥ Docker...
+rem ---------- 1. ¼ì²é Docker ----------
+echo [1/7] ¼ì²é Docker...
 docker info >nul 2>&1
 if errorlevel 1 (
-    echo [é”™è¯¯] Docker æœªè¿è¡Œï¼Œè¯·å…ˆå¯åŠ¨ Docker Desktop å†æ‰§è¡Œæœ¬è„šæœ¬ã€‚
+    echo [´íÎó] Docker Î´ÔËÐÐ£¬ÇëÏÈÆô¶¯ Docker Desktop ÔÙÖ´ÐÐ±¾½Å±¾¡£
     pause
     exit /b 1
 )
@@ -27,68 +30,68 @@ if errorlevel 1 (
 rem ---------- PostgreSQL ----------
 docker ps --format "{{.Names}}" | findstr /x "pigeonoj-postgres" >nul 2>&1
 if errorlevel 1 (
-    echo å¯åŠ¨ PostgreSQLï¼ˆæœ¬åœ°é•œåƒï¼‰...
+    echo Æô¶¯ PostgreSQL£¨±¾µØ¾µÏñ£©...
     docker start pigeonoj-postgres >nul 2>&1
     if errorlevel 1 (
         docker run -d --name pigeonoj-postgres -e POSTGRES_USER=pigeonoj -e POSTGRES_PASSWORD=pigeonoj -e POSTGRES_DB=pigeonoj -p 5432:5432 -v pgdata:/var/lib/postgresql/data docker.1ms.run/postgres:16-alpine
     )
 ) else (
-    echo PostgreSQL å·²åœ¨è¿è¡Œ
+    echo PostgreSQL ÒÑÔÚÔËÐÐ
 )
 
 rem ---------- MinIO ----------
 docker ps --format "{{.Names}}" | findstr /x "pigeonoj-minio" >nul 2>&1
 if errorlevel 1 (
-    echo å¯åŠ¨ MinIOï¼ˆæœ¬åœ°é•œåƒï¼‰...
+    echo Æô¶¯ MinIO£¨±¾µØ¾µÏñ£©...
     docker start pigeonoj-minio >nul 2>&1
     if errorlevel 1 (
         docker run -d --name pigeonoj-minio -e MINIO_ROOT_USER=pigeonoj -e MINIO_ROOT_PASSWORD=pigeonoj-minio-secret -p 9000:9000 -p 9001:9001 -v miniodata:/data docker.1ms.run/minio/minio:latest server /data --console-address ":9001"
     )
 ) else (
-    echo MinIO å·²åœ¨è¿è¡Œ
+    echo MinIO ÒÑÔÚÔËÐÐ
 )
 
-rem ---------- Redisï¼ˆ6379 æœªè¢«å ç”¨æ—¶æ‰å¯åŠ¨ï¼‰ ----------
+rem ---------- Redis£¨6379 Î´±»Õ¼ÓÃÊ±²ÅÆô¶¯£© ----------
 netstat -ano | findstr /c:":6379 " | findstr /c:"LISTENING" >nul 2>&1
 if errorlevel 1 (
     docker ps --format "{{.Names}}" | findstr /x "pigeonoj-redis" >nul 2>&1
     if errorlevel 1 (
-        echo å¯åŠ¨ Redisï¼ˆæœ¬åœ°é•œåƒï¼‰...
+        echo Æô¶¯ Redis£¨±¾µØ¾µÏñ£©...
         docker start pigeonoj-redis >nul 2>&1
         if errorlevel 1 (
             docker run -d --name pigeonoj-redis -p 6379:6379 -v redisdata:/data docker.1ms.run/redis:7-alpine
         )
     ) else (
-        echo Redis å·²åœ¨è¿è¡Œ
+        echo Redis ÒÑÔÚÔËÐÐ
     )
 ) else (
-    echo Redis å·²åœ¨è¿è¡Œï¼ˆç«¯å£ 6379 å·²è¢«å ç”¨ï¼Œå¤ç”¨çŽ°æœ‰å®žä¾‹ï¼‰
+    echo Redis ÒÑÔÚÔËÐÐ£¨¶Ë¿Ú 6379 ÒÑ±»Õ¼ÓÃ£¬¸´ÓÃÏÖÓÐÊµÀý£©
 )
 
-rem ---------- 2. æž„å»ºåˆ¤é¢˜èŠ‚ç‚¹é•œåƒï¼ˆå« nsjail æ²™ç®±åŸºç¡€å±‚ï¼›ä»…é¦–æ¬¡æˆ– Dockerfile å˜æ›´æ—¶ï¼‰ ----------
-echo [2/7] å‡†å¤‡åˆ¤é¢˜èŠ‚ç‚¹é•œåƒ...
+rem ---------- 2. ¹¹½¨ÅÐÌâ½Úµã¾µÏñ£¨º¬ nsjail É³Ïä»ù´¡²ã£»½öÊ×´Î»ò Dockerfile ±ä¸üÊ±£© ----------
+echo [2/7] ×¼±¸ÅÐÌâ½Úµã¾µÏñ...
 docker image inspect sandbox:local >nul 2>&1
 if errorlevel 1 (
-    echo æž„å»ºæ²™ç®±åŸºç¡€å±‚ sandbox:localï¼ˆä»…é¦–æ¬¡ï¼Œéœ€å‡ åˆ†é’Ÿï¼‰...
+    echo ¹¹½¨É³Ïä»ù´¡²ã sandbox:local£¨½öÊ×´Î£¬Ðè¼¸·ÖÖÓ£©...
     docker build -t sandbox:local "%~dp0src\judge\sandbox"
-    if errorlevel 1 ( echo [é”™è¯¯] åŸºç¡€å±‚æž„å»ºå¤±è´¥ & pause & exit /b 1 )
+    if errorlevel 1 ( echo [´íÎó] »ù´¡²ã¹¹½¨Ê§°Ü & pause & exit /b 1 )
 )
 docker image inspect pigeonoj/judge-node:latest >nul 2>&1
 if errorlevel 1 (
-    echo æž„å»ºåˆ¤é¢˜èŠ‚ç‚¹é•œåƒ pigeonoj/judge-node...
+    echo ¹¹½¨ÅÐÌâ½Úµã¾µÏñ pigeonoj/judge-node...
     docker build -t pigeonoj/judge-node:latest "%~dp0src\judge"
-    if errorlevel 1 ( echo [é”™è¯¯] èŠ‚ç‚¹é•œåƒæž„å»ºå¤±è´¥ & pause & exit /b 1 )
+    if errorlevel 1 ( echo [´íÎó] ½Úµã¾µÏñ¹¹½¨Ê§°Ü & pause & exit /b 1 )
 ) else (
-    echo åˆ¤é¢˜èŠ‚ç‚¹é•œåƒå·²å­˜åœ¨
+    echo ÅÐÌâ½Úµã¾µÏñÒÑ´æÔÚ
 )
 
-rem ---------- 3. ç­‰å¾… PostgreSQL å°±ç»ª ----------
-echo [3/7] ç­‰å¾… PostgreSQL å°±ç»ª...
+rem ---------- 3. µÈ´ý PostgreSQL ¾ÍÐ÷ ----------
+echo [3/7] µÈ´ý PostgreSQL ¾ÍÐ÷...
 set /a attempts=0
 :wait_db
 set /a attempts+=1
 if !attempts! gtr 30 (
-    echo [é”™è¯¯] PostgreSQL 30 ç§’å†…æœªå°±ç»ªï¼Œè¯·æ£€æŸ¥ docker psã€‚
+    echo [´íÎó] PostgreSQL 30 ÃëÄÚÎ´¾ÍÐ÷£¬Çë¼ì²é docker ps¡£
     pause
     exit /b 1
 )
@@ -97,41 +100,41 @@ if errorlevel 1 (
     timeout /t 1 /nobreak >nul
     goto wait_db
 )
-echo PostgreSQL å°±ç»ª
+echo PostgreSQL ¾ÍÐ÷
 
-rem ---------- 4. è¿ç§» + æ¼”ç¤ºè´¦å· + å…¬å…±çŽ¯å¢ƒå˜é‡ ----------
-echo [4/7] æ•°æ®åº“è¿ç§»ä¸Žæ¼”ç¤ºè´¦å·å¼•å¯¼...
+rem ---------- 4. Ç¨ÒÆ + ÑÝÊ¾ÕËºÅ + ¹«¹²»·¾³±äÁ¿ ----------
+echo [4/7] Êý¾Ý¿âÇ¨ÒÆÓëÑÝÊ¾ÕËºÅÒýµ¼...
 cd /d "%~dp0src\backend"
-rem ä»¥ä¸‹å˜é‡ç”±æœ¬è„šæœ¬ç»Ÿä¸€ setï¼ŒéšåŽ start çš„å­çª—å£è‡ªåŠ¨ç»§æ‰¿ï¼›
-rem å¿…é¡»ç”¨ set "K=V" å¼•å·å½¢å¼ï¼Œé¿å…å€¼å°¾éƒ¨æ··å…¥ç©ºæ ¼ï¼ˆæ›¾å¯¼è‡´è·¯å¾„å¸¦å°¾ç©ºæ ¼åˆ¤é¢˜å¤±è´¥ï¼‰
+rem ÒÔÏÂ±äÁ¿ÓÉ±¾½Å±¾Í³Ò» set£¬Ëæºó start µÄ×Ó´°¿Ú×Ô¶¯¼Ì³Ð£»
+rem ±ØÐëÓÃ set "K=V" ÒýºÅÐÎÊ½£¬±ÜÃâÖµÎ²²¿»ìÈë¿Õ¸ñ£¨Ôøµ¼ÖÂÂ·¾¶´øÎ²¿Õ¸ñÅÐÌâÊ§°Ü£©
 set "DATABASE_URL=postgresql+asyncpg://pigeonoj:pigeonoj@localhost:5432/pigeonoj"
 set "REDIS_URL=redis://localhost:6379/0"
 set "JUDGE_GATEWAY_TOKENS=dev-token"
 python -m alembic upgrade head
 if errorlevel 1 (
-    echo [é”™è¯¯] æ•°æ®åº“è¿ç§»å¤±è´¥ï¼Œè¯·æ£€æŸ¥ä¸Šæ–¹æ—¥å¿—ã€‚
+    echo [´íÎó] Êý¾Ý¿âÇ¨ÒÆÊ§°Ü£¬Çë¼ì²éÉÏ·½ÈÕÖ¾¡£
     pause
     exit /b 1
 )
 python -m scripts.bootstrap_demo_users
 
-rem ---------- 5. å¯åŠ¨åŽç«¯ï¼ˆåˆ¤é¢˜ç½‘å…³ :50051 éšåº”ç”¨å¯åŠ¨ï¼›é¡»å…ˆäºŽåˆ¤é¢˜èŠ‚ç‚¹å°±ç»ªï¼‰ ----------
-echo [5/7] å¯åŠ¨åŽç«¯...
+rem ---------- 5. Æô¶¯ºó¶Ë£¨ÅÐÌâÍø¹Ø :50051 ËæÓ¦ÓÃÆô¶¯£»ÐëÏÈÓÚÅÐÌâ½Úµã¾ÍÐ÷£© ----------
+echo [5/7] Æô¶¯ºó¶Ë...
 
 netstat -ano | findstr /c:":8000 " | findstr /c:"LISTENING" >nul 2>&1
 if errorlevel 1 (
     cd /d "%~dp0src\backend"
     start "PigeonOJ Backend" cmd /k "python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
 ) else (
-    echo [è·³è¿‡] ç«¯å£ 8000 å·²è¢«å ç”¨ï¼ˆåŽç«¯å¯èƒ½å·²åœ¨è¿è¡Œï¼›å¦‚åˆšæ›´æ–°è¿‡ä»£ç è¯·é‡å¯è¯¥çª—å£ï¼‰
+    echo [Ìø¹ý] ¶Ë¿Ú 8000 ÒÑ±»Õ¼ÓÃ£¨ºó¶Ë¿ÉÄÜÒÑÔÚÔËÐÐ£»Èç¸Õ¸üÐÂ¹ý´úÂëÇëÖØÆô¸Ã´°¿Ú£©
 )
 
-rem ç­‰å¾…åŽç«¯å¥åº·æ£€æŸ¥é€šè¿‡ï¼ˆæœ€å¤š 30 ç§’ï¼‰ï¼Œç¡®ä¿ gRPC ç½‘å…³å·²ç›‘å¬åŽå†æ‹‰èµ·èŠ‚ç‚¹
+rem µÈ´ýºó¶Ë½¡¿µ¼ì²éÍ¨¹ý£¨×î¶à 30 Ãë£©£¬È·±£ gRPC Íø¹ØÒÑ¼àÌýºóÔÙÀ­Æð½Úµã
 set /a hb=0
 :wait_be
 set /a hb+=1
 if !hb! gtr 30 (
-    echo [é”™è¯¯] åŽç«¯ 30 ç§’å†…æœªå°±ç»ªï¼Œè¯·æ£€æŸ¥ Backend çª—å£æ—¥å¿—ã€‚
+    echo [´íÎó] ºó¶Ë 30 ÃëÄÚÎ´¾ÍÐ÷£¬Çë¼ì²é Backend ´°¿ÚÈÕÖ¾¡£
     pause
     exit /b 1
 )
@@ -140,27 +143,27 @@ if errorlevel 1 (
     timeout /t 1 /nobreak >nul
     goto wait_be
 )
-echo åŽç«¯å°±ç»ª
+echo ºó¶Ë¾ÍÐ÷
 
-rem ---------- 6. æœ¬åœ°åˆ¤é¢˜èŠ‚ç‚¹å®¹å™¨ï¼ˆé»˜è®¤ 1 ä¸ªï¼›é…ç½®è§ .env.node.example â†’ .env.nodeï¼‰ ----------
-echo [6/7] å¯åŠ¨åˆ¤é¢˜èŠ‚ç‚¹å®¹å™¨...
+rem ---------- 6. ±¾µØÅÐÌâ½ÚµãÈÝÆ÷£¨Ä¬ÈÏ 1 ¸ö£»ÅäÖÃ¼û .env.node.example ¡ú .env.node£© ----------
+echo [6/7] Æô¶¯ÅÐÌâ½ÚµãÈÝÆ÷...
 if not exist "%~dp0.env.node" copy /y "%~dp0.env.node.example" "%~dp0.env.node" >nul
 docker compose --env-file "%~dp0.env.node" -f "%~dp0docker-compose-node.yml" up -d --build 1>nul 2>&1
 if errorlevel 1 (
-    echo [è­¦å‘Š] åˆ¤é¢˜èŠ‚ç‚¹å®¹å™¨å¯åŠ¨å¤±è´¥ï¼Œè¯·æ£€æŸ¥ .env.node ä¸Ž Docker æ—¥å¿—ï¼ˆä¸å½±å“å…¶ä½™æœåŠ¡ï¼Œå¯ç¨åŽæ‰‹åŠ¨é‡è¯•ï¼‰ã€‚
+    echo [¾¯¸æ] ÅÐÌâ½ÚµãÈÝÆ÷Æô¶¯Ê§°Ü£¬Çë¼ì²é .env.node Óë Docker ÈÕÖ¾£¨²»Ó°ÏìÆäÓà·þÎñ£¬¿ÉÉÔºóÊÖ¶¯ÖØÊÔ£©¡£
 ) else (
     start "PigeonOJ Judge Node" cmd /k "docker compose --env-file %~dp0.env.node -f %~dp0docker-compose-node.yml logs -f"
 )
 
-rem ---------- 7. å¯åŠ¨å‰ç«¯ ----------
-echo [7/7] å¯åŠ¨å‰ç«¯...
+rem ---------- 7. Æô¶¯Ç°¶Ë ----------
+echo [7/7] Æô¶¯Ç°¶Ë...
 
 netstat -ano | findstr /c:":5173 " | findstr /c:"LISTENING" >nul 2>&1
 if errorlevel 1 (
     cd /d "%~dp0src\frontend"
     start "PigeonOJ Frontend" cmd /k "npm run dev"
 ) else (
-    echo [è·³è¿‡] ç«¯å£ 5173 å·²è¢«å ç”¨ï¼ˆå‰ç«¯å¯èƒ½å·²åœ¨è¿è¡Œï¼‰
+    echo [Ìø¹ý] ¶Ë¿Ú 5173 ÒÑ±»Õ¼ÓÃ£¨Ç°¶Ë¿ÉÄÜÒÑÔÚÔËÐÐ£©
 )
 
 timeout /t 6 /nobreak >nul
@@ -168,11 +171,11 @@ start "" "http://localhost:5173"
 
 echo.
 echo ============================================
-echo   å¯åŠ¨å®Œæˆï¼
-echo   å‰ç«¯:  http://localhost:5173
-echo   åŽç«¯:  http://127.0.0.1:8000  ï¼ˆæŽ¥å£æ–‡æ¡£ /docsï¼‰
-echo   åˆ¤é¢˜èŠ‚ç‚¹:  Judge Node çª—å£ï¼ˆgRPC æ³¨å†Œè‡³åŽç«¯ç½‘å…³ :50051ï¼‰
-echo   æ¼”ç¤ºè´¦å·:  admin@pigeonoj.dev / Admin@123
-echo   å…³é—­å¼¹å‡ºçš„çª—å£å³åœæ­¢å¯¹åº”æœåŠ¡ã€‚
+echo   Æô¶¯Íê³É£¡
+echo   Ç°¶Ë:  http://localhost:5173
+echo   ºó¶Ë:  http://127.0.0.1:8000  £¨½Ó¿ÚÎÄµµ /docs£©
+echo   ÅÐÌâ½Úµã:  Judge Node ´°¿Ú£¨gRPC ×¢²áÖÁºó¶ËÍø¹Ø :50051£©
+echo   ÑÝÊ¾ÕËºÅ:  admin@pigeonoj.dev / Admin@123
+echo   ¹Ø±Õµ¯³öµÄ´°¿Ú¼´Í£Ö¹¶ÔÓ¦·þÎñ¡£
 echo ============================================
 pause

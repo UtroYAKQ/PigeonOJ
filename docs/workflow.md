@@ -36,6 +36,7 @@
 | 技术栈增删 | `architecture.md` + 决策记录 |
 | 编码 / 分层 / 安全规范 | `architecture.md` |
 | 前端设计系统、布局、组件交互、响应式、可访问性或 i18n | `frontend.md`（必要时同步 `architecture.md` 的总则） |
+| 前端工具链 / 质量门禁（lint / format / test 配置） | `frontend.md`（约定）+ `operations.md`（命令） |
 | 测试命令 / 策略 | `operations.md` |
 | 环境变量 / 部署流程 | `operations.md` |
 | 重要技术决策 | `docs/decisions/YYYY-MM-DD-xxx.md` |

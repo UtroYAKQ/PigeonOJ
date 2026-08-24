@@ -78,7 +78,7 @@
 
 索引：UNIQUE(`user_id`, `stat_date`, `model`, `purpose`)、INDEX(`user_id`, `stat_date`)
 
-> 数据来源为 `ai_requests`：每次请求写入时增量 upsert，或由 Celery 定时任务 `aggregate_token_stats` 按天汇总。当前版本仅统计、不做额度控制。
+> 数据来源为 `ai_requests`：每次请求写入时增量 upsert，或由后端周期任务 `aggregate_token_stats` 按天汇总。当前版本仅统计、不做额度控制。
 
 ### `ai_generation_tasks` — AI 出题任务表
 
@@ -155,7 +155,7 @@
 ## 关键流程 / 验收条件
 
 1. **AI 修改代码（用户确认）**：用户触发 → 调用大模型生成修改方案（diff / 全文）→ AI 建议存入 `ai_messages.tool_result` → 前端展示 diff 等待确认 → 用户批准 → 应用到编辑器 + 更新 `user_code_drafts`；用户拒绝 → 丢弃不落库。AI 生成内容绝不直接覆盖代码，确认在客户端完成，服务端不设独立审批表。
-2. **AI 出题**：用户配置提示词 / 参数 → 创建 `ai_generation_tasks(running)` → Celery 执行：调用模型生成 题面 / 样例 / 测试点 / 题解 / 标签 / 难度 / 限制 → 生成样例后调用 `POST /sandbox/sample-run` 自校验样例正确性 → 落库为 `problems` 草稿（`is_ai_generated=true`）→ 任务标记 `succeeded`、记录 token 用量。AI 生成题目不自动进入公开 / 团队题库，仍须出题人完善并验题后发布。归属：团队管理员出题时任务携带 `team_id`，落库题目草稿归属该团队；导师 / 系统管理员全站出题（`team_id` 为空）生成全站题目草稿。
+2. **AI 出题**：用户配置提示词 / 参数 → 创建 `ai_generation_tasks(running)` → 后端异步执行：调用模型生成 题面 / 样例 / 测试点 / 题解 / 标签 / 难度 / 限制 → 生成样例后经判题节点侧专用端点自校验样例正确性（见 `docs/contracts/judge.md`，随 AI 模块一并实现）→ 落库为 `problems` 草稿（`is_ai_generated=true`）→ 任务标记 `succeeded`、记录 token 用量。AI 生成题目不自动进入公开 / 团队题库，仍须出题人完善并验题后发布。归属：团队管理员出题时任务携带 `team_id`，落库题目草稿归属该团队；导师 / 系统管理员全站出题（`team_id` 为空）生成全站题目草稿。
 3. **编译纠错**：用户提交编译错误 → 调模型分析并给出修复建议或修改方案；必要时内部调用样例执行接口自测。
 4. **Token 统计**：每次 AI 调用写 `ai_requests`；按天汇总（增量 upsert 或定时任务）至 `user_token_stats`，供 `admin` 在用户管理查看「用户 AI Token 使用情况」。
 

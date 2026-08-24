@@ -9,7 +9,11 @@ const host = ref<HTMLElement>()
 let editor: monaco.editor.IStandaloneCodeEditor | undefined
 let themeObserver: MutationObserver | undefined
 
-const monacoLanguage: Record<ProblemLanguage, string> = { cpp17: 'cpp', 'python3.12': 'python', java21: 'java' }
+const monacoLanguage: Record<ProblemLanguage, string> = {
+  cpp17: 'cpp',
+  'python3.12': 'python',
+  java21: 'java',
+}
 
 function currentTheme(): string {
   return document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs'
@@ -36,16 +40,25 @@ onMounted(() => {
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 })
 
-watch(() => props.language, value => {
-  const model = editor?.getModel()
-  if (model) monaco.editor.setModelLanguage(model, monacoLanguage[value])
-})
-watch(() => props.modelValue, value => {
-  if (editor && value !== editor.getValue()) editor.setValue(value)
-})
-watch(() => props.readOnly, value => {
-  editor?.updateOptions({ readOnly: value ?? false })
-})
+watch(
+  () => props.language,
+  (value) => {
+    const model = editor?.getModel()
+    if (model) monaco.editor.setModelLanguage(model, monacoLanguage[value])
+  },
+)
+watch(
+  () => props.modelValue,
+  (value) => {
+    if (editor && value !== editor.getValue()) editor.setValue(value)
+  },
+)
+watch(
+  () => props.readOnly,
+  (value) => {
+    editor?.updateOptions({ readOnly: value ?? false })
+  },
+)
 
 onBeforeUnmount(() => {
   themeObserver?.disconnect()
@@ -63,7 +76,7 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 220px;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--app-radius);
   border: 1px solid var(--app-border);
 }
 </style>

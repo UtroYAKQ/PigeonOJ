@@ -11,19 +11,24 @@ export interface ProblemSummary {
   difficulty: ProblemDifficulty
   time_limit_ms: number
   memory_limit_mb: number
-  spj: boolean
   status: string
   visibility?: string
   is_verified?: boolean
+  /** scope=mine 管理视图返回：未验题或案例晚于最近验题通过时间变更 */
+  needs_reverification?: boolean
   created_at?: string
 }
 
-export interface ProblemSample { id?: string; name: string; input: string; output: string }
+export interface ProblemSample {
+  id?: string
+  name: string
+  input: string
+  output: string
+}
 export interface ProblemTestCase {
   id: string
   name: string | null
   is_sample: boolean
-  score: number
   sort_order: number
   input: string | null
   expected_output: string | null
@@ -41,15 +46,17 @@ export interface ProblemDetail extends ProblemSummary {
   can_manage: boolean
   verified_at?: string | null
   published_at?: string | null
+  /** 发布门禁：未验题 / 案例变更须重验（can_manage 时附 cases_updated_at） */
+  needs_reverification?: boolean
+  cases_updated_at?: string | null
 }
 
-/** 测试点草稿：编辑器内编辑、整体替换提交（PUT /problems/:id/test-cases） */
+/** 测试点草稿：编辑器内编辑、整体替换提交（PUT /problems/:id/test-cases）；出题不设分值 */
 export interface TestCaseDraft {
   name: string
   is_sample: boolean
   input: string
   expected_output: string
-  score: number
   sort_order: number
 }
 
@@ -74,8 +81,6 @@ export interface ProblemEditPayload {
   visibility?: string
   time_limit_ms?: number
   memory_limit_mb?: number
-  spj?: boolean
-  spj_code?: string | null
 }
 
 export interface ProblemCreatePayload extends ProblemEditPayload {
