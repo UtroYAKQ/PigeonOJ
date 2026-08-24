@@ -103,8 +103,6 @@ function loadColor(load: number): string {
         </div>
         <n-empty v-else-if="!loading" :description="t('admin.sandbox.empty')" />
       </n-spin>
-
-      <p class="form-hint">{{ t('admin.sandbox.tip') }}</p>
     </n-card>
   </div>
 </template>

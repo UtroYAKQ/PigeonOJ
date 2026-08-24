@@ -49,7 +49,6 @@ async function choose(event: Event) {
           name: String(number),
           input: item.input,
           expected_output: item.output,
-          is_sample: false,
           sort_order: index + 1,
         }
       })

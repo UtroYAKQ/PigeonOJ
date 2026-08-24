@@ -90,8 +90,6 @@ function onRevoke(session: UserSession) {
       <n-spin v-else :show="loading">
         <n-empty :description="t('sessions.empty')" />
       </n-spin>
-
-      <p class="form-hint">{{ t('sessions.tip') }}</p>
     </n-card>
   </div>
 </template>

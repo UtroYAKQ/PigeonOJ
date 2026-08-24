@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from app.modules.judge.gateway import (
+from app.controllers.judge_gateway import (
     REGISTRY,
     NodeConnection,
     _reset_to_pending,
@@ -20,10 +20,10 @@ from app.modules.judge.gateway import (
     maintenance_loop,
     send_job,
 )
-from app.modules.judge.models import Submission
-from app.modules.problems.models import Problem, TestCase
-from app.modules.users.models import User
-from app.shared.infra.database import SessionLocal
+from app.models.judge import Submission
+from app.models.problem import Problem, TestCase
+from app.models.user import User
+from app.core.database import SessionLocal
 
 
 def _add_node(node_id: str, inflight: int = 0, capacity: int = 2) -> NodeConnection:
@@ -74,7 +74,7 @@ async def test_dispatch_picks_least_loaded_node():
 
 @pytest.mark.asyncio
 async def test_dispatch_returns_none_without_nodes():
-    from app.modules.judge.gateway import dispatch_submission
+    from app.controllers.judge_gateway import dispatch_submission
 
     assert await dispatch_submission(uuid_mod.uuid4()) is None
 

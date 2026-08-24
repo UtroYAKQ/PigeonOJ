@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import httpx
 
-from app.shared.infra.redis import redis_set_json
+from app.core.redis import redis_set_json
 
 from .conftest import api_login, register_user
 

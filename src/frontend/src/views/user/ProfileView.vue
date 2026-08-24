@@ -98,7 +98,6 @@ async function onSave() {
           <strong>{{ form.nickname || '—' }}</strong>
           <span>{{ userStore.user?.email }}</span>
         </div>
-        <p class="identity-hint">{{ t('profile.avatarHint') }}</p>
         <n-divider />
         <dl class="identity-list">
           <div>
@@ -178,13 +177,9 @@ async function onSave() {
 .identity-user strong {
   font-size: 20px;
 }
-.identity-user span,
-.identity-hint {
+.identity-user span {
   color: var(--app-text-secondary);
   font-size: 13px;
-}
-.identity-hint {
-  margin: 0;
 }
 .identity-list {
   display: grid;

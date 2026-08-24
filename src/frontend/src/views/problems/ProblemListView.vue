@@ -3,12 +3,11 @@ import { Refresh, Search as SearchIcon } from '@element-plus/icons-vue'
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
-import { listProblems } from '@/api/problems'
+import { listActiveTags, listProblems } from '@/api/problems'
 import { message } from '@/utils/feedback'
-import type { PageResult, ProblemDifficulty, ProblemSummary } from '@/types'
+import type { PageResult, ProblemSummary, ProblemTagItem } from '@/types'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -18,7 +17,9 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const keyword = ref('')
-const difficulty = ref<ProblemDifficulty | null>(null)
+/** 标签筛选（单选；docs/decisions/2026-08-24-remove-difficulty-use-tags.md） */
+const tag = ref<string | null>(null)
+const tagOptions = ref<Array<{ label: string; value: string }>>([])
 let searchTimer: number | undefined
 
 async function load() {
@@ -28,7 +29,7 @@ async function load() {
       page: page.value,
       page_size: pageSize.value,
       keyword: keyword.value || undefined,
-      difficulty: difficulty.value || undefined,
+      tag: tag.value || undefined,
     })
     problems.value = result.items
     total.value = result.total
@@ -36,6 +37,15 @@ async function load() {
     message.error(error instanceof Error ? error.message : t('problems.list.loadFailed'))
   } finally {
     loading.value = false
+  }
+}
+
+async function loadTagOptions() {
+  try {
+    const tags: ProblemTagItem[] = await listActiveTags()
+    tagOptions.value = tags.map((item) => ({ label: item.name, value: item.name }))
+  } catch {
+    /* 标签加载失败不阻塞列表 */
   }
 }
 
@@ -64,7 +74,7 @@ function onKeywordClear() {
   load()
 }
 
-function changeDifficulty() {
+function changeTag() {
   page.value = 1
   load()
 }
@@ -78,17 +88,10 @@ function changeSize(value: number) {
   load()
 }
 
-onMounted(load)
-
-const difficultyOptions = computed(() => [
-  { label: t('problems.difficulty.easy'), value: 'easy' },
-  { label: t('problems.difficulty.medium'), value: 'medium' },
-  { label: t('problems.difficulty.hard'), value: 'hard' },
-])
-
-function difficultyTagType(value: ProblemDifficulty): 'error' | 'warning' | 'success' {
-  return value === 'hard' ? 'error' : value === 'medium' ? 'warning' : 'success'
-}
+onMounted(() => {
+  load()
+  loadTagOptions()
+})
 
 const columns = computed<DataTableColumns<ProblemSummary>>(() => [
   {
@@ -100,18 +103,6 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
         h('strong', null, row.title),
         h('span', null, `#${(row.id || '').slice(0, 8)}`),
       ])
-    },
-  },
-  {
-    title: t('problems.list.difficulty'),
-    key: 'difficulty',
-    width: 120,
-    render(row) {
-      return h(
-        NTag,
-        { size: 'small', type: difficultyTagType(row.difficulty), bordered: false },
-        { default: () => t(`problems.difficulty.${row.difficulty}`) },
-      )
     },
   },
   {
@@ -131,7 +122,8 @@ function rowProps(row: ProblemSummary) {
 </script>
 
 <template>
-  <div class="page-fill">
+  <!-- 题库中心：内容自适应高度，不做视口填充（其余列表工作台仍用 page-fill） -->
+  <div class="page-stack">
     <n-card :bordered="false">
       <div class="toolbar">
         <n-input
@@ -149,12 +141,12 @@ function rowProps(row: ProblemSummary) {
           </template>
         </n-input>
         <n-select
-          v-model:value="difficulty"
-          class="toolbar__difficulty"
+          v-model:value="tag"
+          class="toolbar__tag"
           clearable
-          :options="difficultyOptions"
-          :placeholder="t('problems.list.difficulty')"
-          @update:value="changeDifficulty"
+          :options="tagOptions"
+          :placeholder="t('problems.list.tag')"
+          @update:value="changeTag"
         />
         <div class="toolbar__actions">
           <n-button quaternary circle :loading="loading" :aria-label="t('action.refresh')" @click="load">
@@ -206,7 +198,7 @@ function rowProps(row: ProblemSummary) {
 .toolbar__search {
   width: 300px;
 }
-.toolbar__difficulty {
+.toolbar__tag {
   width: 150px;
 }
 .toolbar__actions {
@@ -242,7 +234,7 @@ function rowProps(row: ProblemSummary) {
 }
 @media (max-width: 600px) {
   .toolbar__search,
-  .toolbar__difficulty {
+  .toolbar__tag {
     width: 100%;
   }
   .toolbar__actions {

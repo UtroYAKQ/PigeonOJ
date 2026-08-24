@@ -10,7 +10,7 @@ import { getProblem } from '@/api/problems'
 import { dialog, message } from '@/utils/feedback'
 import CodeEditor from '@/components/CodeEditor.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
-import type { ProblemDetailEx, ProblemDifficulty, ProblemLanguage, Submission } from '@/types'
+import type { ProblemDetailEx, ProblemLanguage, Submission } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,9 +26,6 @@ const code = ref('')
 
 function statusTagType(s?: string): 'success' | 'warning' | 'default' {
   return s === 'published' ? 'success' : s === 'archived' ? 'default' : 'warning'
-}
-function difficultyTagType(difficulty: ProblemDifficulty): 'error' | 'warning' | 'success' {
-  return difficulty === 'hard' ? 'error' : difficulty === 'medium' ? 'warning' : 'success'
 }
 const statusLabelKey: Record<string, string> = {
   draft: 'problems.list.statusDraft',
@@ -230,9 +227,6 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
               <div class="statement-card__heading">
                 <h2 class="statement-card__title">{{ problem.title }}</h2>
                 <div class="problem-detail__meta">
-                  <n-tag size="small" round :type="difficultyTagType(problem.difficulty)">
-                    {{ t(`problems.difficulty.${problem.difficulty}`) }}
-                  </n-tag>
                   <span>{{ problem.time_limit_ms }} ms</span>
                   <span>{{ problem.memory_limit_mb }} MB</span>
                   <n-tag
@@ -254,20 +248,16 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
 
           <MarkdownView :source="problem.description" />
 
-          <template v-if="problem.input_description">
-            <h3 class="statement-card__subtitle">{{ t('problems.detail.inputDescription') }}</h3>
-            <MarkdownView :source="problem.input_description" />
-          </template>
-          <template v-if="problem.output_description">
-            <h3 class="statement-card__subtitle">{{ t('problems.detail.outputDescription') }}</h3>
-            <MarkdownView :source="problem.output_description" />
-          </template>
+          <h3 class="statement-card__subtitle">{{ t('problems.detail.inputDescription') }}</h3>
+          <MarkdownView :source="problem.input_description || ''" />
+          <h3 class="statement-card__subtitle">{{ t('problems.detail.outputDescription') }}</h3>
+          <MarkdownView :source="problem.output_description || ''" />
 
           <h3 class="statement-card__subtitle">{{ t('problems.detail.samples') }}</h3>
           <div v-if="problem.samples.length" class="samples">
             <div
               v-for="(sample, index) in problem.samples"
-              :key="sample.id ?? index"
+              :key="index"
               class="sample-block"
             >
               <div class="sample-block__head">
@@ -291,7 +281,6 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
                 </div>
               </div>
             </div>
-            <p class="form-hint">{{ t('problems.detail.sampleHint') }}</p>
           </div>
           <n-empty v-else size="small" :description="t('problems.detail.noSamples')" />
 
@@ -367,7 +356,8 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
   grid-template-columns: minmax(300px, var(--split, 50%)) auto minmax(360px, 1fr);
   align-items: stretch;
   gap: 4px;
-  min-height: 420px;
+  /* 与列表工作台同口径：视口高 - 顶栏 60px - 内容区上下内边距 28px */
+  min-height: calc(100dvh - 88px);
 }
 .problem-detail__statement {
   display: flex;

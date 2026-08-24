@@ -25,12 +25,12 @@ RUN if [ -n "$GH_MIRROR" ]; then git config --global url."$GH_MIRROR".insteadOf 
     && rm -rf /tmp/nsjail
 
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin runner \
-    && mkdir -p /sandbox /runner \
-    && chown -R runner:runner /sandbox /runner
+    && mkdir -p /workspace /runner \
+    && chown -R runner:runner /workspace /runner
 
 COPY nsjail.cfg /etc/pigeonoj/nsjail.cfg
 COPY run-in-nsjail.sh /usr/local/bin/run-in-nsjail
 RUN chmod 0755 /usr/local/bin/run-in-nsjail
 
-WORKDIR /sandbox
+WORKDIR /workspace
 ENTRYPOINT ["/usr/local/bin/run-in-nsjail"]

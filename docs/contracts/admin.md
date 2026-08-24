@@ -1,6 +1,6 @@
 # 管理 / 运维模块契约
 
-> 系统配置、模型配置、用户管理（角色 / 封禁 / Token 用量）、日志。所有端点权限为 `admin`。
+> 系统配置、用户管理（角色 / 封禁）、日志。所有端点权限为 `admin`。
 
 ## 数据模型
 
@@ -11,7 +11,7 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | 字段 | 类型 | 约束/默认 | 说明 |
 | --- | --- | --- | --- |
 | id | UUID | PK | |
-| category | VARCHAR(32) | NOT NULL | `site` / `auth_email` / `team` / `contest` / `model` / `token` / `sandbox` / `log` / `community` |
+| category | VARCHAR(32) | NOT NULL | `site` / `auth_email` / `team` / `contest` / `sandbox` / `log` / `community` |
 | config_key | VARCHAR(128) | NOT NULL | 配置键，如 `site.name`、`invite.expire_hours` |
 | config_value | JSONB | NOT NULL | 配置值 |
 | description | TEXT | NULL | 配置说明 |
@@ -32,14 +32,9 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | team | `invite.expire_hours` | 邀请链接默认有效期 |
 | team | `team.apply.review_rule` | 加入审批规则 |
 | contest | `contest.freeze_default_seconds` / `contest.penalty_factor_minutes` | 封榜 / 罚时系数默认 |
-| model | `token.stat_scope` | Token 统计口径 |
 | sandbox | `sandbox.judge_concurrency` / `sandbox.cooldown_seconds` | 全局并发上限 / 提交冷却 |
 | log | `log.retention_days` | 日志保留时间 |
 | community | `community.feature_switches` | 社区功能开关 |
-
-### `model_configs` — 大模型配置表
-
-结构见 [ai.md](ai.md)（`admin` 管理，API Key 加密存储）。
 
 ### `request_logs` — 请求日志表
 
@@ -59,7 +54,7 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 
 索引：INDEX(`user_id`, `created_at`)、INDEX(`path`, `created_at`)、INDEX(`created_at`)
 
-> 沙箱执行日志（判题 / 编译 / 运行 / AI 编译纠错）作为请求链路的子记录写入 `extra`，以 `request_id` 关联归入同一请求行，不单独建沙箱日志表。本表以 `created_at` 为前导列，按时间分页 / 保留清理。
+> 沙箱执行日志（判题 / 编译 / 运行）作为请求链路的子记录写入 `extra`，以 `request_id` 关联归入同一请求行，不单独建沙箱日志表。本表以 `created_at` 为前导列，按时间分页 / 保留清理。
 
 ### `login_logs` — 登录日志表
 
@@ -95,8 +90,6 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 
 - 所有端点仅 `admin` 可调
 - 日志查询支持按时间范围 / 条件筛选与导出；日志不外泄请求体明文（`request_logs.extra` 为脱敏摘要）
-- 用户 Token 用量查看基于 `user_token_stats` 聚合（不暴露请求明细）
-- 模型 API Key 加密存储，管理接口不回传明文
 
 ## 端点
 
@@ -114,13 +107,11 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | GET | /site-config | public | 公开站点配置（白名单字段：name / logo / icp / default_theme / register_enabled / email_verify_enabled；前端壳层与注册页消费） | - | siteConfig |
 | POST | /files/upload/avatar | auth | 上传当前用户头像到 MinIO | multipart file（≤2MB，JPG/PNG/WEBP/GIF） | oss_id / url |
 | GET | /files/{object_key} | public | 读取头像等公开文件；不允许读取测试点 | object_key（仅 users/ 前缀） | binary |
-| GET/PUT | /admin/models | admin | 大模型配置 | - | - |
-| GET | /admin/token-stats | admin | 用户 Token 用量统计 | 分页 | stat[] |
 | GET | /admin/logs/{type} | admin | 日志查询 / 筛选 / 导出 | 时间范围/条件 | log[] |
 | GET | /admin/sandbox/status | admin | 沙箱状态展示（读 Redis） | - | nodes[] |
 | GET | /admin/reports | admin | 举报列表 / 处理 | 分页/状态 | report[] |
 
-> **实现状态**：`GET/PUT /admin/models` 与 `GET /admin/token-stats` 随 AI 模块暂缓实现（当前未提供对应端点与表结构），其余端点已实现。
+> **实现状态**：上表端点均已实现。
 
 > **账号状态语义**：`frozen`（冻结：安全策略自动触发或管理员手动冻结，可到期自动解冻或人工解冻）与 `banned`（封禁：管理员主动封禁，仅可人工解封）均拦截登录；区分见 `users.md`「账号状态语义」。
 

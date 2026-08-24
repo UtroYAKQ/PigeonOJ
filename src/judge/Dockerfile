@@ -12,7 +12,7 @@ WORKDIR /opt/judge-node
 
 # 运行要求（见 docker/docker-compose-node.yml）：
 #   privileged: true                —— nsjail 嵌套 namespace 所需
-#   -v <宿主机工作区>:/sandbox       —— 任务临时目录
+#   -v <宿主机工作区>:/workspace     —— 任务临时目录
 #   -v <宿主机缓存>:/cache          —— 题目数据缓存
 #   SERVER_ADDRESS / SERVER_TOKEN   —— 后端网关地址与注册令牌
 ENTRYPOINT []

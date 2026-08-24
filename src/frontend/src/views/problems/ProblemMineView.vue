@@ -1,18 +1,14 @@
 <script setup lang="ts">
-import { CirclePlus, Refresh, Search as SearchIcon } from '@element-plus/icons-vue'
+import { CirclePlus, EditPen, Refresh, Search as SearchIcon, TurnOff, View } from '@element-plus/icons-vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NButton, NTag } from 'naive-ui'
+import { NButton, NIcon, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import { archiveProblem, listProblems } from '@/api/problems'
 import { dialog, message } from '@/utils/feedback'
-import type {
-  PageResult,
-  ProblemDifficulty,
-  ProblemSummary,
-} from '@/types'
+import type { PageResult, ProblemSummary } from '@/types'
 
 type ProblemStatus = 'draft' | 'published' | 'archived'
 
@@ -26,7 +22,6 @@ const query = reactive({
   page: 1,
   page_size: 20,
   keyword: '',
-  difficulty: null as ProblemDifficulty | null,
   status: '' as ProblemStatus | '',
 })
 
@@ -37,7 +32,6 @@ async function load() {
       page: query.page,
       page_size: query.page_size,
       keyword: query.keyword || undefined,
-      difficulty: query.difficulty || undefined,
       scope: 'mine',
       status: query.status || undefined,
     })
@@ -59,10 +53,6 @@ function onSearch() {
   query.page = 1
   load()
 }
-function changeDifficulty() {
-  query.page = 1
-  load()
-}
 function changePage(page: number) {
   query.page = page
   load()
@@ -73,10 +63,11 @@ function changeSize(size: number) {
   load()
 }
 function goEdit(row: ProblemSummary) {
-  router.push(`/admin/problems/${row.id}/edit`)
+  router.push(`/admin/problems/${row.id}/edit/statement`)
 }
 function goDetail(row: ProblemSummary) {
-  router.push(`/problems/${row.id}`)
+  // 管理动线只读预览：留在后台，不进前台写题页
+  router.push(`/admin/problems/${row.id}/preview`)
 }
 
 function doArchive(row: ProblemSummary) {
@@ -99,12 +90,6 @@ function doArchive(row: ProblemSummary) {
 
 onMounted(load)
 
-const difficultyOptions = computed(() => [
-  { label: t('problems.difficulty.easy'), value: 'easy' },
-  { label: t('problems.difficulty.medium'), value: 'medium' },
-  { label: t('problems.difficulty.hard'), value: 'hard' },
-])
-
 const statusLabelKey: Record<string, string> = {
   draft: 'problems.list.statusDraft',
   published: 'problems.list.statusPublished',
@@ -112,9 +97,6 @@ const statusLabelKey: Record<string, string> = {
 }
 function statusTagType(status: string): 'warning' | 'success' | 'default' {
   return status === 'draft' ? 'warning' : status === 'published' ? 'success' : 'default'
-}
-function difficultyTagType(value: ProblemDifficulty): 'error' | 'warning' | 'success' {
-  return value === 'hard' ? 'error' : value === 'medium' ? 'warning' : 'success'
 }
 
 const columns = computed<DataTableColumns<ProblemSummary>>(() => [
@@ -169,18 +151,6 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
     },
   },
   {
-    title: t('problems.list.difficulty'),
-    key: 'difficulty',
-    width: 100,
-    render(row) {
-      return h(
-        NTag,
-        { size: 'small', bordered: false, type: difficultyTagType(row.difficulty) },
-        { default: () => t(`problems.difficulty.${row.difficulty}`) },
-      )
-    },
-  },
-  {
     title: t('problems.list.limits'),
     key: 'limits',
     width: 180,
@@ -193,39 +163,39 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
     fixed: 'right',
     render(row) {
       const buttons: ReturnType<typeof h>[] = []
+      // 行内操作：text 按钮 + 语义图标（docs/frontend.md 按钮规范）；归档为唯一危险操作。
+      // 点击必须 stopPropagation，否则冒泡到行 onClick 会把路由覆盖成行的目标（如预览页）
+      function actionButton(icon: typeof View, label: string, onClick: () => void, type?: 'primary' | 'error') {
+        return h(
+          NButton,
+          {
+            text: true,
+            type,
+            class: 'cell-actions__btn',
+            onClick: (event: MouseEvent) => {
+              event.stopPropagation()
+              onClick()
+            },
+          },
+          {
+            icon: () => h(NIcon, { size: 14 }, { default: () => h(icon) }),
+            default: () => label,
+          },
+        )
+      }
       if (row.status === 'draft') {
         buttons.push(
-          h(
-            NButton,
-            { text: true, type: 'primary', onClick: () => goEdit(row) },
-            { default: () => t('action.edit') },
-          ),
+          actionButton(EditPen, t('action.edit'), () => goEdit(row), 'primary'),
         )
       } else if (row.status === 'published') {
         buttons.push(
-          h(
-            NButton,
-            { text: true, onClick: () => goDetail(row) },
-            { default: () => t('problems.detail.title') },
-          ),
-          h(
-            NButton,
-            { text: true, onClick: () => goEdit(row) },
-            { default: () => t('action.edit') },
-          ),
-          h(
-            NButton,
-            { text: true, type: 'error', onClick: () => doArchive(row) },
-            { default: () => t('problems.detail.archive') },
-          ),
+          actionButton(View, t('problems.detail.title'), () => goDetail(row)),
+          actionButton(EditPen, t('action.edit'), () => goEdit(row), 'primary'),
+          actionButton(TurnOff, t('problems.detail.archive'), () => doArchive(row), 'error'),
         )
       } else {
         buttons.push(
-          h(
-            NButton,
-            { text: true, onClick: () => goDetail(row) },
-            { default: () => t('problems.submission.back') },
-          ),
+          actionButton(View, t('problems.detail.title'), () => goDetail(row)),
         )
       }
       return h('div', { class: 'cell-actions' }, buttons)
@@ -234,8 +204,10 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
 ])
 
 function rowProps(row: ProblemSummary) {
+  // 归档题只读：行点击不跳转（避免被带出管理后台），查看走操作列「详情」
+  if (row.status === 'archived') return { style: 'cursor: default;' }
   const target =
-    row.status === 'draft' ? `/admin/problems/${row.id}/edit` : `/problems/${row.id}`
+    row.status === 'draft' ? `/admin/problems/${row.id}/edit/statement` : `/admin/problems/${row.id}/preview`
   return {
     style: 'cursor: pointer;',
     onClick: () => router.push(target),
@@ -259,14 +231,6 @@ function rowProps(row: ProblemSummary) {
             <n-icon size="15"><SearchIcon /></n-icon>
           </template>
         </n-input>
-        <n-select
-          v-model:value="query.difficulty"
-          class="toolbar__difficulty"
-          clearable
-          :options="difficultyOptions"
-          :placeholder="t('problems.list.difficulty')"
-          @update:value="changeDifficulty"
-        />
         <n-button quaternary circle :loading="loading" :aria-label="t('action.refresh')" @click="load">
           <n-icon :component="Refresh" />
         </n-button>
@@ -329,9 +293,6 @@ function rowProps(row: ProblemSummary) {
 .toolbar__search {
   width: 280px;
 }
-.toolbar__difficulty {
-  width: 150px;
-}
 .toolbar__actions {
   margin-left: auto;
   display: flex;
@@ -356,6 +317,16 @@ function rowProps(row: ProblemSummary) {
   align-items: center;
   gap: 12px;
 }
+/* 行内操作按钮增强：中等字重 + 悬停浅底，弥补 text 形态的弱可点感 */
+.table-fill :deep(.cell-actions__btn) {
+  font-weight: 500;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+.table-fill :deep(.cell-actions__btn:hover) {
+  background: var(--app-muted-bg);
+}
 .pager {
   display: flex;
   flex-wrap: wrap;
@@ -371,8 +342,7 @@ function rowProps(row: ProblemSummary) {
   font-size: 13px;
 }
 @media (max-width: 700px) {
-  .toolbar__search,
-  .toolbar__difficulty {
+  .toolbar__search {
     width: 100%;
   }
   .pager {

@@ -51,7 +51,7 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 
 | 类别 | 选型 |
 | --- | --- |
-| 后端 | FastAPI · SQLAlchemy · Alembic · gRPC（判题节点网关）· LangGraph · LiteLLM（AI 依赖暂缓启用） |
+| 后端 | FastAPI · SQLAlchemy · Alembic · gRPC（判题节点网关） |
 | 存储 | PostgreSQL · Redis · MinIO |
 | 沙箱 | nsjail（进程级隔离代码执行） |
 | 前端 | Vue 3 · Pinia · Naive UI · Tailwind CSS v4 · vue-i18n · Monaco Editor |

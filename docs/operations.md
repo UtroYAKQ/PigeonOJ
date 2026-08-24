@@ -12,7 +12,7 @@
 
 ```bash
 # 后端（判题 gRPC 网关 :50051 与维护循环随应用启动，需配置 JUDGE_GATEWAY_TOKENS）
-cd src/backend && pip install -r requirements.txt && alembic upgrade head && uvicorn app.main:app --reload
+cd src/backend && pip install -r requirements.txt && alembic upgrade head && python run.py
 
 # 前端
 cd src/frontend && npm install && npm run dev
@@ -43,12 +43,12 @@ docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
   后端仅提供 gRPC 网关（`:50051`）做注册认证、负载均衡派发与结果落库。
 - 节点镜像 = 沙箱基础镜像（Ubuntu 24.04 + 阿里云 APT 源 + nsjail 3.4 + Python/C++/Java 工具链）+ grpcio + 守护进程
   （`src/judge/Dockerfile`）。基础镜像单独构建为 `sandbox:local`。
-- 节点固定挂载两个宿主机目录：工作区 → 容器 `/sandbox`（每作业子目录自动创建/清理）、
+- 节点固定挂载两个宿主机目录：工作区 → 容器 `/workspace`（每作业子目录自动创建/清理）、
   数据缓存 → 容器 `/cache`（按题目 data_version 复用）。绝不能配置为宿主机根目录、用户代码目录或 Docker socket。
 - 节点需要 `privileged: true`（nsjail 嵌套 namespace）并**只做出站连接**后端网关；不开放任何入站端口。
 - 配置来源：`src/judge/node/node.toml`，环境变量 `SERVER_ADDRESS / SERVER_TOKEN /
   JUDGE_NODE_ID / JUDGE_NODE_NAME / JUDGE_NODE_CAPACITY` 可覆盖。
-- 执行语义：只允许源码和输入位于 `/sandbox`，
+- 执行语义：只允许源码和输入位于 `/workspace`，
   Python/C++/Java 编译与运行均在 nsjail 内完成；C++/Java 一次提交只编译一次，逐测试点独立运行。
 - 正式判题限制由后端按 `sandbox_configs` 比例换算后随作业下发；不要把测试点期望输出或宿主机路径传给前端。
 
@@ -108,7 +108,7 @@ docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
 > JUDGE_NODE_CAPACITY / NODE_WORKSPACE_DIR / NODE_CACHE_DIR）见模板 `.env.node.example`，
 > 运行时默认值来自节点侧 `src/judge/node/node.toml`，环境变量可覆盖；不属于后端环境变量。
 
-> 大模型配置（各 AI 能力所用模型、API Key）在 `system_configs` / `model_configs` 中管理（Key 加密存储），不通过环境变量注入；`.env.example` 仅提供提供方级兜底 Key 的可选项。当前阶段 AI 模块（含模型配置 / Token 用量）暂缓实现。
+> 大模型配置不通过环境变量注入；AI 能力（含模型配置）暂缓实现，立项时再引入对应配置域。
 
 ## 测试
 
@@ -139,7 +139,7 @@ npm test                # 前端单元测试（Vitest + jsdom；utils / constant
 python -m scripts.bootstrap_demo_users   # 引导演示账号 admin/tutor/user（开发期联调用）
 python -m scripts.smoke_test             # 端到端冒烟（httpx ASGI 全链路）
 python scripts/verify_db.py              # 校验迁移与种子数据
-python scripts/check_import_rules.py     # 模块导入规则机械检查：shared 无业务依赖、跨模块仅经 api.py
+python scripts/check_import_rules.py     # 分层导入规则机械检查：api 不被下穿依赖、契约层与 utils 保持纯净
 ```
 
 策略：

@@ -7,8 +7,8 @@ from __future__ import annotations
 import httpx
 from sqlalchemy import select
 
-from app.shared.infra.database import SessionLocal
-from app.shared.infra.system_config import SystemConfig
+from app.core.database import SessionLocal
+from app.models.system_config import SystemConfig
 
 from .conftest import api_login, register_user
 
@@ -30,7 +30,7 @@ async def _set_config(category: str, key: str, value) -> None:
 
 async def test_register_disabled(client: httpx.AsyncClient) -> None:
     """站点关闭注册（site.register_enabled=false）→ 2005，且不消耗已发验证码。"""
-    from app.shared.infra.redis import redis_set_json
+    from app.core.redis import redis_set_json
 
     await redis_set_json("email:code:closed@pigeonoj.dev:register", {"code": "123456", "attempts": 0}, 600)
     await _set_config("site", "site.register_enabled", False)

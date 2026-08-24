@@ -36,4 +36,4 @@
 
 ## 领域约定
 
-PigeonOJ 是 OJ + AI 平台，技术栈 FastAPI / SQLAlchemy / Alembic / gRPC（判题节点网关）/ LangGraph / LiteLLM（AI 依赖暂缓启用）/ PostgreSQL / Redis / MinIO / nsjail / Vue 3。判题采用「后端 gRPC 网关 + 判题节点容器内 nsjail 执行」架构，后端进程不执行用户代码；首批支持 Python 3.12、C++17、Java 21。
+PigeonOJ 是 OJ 平台，技术栈 FastAPI / SQLAlchemy / Alembic / gRPC（判题节点网关）/ PostgreSQL / Redis / MinIO / nsjail / Vue 3。判题采用「后端 gRPC 网关 + 判题节点容器内 nsjail 执行」架构，后端进程不执行用户代码；首批支持 Python 3.12、C++17、Java 21。AI 能力（聊天 / 出题等）暂缓实现，相关契约与依赖已摘除，立项时再凭决策记录恢复。

@@ -6,7 +6,7 @@ import { NTag } from 'naive-ui'
 
 import { resolveVerifyInvite } from '@/api/problems'
 import { createSubmission } from '@/api/judge'
-import type { ProblemDifficulty, ProblemLanguage } from '@/types'
+import type { ProblemLanguage } from '@/types'
 import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/feedback'
 import CodeEditor from '@/components/CodeEditor.vue'
@@ -20,10 +20,10 @@ interface InviteResolution {
   description: string
   input_description?: string | null
   output_description?: string | null
-  difficulty: ProblemDifficulty
+  tags: string[]
   time_limit_ms: number
   memory_limit_mb: number
-  samples: Array<{ id: string; name: string; input: string; output: string }>
+  samples: Array<{ name: string; input: string; output: string }>
 }
 
 const route = useRoute()
@@ -40,10 +40,6 @@ const submitting = ref(false)
 
 const token = computed(() => String(route.params.token ?? ''))
 const loginRedirect = computed(() => `/verify/${token.value}`)
-
-function difficultyTagType(value: ProblemDifficulty): 'error' | 'warning' | 'success' {
-  return value === 'hard' ? 'error' : value === 'medium' ? 'warning' : 'success'
-}
 
 async function resolve() {
   resolving.value = true
@@ -120,8 +116,14 @@ const languageOptions = [
             <p class="verify-eyebrow">{{ t('problems.verify.title') }}</p>
             <h1>{{ invite.problem_title }}</h1>
             <div class="verify-meta">
-              <n-tag size="small" round :type="difficultyTagType(invite.difficulty)">
-                {{ t(`problems.difficulty.${invite.difficulty}`) }}
+              <n-tag
+                v-for="name in invite.tags"
+                :key="name"
+                size="small"
+                round
+                :bordered="false"
+              >
+                {{ name }}
               </n-tag>
               <span>{{ invite.time_limit_ms }} ms</span>
               <span>{{ invite.memory_limit_mb }} MB</span>
@@ -149,7 +151,7 @@ const languageOptions = [
             <template v-if="invite.samples.length">
               <h3 class="verify-subtitle">{{ t('problems.detail.samples') }}</h3>
               <div class="verify-samples">
-                <div v-for="(sample, index) in invite.samples" :key="sample.id" class="sample-block">
+                <div v-for="(sample, index) in invite.samples" :key="index" class="sample-block">
                   <strong>#{{ index + 1 }} {{ sample.name }}</strong>
                   <div class="sample-grid2">
                     <div>

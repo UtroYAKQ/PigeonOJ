@@ -13,7 +13,7 @@ from grpc_tools import protoc
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PROTO_DIR = ROOT / "protos"
 TARGETS = [
-    ROOT / "src" / "backend" / "app" / "modules" / "judge" / "rpc_gen",
+    ROOT / "src" / "backend" / "app" / "rpc_gen",
     ROOT / "src" / "judge" / "node" / "gen",
 ]
 
@@ -49,8 +49,8 @@ def main() -> None:
         )
         (target / "__init__.py").write_text(
             '"""gRPC 生成代码包（scripts/gen_proto.py 产出）。统一经本包导入：\n\n'
-            "    from app.modules.judge.rpc_gen import judge_pb2, judge_pb2_grpc  # 后端\n"
-            "    from gen import judge_pb2, judge_pb2_grpc                        # 节点\n"
+            "    from app.rpc_gen import judge_pb2, judge_pb2_grpc  # 后端\n"
+            "    from gen import judge_pb2, judge_pb2_grpc          # 节点\n"
             '"""\n'
             "from __future__ import annotations\n\n"
             "from ._shim import judge_pb2, judge_pb2_grpc\n\n"

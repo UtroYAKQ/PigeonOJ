@@ -131,9 +131,10 @@ export const layoutChildren: RouteRecordRaw[] = [
             },
           },
           {
+            // 第 1 步：基础信息与题面（新建 = 创建草稿；成功后 replace 进入第 2 步）
             path: 'new',
             name: 'problem-create',
-            component: () => import('@/views/problems/ProblemCreateView.vue'),
+            component: () => import('@/views/problems/ProblemStatementView.vue'),
             meta: {
               title: '创建题目',
               titleKey: 'problems.create.title',
@@ -144,12 +145,61 @@ export const layoutChildren: RouteRecordRaw[] = [
             },
           },
           {
+            // 兼容旧链接：编辑入口统一落到第 1 步（题面）
             path: ':id/edit',
-            name: 'problem-edit',
-            component: () => import('@/views/problems/ProblemCreateView.vue'),
+            redirect: (to) => `/admin/problems/${String(to.params.id)}/edit/statement`,
+          },
+          {
+            // 三步发布流拆为三个页面：步骤间用路由跳转（可直达 / 刷新保持位置）
+            // 第 1 步：题面
+            path: ':id/edit/statement',
+            name: 'problem-edit-statement',
+            component: () => import('@/views/problems/ProblemStatementView.vue'),
             meta: {
               title: '编辑题目',
               titleKey: 'problems.create.editTitle',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            // 第 2 步：样例与测试点
+            path: ':id/edit/cases',
+            name: 'problem-edit-cases',
+            component: () => import('@/views/problems/ProblemCasesView.vue'),
+            meta: {
+              title: '样例与测试点',
+              titleKey: 'problems.wizard.cases',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            // 第 3 步：验题与发布
+            path: ':id/edit/verify',
+            name: 'problem-edit-verify',
+            component: () => import('@/views/problems/ProblemVerifyView.vue'),
+            meta: {
+              title: '验题与发布',
+              titleKey: 'problems.wizard.verifyPublish',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            // 管理后台只读预览：不进前台写题页（无编辑器 / 提交 / 提交记录）
+            path: ':id/preview',
+            name: 'problem-preview',
+            component: () => import('@/views/problems/ProblemPreviewView.vue'),
+            meta: {
+              title: '题目预览',
+              titleKey: 'problems.preview.title',
               requiresAuth: true,
               hidden: true,
               contextPage: true,
@@ -187,6 +237,13 @@ export const layoutChildren: RouteRecordRaw[] = [
         name: 'admin-reports',
         component: () => import('@/views/admin/AdminReportsView.vue'),
         meta: { title: '举报管理', titleKey: 'nav.reports', icon: 'Warning', roles: ['admin'] },
+      },
+      {
+        // 标签管理：题库标签的新建 / 修改 / 归档（docs/contracts/problems.md /admin/tags*）
+        path: 'tags',
+        name: 'admin-tags',
+        component: () => import('@/views/admin/AdminTagsView.vue'),
+        meta: { title: '标签管理', titleKey: 'nav.tags', icon: 'PriceTag', roles: ['admin'] },
       },
     ],
   },
@@ -230,6 +287,8 @@ export const layoutChildren: RouteRecordRaw[] = [
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
+  // 路由切换回到页顶（长列表 / 长表单跨页导航体验一致）
+  scrollBehavior: () => ({ top: 0 }),
   routes: [
     {
       path: '/',

@@ -124,7 +124,7 @@ echo [5/7] 启动后端...
 netstat -ano | findstr /c:":8000 " | findstr /c:"LISTENING" >nul 2>&1
 if errorlevel 1 (
     cd /d "%~dp0src\backend"
-    start "PigeonOJ Backend" cmd /k "python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
+    start "PigeonOJ Backend" cmd /k "python run.py"
 ) else (
     echo [跳过] 端口 8000 已被占用（后端可能已在运行；如刚更新过代码请重启该窗口）
 )

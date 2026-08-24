@@ -1,7 +1,7 @@
 """判题节点配置（node.toml + 环境变量覆盖，标准库 tomllib）。
 
 节点固定运行在 Docker 容器内（pigeonoj/judge-node 镜像）：
-- 工作区固定为容器内 /sandbox（宿主机目录由 docker run -v <host>:/sandbox 指定）
+- 工作区固定为容器内 /workspace（宿主机目录由 docker run -v <host>:/workspace 指定）
 - 题目数据缓存固定为容器内 /cache
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ class NodeConfig:
 
 @dataclass
 class PathsConfig:
-    workspace: str = "/sandbox"   # 容器内路径；宿主机目录由挂载决定
+    workspace: str = "/workspace"   # 容器内路径；宿主机目录由挂载决定
     data_cache: str = "/cache"
 
 

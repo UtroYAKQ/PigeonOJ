@@ -1,7 +1,7 @@
 """骨架测试：/health 返回统一信封 {code: 0}。"""
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app import app
 
 
 def test_health() -> None:

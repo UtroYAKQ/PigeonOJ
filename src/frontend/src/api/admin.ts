@@ -11,6 +11,7 @@ import type {
   LogQuery,
   LogType,
   PageResult,
+  ProblemTagItem,
   Report,
   ReportStatus,
   SandboxNode,
@@ -107,4 +108,26 @@ export function adminListReports(
 /** POST /admin/reports/:id/handle — 处理举报（handled 通过 / ignored 驳回，docs/contracts/community.md） */
 export function adminHandleReport(reportId: string, action: 'handled' | 'ignored') {
   return apiRequest<null>('POST', `/admin/reports/${reportId}/handle`, { action })
+}
+
+// ---------------- 标签管理（docs/contracts/problems.md /admin/tags*） ----------------
+
+/** GET /admin/tags — 全量标签（含已归档，激活在前） */
+export function adminListTags() {
+  return apiRequest<ProblemTagItem[]>('GET', '/admin/tags')
+}
+
+/** POST /admin/tags — 新增标签（name 全局唯一） */
+export function adminCreateTag(body: { name: string; color?: string | null }) {
+  return apiRequest<ProblemTagItem>('POST', '/admin/tags', body)
+}
+
+/** PUT /admin/tags/:id — 修改名称 / 颜色 */
+export function adminUpdateTag(tagId: string, body: { name?: string; color?: string | null }) {
+  return apiRequest<ProblemTagItem>('PUT', `/admin/tags/${tagId}`, body)
+}
+
+/** POST /admin/tags/:id/archive — 归档（关联保留、不再可选） */
+export function adminArchiveTag(tagId: string) {
+  return apiRequest<ProblemTagItem>('POST', `/admin/tags/${tagId}/archive`)
 }

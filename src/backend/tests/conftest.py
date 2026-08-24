@@ -1,6 +1,6 @@
 """pytest 集成测试配置：隔离测试库（pigeonoj_test）+ 隔离 Redis（db 15）。
 
-- 环境变量必须在导入 app 前设置（app.shared.infra.database 的引擎在 import 时创建）
+- 环境变量必须在导入 app 前设置（app.core.database 的引擎在 import 时创建）
 - 每次测试会话重建表结构并种子角色 / 配置
 - 使用 httpx ASGITransport 走完整 ASGI 链路（含中间件）
 """
@@ -22,17 +22,17 @@ import httpx
 import pytest_asyncio
 from sqlalchemy import select
 
-import app.modules.admin.models  # noqa: F401  (注册到 Base.metadata)
-import app.modules.judge.models  # noqa: F401
-import app.modules.problems.models  # noqa: F401
-import app.modules.users.models  # noqa: F401
-import app.shared.infra.audit  # noqa: F401  (平台表：审计日志)
-import app.shared.infra.system_config  # noqa: F401  (平台表：系统配置)
-from app.main import app
-from app.modules.users.models import Role, User, UserRole
-from app.shared.infra.database import Base, SessionLocal, engine
-from app.shared.infra.redis import get_redis
-from app.shared.auth.security import hash_password
+import app.models.admin  # noqa: F401  (注册到 Base.metadata)
+import app.models.judge  # noqa: F401
+import app.models.problem  # noqa: F401
+import app.models.user  # noqa: F401
+import app.models.audit  # noqa: F401  (平台表：审计日志)
+import app.models.system_config  # noqa: F401  (平台表：系统配置)
+from app import app
+from app.models.user import Role, User, UserRole
+from app.core.database import Base, SessionLocal, engine
+from app.core.redis import get_redis
+from app.utils.security import hash_password
 
 ROLE_SEEDS = [
     ("11111111-1111-1111-1111-111111111111", "admin", "系统管理员"),
@@ -91,8 +91,8 @@ async def prepare_db():
             await db.flush()
             for code in role_codes:
                 db.add(UserRole(user_id=user.id, role_id=role_map[code], scope="global", object_id=None))
-        from app.modules.judge.models import SandboxConfig
-        from app.shared.infra.system_config import SystemConfig
+        from app.models.judge import SandboxConfig
+        from app.models.system_config import SystemConfig
 
         for category, key, value, desc in CONFIG_SEEDS:
             db.add(SystemConfig(category=category, config_key=key, config_value=value, description=desc))
@@ -151,10 +151,10 @@ class FakeStorage:
 def fake_storage(monkeypatch) -> FakeStorage:
     storage = FakeStorage()
     for target in (
-        "app.modules.problems.service.get_storage",
-        "app.modules.judge.service.get_storage",
-        "app.modules.judge.jobs.get_storage",
-        "app.modules.judge.gateway.get_storage",
+        "app.controllers.problem.get_storage",
+        "app.controllers.judge.get_storage",
+        "app.controllers.judge_jobs.get_storage",
+        "app.controllers.judge_gateway.get_storage",
     ):
         monkeypatch.setattr(target, lambda: storage)
     return storage
@@ -175,7 +175,7 @@ async def user_headers(client) -> dict[str, str]:
 async def register_user(client: httpx.AsyncClient, email: str, password: str = "Pass@123", nickname: str = "新用户") -> None:
     """验证码固定错误路径使用；正确验证码无法从测试侧获取（开发期打印在日志）。
     本助手通过直接调注册接口 + 直接写 Redis 验证码的方式完成注册闭环。"""
-    from app.shared.infra.redis import redis_set_json
+    from app.core.redis import redis_set_json
 
     await redis_set_json(f"email:code:{email}:register", {"code": "123456", "attempts": 0}, 600)
     resp = await client.post(

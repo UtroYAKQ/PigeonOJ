@@ -16,7 +16,7 @@ services:
       JUDGE_NODE_NAME: ${JUDGE_NODE_NAME:-}
       JUDGE_NODE_CAPACITY: ${JUDGE_NODE_CAPACITY:-2}
     volumes:
-      # 宿主机工作区 → 容器 /sandbox（nsjail chroot 根，每作业子目录自动创建/清理）
-      - ${NODE_WORKSPACE_DIR:?请在 .env.node 设置工作区目录}:/sandbox
+      # 宿主机工作区 → 容器 /workspace（每作业子目录自动创建/清理，nsjail 内唯一可写挂载）
+      - ${NODE_WORKSPACE_DIR:?请在 .env.node 设置工作区目录}:/workspace
       # 题目数据缓存 → /cache（按 data_version 复用，跨重启有效）
       - ${NODE_CACHE_DIR:?请在 .env.node 设置缓存目录}:/cache

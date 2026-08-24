@@ -8,6 +8,7 @@ import {
   Lock,
   Monitor,
   Odometer,
+  PriceTag,
   Setting,
   Trophy,
   User,
@@ -28,6 +29,7 @@ export const iconMap: Record<string, Component> = {
   Odometer,
   Document,
   Warning,
+  PriceTag,
 }
 
 export function resolveIcon(name?: string): Component | null {

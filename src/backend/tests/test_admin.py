@@ -6,9 +6,9 @@ import uuid
 import httpx
 from sqlalchemy import select
 
-from app.modules.users.models import User
-from app.shared.infra.database import SessionLocal
-from app.shared.infra.system_config import SystemConfig
+from app.models.user import User
+from app.core.database import SessionLocal
+from app.models.system_config import SystemConfig
 
 from .conftest import api_login, register_user
 
@@ -179,7 +179,7 @@ async def test_admin_sandbox_status(client: httpx.AsyncClient, admin_headers: di
 async def test_admin_reports(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:
     # 预置一条举报（社区模块未实现，直接落库）
     async with SessionLocal() as db:
-        from app.modules.admin.models import Report
+        from app.models.admin import Report
         u = (await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))).scalar_one()
         report = Report(reporter_id=u.id, target_type="solution", target_id=uuid.uuid4(), reason="疑似抄袭")
         db.add(report)

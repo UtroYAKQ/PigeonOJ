@@ -21,8 +21,9 @@ Celery prefork 模型的持续摩擦（循环隔离、engine.dispose 等补丁�
 - **原子认领**：build_job_bundle 以 `UPDATE ... WHERE status='pending'` 认领，
   从根上消除双执行竞态（不再依赖幂等兜底作为唯一防线）。
 - **节点封装为 Docker**：`src/judge/Dockerfile` 产出 pigeonoj/judge-node 镜像
-  （nsjail + 三语言工具链 + grpcio）；宿主机工作区挂载 /sandbox、缓存挂载 /cache；
+  （nsjail + 三语言工具链 + grpcio）；宿主机工作区挂载 /workspace、缓存挂载 /cache；
   privileged 仅用于 nsjail 嵌套 namespace（受控节点信任边界）。
+  （工作区容器内路径 2026-08-24 由 /sandbox 更名为 /workspace，避免与 nsjail 沙箱概念混淆。）
 - 目录重组：判题域代码独立为 `src/judge/`（node 守护进程、sandbox 基础镜像、镜像打包）。
 
 ## 后果

@@ -55,7 +55,7 @@ class NsjailExecutor:
     """以一次性 nsjail 进程执行一个编译或运行阶段。
 
     节点固定运行在 Linux 容器内（pigeonoj/judge-node 镜像），nsjail 原生执行；
-    工作区即容器内 /sandbox（宿主机目录由 docker -v 挂载提供）。
+    工作区即容器内 /workspace（宿主机目录由 docker -v 挂载提供）。
     """
 
     def __init__(
@@ -101,7 +101,7 @@ class NsjailExecutor:
             command, time_limit_ms=limits.time_limit_ms, as_limit_mb=as_limit_mb
         )
         started = time.monotonic()
-        env = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/sandbox"}
+        env = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/workspace"}
         try:
             proc = subprocess.Popen(
                 args,
@@ -262,13 +262,13 @@ class PreparedSubmission:
             )
 
     def _jail_workdir(self) -> str:
-        """把宿主机工作目录映射为 nsjail 内的 /sandbox 路径。"""
-        root = Path(self.worker.workspace_root or "/sandbox").resolve()
+        """把宿主机工作目录映射为 nsjail 内的 /workspace 路径。"""
+        root = Path(self.worker.workspace_root or "/workspace").resolve()
         try:
             relative = self.workdir.relative_to(root)
         except ValueError as exc:
             raise JudgeWorkerError("workspace must be inside JUDGE_WORKSPACE_ROOT") from exc
-        return str(Path("/sandbox") / relative).replace("\\", "/")
+        return str(Path("/workspace") / relative).replace("\\", "/")
 
     @property
     def compile_failed(self) -> bool:

@@ -12,7 +12,7 @@ name = ""                      # 展示名（管理后台沙箱状态页）；�
 capacity = 2                   # 并发判题容量
 
 [paths]
-workspace = "/sandbox"         # 容器内固定；宿主机目录由 docker -v 提供
+workspace = "/workspace"       # 容器内固定；宿主机目录由 docker -v 提供
 data_cache = "/cache"
 
 [sandbox]

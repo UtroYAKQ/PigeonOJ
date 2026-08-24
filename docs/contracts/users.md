@@ -89,7 +89,7 @@
 | GET | /users/me/sessions | auth | 会话列表 | - | session[] |
 | DELETE | /users/me/sessions/{sid} | owner | 注销指定会话 | - | - |
 
-> 用户管理（角色授权 / 封禁 / Token 用量）端点见 `admin.md`。
+> 用户管理（角色授权 / 封禁）端点见 `admin.md`。
 
 ## 错误码
 

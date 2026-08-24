@@ -134,7 +134,7 @@ CHECK (
 ### 节点网关协议
 
 `.proto` 契约见 `protos/pigeonoj/judge/v1/judge.proto`（机器可读契约，stub 已生成入库于
-`app/modules/judge/rpc_gen` 与 `src/judge/node/gen`）：
+`app/rpc_gen` 与 `src/judge/node/gen`）：
 
 - `Connect(stream NodeMessage) returns (stream ServerMessage)`：节点生命周期主通道。
   首条 Register 携带令牌（后端 `JUDGE_GATEWAY_TOKENS` 其一），不符即 UNAUTHENTICATED；
@@ -186,7 +186,7 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 | stderr 归集 | 执行器过滤 nsjail 自身的 `[I]`/`[W]` 日志行后仅返回/记录程序真实错误输出；nsjail 的 `[E]`/`[F]` 故障行保留用于执行器排障 |
 | 输出上限 | 程序输出超出 `sandbox_configs.output_limit_kb` 截断并判 `output_limit_exceeded` |
 
-> 上表为文档约定；实际编译 / 运行命令以 `sandbox_configs` 语言级配置为准。判题节点负责准备与沙箱 `/sandbox` 挂载根一致的本地临时工作目录，并将容器内路径转换为 jail 内 `/sandbox/<relative-job-path>` 的绝对路径；nsjail 执行器只接收受控 argv 和 jail 可见路径，不使用 shell 拼接。沙箱不访问 MinIO、数据库或公网，所有执行均在 nsjail 隔离内完成。
+> 上表为文档约定；实际编译 / 运行命令以 `sandbox_configs` 语言级配置为准。判题节点负责准备与工作区 `/workspace` 挂载根一致的本地临时工作目录，并将容器内路径转换为 jail 内 `/workspace/<relative-job-path>` 的绝对路径；nsjail 执行器只接收受控 argv 和 jail 可见路径，不使用 shell 拼接。沙箱不访问 MinIO、数据库或公网，所有执行均在 nsjail 隔离内完成。
 
 ## 明确不做
 

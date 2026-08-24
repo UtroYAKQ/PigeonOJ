@@ -7,13 +7,18 @@ from datetime import datetime
 import pytest
 from sqlalchemy import select, text
 
-from app.modules.judge.models import Submission
-from app.modules.problems.models import Problem
-from app.shared.infra.database import SessionLocal
+from app.models.judge import Submission
+from app.models.problem import Problem
+from app.core.database import SessionLocal
 
 
 async def _create_problem(client, admin_headers, **overrides) -> dict:
-    payload = {"title": "A+B Problem", "description": "计算 A+B", "difficulty": "easy"}
+    payload = {
+        "title": "A+B Problem",
+        "description": "计算 A+B",
+        "input_description": "一行两个整数 A B",
+        "output_description": "一行输出 A+B 的值",
+    }
     payload.update(overrides)
     resp = await client.post("/api/v1/problems", json=payload, headers=admin_headers)
     assert resp.status_code == 200, resp.text
@@ -23,7 +28,16 @@ async def _create_problem(client, admin_headers, **overrides) -> dict:
 
 @pytest.mark.asyncio
 async def test_create_problem_requires_manager_role(client, user_headers):
-    resp = await client.post("/api/v1/problems", json={"title": "T", "description": "D"}, headers=user_headers)
+    resp = await client.post(
+        "/api/v1/problems",
+        json={
+            "title": "T",
+            "description": "D",
+            "input_description": "I",
+            "output_description": "O",
+        },
+        headers=user_headers,
+    )
     body = resp.json()
     assert resp.status_code == 403
     assert body["code"] == 2003  # 越权统一 2003（docs/contracts/common.md）
@@ -34,7 +48,6 @@ async def test_create_defaults_and_draft_visibility(client, admin_headers):
     data = await _create_problem(client, admin_headers)
     assert data["status"] == "draft"
     assert data["visibility"] == "public"
-    assert data["difficulty"] == "easy"
     assert data["is_verified"] is False
 
     # 匿名访问草稿 → 2003；owner 访问 → 可见且带管理标记
@@ -66,9 +79,8 @@ async def test_validation_failures_use_unified_envelope(client, admin_headers):
 
 @pytest.mark.asyncio
 async def test_list_pagination_and_filters(client, admin_headers):
-    titles = [("Alpha", "easy"), ("Beta", "medium"), ("Alpine", "hard")]
-    for title, difficulty in titles:
-        problem = await _create_problem(client, admin_headers, title=title, difficulty=difficulty)
+    for title in ("Alpha", "Beta", "Alpine"):
+        problem = await _create_problem(client, admin_headers, title=title)
         # 直接置为已发布公开，绕过验题链路（链路另有用例覆盖）
         async with SessionLocal() as db:
             row = await db.get(Problem, uuid.UUID(problem["id"]))
@@ -85,10 +97,6 @@ async def test_list_pagination_and_filters(client, admin_headers):
 
     resp = await client.get("/api/v1/problems?keyword=alp")
     assert resp.json()["data"]["total"] == 2  # Alpha / Alpine
-
-    resp = await client.get("/api/v1/problems?difficulty=hard")
-    items = resp.json()["data"]["items"]
-    assert len(items) == 1 and items[0]["title"] == "Alpine"
 
     # 草稿不出现在公开列表
     await _create_problem(client, admin_headers, title="Hidden Draft")
@@ -109,7 +117,7 @@ async def test_publish_blocked_when_cases_changed_after_verification(client, adm
     )
     assert resp.json()["code"] == 0, resp.text
 
-    # 模拟验题通过：verified_at 对齐到测试点更新之后
+    # 模拟验题通过：verified_at 晚于当前全部测试点更新（数据未再变更 → 无需重验）
     async with SessionLocal() as db:
         await db.execute(
             text(
@@ -121,11 +129,10 @@ async def test_publish_blocked_when_cases_changed_after_verification(client, adm
         )
         await db.commit()
 
-    # 未改案例 → 不要求重验
-    resp = await client.get(f"/api/v1/problems/{pid}")
+    resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
     assert resp.json()["data"]["needs_reverification"] is False
 
-    # 案例变更（updated_at 晚于 verified_at）→ 必须重新验题，发布被阻断
+    # 案例变更：updated_at 被推到验题之后（模拟真实时间流逝）→ 必须重新验题，发布被阻断
     resp = await client.put(
         cases_url,
         json={"cases": [{"name": "c2", "input": "3", "expected_output": "4"}]},
@@ -133,7 +140,14 @@ async def test_publish_blocked_when_cases_changed_after_verification(client, adm
     )
     assert resp.json()["code"] == 0, resp.text
 
-    resp = await client.get(f"/api/v1/problems/{pid}")
+    async with SessionLocal() as db:
+        await db.execute(
+            text("UPDATE test_cases SET updated_at = updated_at + interval '5 minutes' WHERE problem_id = :pid"),
+            {"pid": pid},
+        )
+        await db.commit()
+
+    resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
     assert resp.json()["data"]["needs_reverification"] is True
 
     resp = await client.post(f"/api/v1/problems/{pid}/publish", headers=admin_headers)
@@ -154,24 +168,25 @@ async def test_publish_requires_verification_and_cases(client, admin_headers, fa
         row.is_verified = True
         await db.commit()
 
-    # 仅样例、无正式测试点 → 3002（发布须至少 1 个正式测试点）
+    # 无任何测试点 → 3002（发布须至少 1 个正式测试点；is_verified 手工置位时 verified_at 为空，不触发重验门禁）
+    resp = await client.post(f"/api/v1/problems/{data['id']}/publish", headers=admin_headers)
+    assert resp.json()["code"] == 3002
+
     resp = await client.put(
-        f"/api/v1/problems/{data['id']}/test-cases",
-        json={"cases": [{"name": "s", "is_sample": True, "input": "1", "expected_output": "2"}]},
+        f"/api/v1/problems/{data['id']}/samples",
+        json={"samples": [{"input": "1", "output": "2"}, {"input": "3", "output": "4"}]},
         headers=admin_headers,
     )
     assert resp.json()["code"] == 0
+    assert fake_storage.puts == []  # 样例只落库展示，不进对象存储（docs/contracts/problems.md）
+
+    # 仅样例仍不算正式测试点
     resp = await client.post(f"/api/v1/problems/{data['id']}/publish", headers=admin_headers)
     assert resp.json()["code"] == 3002
 
     resp = await client.put(
         f"/api/v1/problems/{data['id']}/test-cases",
-        json={
-            "cases": [
-                {"name": "s", "is_sample": True, "input": "1", "expected_output": "2"},
-                {"name": "c1", "input": "1", "expected_output": "2"},
-            ]
-        },
+        json={"cases": [{"name": "c1", "input": "1", "expected_output": "2"}]},
         headers=admin_headers,
     )
     assert resp.json()["code"] == 0, resp.text
@@ -191,12 +206,121 @@ async def test_publish_requires_verification_and_cases(client, admin_headers, fa
         headers=admin_headers,
     )
     assert resp.json()["code"] == 3002  # 归档后编辑统一 3002（docs/contracts/problems.md 错误码）
+    resp = await client.put(
+        f"/api/v1/problems/{data['id']}/samples",
+        json={"samples": []},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 3002  # 归档题目同样不可改样例
     resp = await client.get("/api/v1/problems")
     assert all(item["id"] != data["id"] for item in resp.json()["data"]["items"])
 
     # 非管理角色不可归档他人题目
     resp = await client.post(f"/api/v1/problems/{uuid.uuid4()}/archive", headers=admin_headers)
     assert resp.json()["code"] == 3001
+
+
+@pytest.mark.asyncio
+async def test_samples_change_requires_reverification(client, admin_headers, fake_storage):
+    """样例变更（samples_updated_at 晚于 verified_at）同样触发重验门禁。"""
+    data = await _create_problem(client, admin_headers)
+    pid = data["id"]
+
+    resp = await client.put(
+        f"/api/v1/problems/{pid}/test-cases",
+        json={"cases": [{"name": "c1", "input": "1", "expected_output": "2"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+
+    # 模拟验题通过：verified_at 晚于当前全部测试点 / 样例更新
+    async with SessionLocal() as db:
+        await db.execute(
+            text("UPDATE problems SET is_verified = true, verified_at = now() + interval '1 hour' WHERE id = :pid"),
+            {"pid": pid},
+        )
+        await db.commit()
+
+    resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
+    assert resp.json()["data"]["needs_reverification"] is False
+
+    # 样例变更后把 verified_at 回拨到过去（模拟时间流逝）→ 须重新验题，发布被阻断
+    resp = await client.put(
+        f"/api/v1/problems/{pid}/samples",
+        json={"samples": [{"input": "9", "output": "9"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+
+    async with SessionLocal() as db:
+        await db.execute(
+            text("UPDATE problems SET verified_at = now() - interval '1 minute' WHERE id = :pid"),
+            {"pid": pid},
+        )
+        await db.commit()
+
+    resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
+    assert resp.json()["data"]["needs_reverification"] is True
+
+    resp = await client.post(f"/api/v1/problems/{pid}/publish", headers=admin_headers)
+    body = resp.json()
+    assert body["code"] == 3002, body
+    assert "重新验题" in body["message"]
+
+    # 重新验题通过后可发布；详情返回 JSONB 样例数组
+    async with SessionLocal() as db:
+        await db.execute(
+            text("UPDATE problems SET is_verified = true, verified_at = now() + interval '2 hour' WHERE id = :pid"),
+            {"pid": pid},
+        )
+        await db.commit()
+    resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
+    detail = resp.json()["data"]
+    assert detail["needs_reverification"] is False
+    assert detail["samples"] == [{"name": "sample1", "input": "9", "output": "9"}]
+
+    resp = await client.post(f"/api/v1/problems/{pid}/publish", headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+
+
+@pytest.mark.asyncio
+async def test_any_user_can_submit_verification(client, admin_headers, user_headers, fake_storage):
+    """提交验题代码不限身份：普通用户无需邀请即可在 pending 记录存在时提交。"""
+    data = await _create_problem(client, admin_headers)
+    problem_id = data["id"]
+
+    # 发起验题（不带邀请链接，创建空白 pending 记录）
+    resp = await client.post(f"/api/v1/problems/{problem_id}/verify", json={}, headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+    assert "invite" not in resp.json()["data"]
+
+    # 普通用户（非出题人 / 管理角色）直接提交验题代码
+    resp = await client.post(
+        f"/api/v1/problems/{problem_id}/verify",
+        json={"code": "print(1)", "language": "python3.12"},
+        headers=user_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    submission_id = resp.json()["data"]["submission_id"]
+
+    async with SessionLocal() as db:
+        submission = (
+            await db.execute(select(Submission).where(Submission.id == uuid.UUID(submission_id)))
+        ).scalar_one()
+        assert submission.submit_type == "verify"
+
+        submission.status = "accepted"
+        from app.controllers.problem import complete_verification
+
+        await complete_verification(
+            db, submission.verification_id, passed=True, verifier_id=submission.user_id
+        )
+        await db.commit()
+
+        problem = await db.get(Problem, uuid.UUID(problem_id))
+        assert problem.is_verified is True
+        # verifier_id 回写实际提交人（普通用户）
+        assert str(problem.verified_by) == str(submission.user_id)
 
 
 @pytest.mark.asyncio
@@ -247,9 +371,11 @@ async def test_verification_invite_flow_and_writeback(client, admin_headers, use
 
         # 模拟判题通过后的回写
         submission.status = "accepted"
-        from app.modules.judge.service import finalize_verify_submission
+        from app.controllers.problem import complete_verification
 
-        await finalize_verify_submission(db, submission)
+        await complete_verification(
+            db, submission.verification_id, passed=True, verifier_id=submission.user_id
+        )
         await db.commit()
 
         problem = await db.get(Problem, uuid.UUID(problem_id))
@@ -267,6 +393,15 @@ async def test_verification_invite_flow_and_writeback(client, admin_headers, use
         headers=admin_headers,
     )
     assert resp.json()["code"] == 0
+
+    # 测试点在验题通过后变更：对齐 verified_at（模拟重新验题通过）
+    async with SessionLocal() as db:
+        await db.execute(
+            text("UPDATE problems SET is_verified = true, verified_at = now() + interval '1 hour' WHERE id = :pid"),
+            {"pid": problem_id},
+        )
+        await db.commit()
+
     resp = await client.post(f"/api/v1/problems/{problem_id}/publish", headers=admin_headers)
     assert resp.json()["code"] == 0
 
@@ -365,3 +500,89 @@ async def test_list_scope_mine_shows_own_private_problems(client, admin_headers,
     # 公开列表仍不含私有题
     resp = await client.get("/api/v1/problems", headers=user_headers)
     assert "My Private" not in {item["title"] for item in resp.json()["data"]["items"]}
+
+
+# ---- 标签体系（docs/decisions/2026-08-24-remove-difficulty-use-tags.md） ----
+
+
+async def _create_tag(client, admin_headers, name: str, color: str | None = None) -> dict:
+    resp = await client.post(
+        "/api/v1/admin/tags", json={"name": name, "color": color}, headers=admin_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["code"] == 0
+    return resp.json()["data"]
+
+
+@pytest.mark.asyncio
+async def test_tag_admin_crud_and_archive(client, admin_headers, user_headers):
+    # 非管理员不可管理标签
+    resp = await client.post("/api/v1/admin/tags", json={"name": "DP"}, headers=user_headers)
+    assert resp.status_code == 403
+
+    tag = await _create_tag(client, admin_headers, "动态规划", "#4098ec")
+    assert tag["status"] == "active"
+
+    # 重名 → 409 重复
+    resp = await client.post("/api/v1/admin/tags", json={"name": " 动态规划 "}, headers=admin_headers)
+    assert resp.json()["code"] != 0
+
+    # 改名改色
+    resp = await client.put(
+        f"/api/v1/admin/tags/{tag['id']}", json={"name": "DP", "color": "#18a058"}, headers=admin_headers
+    )
+    body = resp.json()["data"]
+    assert body["name"] == "DP" and body["color"] == "#18a058"
+
+    # 公开激活列表可见
+    resp = await client.get("/api/v1/problems/tags")
+    assert [item["name"] for item in resp.json()["data"]] == ["DP"]
+
+    # 归档后：管理列表仍在（状态 archived），公开列表消失
+    resp = await client.post(f"/api/v1/admin/tags/{tag['id']}/archive", headers=admin_headers)
+    assert resp.json()["data"]["status"] == "archived"
+    resp = await client.get("/api/v1/problems/tags")
+    assert resp.json()["data"] == []
+    resp = await client.get("/api/v1/admin/tags", headers=admin_headers)
+    names = {item["name"]: item["status"] for item in resp.json()["data"]}
+    assert names["DP"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_problem_tag_assignment_and_filter(client, admin_headers):
+    await _create_tag(client, admin_headers, "图论")
+    await _create_tag(client, admin_headers, "入门")
+    problem = await _create_problem(client, admin_headers, tags=["图论", "入门"])
+
+    resp = await client.get(f"/api/v1/problems/{problem['id']}", headers=admin_headers)
+    assert resp.json()["data"]["tags"] == ["入门", "图论"]  # 按名排序返回
+
+    # 编辑全量替换：清空再单挂一个
+    resp = await client.put(
+        f"/api/v1/problems/{problem['id']}", json={"tags": ["图论"]}, headers=admin_headers
+    )
+    resp = await client.get(f"/api/v1/problems/{problem['id']}", headers=admin_headers)
+    assert resp.json()["data"]["tags"] == ["图论"]
+
+    # 未知 / 归档标签名 → 1001
+    resp = await client.put(
+        f"/api/v1/problems/{problem['id']}", json={"tags": ["不存在"]}, headers=admin_headers
+    )
+    assert resp.json()["code"] == 1001
+    archive_resp = await client.get("/api/v1/problems/tags")
+    graph_id = next(i["id"] for i in archive_resp.json()["data"] if i["name"] == "图论")
+    await client.post(f"/api/v1/admin/tags/{graph_id}/archive", headers=admin_headers)
+    resp = await client.put(
+        f"/api/v1/problems/{problem['id']}", json={"tags": ["图论"]}, headers=admin_headers
+    )
+    assert resp.json()["code"] == 1001
+
+    # 发布 + 公开后，题库中心可按标签筛选
+    async with SessionLocal() as db:
+        row = await db.get(Problem, uuid.UUID(problem["id"]))
+        row.status = "published"
+        row.is_verified = True
+        row.published_at = datetime.now()
+        await db.commit()
+    resp = await client.get("/api/v1/problems?tag=图论")
+    assert resp.json()["data"]["total"] == 1

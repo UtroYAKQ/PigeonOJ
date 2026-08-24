@@ -14,7 +14,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.config import get_settings
+from app.settings.config import get_settings
 
 config = context.config
 
@@ -24,15 +24,10 @@ config.set_main_option("sqlalchemy.url", get_settings().database_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 各模块 models.py 在此聚合 import 并赋给 target_metadata，
+# 全部 ORM 模型经 app.models 聚合注册到 target_metadata，
 # 供 `alembic revision --autogenerate` 使用；迁移 SQL 仍为表结构唯一来源。
-from app.modules.admin import models as admin_models  # noqa: F401
-from app.modules.judge import models as judge_models  # noqa: F401
-from app.modules.problems import models as problems_models  # noqa: F401
-from app.modules.users import models as users_models  # noqa: F401
-from app.shared.infra import audit as audit_models  # noqa: F401  (平台表：审计日志)
-from app.shared.infra import system_config as system_config_models  # noqa: F401  (平台表：系统配置)
-from app.shared.infra.database import Base
+import app.models  # noqa: F401
+from app.core.database import Base
 
 target_metadata = Base.metadata
 

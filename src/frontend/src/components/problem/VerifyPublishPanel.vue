@@ -12,7 +12,6 @@ import { Key } from '@element-plus/icons-vue'
 
 import { initVerification, publishProblem, submitVerifyCode } from '@/api/problems'
 import type { ProblemDetailEx, ProblemLanguage } from '@/types'
-import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/feedback'
 import CodeEditor from '@/components/CodeEditor.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
@@ -23,7 +22,6 @@ const emit = defineEmits<{ refresh: []; published: [] }>()
 
 const router = useRouter()
 const { t } = useI18n()
-const userStore = useUserStore()
 
 const generating = ref(false)
 const publishing = ref(false)
@@ -69,12 +67,10 @@ const expiryOptions = computed(() => [
   { key: '168', label: t('problems.manage.expiry168'), hours: 168 as const },
 ])
 
-/** 确保存在 verifier_id=自己的进行中验题（已有 pending 时忽略 3003 直接尝试提交） */
+/** 确保存在进行中的验题记录（已有 pending 时忽略 3003 直接尝试提交） */
 async function ensureSelfVerification() {
   try {
-    await initVerification(props.problem.id, {
-      verifier_id: userStore.user?.id,
-    })
+    await initVerification(props.problem.id, {})
   } catch {
     /* 已有进行中的验题（3003）等场景：交由提交接口给出最终错误 */
   }
@@ -153,6 +149,9 @@ const languageOptions = [
   { label: 'Python 3.12', value: 'python3.12' },
   { label: 'Java 21', value: 'java21' },
 ]
+
+// 发布动作由外层向导底栏承载（ProblemVerifyView wizard-footer），经模板 ref 调用
+defineExpose({ publish, blocked, publishing })
 </script>
 
 <template>
@@ -161,21 +160,25 @@ const languageOptions = [
     <section class="vp-statement" aria-label="problem statement">
       <h2 class="vp-title">{{ problem.title }}</h2>
       <div class="vp-meta">
-        <n-tag size="small" round>{{ t(`problems.difficulty.${problem.difficulty}`) }}</n-tag>
+        <n-tag
+          v-for="name in problem.tags"
+          :key="name"
+          size="small"
+          round
+          :bordered="false"
+        >
+          {{ name }}
+        </n-tag>
         <span>{{ problem.time_limit_ms }} ms</span>
         <span>{{ problem.memory_limit_mb }} MB</span>
       </div>
 
       <MarkdownView :source="problem.description" />
 
-      <template v-if="problem.input_description">
-        <h3 class="vp-subtitle">{{ t('problems.detail.inputDescription') }}</h3>
-        <MarkdownView :source="problem.input_description" />
-      </template>
-      <template v-if="problem.output_description">
-        <h3 class="vp-subtitle">{{ t('problems.detail.outputDescription') }}</h3>
-        <MarkdownView :source="problem.output_description" />
-      </template>
+      <h3 class="vp-subtitle">{{ t('problems.detail.inputDescription') }}</h3>
+      <MarkdownView :source="problem.input_description || ''" />
+      <h3 class="vp-subtitle">{{ t('problems.detail.outputDescription') }}</h3>
+      <MarkdownView :source="problem.output_description || ''" />
 
       <template v-if="problem.samples?.length">
         <h3 class="vp-subtitle">{{ t('problems.detail.samples') }}</h3>
@@ -235,37 +238,10 @@ const languageOptions = [
             }}</n-button>
           </template>
         </n-input>
-        <span class="vp-invite__hint">
-          {{
-            invite.expires_at
-              ? t('problems.manage.expiresIn', { time: formatDateTime(invite.expires_at) })
-              : t('problems.verify.noExpiry')
-          }}
-        </span>
       </div>
 
       <div class="vp-editor">
         <CodeEditor v-model="code" :language="language" />
-      </div>
-
-      <div class="vp-footer">
-        <p class="vp-footer__tip">
-          {{ invite ? t('problems.manage.pendingTip') : t('problems.selfVerify.desc') }}
-        </p>
-        <n-tooltip trigger="hover" placement="top" :disabled="!blocked">
-          <template #trigger>
-            <n-button
-              type="primary"
-              class="vp-publish"
-              :loading="publishing"
-              :disabled="blocked"
-              @click="publish"
-            >
-              {{ t('problems.detail.publish') }}
-            </n-button>
-          </template>
-          {{ t('problems.manage.publishNeedVerified') }}
-        </n-tooltip>
       </div>
     </section>
   </div>
@@ -277,11 +253,13 @@ const languageOptions = [
   grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
   gap: 16px;
   align-items: stretch;
+  /* 由外层 verify-stage 决定高度：左右栏满高，编辑器 flex:1 吃掉右栏剩余 */
+  height: 100%;
 }
-/* 左栏：独立滚动 */
+/* 左栏：独立滚动（高度由外层 stage 拉伸决定，不再固定 vh） */
 .vp-statement {
   min-width: 0;
-  max-height: 66vh;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 8px;
 }
@@ -353,50 +331,29 @@ const languageOptions = [
   font-size: 13px;
 }
 .vp-invite {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
   padding: 8px 10px;
   border: 1px solid var(--app-border);
   border-radius: 6px;
   background: var(--app-muted-bg);
 }
-.vp-invite__hint {
-  color: var(--app-text-secondary);
-  font-size: 12px;
-  white-space: nowrap;
-}
 .vp-editor {
-  height: 46vh;
-  min-height: 280px;
-}
-.vp-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.vp-footer__tip {
-  margin: 0;
-  color: var(--app-text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
+  flex: 1;
+  /* 保底不低于原固定高度；视口更大时随 flex 继续增长 */
+  min-height: 46vh;
 }
 @media (max-width: 900px) {
   .vp-split {
     grid-template-columns: 1fr;
+    height: auto; /* 单列堆叠时按内容自然高度 */
   }
   .vp-statement {
-    max-height: none;
-    overflow: visible;
+    max-height: 60vh;
+    overflow-y: auto;
   }
   .vp-editor {
-    height: 320px;
-  }
-  .vp-footer {
-    flex-direction: column;
-    align-items: stretch;
+    height: 60vh;
+    min-height: 320px;
+    flex: none;
   }
   .vp-publish {
     width: 100%;

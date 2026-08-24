@@ -24,9 +24,5 @@ bcrypt                # 密码哈希
 minio                  # MinIO SDK（生产部署）
 python-multipart       # FastAPI multipart/form-data 上传
 
-# ============ AI 能力（业务阶段按需安装，见 docs/contracts/ai.md）============
-# langgraph
-# litellm
-
 # ============ 测试（开发依赖）============
 # 运行 pytest 前安装：pip install -r requirements-dev.txt

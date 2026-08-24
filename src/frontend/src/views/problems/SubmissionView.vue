@@ -47,8 +47,25 @@ function refreshNow() {
   pollCount.value = 0
   void load()
 }
+/** 站内是否有来路（vue-router 在 history.state.back 记录上一跳） */
+const canGoBack = computed(() => {
+  const back = router.options.history.state.back
+  return typeof back === 'string' && back.length > 0 && back !== route.fullPath
+})
+const backLabel = computed(() => {
+  if (canGoBack.value) return t('problems.submission.back')
+  return submission.value?.problem_id
+    ? t('problems.submission.backToProblem')
+    : t('problems.submission.back')
+})
+
+/** 返回：有来路时原路返回（验题工作台 / 提交列表等）；直接进入则回题目详情 */
 function back() {
-  if (submission.value?.problem_id) router.push(`/problems/${submission.value!.problem_id}`)
+  if (canGoBack.value) {
+    router.back()
+    return
+  }
+  if (submission.value?.problem_id) router.push(`/problems/${submission.value.problem_id}`)
   else router.push('/problems/list')
 }
 
@@ -110,11 +127,7 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
               {{ t('action.refresh') }}
             </n-button>
             <n-button v-else text type="primary" class="result-back" @click="back">
-              {{
-                submission.problem_id
-                  ? t('problems.submission.backToProblem')
-                  : t('problems.submission.back')
-              }}
+              {{ backLabel }}
             </n-button>
           </div>
 
@@ -157,7 +170,7 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
           size="large"
         >
           <template #extra>
-            <NButton size="small" @click="back"> {{ t('problems.submission.back') }} </NButton>
+            <NButton size="small" @click="back"> {{ backLabel }} </NButton>
           </template>
         </n-empty>
       </n-spin>
