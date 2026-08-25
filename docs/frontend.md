@@ -44,6 +44,7 @@
 ### 表格工作台
 
 - 筛选 / 搜索 / 导出放在表格上方工具栏，允许换行；表格用 `n-data-table`（columns 数组 + render 函数，列文案随 locale 实时翻译）；行内操作用 `text` 按钮（可配语义色与 14px 图标增强识别，悬停浅底反馈）；分页紧跟表格底部右侧（`n-pagination show-size-picker`）。
+- **分页列表统一复用 `components/PaginatedDataTable.vue` + `composables/usePagination.ts`**：组件内置「无数据空态垂直居中」与底部分页条，页面不得手写同构的表格/空态/分页样板。
 - **列表工作台撑满内容画布剩余高度**：根节点用共享类 `page-fill`（视口高 - 顶栏 - 内边距），卡片纵向 flex，表格区 `table-fill` 占满；无数据时空态经 `table-fill-empty` 在表格区域内垂直居中，避免整页松散。
 - 字典层标签类型（`constants/dict.ts` TagType 含 `danger`）渲染到 `n-tag` 时必须经 `toNaiveTagType()` 映射（danger → error）。
 
@@ -71,7 +72,7 @@
 
 ### 创建 / 编辑向导与验题
 
-> 三步发布流拆为**三个独立路由页面**（见 `docs/decisions/2026-08-25-problem-wizard-pages.md`）：步骤间用路由跳转，可直达、可刷新、浏览器前进后退语义正确；页面内以 `n-steps` 指示当前步骤（不可点击跳步）。
+> 三步发布流拆为**三个独立路由页面**（见 `docs/decisions/2026-08-25-problem-wizard-pages.md`）：步骤间用路由跳转，可直达、可刷新、浏览器前进后退语义正确；页面统一用共享组件 `WizardShell.vue` 渲染卡片头（标题 + 「N / 3」步骤序号 + 动作插槽），不展示横向步骤条，线性导航由各页「上一步 / 下一步」按钮承担（不可点击跳步）。
 
 - **第 1 步「基础信息与题面」** `ProblemStatementView.vue`：
   - 新建 `/admin/problems/new`——仅校验题面四要素，保存即创建草稿，成功后 **replace** 进入第 2 步（浏览器后退不回 `/new`，避免重复建草稿）；
@@ -88,7 +89,21 @@
 ### 内容渲染与共享样式
 
 - 题面 / 输入输出说明 / 官方题解等 Markdown 富文本统一使用 `components/MarkdownView.vue` 渲染（markdown-it `html:false` + DOMPurify 白名单过滤，见 `docs/decisions/2026-08-23-problem-statement-markdown.md`）；禁止对用户可控内容直接 `v-html`。
-- 页面级共享类（`.page-stack` / `.section-title` / `.form-hint` / `.result-box`）统一定义在 `assets/main.css`，各视图复用；scoped CSS 只写组件特有样式，不允许跨视图复制同一规则。
+- 页面级共享类（`.page-stack` / `.section-title` / `.form-hint` / `.result-box` / `.cell-actions` / `.cell-muted` / `.pager__total`）统一定义在 `assets/main.css`，各视图复用；scoped CSS 只写组件特有样式，不允许跨视图复制同一规则。
+
+### 跨视图共享组件
+
+以下组件消除多视图重复实现，新增同场景页面时必须复用而非复制：
+
+- **题面展示两件套**（题目详情 / 管理预览 / 验题面板共用）：
+  - `components/problem/ProblemMetaBar.vue` —— 标题 + 时限内存 + 状态/可见性/待重验标签 + 标签；props：`showTitle`（卡片头场景）、`hidePublishedStatus`（前台详情页口径，已发布不显示状态标签）、`showReverifyTag`（管理预览口径）。
+  - `components/problem/ProblemStatement.vue` —— 描述 / 输入输出说明 / 展示样例（内部复用 `ProblemSamples.vue`）/ 官方题解（可选）；样例「复制输入」交互全站一致。
+  - 例外：验题邀请落地页 `/verify/:token` 数据形态不同（无题解、空段落隐藏、含过期信息），保留自有排版，仅复用语言常量与 `ProblemSamples`。
+- **出题向导壳** `components/WizardShell.vue`：三个步骤页共用卡片头（标题 + 步骤序号 + 动作插槽），不渲染步骤条；各页只提供标题、动作按钮与主体内容。
+- **提交状态标签** `components/StatusTag.vue` + `constants/submissionStatus.ts`：提交 / 测试点状态 → 标签颜色与文案的统一映射，提交历史与结果页测试点表共用。
+- **邮箱验证码输入** `components/EmailCodeInput.vue`：验证码输入 + 发送按钮 + 60s 倒计时内聚（注册页与安全设置换绑邮箱共用）。
+- **判题语言选项** `constants/languages.ts`：C++17 / Python 3.12 / Java 21 选项唯一来源。
+- **剪贴板工具** `utils/clipboard.ts#copyToClipboard`：返回布尔值，提示方式由调用方决定。
 
 ## 国际化（强制）
 

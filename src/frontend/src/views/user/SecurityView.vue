@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import * as authApi from '@/api/auth'
 import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/feedback'
+import EmailCodeInput from '@/components/EmailCodeInput.vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -14,13 +15,10 @@ const pwdForm = reactive({ old_password: '', new_password: '', confirm: '' })
 const pwdLoading = ref(false)
 const emailForm = reactive({ new_email: '', code: '' })
 const emailLoading = ref(false)
-const sending = ref(false)
-const countdown = ref(0)
 /** 注销确认弹窗：需要输入登录密码（替代原 prompt 弹窗） */
 const deactivateVisible = ref(false)
 const deactivatePassword = ref('')
 const deactivating = ref(false)
-let timer: ReturnType<typeof setInterval> | null = null
 async function onChangePassword() {
   if (!pwdForm.old_password || !pwdForm.new_password) {
     message.warning(t('security.fillPasswords'))
@@ -43,32 +41,6 @@ async function onChangePassword() {
     message.error(e instanceof Error ? e.message : t('security.passwordChangeFailed'))
   } finally {
     pwdLoading.value = false
-  }
-}
-function startCountdown() {
-  countdown.value = 60
-  timer = setInterval(() => {
-    if (--countdown.value <= 0 && timer) {
-      clearInterval(timer)
-      timer = null
-    }
-  }, 1000)
-}
-async function onSendEmailCode() {
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailForm.new_email)) {
-    message.warning(t('auth.validEmail'))
-    return
-  }
-  sending.value = true
-  try {
-    const res = await authApi.sendEmailCode(emailForm.new_email, 'change_email')
-    if (res?.hint) message.info(res.hint)
-    else message.success(t('auth.codeSent'))
-    startCountdown()
-  } catch (e) {
-    message.error(e instanceof Error ? e.message : t('security.sendCodeFailed'))
-  } finally {
-    sending.value = false
   }
 }
 async function onChangeEmail() {
@@ -167,17 +139,12 @@ function requestChangeEmail() {
             <n-input v-model:value="emailForm.new_email" placeholder="you@example.com" />
           </n-form-item>
           <n-form-item :label="t('auth.code')">
-            <div class="code-row">
-              <n-input
-                v-model:value="emailForm.code"
-                maxlength="6"
-                :placeholder="t('auth.code')"
-                @keyup.enter="requestChangeEmail"
-              />
-              <n-button :disabled="countdown > 0" :loading="sending" @click="onSendEmailCode">
-                {{ countdown > 0 ? t('auth.resend', { seconds: countdown }) : t('auth.getCode') }}
-              </n-button>
-            </div>
+            <EmailCodeInput
+              v-model:code="emailForm.code"
+              :email="emailForm.new_email"
+              action="change_email"
+              @enter="requestChangeEmail"
+            />
           </n-form-item>
           <n-button type="primary" :loading="emailLoading" @click="requestChangeEmail">{{
             t('security.confirmEmailChange')
@@ -227,14 +194,6 @@ function requestChangeEmail() {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
-}
-.code-row {
-  display: flex;
-  gap: 10px;
-  width: 100%;
-}
-.code-row > :first-child {
-  flex: 1;
 }
 .danger-card {
   border: 1px solid rgba(208, 48, 80, 0.35);

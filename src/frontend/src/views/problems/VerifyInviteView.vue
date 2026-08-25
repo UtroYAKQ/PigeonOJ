@@ -9,6 +9,7 @@ import { createSubmission } from '@/api/judge'
 import type { ProblemLanguage } from '@/types'
 import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/feedback'
+import { languageOptions } from '@/constants/languages'
 import CodeEditor from '@/components/CodeEditor.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
 import ProblemSamples from '@/components/ProblemSamples.vue'
@@ -86,12 +87,6 @@ function submit() {
     },
   })
 }
-
-const languageOptions = [
-  { label: 'C++17', value: 'cpp17' },
-  { label: 'Python 3.12', value: 'python3.12' },
-  { label: 'Java 21', value: 'java21' },
-]
 </script>
 
 <template>

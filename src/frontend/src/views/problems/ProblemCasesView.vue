@@ -7,6 +7,7 @@ import { getProblem, patchTestCases, replaceSamples } from '@/api/problems'
 import { message } from '@/utils/feedback'
 import type { ProblemDetailEx, ProblemTestCase, TestCaseDraft, TestCaseUpsertPayload } from '@/types'
 import TestCaseImporter from '@/components/problem/TestCaseImporter.vue'
+import WizardShell from '@/components/WizardShell.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -174,32 +175,16 @@ onMounted(loadExisting)
 <template>
   <div class="page-stack">
     <n-spin :show="loading">
-      <n-card :bordered="false">
-        <template #header>
-          <div class="card-head">
-            <div class="card-head__title">
-              <span>{{ t('problems.wizard.cases') }}</span>
-              <span class="card-head__step">2 / 3</span>
-            </div>
-            <!-- 向导导航收进卡片头：无需滚动即可见（上一步 / 下一步 / 取消） -->
-            <div class="card-head__actions">
-              <n-button size="small" :disabled="saving" @click="goPrev">
-                {{ t('problems.wizard.prev') }}
-              </n-button>
-              <n-button type="primary" size="small" :loading="saving" @click="goNext">
-                {{ t('problems.wizard.next') }}
-              </n-button>
-              <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
-            </div>
-          </div>
+      <WizardShell :step="2" :title="t('problems.wizard.cases')">
+        <template #actions>
+          <n-button size="small" :disabled="saving" @click="goPrev">
+            {{ t('problems.wizard.prev') }}
+          </n-button>
+          <n-button type="primary" size="small" :loading="saving" @click="goNext">
+            {{ t('problems.wizard.next') }}
+          </n-button>
+          <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
         </template>
-
-        <!-- 步骤指示：当前第 2 步 -->
-        <n-steps :current="2" size="small" class="wizard-steps">
-          <n-step :title="t('problems.wizard.basic')" />
-          <n-step :title="t('problems.wizard.cases')" />
-          <n-step :title="t('problems.wizard.verifyPublish')" />
-        </n-steps>
 
         <div class="wizard-body">
           <!-- 展示样例：存 problems.samples，仅展示与自测，不参与判题 -->
@@ -273,24 +258,12 @@ onMounted(loadExisting)
           </div>
           <n-empty v-else :description="t('problems.create.contentRequired')" />
         </div>
-      </n-card>
+      </WizardShell>
     </n-spin>
   </div>
 </template>
 
 <style scoped>
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-}
-.card-head__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .wizard-body {
   min-height: 320px;
 }

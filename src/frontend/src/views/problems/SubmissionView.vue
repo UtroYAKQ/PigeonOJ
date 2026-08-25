@@ -2,12 +2,13 @@
 import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NButton, NTag } from 'naive-ui'
+import { NButton } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import { Refresh } from '@element-plus/icons-vue'
 import { getSubmission } from '@/api/judge'
 import { message } from '@/utils/feedback'
+import StatusTag from '@/components/StatusTag.vue'
 import type { Submission, SubmissionCaseResult } from '@/types'
 
 const route = useRoute()
@@ -83,11 +84,7 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
     title: t('problems.detail.status'),
     key: 'status',
     minWidth: 170,
-    render(row) {
-      const type =
-        row.status === 'accepted' ? 'success' : row.status === 'wrong_answer' ? 'warning' : 'error'
-      return h(NTag, { size: 'small', type, bordered: false }, { default: () => t(`problems.status.${row.status}`) })
-    },
+    render: (row) => h(StatusTag, { status: row.status }),
   },
   {
     title: t('problems.submission.time'),

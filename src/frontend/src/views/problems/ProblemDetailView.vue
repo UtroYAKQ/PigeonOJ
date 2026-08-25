@@ -2,17 +2,17 @@
 import { computed, h, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import { createSubmission, listSubmissions } from '@/api/judge'
 import { getProblem } from '@/api/problems'
 import { dialog, message } from '@/utils/feedback'
 import { useSplitPane } from '@/composables/useSplitPane'
-import { problemStatusTagType, problemStatusLabelKey } from '@/constants/problemStatus'
+import { languageOptions } from '@/constants/languages'
 import CodeEditor from '@/components/CodeEditor.vue'
-import MarkdownView from '@/components/MarkdownView.vue'
-import ProblemSamples from '@/components/ProblemSamples.vue'
+import StatusTag from '@/components/StatusTag.vue'
+import ProblemMetaBar from '@/components/problem/ProblemMetaBar.vue'
+import ProblemStatement from '@/components/problem/ProblemStatement.vue'
 import type { ProblemDetailEx, ProblemLanguage, Submission } from '@/types'
 
 const route = useRoute()
@@ -88,15 +88,7 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
     title: t('problems.detail.status'),
     key: 'status',
     minWidth: 150,
-    render(row) {
-      const type =
-        row.status === 'accepted'
-          ? 'success'
-          : ['pending', 'judging'].includes(row.status)
-            ? 'info'
-            : 'error'
-      return h(NTag, { size: 'small', type, bordered: false }, { default: () => t(`problems.status.${row.status}`) })
-    },
+    render: (row) => h(StatusTag, { status: row.status }),
   },
   { title: t('problems.submission.score'), key: 'score', width: 80 },
   {
@@ -122,43 +114,10 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
       <section class="problem-detail__statement">
         <n-card :bordered="false" class="statement-card" content-style="padding: 20px;">
           <template #header>
-            <div class="statement-card__head">
-              <div class="statement-card__heading">
-                <h2 class="statement-card__title">{{ problem.title }}</h2>
-                <div class="problem-detail__meta">
-                  <span>{{ problem.time_limit_ms }} ms</span>
-                  <span>{{ problem.memory_limit_mb }} MB</span>
-                  <n-tag
-                    v-if="problem.status !== 'published'"
-                    size="small"
-                    round
-                    :type="problemStatusTagType(problem.status)"
-                  >
-                    {{ t(problemStatusLabelKey[problem.status] ?? problem.status) }}
-                  </n-tag>
-                  <n-tag v-if="problem.visibility !== 'public'" size="small" round>
-                    {{ t(`problems.visibility.${problem.visibility}`) }}
-                  </n-tag>
-                  <n-tag v-for="tag in problem.tags" :key="tag" size="small" round>{{ tag }}</n-tag>
-                </div>
-              </div>
-            </div>
+            <ProblemMetaBar :problem="problem" show-title hide-published-status />
           </template>
 
-          <MarkdownView :source="problem.description" />
-
-          <h3 class="statement-card__subtitle">{{ t('problems.detail.inputDescription') }}</h3>
-          <MarkdownView :source="problem.input_description || ''" />
-          <h3 class="statement-card__subtitle">{{ t('problems.detail.outputDescription') }}</h3>
-          <MarkdownView :source="problem.output_description || ''" />
-
-          <h3 class="statement-card__subtitle">{{ t('problems.detail.samples') }}</h3>
-          <ProblemSamples :samples="problem.samples" />
-
-          <template v-if="problem.solution">
-            <h3 class="statement-card__subtitle">{{ t('problems.detail.solution') }}</h3>
-            <MarkdownView :source="problem.solution" />
-          </template>
+          <ProblemStatement :problem="problem" />
         </n-card>
       </section>
 
@@ -180,11 +139,7 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
             <n-select
               v-model:value="language"
               class="editor-toolbar__language"
-              :options="[
-                { label: 'C++17', value: 'cpp17' },
-                { label: 'Python 3.12', value: 'python3.12' },
-                { label: 'Java 21', value: 'java21' },
-              ]"
+              :options="languageOptions"
             />
             <div class="editor-toolbar__actions">
               <n-button secondary @click="subsVisible = true">{{
@@ -239,36 +194,6 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
 }
 .statement-card {
   flex: 1;
-}
-.statement-card__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-}
-.statement-card__heading {
-  min-width: 0;
-}
-.statement-card__title {
-  margin: 0;
-  font-size: 17px;
-  line-height: 1.35;
-}
-.problem-detail__meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  color: var(--app-text-secondary);
-  font-size: 12px;
-}
-.statement-card__subtitle {
-  margin: 20px 0 8px;
-  padding-top: 14px;
-  border-top: 1px solid var(--app-border);
-  font-size: 15px;
 }
 
 .problem-detail__divider {
@@ -340,9 +265,6 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
   }
   .editor-shell {
     min-height: 480px;
-  }
-  .statement-card__head {
-    flex-direction: column;
   }
 }
 </style>

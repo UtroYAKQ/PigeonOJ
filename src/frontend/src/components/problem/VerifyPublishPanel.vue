@@ -13,8 +13,11 @@ import { Key } from '@element-plus/icons-vue'
 import { initVerification, publishProblem, submitVerifyCode } from '@/api/problems'
 import type { ProblemDetailEx, ProblemLanguage } from '@/types'
 import { dialog, message } from '@/utils/feedback'
+import { languageOptions } from '@/constants/languages'
+import { copyToClipboard } from '@/utils/clipboard'
 import CodeEditor from '@/components/CodeEditor.vue'
-import MarkdownView from '@/components/MarkdownView.vue'
+import ProblemMetaBar from '@/components/problem/ProblemMetaBar.vue'
+import ProblemStatement from '@/components/problem/ProblemStatement.vue'
 import { formatDateTime } from '@/utils/format'
 
 const props = defineProps<{ problem: ProblemDetailEx }>()
@@ -114,10 +117,9 @@ async function generateInvite(hours: 24 | 72 | 168) {
 }
 
 async function copyLink() {
-  try {
-    await navigator.clipboard.writeText(inviteLink.value)
+  if (await copyToClipboard(inviteLink.value)) {
     message.success(t('problems.detail.copied'))
-  } catch {
+  } else {
     message.error(t('common.operationFailed'))
   }
 }
@@ -144,51 +146,18 @@ function publish() {
   })
 }
 
-const languageOptions = [
-  { label: 'C++17', value: 'cpp17' },
-  { label: 'Python 3.12', value: 'python3.12' },
-  { label: 'Java 21', value: 'java21' },
-]
-
-// 发布动作由外层卡片头承载（ProblemVerifyView card-head__actions），经模板 ref 调用
+// 发布动作由外层卡片头承载（ProblemVerifyView 经 WizardShell actions 插槽放置），经模板 ref 调用
 defineExpose({ publish, blocked, publishing })
 </script>
 
 <template>
   <div class="vp-split">
-    <!-- 左：题目预览 -->
+    <!-- 左：题目预览（题面展示与详情页共用同一组件，样例交互保持一致） -->
     <section class="vp-statement" aria-label="problem statement">
-      <h2 class="vp-title">{{ problem.title }}</h2>
-      <div class="vp-meta">
-        <n-tag
-          v-for="name in problem.tags"
-          :key="name"
-          size="small"
-          round
-          :bordered="false"
-        >
-          {{ name }}
-        </n-tag>
-        <span>{{ problem.time_limit_ms }} ms</span>
-        <span>{{ problem.memory_limit_mb }} MB</span>
+      <ProblemMetaBar :problem="problem" show-title />
+      <div class="vp-body">
+        <ProblemStatement :problem="problem" :show-solution="false" />
       </div>
-
-      <MarkdownView :source="problem.description" />
-
-      <h3 class="vp-subtitle">{{ t('problems.detail.inputDescription') }}</h3>
-      <MarkdownView :source="problem.input_description || ''" />
-      <h3 class="vp-subtitle">{{ t('problems.detail.outputDescription') }}</h3>
-      <MarkdownView :source="problem.output_description || ''" />
-
-      <template v-if="problem.samples?.length">
-        <h3 class="vp-subtitle">{{ t('problems.detail.samples') }}</h3>
-        <div v-for="(sample, index) in problem.samples" :key="index" class="vp-sample">
-          <p class="vp-sample__label">{{ t('problems.create.inputContent') }} {{ index + 1 }}</p>
-          <pre class="vp-sample__io">{{ sample.input }}</pre>
-          <p class="vp-sample__label">{{ t('problems.create.outputContent') }} {{ index + 1 }}</p>
-          <pre class="vp-sample__io">{{ sample.output }}</pre>
-        </div>
-      </template>
     </section>
 
     <!-- 右：验题代码编辑器 -->
@@ -263,42 +232,8 @@ defineExpose({ publish, blocked, publishing })
   overflow-y: auto;
   padding-right: 16px;
 }
-.vp-title {
-  margin: 0 0 10px;
-  font-size: 18px;
-  line-height: 1.4;
-}
-.vp-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
-  color: var(--app-text-secondary);
-  font-size: 12px;
-}
-.vp-subtitle {
-  margin: 16px 0 8px;
-  font-size: 15px;
-}
-.vp-sample {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-.vp-sample__label {
-  margin: 0;
-  color: var(--app-text-secondary);
-  font-size: 13px;
-}
-.vp-sample__io {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: var(--app-muted-bg);
-  font-size: 13px;
-  white-space: pre-wrap;
-  word-break: break-word;
+.vp-body {
+  margin-top: 14px;
 }
 
 /* 右栏：工具行 + 链接条 + 编辑器；左侧发丝线与左栏分界 */

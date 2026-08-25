@@ -9,14 +9,16 @@ import type { Report, ReportStatus, ReportType } from '@/types'
 import { REPORT_STATUS, REPORT_TYPE, toNaiveTagType } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 import { message } from '@/utils/feedback'
+import { usePagination } from '@/composables/usePagination'
 import ModalFooter from '@/components/ModalFooter.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
 const list = ref<Report[]>([])
-const total = ref(0)
-const query = reactive({ page: 1, page_size: 20, status: '' as ReportStatus | '' })
+const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
+const query = reactive({ status: '' as ReportStatus | '' })
 const handleDialog = ref(false)
 const handleTarget = ref<Report | null>(null)
 const handleAction = ref<'handled' | 'ignored'>('handled')
@@ -25,7 +27,11 @@ const handling = ref(false)
 async function load() {
   loading.value = true
   try {
-    const res = await adminApi.adminListReports(query)
+    const res = await adminApi.adminListReports({
+      page: page.value,
+      page_size: pageSize.value,
+      status: query.status,
+    })
     list.value = res.items
     total.value = res.total
   } catch (e) {
@@ -36,16 +42,7 @@ async function load() {
 }
 onMounted(load)
 function onFilter() {
-  query.page = 1
-  load()
-}
-function changePage(page: number) {
-  query.page = page
-  load()
-}
-function changeSize(size: number) {
-  query.page_size = size
-  query.page = 1
+  resetPage()
   load()
 }
 
@@ -109,7 +106,7 @@ const columns = computed<DataTableColumns<Report>>(() => [
     render(row) {
       return h('div', null, [
         h('div', null, targetText(row)),
-        h('div', { class: 'cell-target-id' }, row.target_id),
+        h('div', { class: 'cell-muted' }, row.target_id),
       ])
     },
   },
@@ -176,30 +173,19 @@ const columns = computed<DataTableColumns<Report>>(() => [
       />
     </SearchFilterBar>
 
-    <n-data-table
-      v-if="loading || list.length"
-      class="table-fill"
+    <PaginatedDataTable
       :columns="columns"
       :data="list"
       :loading="loading"
-      :scroll-x="1000"
-      :bordered="false"
+      :total="total"
+      v-model:page="page"
+      v-model:page-size="pageSize"
+      :page-sizes="[10, 20, 50]"
+      :empty-text="t('admin.reports.empty')"
+      :table-props="{ scrollX: 1000 }"
+      @update:page="(p: number) => { changePage(p); load() }"
+      @update:page-size="(s: number) => { changeSize(s); load() }"
     />
-    <div v-else class="table-fill-empty">
-      <n-empty size="large" :description="t('admin.reports.empty')" />
-    </div>
-
-    <div class="pager">
-      <n-pagination
-        :page="query.page"
-        :page-size="query.page_size"
-        :item-count="total"
-        :page-sizes="[10, 20, 50]"
-        show-size-picker
-        @update:page="changePage"
-        @update:page-size="changeSize"
-      />
-    </div>
 
     <!-- 处理举报 -->
     <n-modal
@@ -221,16 +207,6 @@ const columns = computed<DataTableColumns<Report>>(() => [
 </template>
 
 <style scoped>
-.cell-target-id,
-.cell-muted {
-  color: var(--app-text-secondary);
-  font-size: 12px;
-}
-.pager {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
-}
 .handle-actions {
   display: flex;
   flex-direction: column;

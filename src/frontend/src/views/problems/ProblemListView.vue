@@ -165,8 +165,4 @@ function rowProps(row: ProblemSummary) {
   color: var(--app-text-secondary);
   font-size: 12px;
 }
-.pager__total {
-  color: var(--app-text-secondary);
-  font-size: 13px;
-}
 </style>

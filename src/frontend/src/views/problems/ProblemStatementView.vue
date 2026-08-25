@@ -10,6 +10,7 @@ import {
   updateProblem,
 } from '@/api/problems'
 import { message } from '@/utils/feedback'
+import WizardShell from '@/components/WizardShell.vue'
 import type { ProblemDetailEx, ProblemTagItem } from '@/types'
 
 const route = useRoute()
@@ -138,28 +139,16 @@ const visibilityOptions = computed(() => [
 <template>
   <div class="page-stack">
     <n-spin :show="loading">
-      <n-card :bordered="false">
-        <template #header>
-          <div class="card-head">
-            <div class="card-head__title">
-              <span>{{ isEdit ? t('problems.create.editTitle') : t('problems.create.title') }}</span>
-              <span class="card-head__step">1 / 3</span>
-            </div>
-            <div class="card-head__actions">
-              <n-button type="primary" size="small" :loading="saving" @click="goNext">
-                {{ t('problems.wizard.next') }}
-              </n-button>
-              <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
-            </div>
-          </div>
+      <WizardShell
+        :step="1"
+        :title="isEdit ? t('problems.create.editTitle') : t('problems.create.title')"
+      >
+        <template #actions>
+          <n-button type="primary" size="small" :loading="saving" @click="goNext">
+            {{ t('problems.wizard.next') }}
+          </n-button>
+          <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
         </template>
-
-        <!-- 步骤指示：当前第 1 步（各步骤独立路由，可直达 / 回退） -->
-        <n-steps :current="1" size="small" class="wizard-steps">
-          <n-step :title="t('problems.wizard.basic')" />
-          <n-step :title="t('problems.wizard.cases')" />
-          <n-step :title="t('problems.wizard.verifyPublish')" />
-        </n-steps>
 
         <n-form label-placement="top" class="wizard-body">
           <n-form-item :label="t('problems.create.name')" required>
@@ -213,24 +202,12 @@ const visibilityOptions = computed(() => [
             </n-form-item>
           </div>
         </n-form>
-      </n-card>
+      </WizardShell>
     </n-spin>
   </div>
 </template>
 
 <style scoped>
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-}
-.card-head__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .wizard-body {
   min-height: 320px;
 }

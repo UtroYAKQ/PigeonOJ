@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 
+import { copyToClipboard } from '@/utils/clipboard'
+import { message } from '@/utils/feedback'
+
 defineProps<{
   samples: Array<{ name: string; input: string; output: string }>
 }>()
@@ -8,11 +11,7 @@ defineProps<{
 const { t } = useI18n()
 
 async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-  } catch {
-    /* 静默 */
-  }
+  if (await copyToClipboard(text)) message.success(t('problems.detail.copied'))
 }
 </script>
 

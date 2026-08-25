@@ -222,8 +222,4 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
   height: 12px;
   border-radius: 3px;
 }
-.cell-muted {
-  color: var(--app-text-secondary);
-  font-size: 12px;
-}
 </style>

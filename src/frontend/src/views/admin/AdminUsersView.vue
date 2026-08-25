@@ -9,16 +9,16 @@ import type { GlobalRoleCode, User, UserStatus } from '@/types'
 import { ROLE_NAME, USER_STATUS, toNaiveTagType } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
+import { usePagination } from '@/composables/usePagination'
 import ModalFooter from '@/components/ModalFooter.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
 const list = ref<User[]>([])
-const total = ref(0)
+const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
 const query = reactive({
-  page: 1,
-  page_size: 20,
   keyword: '',
   status: '' as UserStatus | '',
 })
@@ -37,7 +37,12 @@ const reasonSubmitting = ref(false)
 async function load() {
   loading.value = true
   try {
-    const res = await adminApi.adminListUsers(query)
+    const res = await adminApi.adminListUsers({
+      page: page.value,
+      page_size: pageSize.value,
+      keyword: query.keyword,
+      status: query.status,
+    })
     list.value = res.items
     total.value = res.total
   } catch (e) {
@@ -48,13 +53,13 @@ async function load() {
 }
 onMounted(load)
 function onSearch() {
-  query.page = 1
+  resetPage()
   load()
 }
 function onReset() {
   query.keyword = ''
   query.status = ''
-  query.page = 1
+  resetPage()
   load()
 }
 
@@ -271,30 +276,19 @@ const columns = computed<DataTableColumns<User>>(() => [
       </template>
     </SearchFilterBar>
 
-    <n-data-table
-      v-if="loading || list.length"
-      class="table-fill"
+    <PaginatedDataTable
       :columns="columns"
       :data="list"
       :loading="loading"
-      :scroll-x="1000"
-      :bordered="false"
+      :total="total"
+      v-model:page="page"
+      v-model:page-size="pageSize"
+      :page-sizes="[10, 20, 50]"
+      :empty-text="t('admin.users.empty')"
+      :table-props="{ scrollX: 1000 }"
+      @update:page="(p: number) => { changePage(p); load() }"
+      @update:page-size="(s: number) => { changeSize(s); load() }"
     />
-    <div v-else class="table-fill-empty">
-      <n-empty size="large" :description="t('admin.users.empty')" />
-    </div>
-
-    <div class="pager">
-      <n-pagination
-        v-model:page="query.page"
-        v-model:page-size="query.page_size"
-        :item-count="total"
-        :page-sizes="[10, 20, 50]"
-        show-size-picker
-        @update:page="load"
-        @update:page-size="load"
-      />
-    </div>
 
     <!-- 角色设置 -->
     <n-modal
@@ -339,11 +333,6 @@ const columns = computed<DataTableColumns<User>>(() => [
 </template>
 
 <style scoped>
-.pager {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
-}
 .cell-user {
   display: flex;
   align-items: center;
@@ -352,11 +341,6 @@ const columns = computed<DataTableColumns<User>>(() => [
 .cell-user__meta .cell-user__email {
   color: var(--app-text-secondary);
   font-size: 12px;
-}
-.cell-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 .role-options {
   display: flex;

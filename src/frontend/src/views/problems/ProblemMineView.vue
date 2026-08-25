@@ -262,11 +262,6 @@ function rowProps(row: ProblemSummary) {
   color: var(--app-text-secondary);
   font-size: 12px;
 }
-.cell-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
 /* 行内操作按钮增强：中等字重 + 悬停浅底，弥补 text 形态的弱可点感 */
 .table-fill :deep(.cell-actions__btn) {
   font-weight: 500;
@@ -276,10 +271,6 @@ function rowProps(row: ProblemSummary) {
 }
 .table-fill :deep(.cell-actions__btn:hover) {
   background: var(--app-muted-bg);
-}
-.pager__total {
-  color: var(--app-text-secondary);
-  font-size: 13px;
 }
 @media (max-width: 700px) {
   .pager {

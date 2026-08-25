@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import * as authApi from '@/api/auth'
 import { useAppStore } from '@/stores/app'
 import { message } from '@/utils/feedback'
+import EmailCodeInput from '@/components/EmailCodeInput.vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -15,38 +16,6 @@ const emailVerifyEnabled = computed(() => appStore.siteConfig.email_verify_enabl
 const siteName = computed(() => appStore.siteConfig.name || 'PigeonOJ')
 const form = reactive({ email: '', nickname: '', code: '', password: '', confirm: '' })
 const loading = ref(false)
-const sending = ref(false)
-const countdown = ref(0)
-let timer: ReturnType<typeof setInterval> | null = null
-function startCountdown() {
-  countdown.value = 60
-  timer = setInterval(() => {
-    if (--countdown.value <= 0 && timer) {
-      clearInterval(timer)
-      timer = null
-    }
-  }, 1000)
-}
-onBeforeUnmount(() => {
-  if (timer) clearInterval(timer)
-})
-async function onSendCode() {
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-    message.warning(t('auth.validEmail'))
-    return
-  }
-  sending.value = true
-  try {
-    const res = await authApi.sendEmailCode(form.email, 'register')
-    if (res?.hint) message.info(res.hint)
-    else message.success(t('auth.codeSent'))
-    startCountdown()
-  } catch (e) {
-    message.error(e instanceof Error ? e.message : t('auth.sendFailed'))
-  } finally {
-    sending.value = false
-  }
-}
 async function onSubmit() {
   if (registrationClosed.value) return
   if (!form.email || !form.nickname || (emailVerifyEnabled.value && !form.code) || !form.password) {
@@ -112,23 +81,13 @@ async function onSubmit() {
             />
           </n-form-item>
           <n-form-item v-if="emailVerifyEnabled" :label="t('auth.code')">
-            <div class="code-row">
-              <n-input
-                v-model:value="form.code"
-                size="large"
-                maxlength="6"
-                :placeholder="t('auth.code')"
-                @keyup.enter="onSubmit"
-              />
-              <n-button
-                size="large"
-                :disabled="countdown > 0"
-                :loading="sending"
-                @click="onSendCode"
-              >
-                {{ countdown > 0 ? t('auth.resend', { seconds: countdown }) : t('auth.getCode') }}
-              </n-button>
-            </div>
+            <EmailCodeInput
+              v-model:code="form.code"
+              :email="form.email"
+              action="register"
+              size="large"
+              @enter="onSubmit"
+            />
           </n-form-item>
           <n-form-item :label="t('auth.password')">
             <n-input
@@ -220,14 +179,6 @@ async function onSubmit() {
   margin: 16px 0 0;
   color: var(--app-text-secondary);
   font-size: 13px;
-}
-.code-row {
-  display: flex;
-  gap: 10px;
-  width: 100%;
-}
-.code-row > :first-child {
-  flex: 1;
 }
 @media (max-width: 560px) {
   .register-page {

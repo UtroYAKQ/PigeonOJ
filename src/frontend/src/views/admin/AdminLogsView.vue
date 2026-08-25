@@ -10,16 +10,16 @@ import { LOG_LEVEL, toNaiveTagType } from '@/constants/dict'
 import { downloadCsv } from '@/utils/csv'
 import { formatDateTime } from '@/utils/format'
 import { message } from '@/utils/feedback'
+import { usePagination } from '@/composables/usePagination'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
 const type = ref<LogType>('request')
 const rows = ref<unknown[]>([])
-const total = ref(0)
+const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
 const query = reactive({
-  page: 1,
-  page_size: 20,
   keyword: '',
   range: null as [number, number] | null,
 })
@@ -27,8 +27,8 @@ async function load() {
   loading.value = true
   try {
     const res = await adminApi.adminListLogs(type.value, {
-      page: query.page,
-      page_size: query.page_size,
+      page: page.value,
+      page_size: pageSize.value,
       keyword: query.keyword || undefined,
       start: query.range ? new Date(query.range[0]).toISOString() : undefined,
       end: query.range ? new Date(query.range[1]).toISOString() : undefined,
@@ -42,27 +42,18 @@ async function load() {
   }
 }
 watch(type, () => {
-  query.page = 1
+  resetPage()
   load()
 })
 onMounted(load)
 function onSearch() {
-  query.page = 1
+  resetPage()
   load()
 }
 function onReset() {
   query.keyword = ''
   query.range = null
-  query.page = 1
-  load()
-}
-function changePage(page: number) {
-  query.page = page
-  load()
-}
-function changeSize(size: number) {
-  query.page_size = size
-  query.page = 1
+  resetPage()
   load()
 }
 
@@ -222,6 +213,15 @@ const emptyText = computed(() =>
         : 'admin.logs.exceptionEmpty',
   ),
 )
+
+/** 当前日志类型对应的列定义（三种日志共用同一张分页表格） */
+const activeColumns = computed(() =>
+  type.value === 'request'
+    ? requestColumns.value
+    : type.value === 'login'
+      ? loginColumns.value
+      : exceptionColumns.value,
+)
 </script>
 
 <template>
@@ -262,58 +262,20 @@ const emptyText = computed(() =>
         </template>
       </SearchFilterBar>
 
-      <div class="table-fill">
-        <template v-if="loading || rows.length">
-          <n-data-table
-            v-if="type === 'request'"
-            class="table-fill"
-            :columns="requestColumns"
-            :data="(rows as RequestLogRow[])"
-            :loading="loading"
-            remote
-            :bordered="false"
-          />
-          <n-data-table
-            v-else-if="type === 'login'"
-            class="table-fill"
-            :columns="loginColumns"
-            :data="(rows as LoginLogRow[])"
-            :loading="loading"
-            :bordered="false"
-          />
-          <n-data-table
-            v-else
-            class="table-fill"
-            :columns="exceptionColumns"
-            :data="(rows as ExceptionLogRow[])"
-            :loading="loading"
-            :bordered="false"
-          />
-        </template>
-        <div v-else class="table-fill-empty">
-          <n-empty size="large" :description="emptyText" />
-        </div>
-      </div>
-
-      <div class="pager">
-        <n-pagination
-          :page="query.page"
-          :page-size="query.page_size"
-          :item-count="total"
-          :page-sizes="[10, 20, 50]"
-          show-size-picker
-          @update:page="changePage"
-          @update:page-size="changeSize"
-        />
-      </div>
+      <PaginatedDataTable
+        :columns="activeColumns"
+        :data="(rows as unknown[])"
+        :loading="loading"
+        :total="total"
+        v-model:page="page"
+        v-model:page-size="pageSize"
+        :page-sizes="[10, 20, 50]"
+        :empty-text="emptyText"
+        :table-props="type === 'request' ? { remote: true } : {}"
+        @update:page="(p: number) => { changePage(p); load() }"
+        @update:page-size="(s: number) => { changeSize(s); load() }"
+      />
     </n-card>
   </div>
 </template>
 
-<style scoped>
-.pager {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
-}
-</style>
