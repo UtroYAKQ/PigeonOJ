@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Search as SearchIcon } from '@element-plus/icons-vue'
+import { useDebounceFn } from '@vueuse/core'
 import { ref } from 'vue'
 
 // showSearch 必须显式给默认值 true：Boolean prop 缺省时会被 Vue 强转为 false（而非 undefined），
@@ -26,12 +27,8 @@ const emit = defineEmits<{
 
 // 中文输入法组词过程不触发搜索（compositionend 后再统一触发）
 const composing = ref(false)
-let searchTimer: number | undefined
-
-function scheduleSearch() {
-  window.clearTimeout(searchTimer)
-  searchTimer = window.setTimeout(() => emit('search'), 300)
-}
+// 300ms 防抖：连续输入只触发一次 search（useDebounceFn 自动取消前次未触发的调用，卸载自动清理）
+const scheduleSearch = useDebounceFn(() => emit('search'), 300)
 function onCompositionStart() {
   composing.value = true
 }

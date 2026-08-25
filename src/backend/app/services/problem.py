@@ -28,7 +28,14 @@ from app.core.exceptions import (
     RESOURCE_STATE_CONFLICT,
     SYSTEM_UPSTREAM_FAILURE,
 )
-from app.core.redis import get_redis, redis_get_json, redis_set_json
+from app.core.redis import (
+    get_redis,
+    redis_delete,
+    redis_get,
+    redis_get_json,
+    redis_set,
+    redis_set_json,
+)
 from app.core.storage import get_storage
 from app.core.dependency import is_manager
 from app.models.problem import (
@@ -57,6 +64,7 @@ from app.schemas.problem import (
 logger = logging.getLogger(__name__)
 
 VERIFY_INVITE_KEY_PREFIX = "verify_invite:"
+VERIFY_INVITE_PROBLEM_PREFIX = "verify_invite_problem:"
 
 
 @dataclass(frozen=True)
@@ -416,6 +424,29 @@ class ProblemService:
         await self.db.flush()
         return problem
 
+    async def _load_invite(self, problem_id: uuid.UUID) -> dict | None:
+        """返回题目当前有效的验题邀请链接（基于 Redis 反向索引）；无或已失效返回 None。"""
+        token = await redis_get(f"{VERIFY_INVITE_PROBLEM_PREFIX}{problem_id}")
+        if not token:
+            return None
+        payload = await redis_get_json(f"{VERIFY_INVITE_KEY_PREFIX}{token}")
+        if not isinstance(payload, dict) or "problem_id" not in payload:
+            return None
+        remaining = await get_redis().ttl(f"{VERIFY_INVITE_KEY_PREFIX}{token}")
+        if not isinstance(remaining, int) or remaining <= 0:
+            return None
+        expires_at = (datetime.now() + timedelta(seconds=remaining)).isoformat()
+        return {"token": token, "expires_at": expires_at}
+
+    async def get_verification_invite(self, user: object, problem_id: uuid.UUID) -> dict | None:
+        """查询题目当前有效的验题邀请链接（含权限校验）；无或已失效返回 None。"""
+        problem = await self.problems.get_by_id(problem_id)
+        if problem is None:
+            raise APIError(RESOURCE_NOT_FOUND, "题目不存在", 404)
+        if not await _can_manage(self.db, user, problem):
+            raise APIError(AUTH_FORBIDDEN, "无权限", 403)
+        return await self._load_invite(problem_id)
+
     async def init_verification(self, user: object, problem_id: uuid.UUID, invite_expires_hours: int | None) -> VerificationInitOut:
         problem = await self.problems.get_by_id(problem_id)
         if problem is None:
@@ -423,22 +454,37 @@ class ProblemService:
         if not await _can_manage(self.db, user, problem):
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         pending = await self.verifications.get_pending(problem_id)
-        if pending is not None:
-            raise APIError(RESOURCE_DUPLICATE, "已有进行中的验题", 409)
-        verification = ProblemVerification(problem_id=problem_id)
-        verification = await self.verifications.create(verification)
-        invite = None
-        if invite_expires_hours is not None:
-            token = secrets.token_urlsafe(32)[:64]
-            ttl_seconds = int(invite_expires_hours * 3600)
-            await redis_set_json(
-                f"{VERIFY_INVITE_KEY_PREFIX}{token}",
-                {"problem_id": str(problem_id)},
-                ttl_seconds=ttl_seconds,
-            )
-            expires_at = datetime.now() + timedelta(seconds=ttl_seconds)
-            invite = {"token": token, "expires_at": expires_at.isoformat()}
-        return VerificationInitOut(verification_id=str(verification.id), invite=invite)
+
+        # 自行验题：复用进行中的验题记录（若有），否则新建空白记录
+        if invite_expires_hours is None:
+            if pending is None:
+                pending = await self.verifications.create(ProblemVerification(problem_id=problem_id))
+            return VerificationInitOut(verification_id=str(pending.id), invite=None)
+
+        # 生成邀请链接：若已有有效链接，直接复用，避免重复创建
+        existing = await self._load_invite(problem_id)
+        if existing is not None:
+            if pending is None:
+                pending = await self.verifications.create(ProblemVerification(problem_id=problem_id))
+            return VerificationInitOut(verification_id=str(pending.id), invite=existing)
+
+        token = secrets.token_urlsafe(32)[:64]
+        ttl_seconds = int(invite_expires_hours * 3600)
+        await redis_set_json(
+            f"{VERIFY_INVITE_KEY_PREFIX}{token}",
+            {"problem_id": str(problem_id)},
+            ttl_seconds=ttl_seconds,
+        )
+        await redis_set(
+            f"{VERIFY_INVITE_PROBLEM_PREFIX}{problem_id}",
+            token,
+            ttl_seconds=ttl_seconds,
+        )
+        if pending is None:
+            pending = await self.verifications.create(ProblemVerification(problem_id=problem_id))
+        expires_at = (datetime.now() + timedelta(seconds=ttl_seconds)).isoformat()
+        invite = {"token": token, "expires_at": expires_at}
+        return VerificationInitOut(verification_id=str(pending.id), invite=invite)
 
     async def resolve_invite(self, token: str) -> VerificationInviteOut:
         """解析验题邀请链接（数据源 Redis；返回题面与样例，不含正式测试点内容与题解）。"""
@@ -576,4 +622,9 @@ async def complete_verification(
             problem.verified_by = verifier_id
             problem.verified_at = datetime.now()
             problem.updated_at = datetime.now()
+    # 验题结束（通过 / 失败）后回收邀请链接，避免悬挂失效链接
+    token = await redis_get(f"{VERIFY_INVITE_PROBLEM_PREFIX}{verification.problem_id}")
+    if token:
+        await redis_delete(f"{VERIFY_INVITE_KEY_PREFIX}{token}")
+        await redis_delete(f"{VERIFY_INVITE_PROBLEM_PREFIX}{verification.problem_id}")
     await db.flush()

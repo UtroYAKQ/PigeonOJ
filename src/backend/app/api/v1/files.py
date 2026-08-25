@@ -23,6 +23,16 @@ async def upload_avatar(
     return ok(result)
 
 
+@router.post("/upload/image")
+async def upload_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """公共图片上传（登录用户可用）：题面插图等 Markdown 引用场景。"""
+    result = await FileService().upload_image(current_user.id, file)
+    return ok(result)
+
+
 @router.get("/{object_key:path}")
 async def read_file(object_key: str):
     """读取用户头像等公开展示文件；判题测试点不使用此接口。"""

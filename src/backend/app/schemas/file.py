@@ -11,3 +11,12 @@ class AvatarUploadResult(BaseModel):
     url: str
     content_type: str
     size: int
+
+
+class ImageUploadResult(BaseModel):
+    """公共图片上传响应（题面插图等 Markdown 引用场景）。"""
+
+    oss_id: str
+    url: str
+    content_type: str
+    size: int

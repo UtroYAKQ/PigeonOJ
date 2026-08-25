@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NButton } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import { Refresh } from '@element-plus/icons-vue'
+import { useTimeoutFn } from '@vueuse/core'
 import { getSubmission } from '@/api/judge'
 import { message } from '@/utils/feedback'
 import StatusTag from '@/components/StatusTag.vue'
@@ -19,8 +20,13 @@ const loading = ref(false)
 const showCode = ref(true)
 /** 自动刷新上限：2s × 150 = 5 分钟，避免无退避的无限轮询 */
 const MAX_POLLS = 150
+const POLL_INTERVAL_MS = 2000
 const pollCount = ref(0)
-let timer: number | undefined
+
+// 链式延时轮询：上一次响应返回后再等 2s 才发起下一次（与原 setTimeout 语义一致，卸载自动取消）
+const scheduleNextPoll = useTimeoutFn(() => void load(true), POLL_INTERVAL_MS, {
+  immediate: false,
+})
 
 const isRunning = computed(
   () => submission.value?.status === 'pending' || submission.value?.status === 'judging',
@@ -34,7 +40,8 @@ async function load(silent = false) {
   try {
     submission.value = await getSubmission(String(route.params.id))
     if (isRunning.value && !pollingStopped.value) {
-      timer = window.setTimeout(() => load(true), 2000)
+      pollCount.value += 1
+      scheduleNextPoll.start()
     }
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.submission.loadFailed'))
@@ -71,11 +78,7 @@ function back() {
 }
 
 onMounted(() => {
-  pollCount.value = 1
   load()
-})
-onUnmounted(() => {
-  if (timer) window.clearTimeout(timer)
 })
 
 const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [

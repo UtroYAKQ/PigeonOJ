@@ -24,7 +24,7 @@ from app.services.judge import SubmissionService
 from app.services.problem import ProblemService
 from app.models.user import User
 from app.core.dependency import get_current_admin, get_current_user
-from app.core.exceptions import PARAM_FORMAT_INVALID, APIError
+from app.core.exceptions import APIError, AUTH_FORBIDDEN, PARAM_FORMAT_INVALID, RESOURCE_NOT_FOUND
 from app.utils.pagination import PaginatedResponse
 from app.utils.response import ok
 from app.core.database import get_db
@@ -48,6 +48,17 @@ async def verify_problem(problem_id: uuid.UUID, body: VerifyRequest, user: User 
     result = await ProblemService(db).init_verification(user, problem_id, body.invite_expires_hours)
     await db.commit()  # 显式提交：确保数据持久化
     return ok(result.model_dump(exclude_none=True))
+
+
+@router.get("/problems/{problem_id}/verify/invite")
+async def get_verification_invite(
+    problem_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """查询题目当前有效的验题邀请链接；无或已失效返回 null。"""
+    invite = await ProblemService(db).get_verification_invite(user, problem_id)
+    return ok(invite)
 
 
 # ---- 提交 ----

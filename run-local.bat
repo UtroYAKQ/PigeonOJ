@@ -1,28 +1,28 @@
 @echo off
 rem ============================================================
-rem  PigeonOJ 开发环境一键启动（Windows）
-rem  - 启动 PostgreSQL / MinIO / Redis（本地镜像，不拉取）
-rem  - 构建判题节点镜像（含 nsjail 沙箱层）并启动 1 个本地节点
-rem  - 执行数据库迁移 + 引导演示账号
-rem  - 启动后端 (8000) 与前端 (5173)
-rem  说明：后端进程不执行用户代码；代码执行只发生在判题节点容器内。
-rem  注意：本文件含中文，必须以 ANSI/GBK 编码保存（勿存为 UTF-8）。
+rem  PigeonOJ local one-click startup script for Windows
+rem  - Starts PostgreSQL / MinIO / Redis infra containers (no pull)
+rem  - Builds the judge-node image (with the nsjail sandbox) and runs 1 judge node by default
+rem  - Runs DB migrations + demo user initialization
+rem  - Starts the backend (8000) and the frontend (5173)
+rem  Note: This script never executes user code; judging runs only inside the judge node's sandbox.
+rem  Note: This is a batch file. Save it as ANSI/GBK (do NOT save as UTF-8).
 rem ============================================================
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
-rem Python 子进程（alembic / uvicorn / 脚本）统一 UTF-8 模式，
-rem 避免中文日志在 GBK 控制台触发 UnicodeEncodeError，以及 locale 编码读文件报错
+rem Python subprocesses (alembic / uvicorn / scripts) run in unified UTF-8 mode
+rem to avoid UnicodeEncodeError on GBK consoles and locale/file-read errors.
 set "PYTHONUTF8=1"
 
 echo ============================================
-echo   PigeonOJ 开发环境一键启动
+echo   PigeonOJ local one-click startup
 echo ============================================
 
-rem ---------- 1. 检查 Docker ----------
-echo [1/7] 检查 Docker...
+rem ---------- 1. Check Docker ----------
+echo [1/7] Checking Docker...
 docker info >nul 2>&1
 if errorlevel 1 (
-    echo [错误] Docker 未运行，请先启动 Docker Desktop 再执行本脚本。
+    echo [ERROR] Docker is not installed. Please install Docker Desktop before running this script.
     pause
     exit /b 1
 )
@@ -30,62 +30,62 @@ if errorlevel 1 (
 rem ---------- PostgreSQL ----------
 docker ps --format "{{.Names}}" | findstr /x "pigeonoj-postgres" >nul 2>&1
 if errorlevel 1 (
-    echo 启动 PostgreSQL（本地镜像）...
+    echo Starting PostgreSQL container...
     docker start pigeonoj-postgres >nul 2>&1
     if errorlevel 1 (
         docker run -d --name pigeonoj-postgres -e POSTGRES_USER=pigeonoj -e POSTGRES_PASSWORD=pigeonoj -e POSTGRES_DB=pigeonoj -p 5432:5432 -v pgdata:/var/lib/postgresql/data docker.1ms.run/postgres:16-alpine
     )
 ) else (
-    echo PostgreSQL 已在运行
+    echo PostgreSQL is already running
 )
 
 rem ---------- MinIO ----------
 docker ps --format "{{.Names}}" | findstr /x "pigeonoj-minio" >nul 2>&1
 if errorlevel 1 (
-    echo 启动 MinIO（本地镜像）...
+    echo Starting MinIO container...
     docker start pigeonoj-minio >nul 2>&1
     if errorlevel 1 (
         docker run -d --name pigeonoj-minio -e MINIO_ROOT_USER=pigeonoj -e MINIO_ROOT_PASSWORD=pigeonoj-minio-secret -p 9000:9000 -p 9001:9001 -v miniodata:/data docker.1ms.run/minio/minio:latest server /data --console-address ":9001"
     )
 ) else (
-    echo MinIO 已在运行
+    echo MinIO is already running
 )
 
-rem ---------- Redis（6379 未被占用时才启动） ----------
+rem ---------- Redis (only start if port 6379 is free) ----------
 netstat -ano | findstr /c:":6379 " | findstr /c:"LISTENING" >nul 2>&1
 if errorlevel 1 (
     docker ps --format "{{.Names}}" | findstr /x "pigeonoj-redis" >nul 2>&1
     if errorlevel 1 (
-        echo 启动 Redis（本地镜像）...
+        echo Starting Redis container...
         docker start pigeonoj-redis >nul 2>&1
         if errorlevel 1 (
             docker run -d --name pigeonoj-redis -p 6379:6379 -v redisdata:/data docker.1ms.run/redis:7-alpine
         )
     ) else (
-        echo Redis 已在运行
+        echo Redis is already running
     )
 ) else (
-    echo Redis 已在运行（端口 6379 已被占用，复用现有实例）
+    echo Redis is already running, port 6379 is occupied, reusing the existing instance
 )
 
-rem ---------- 2. 构建判题节点镜像（单镜像含 nsjail 沙箱层；首次或 Dockerfile 变更时） ----------
-echo [2/7] 准备判题节点镜像...
+rem ---------- 2. Prepare the judge-node image (pre-build the nsjail sandbox; first build takes time) ----------
+echo [2/7] Preparing judge-node image...
 docker image inspect pigeonoj/judge-node:latest >nul 2>&1
 if errorlevel 1 (
-    echo 构建判题节点镜像 pigeonoj/judge-node（首次，需数分钟）...
+    echo Judge-node image pigeonoj/judge-node not found, building...
     docker build -t pigeonoj/judge-node:latest "%~dp0src\judge"
-    if errorlevel 1 ( echo [错误] 节点镜像构建失败 & pause & exit /b 1 )
+    if errorlevel 1 ( echo [ERROR] Judge-node image build failed & pause & exit /b 1 )
 ) else (
-    echo 判题节点镜像已存在
+    echo Judge-node image already exists
 )
 
-rem ---------- 3. 等待 PostgreSQL 就绪 ----------
-echo [3/7] 等待 PostgreSQL 就绪...
+rem ---------- 3. Wait for PostgreSQL to be ready ----------
+echo [3/7] Waiting for PostgreSQL to be ready...
 set /a attempts=0
 :wait_db
 set /a attempts+=1
 if !attempts! gtr 30 (
-    echo [错误] PostgreSQL 30 秒内未就绪，请检查 docker ps。
+    echo [ERROR] PostgreSQL not ready after 30 attempts, please check "docker ps"
     pause
     exit /b 1
 )
@@ -94,41 +94,42 @@ if errorlevel 1 (
     timeout /t 1 /nobreak >nul
     goto wait_db
 )
-echo PostgreSQL 就绪
+echo PostgreSQL is ready
 
-rem ---------- 4. 迁移 + 演示账号 + 公共环境变量 ----------
-echo [4/7] 数据库迁移与演示账号引导...
+rem ---------- 4. Migrate DB + init demo users + prepare backend ----------
+echo [4/7] Running DB migration and demo user init...
 cd /d "%~dp0src\backend"
-rem 以下变量由本脚本统一 set，随后 start 的子窗口自动继承；
-rem 必须用 set "K=V" 引号形式，避免值尾部混入空格（曾导致路径带尾空格判题失败）
+rem Variables set via "set K=V" so values carry into the started child consoles
+rem (trailing spaces on values would break DB/MinIO connection strings, so no trailing spaces).
 set "DATABASE_URL=postgresql+asyncpg://pigeonoj:pigeonoj@localhost:5432/pigeonoj"
 set "REDIS_URL=redis://localhost:6379/0"
 set "JUDGE_GATEWAY_TOKENS=dev-token"
 python -m alembic upgrade head
 if errorlevel 1 (
-    echo [错误] 数据库迁移失败，请检查上方日志。
+    echo [ERROR] DB migration failed, please check the log above
     pause
     exit /b 1
 )
 python -m scripts.bootstrap_demo_users
 
-rem ---------- 5. 启动后端（判题网关 :50051 随应用启动；须先于判题节点就绪） ----------
-echo [5/7] 启动后端...
+rem ---------- 5. Start backend, wait for :50051 gateway (needed for judge node registration) ----------
+echo [5/7] Starting backend...
 
 netstat -ano | findstr /c:":8000 " | findstr /c:"LISTENING" >nul 2>&1
 if errorlevel 1 (
     cd /d "%~dp0src\backend"
     start "PigeonOJ Backend" cmd /k "python run.py"
 ) else (
-    echo [跳过] 端口 8000 已被占用（后端可能已在运行；如刚更新过代码请重启该窗口）
+    echo [WARN] Port 8000 is occupied, backend may already be running; to restart, close the old window first
 )
 
-rem 等待后端健康检查通过（最多 30 秒），确保 gRPC 网关已监听后再拉起节点
+rem Wait for the backend health endpoint (up to 30 tries) so the gRPC gateway is registered
+rem and the judge node can register against it.
 set /a hb=0
 :wait_be
 set /a hb+=1
 if !hb! gtr 30 (
-    echo [错误] 后端 30 秒内未就绪，请检查 Backend 窗口日志。
+    echo [ERROR] Backend not ready after 30 attempts, please check the Backend startup log
     pause
     exit /b 1
 )
@@ -137,27 +138,27 @@ if errorlevel 1 (
     timeout /t 1 /nobreak >nul
     goto wait_be
 )
-echo 后端就绪
+echo Backend is ready
 
-rem ---------- 6. 本地判题节点容器（默认 1 个；配置见 .env.node.example → .env.node） ----------
-echo [6/7] 启动判题节点容器...
+rem ---------- 6. Start judge node container (1 by default; copy .env.node.example to .env.node) ----------
+echo [6/7] Starting judge node...
 if not exist "%~dp0.env.node" copy /y "%~dp0.env.node.example" "%~dp0.env.node" >nul
 docker compose --env-file "%~dp0.env.node" -f "%~dp0docker-compose-node.yml" up -d --build 1>nul 2>&1
 if errorlevel 1 (
-    echo [警告] 判题节点容器启动失败，请检查 .env.node 与 Docker 日志（不影响其余服务，可稍后手动重试）。
+    echo [WARN] Judge node failed to start, please check .env.node and Docker logs; other services are unaffected, you can start it manually later
 ) else (
     start "PigeonOJ Judge Node" cmd /k "docker compose --env-file %~dp0.env.node -f %~dp0docker-compose-node.yml logs -f"
 )
 
-rem ---------- 7. 启动前端 ----------
-echo [7/7] 启动前端...
+rem ---------- 7. Start frontend ----------
+echo [7/7] Starting frontend...
 
 netstat -ano | findstr /c:":5173 " | findstr /c:"LISTENING" >nul 2>&1
 if errorlevel 1 (
     cd /d "%~dp0src\frontend"
     start "PigeonOJ Frontend" cmd /k "npm run dev"
 ) else (
-    echo [跳过] 端口 5173 已被占用（前端可能已在运行）
+    echo [WARN] Port 5173 is occupied, frontend may already be running
 )
 
 timeout /t 6 /nobreak >nul
@@ -165,11 +166,11 @@ start "" "http://localhost:5173"
 
 echo.
 echo ============================================
-echo   启动完成！
-echo   前端:  http://localhost:5173
-echo   后端:  http://127.0.0.1:8000  （接口文档 /docs）
-echo   判题节点:  Judge Node 窗口（gRPC 注册至后端网关 :50051）
-echo   演示账号:  admin@pigeonoj.dev / Admin@123
-echo   关闭弹出的窗口即停止对应服务。
+echo   Startup complete!
+echo   Frontend:  http://localhost:5173
+echo   Backend:   http://127.0.0.1:8000  API docs at /docs
+echo   Judge node: Judge Node started, gRPC registration at :50051
+echo   Demo user:  admin@pigeonoj.dev / Admin@123
+echo   Close the corresponding window to stop each service
 echo ============================================
 pause

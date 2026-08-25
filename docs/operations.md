@@ -56,7 +56,7 @@ docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
 ## 后端配置文件
 
 后端配置主文件是 `src/backend/backend.toml`（与判题节点 `node.toml` 同风格，随仓库提交、仅含开发默认值），
-`src/backend/app/config.py` 只负责加载。加载优先级（高 → 低）：
+`src/backend/app/settings/config.py` 只负责加载。加载优先级（高 → 低）：
 
 1. 进程环境变量
 2. `.env`（仓库根目录，仅放需要覆盖的项）
@@ -132,7 +132,7 @@ npm test                # 前端单元测试（Vitest + jsdom；utils / constant
 - ⚠️ **不要在跑 pytest 时把 `DATABASE_URL` 指向开发库** —— 测试会重建表结构；可用 `TEST_DATABASE_URL` 覆盖测试库
 - pytest 配置（`pytest.ini`）：async 测试 / fixture 共享会话级事件循环（模块级异步引擎的连接池只绑定一个循环）
 
-开发辅助脚本（`src/backend/scripts/`）：
+开发辅助脚本（`src/backend/scripts/`，以下命令均在 `src/backend/` 目录下运行）：
 
 ```bash
 python -m scripts.bootstrap_demo_users   # 引导演示账号 admin/tutor/user（开发期联调用）

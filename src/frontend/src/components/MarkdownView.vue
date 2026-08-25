@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { renderMarkdown } from '@/utils/markdown'
+import 'katex/dist/katex.min.css'
 
 const props = defineProps<{ source: string | null | undefined }>()
 const html = computed(() => renderMarkdown(props.source))
@@ -85,7 +86,8 @@ const html = computed(() => renderMarkdown(props.source))
   white-space: pre;
 }
 .markdown-view :deep(img) {
-  max-width: 100%;
+  /* 题面插图默认限宽 50%：截图类大图不占满整行（小图不受影响） */
+  max-width: 50%;
   border-radius: var(--app-radius);
 }
 .markdown-view :deep(table) {

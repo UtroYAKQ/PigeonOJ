@@ -3,7 +3,8 @@
  * 邮箱验证码输入行：验证码输入框 + 发送按钮（60s 倒计时内聚）。
  * 注册页与安全设置换绑邮箱共用；发送前校验邮箱格式，业务提示由本组件统一给出。
  */
-import { onBeforeUnmount, ref } from 'vue'
+import { useIntervalFn } from '@vueuse/core'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import * as authApi from '@/api/auth'
@@ -27,20 +28,21 @@ const emit = defineEmits<{ enter: [] }>()
 const { t } = useI18n()
 const sending = ref(false)
 const countdown = ref(0)
-let timer: ReturnType<typeof setInterval> | null = null
+
+// 60s 重发倒计时：归零自动暂停，组件卸载由 useIntervalFn 自动清理
+const { pause: pauseCountdown, resume: resumeCountdown } = useIntervalFn(
+  () => {
+    countdown.value -= 1
+    if (countdown.value <= 0) pauseCountdown()
+  },
+  1000,
+  { immediate: false },
+)
 
 function startCountdown() {
   countdown.value = 60
-  timer = setInterval(() => {
-    if (--countdown.value <= 0 && timer) {
-      clearInterval(timer)
-      timer = null
-    }
-  }, 1000)
+  resumeCountdown()
 }
-onBeforeUnmount(() => {
-  if (timer) clearInterval(timer)
-})
 
 async function send() {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(props.email)) {

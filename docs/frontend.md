@@ -79,9 +79,9 @@
 - **第 1 步「基础信息与题面」** `ProblemStatementView.vue`：
   - 新建 `/admin/problems/new`——仅校验题面四要素，保存即创建草稿，成功后 **replace** 进入第 2 步（浏览器后退不回 `/new`，避免重复建草稿）；
   - 编辑 `/admin/problems/:id/edit/statement`（旧链接 `/admin/problems/:id/edit` 301 到此）——保存后 push 进入第 2 步；
-  - 表单含标题 / 题面 / 输入输出说明（必填）/ 官方题解（折叠）/ 标签多选（激活标签 ≤8）/ 可见性 / 时限内存。
+  - 表单按三段式分区（共享类 `.section-title` 作分区标题）：「基础信息」标题 + 标签多选（激活标签 ≤8）/ 可见性 / 时限 / 内存一行四列（窄屏逐级降列）；「题面内容」题面 + 输入输出说明双栏（必填）；「官方题解」折叠懒挂载，展开入口在分区头右侧。
 - **第 2 步「样例与测试点」** `/admin/problems/:id/edit/cases`（`ProblemCasesView.vue`）：展示样例（≤10 组，不参与判题）+ 正式测试点（ZIP 导入或手工编辑）；「下一步」先自动保存（空白草稿行不提交；内容签名与服务器一致时跳过上传，避免纯题面改动误触发重新验题），无任何非空测试点时拦截在本页。
-- **第 3 步「验题与发布」** `/admin/problems/:id/edit/verify`（`ProblemVerifyView.vue`，共享组件 `VerifyPublishPanel.vue`）：状态标签（未验题 / 已于 X 通过验题 / 测试点或样例已变更需重新验题）；**自行验题** —— 语言选择 + Monaco 提交代码（先发起空白验题记录，再 `POST /problems/{id}/verify` 提交 `{code, language}`；提交不限身份），判题通过即完成验题并跳评测结果页；或生成邀请链接发给他人验题。底部提供「上一步」与「完成，返回列表」（未发布离开时草稿保留）。
+- **第 3 步「验题与发布」** `/admin/problems/:id/edit/verify`（`ProblemVerifyView.vue`，共享组件 `VerifyPublishPanel.vue`）：WizardShell 卡片内为可拖拽双栏工作台 —— 页面级一屏锁定（视口高 - 顶栏 - 内容区内边距），左栏标题元信息 + 题面整体独立滚动、分隔条调比例（与详情页共享持久化），窄屏 <900px 自动堆叠；状态标签（未验题 / 已于 X 通过验题 / 测试点或样例已变更需重新验题）；**自行验题** —— 语言选择 + Monaco 提交代码（先发起空白验题记录，再 `POST /problems/{id}/verify` 提交 `{code, language}`；提交不限身份），判题通过即完成验题并跳评测结果页；工具栏提供「验题提交」入口（弹窗列出本人该题的 verify 类型提交，可回看状态 / 得分并跳评测结果页）；或生成邀请链接发给他人验题。「上一步」「完成，返回列表」等导航动作常驻卡片头。
 - **发布门禁以后端 `needs_reverification` 为准**：未验题，或测试点 / 样例晚于最近验题通过时间变更 ⇒ 发布按钮禁用（tooltip 说明），后端 publish 同样拒绝（3002）；纯题面改动不影响验题有效性。发布成功回管理工作台。
 
 ### 验题邀请落地页
@@ -91,6 +91,7 @@
 ### 内容渲染与共享样式
 
 - 题面 / 输入输出说明 / 官方题解等 Markdown 富文本统一使用 `components/MarkdownView.vue` 渲染（markdown-it `html:false` + DOMPurify 白名单过滤，见 `docs/decisions/2026-08-23-problem-statement-markdown.md`）；禁止对用户可控内容直接 `v-html`。
+- **Markdown 编辑**：写题页（向导第一步）的题面 / 输入输出说明 / 官方题解统一使用 `components/MarkdownEditor.vue`（md-editor-v3 封装：CodeMirror 编辑，工具栏「纯预览」按钮整块切换渲染结果（非分屏），深色模式与语言跟随全局设置；表单场景编辑区内边距 8px 12px，向导卡片内边距收窄至 12px 16px）。支持插图：工具栏「图片」按钮 / 粘贴截图 / 拖拽图片均走公共图片上传接口 `POST /files/upload/image`（登录用户可用，≤5MB，JPG/PNG/WEBP/GIF），成功后插入 `![](url)`，插图统一限宽 50%（编辑器预览与展示侧一致，不占满整行）。数学公式：编辑器与展示侧均支持 KaTeX（`$...$` 行内 / `$$...$$` 块级）——编辑器用本地 katex 实例（`config.editorExtensions`，不依赖运行时 CDN），展示侧经 `@vscode/markdown-it-katex` 渲染；编辑器禁用 prettier / mermaid 扩展（避免运行时拉取 CDN）。存储仍为纯 Markdown 文本（契约 `problems.md`），展示侧 `MarkdownView` 渲染链路不变（markdown-it `html:false` + DOMPurify，白名单放行 KaTeX 所需的 `style` / `aria-hidden` / `encoding` 属性）；与渲染安全决策一致（不引入 HTML 注入能力）。
 - 页面级共享类（`.page-stack` / `.section-title` / `.form-hint` / `.result-box` / `.cell-actions` / `.cell-muted` / `.pager__total`）统一定义在 `assets/main.css`，各视图复用；scoped CSS 只写组件特有样式，不允许跨视图复制同一规则。
 
 ### 跨视图共享组件

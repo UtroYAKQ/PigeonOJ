@@ -1,23 +1,24 @@
 <script setup lang="ts">
 /**
- * 发布与验题工作台（编辑向导第三步）：
- * 左栏题目预览、右栏代码编辑器；右上「邀请验题」选择有效期后
- * 生成链接并复制。自行验题以当前账号提交，按正式测试点判题。
- * 发布门禁以后端 needs_reverification 为准。
+ * 验题工作台右栏（编辑向导第三步）：状态标签 + 语言选择 + 代码编辑器，
+ * 右上「邀请验题」选择有效期后生成链接并复制。自行验题以当前账号提交，
+ * 按正式测试点判题。发布门禁以后端 needs_reverification 为准。
+ * 分栏布局与左栏题面由 ProblemVerifyView 承载（与邀请验题落地页同款平铺风）。
  */
-import { computed, ref } from 'vue'
+import { computed, h, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Key } from '@element-plus/icons-vue'
+import type { DataTableColumns } from 'naive-ui'
 
-import { initVerification, publishProblem, submitVerifyCode } from '@/api/problems'
-import type { ProblemDetailEx, ProblemLanguage } from '@/types'
+import { getVerifyInvite, initVerification, publishProblem, submitVerifyCode } from '@/api/problems'
+import { listSubmissions } from '@/api/judge'
+import type { ProblemDetailEx, ProblemLanguage, Submission } from '@/types'
 import { dialog, message } from '@/utils/feedback'
 import { languageOptions } from '@/constants/languages'
 import { copyToClipboard } from '@/utils/clipboard'
 import CodeEditor from '@/components/CodeEditor.vue'
-import ProblemMetaBar from '@/components/problem/ProblemMetaBar.vue'
-import ProblemStatement from '@/components/problem/ProblemStatement.vue'
+import StatusTag from '@/components/StatusTag.vue'
 import { formatDateTime } from '@/utils/format'
 
 const props = defineProps<{ problem: ProblemDetailEx }>()
@@ -28,7 +29,9 @@ const { t } = useI18n()
 
 const generating = ref(false)
 const publishing = ref(false)
-const invitePopover = ref(false)
+const inviteDialog = ref(false)
+const inviteLoading = ref(false)
+const inviteMode = ref<'generate' | 'view'>('generate')
 const expiryHours = ref<24 | 72 | 168>(72)
 const invite = ref<{ token: string; expires_at: string | null } | null>(null)
 
@@ -36,6 +39,66 @@ const invite = ref<{ token: string; expires_at: string | null } | null>(null)
 const language = ref<ProblemLanguage>('cpp17')
 const code = ref('')
 const submitting = ref(false)
+
+// 验题提交记录（本人该题的 verify 类型提交，弹窗内点击行跳评测结果页）
+const subsDialog = ref(false)
+const subsLoading = ref(false)
+const verifySubs = ref<Submission[]>([])
+
+async function openSubsDialog() {
+  if (subsLoading.value) return
+  subsLoading.value = true
+  subsDialog.value = true
+  try {
+    const result = await listSubmissions({ problem_id: props.problem.id, page_size: 50 })
+    verifySubs.value = result.items.filter((item) => item.submit_type === 'verify')
+  } catch {
+    verifySubs.value = []
+  } finally {
+    subsLoading.value = false
+  }
+}
+
+function openSubmissionRow(row: Submission) {
+  router.push(`/problems/${props.problem.id}/submissions/${row.id}`)
+}
+
+const subColumns = computed<DataTableColumns<Submission>>(() => [
+  {
+    title: t('problems.detail.status'),
+    key: 'status',
+    minWidth: 110,
+    render: (row) => h(StatusTag, { status: row.status }),
+  },
+  { title: t('problems.detail.language'), key: 'language', width: 100 },
+  { title: t('problems.submission.score'), key: 'score', width: 70 },
+  {
+    title: t('problems.submission.time'),
+    key: 'time_used_ms',
+    width: 100,
+    render: (row) => `${row.time_used_ms ?? '-'} ms`,
+  },
+  {
+    title: t('problems.manage.submittedAt'),
+    key: 'created_at',
+    minWidth: 140,
+    render: (row) => formatDateTime(row.created_at),
+  },
+  {
+    title: t('problems.manage.viewSubmission'),
+    key: 'actions',
+    width: 70,
+    render: (row) =>
+      h(
+        'a',
+        {
+          class: 'vp-subs__link',
+          onClick: () => openSubmissionRow(row),
+        },
+        t('problems.manage.viewSubmission'),
+      ),
+  },
+])
 
 type VerifyState = 'verified' | 'stale' | 'unverified'
 
@@ -97,6 +160,29 @@ async function submitSelfVerify() {
   }
 }
 
+/** 先查现有链接、确定展示模式后再开弹窗，避免弹出后内容跳变 */
+async function openInviteDialog() {
+  if (inviteLoading.value) return
+  inviteLoading.value = true
+  try {
+    const existing = await getVerifyInvite(props.problem.id)
+    if (existing) {
+      invite.value = existing
+      inviteMode.value = 'view'
+    } else {
+      invite.value = null
+      inviteMode.value = 'generate'
+    }
+  } catch {
+    /* 查询失败回退到生成模式 */
+    invite.value = null
+    inviteMode.value = 'generate'
+  } finally {
+    inviteDialog.value = true
+    inviteLoading.value = false
+  }
+}
+
 async function generateInvite(hours: 24 | 72 | 168) {
   if (generating.value) return
   generating.value = true
@@ -106,10 +192,9 @@ async function generateInvite(hours: 24 | 72 | 168) {
       invite_expires_hours: hours,
     })
     invite.value = res.invite ?? null
-    invitePopover.value = false
+    inviteMode.value = 'view'
     message.success(t('common.success'))
   } catch (error) {
-    // 已有进行中的验题（3003）等业务错误直接透出
     message.error(error instanceof Error ? error.message : t('common.operationFailed'))
   } finally {
     generating.value = false
@@ -146,104 +231,107 @@ function publish() {
   })
 }
 
-// 发布动作由外层卡片头承载（ProblemVerifyView 经 WizardShell actions 插槽放置），经模板 ref 调用
+// 发布动作由页头承载（ProblemVerifyView 经模板 ref 调用）
 defineExpose({ publish, blocked, publishing })
 </script>
 
 <template>
-  <div class="vp-split">
-    <!-- 左：题目预览（题面展示与详情页共用同一组件，样例交互保持一致） -->
-    <section class="vp-statement" aria-label="problem statement">
-      <ProblemMetaBar :problem="problem" show-title />
-      <div class="vp-body">
-        <ProblemStatement :problem="problem" :show-solution="false" />
-      </div>
-    </section>
+  <!-- 右栏工作台：工具行 + 编辑器；高度由外层网格拉伸（align-items: stretch）决定 -->
+  <section class="vp-work" aria-label="verify workbench">
+    <div class="vp-toolbar">
+      <n-tag size="small" round :type="stateTagType">{{ stateText }}</n-tag>
+      <div class="vp-toolbar__spacer" />
+      <n-select v-model:value="language" :options="languageOptions" class="vp-lang" />
+      <n-button secondary :loading="subsLoading && subsDialog" @click="openSubsDialog">
+        {{ t('problems.manage.verifySubmissions') }}
+      </n-button>
+      <n-button secondary @click="openInviteDialog">
+        <template #icon><n-icon :component="Key" /></template>
+        {{ t('problems.manage.inviteVerify') }}
+      </n-button>
+      <n-button
+        type="primary"
+        secondary
+        :loading="submitting"
+        :disabled="!code.trim()"
+        @click="submitSelfVerify"
+      >
+        {{ t('problems.selfVerify.submit') }}
+      </n-button>
+    </div>
 
-    <!-- 右：验题代码编辑器 -->
-    <section class="vp-work">
-      <div class="vp-toolbar">
-        <n-tag size="small" round :type="stateTagType">{{ stateText }}</n-tag>
-        <div class="vp-toolbar__spacer" />
-        <n-select v-model:value="language" :options="languageOptions" class="vp-lang" />
-        <n-popover v-model:show="invitePopover" trigger="click" placement="bottom-end">
-          <template #trigger>
-            <n-button secondary :loading="generating">
-              <template #icon><n-icon :component="Key" /></template>
-              {{ t('problems.manage.inviteVerify') }}
-            </n-button>
-          </template>
-          <div class="vp-popover">
-            <p class="vp-popover__label">{{ t('problems.manage.expiry') }}</p>
-            <n-button
-              v-for="option in expiryOptions"
-              :key="option.key"
-              size="small"
-              block
-              :loading="generating && expiryHours === option.hours"
-              @click="generateInvite(option.hours)"
-            >
-              {{ option.label }}
-            </n-button>
-          </div>
-        </n-popover>
-        <n-button
-          type="primary"
-          secondary
-          :loading="submitting"
-          :disabled="!code.trim()"
-          @click="submitSelfVerify"
-        >
-          {{ t('problems.selfVerify.submit') }}
+    <div class="vp-editor">
+      <CodeEditor v-model="code" :language="language" />
+    </div>
+  </section>
+
+  <n-modal
+    v-model:show="subsDialog"
+    preset="card"
+    :title="t('problems.manage.verifySubmissions')"
+    style="width: min(760px, 94vw)"
+  >
+    <n-data-table
+      v-if="verifySubs.length"
+      size="small"
+      :columns="subColumns"
+      :data="verifySubs"
+      :row-props="(row: Submission) => ({ style: 'cursor: pointer;', onClick: () => openSubmissionRow(row) })"
+    />
+    <n-empty v-else :description="t('common.noData')" />
+  </n-modal>
+
+  <n-modal
+    v-model:show="inviteDialog"
+    preset="card"
+    :title="t('problems.manage.inviteDialogTitle')"
+    style="max-width: 460px"
+  >
+    <!-- 已存在有效链接：直接展示，可复制或重新生成 -->
+    <div v-if="inviteMode === 'view' && invite" class="vp-invite-dlg">
+      <p class="vp-invite-dlg__hint">{{ t('problems.manage.existingInvite') }}</p>
+      <n-input :value="inviteLink" readonly :placeholder="inviteLink">
+        <template #suffix>
+          <n-button text type="primary" size="small" @click="copyLink">{{
+            t('action.copyLink')
+          }}</n-button>
+        </template>
+      </n-input>
+      <n-space justify="end">
+        <n-button secondary :loading="generating" @click="inviteMode = 'generate'">
+          {{ t('problems.manage.regenerate') }}
         </n-button>
-      </div>
+      </n-space>
+    </div>
 
-      <!-- 邀请链接条：生成后常驻展示，一键复制 -->
-      <div v-if="invite" class="vp-invite">
-        <n-input :value="inviteLink" readonly size="small">
-          <template #suffix>
-            <n-button text type="primary" size="tiny" @click="copyLink">{{
-              t('action.copyLink')
-            }}</n-button>
-          </template>
-        </n-input>
-      </div>
-
-      <div class="vp-editor">
-        <CodeEditor v-model="code" :language="language" />
-      </div>
-    </section>
-  </div>
+    <!-- 无有效链接：选择有效期并生成 -->
+    <div v-else class="vp-invite-dlg">
+      <p class="vp-invite-dlg__hint">{{ t('problems.manage.expiryHint') }}</p>
+      <n-space vertical :size="10">
+        <n-button
+          v-for="option in expiryOptions"
+          :key="option.key"
+          block
+          :type="expiryHours === option.hours ? 'primary' : 'default'"
+          :loading="generating && expiryHours === option.hours"
+          @click="generateInvite(option.hours)"
+        >
+          {{ option.label }}
+        </n-button>
+      </n-space>
+    </div>
+  </n-modal>
 </template>
 
 <style scoped>
-.vp-split {
-  display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-  align-items: stretch;
-  /* 由外层 verify-stage 决定高度：左右栏满高，编辑器 flex:1 吃掉右栏剩余 */
-  height: 100%;
-}
-/* 左栏：独立滚动（高度由外层 stage 拉伸决定，不再固定 vh）。
-   分栏以右栏发丝线分界，线两侧各留 16px，左短内容时不显空 */
-.vp-statement {
-  min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 16px;
-}
-.vp-body {
-  margin-top: 14px;
-}
-
-/* 右栏：工具行 + 链接条 + 编辑器；左侧发丝线与左栏分界 */
+/* 右栏：工具行 + 编辑器（min-height:0 让 flex 正确压缩，编辑器随剩余高度伸缩） */
 .vp-work {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
-  border-left: 1px solid var(--app-border);
-  padding-left: 16px;
+  min-height: 0;
+  padding-left: 10px;
 }
 .vp-toolbar {
   display: flex;
@@ -257,37 +345,36 @@ defineExpose({ publish, blocked, publishing })
 .vp-lang {
   width: 160px;
 }
-.vp-popover {
-  display: grid;
-  gap: 8px;
-  width: 180px;
+.vp-editor {
+  flex: 1;
+  min-height: 0;
 }
-.vp-popover__label {
+.vp-invite-dlg {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.vp-invite-dlg__hint {
   margin: 0;
   color: var(--app-text-secondary);
   font-size: 13px;
+  line-height: 1.5;
 }
-.vp-editor {
-  flex: 1;
-  /* 保底不低于原固定高度；视口更大时随 flex 继续增长 */
-  min-height: 46vh;
+.vp-subs__link {
+  color: var(--app-primary);
+  cursor: pointer;
 }
-@media (max-width: 900px) {
-  .vp-split {
-    grid-template-columns: 1fr;
-    height: auto; /* 单列堆叠时按内容自然高度 */
-  }
-  .vp-statement {
-    padding-right: 0;
-    max-height: 60vh;
-    overflow-y: auto;
-  }
+.vp-subs__link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 899px) {
   .vp-work {
-    border-left: none;
     padding-left: 0;
+    margin-top: 14px;
   }
   .vp-editor {
-    height: 60vh;
+    height: 60vh; /* 窄屏堆叠时给编辑器固定可视高度 */
     min-height: 320px;
     flex: none;
   }

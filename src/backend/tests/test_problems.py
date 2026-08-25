@@ -338,13 +338,14 @@ async def test_verification_invite_flow_and_writeback(client, admin_headers, use
     assert resp.json()["code"] == 0, resp.text
     invite_token = resp.json()["data"]["invite"]["token"]
 
-    # 重复发起 → 3003
+    # 重复发起 → 幂等复用同一邀请链接（不再报 3003）
     resp = await client.post(
         f"/api/v1/problems/{problem_id}/verify",
         json={"invite_expires_hours": 24},
         headers=admin_headers,
     )
-    assert resp.json()["code"] == 3003
+    assert resp.json()["code"] == 0, resp.text
+    assert resp.json()["data"]["invite"]["token"] == invite_token
 
     # 公开解析邀请链接（返回题面与样例供受邀人查看）
     resp = await client.get(f"/api/v1/verify-invites/{invite_token}")

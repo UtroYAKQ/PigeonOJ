@@ -9,6 +9,7 @@ import { createSubmission } from '@/api/judge'
 import type { ProblemLanguage } from '@/types'
 import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/feedback'
+import { useSplitPane } from '@/composables/useSplitPane'
 import { languageOptions } from '@/constants/languages'
 import CodeEditor from '@/components/CodeEditor.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
@@ -32,6 +33,9 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const userStore = useUserStore()
+
+// 与题库详情页同款可拖拽分栏（比例共享持久化；窄屏自动上下堆叠）
+const { isDesktop, splitRef, layoutStyle, startResize, resetSplit } = useSplitPane()
 
 const resolving = ref(true)
 const failed = ref('')
@@ -95,32 +99,35 @@ function submit() {
       <span>🐦</span><strong>PigeonOJ</strong>
     </header>
 
-    <main class="verify-pane">
-      <n-spin :show="resolving">
-        <!-- 解析失败 -->
-        <n-card v-if="failed" :bordered="false" class="verify-card">
+    <n-spin :show="resolving">
+      <!-- 解析失败 -->
+      <main v-if="failed" class="verify-pane">
+        <n-card :bordered="false" class="verify-card">
           <n-result status="404" :title="t('problems.verify.invalid')" :description="failed">
             <template #footer>
               <n-button @click="router.push('/')">{{ t('problems.verify.backHome') }}</n-button>
             </template>
           </n-result>
         </n-card>
+      </main>
 
-        <n-card v-else-if="invite" :bordered="false" class="verify-card">
-          <!-- 概要 -->
+      <!-- 左题面 / 右编辑器，可拖拽分栏 -->
+      <div
+        v-else-if="invite"
+        ref="splitRef"
+        class="verify-layout"
+        :class="{ stacked: !isDesktop }"
+        :style="layoutStyle"
+      >
+        <!-- 左：题面（独立滚动） -->
+        <section class="verify-statement">
           <div class="verify-head">
             <p class="verify-eyebrow">{{ t('problems.verify.title') }}</p>
             <h1>{{ invite.problem_title }}</h1>
             <div class="verify-meta">
-              <n-tag
-                v-for="name in invite.tags"
-                :key="name"
-                size="small"
-                round
-                :bordered="false"
-              >
+              <NTag v-for="name in invite.tags" :key="name" size="small" round :bordered="false">
                 {{ name }}
-              </n-tag>
+              </NTag>
               <span>{{ invite.time_limit_ms }} ms</span>
               <span>{{ invite.memory_limit_mb }} MB</span>
               <span v-if="invite.expires_at">
@@ -130,8 +137,7 @@ function submit() {
             </div>
           </div>
 
-          <!-- 题面（小节标题自带分隔线，不再叠加 n-divider） -->
-          <section class="verify-statement">
+          <section class="verify-content">
             <MarkdownView :source="invite.description" />
             <template v-if="invite.input_description">
               <h3 class="verify-subtitle">{{ t('problems.detail.inputDescription') }}</h3>
@@ -147,39 +153,49 @@ function submit() {
               <ProblemSamples :samples="invite.samples" />
             </template>
           </section>
+        </section>
 
-          <!-- 提交验题 -->
-          <section>
-            <template v-if="!userStore.isLoggedIn">
-              <n-alert type="warning" class="verify-alert">{{
-                t('problems.verify.loginRequired')
-              }}</n-alert>
-              <n-button type="primary" block size="large" @click="goLogin">{{
-                t('problems.verify.goLogin')
-              }}</n-button>
-            </template>
+        <!-- 可拖拽分隔条（双击复位，与题库详情页一致） -->
+        <div
+          class="verify-divider"
+          role="separator"
+          aria-orientation="vertical"
+          :aria-label="t('problems.detail.resizeHint')"
+          :title="t('problems.detail.resizeHint')"
+          @pointerdown="startResize"
+          @dblclick="resetSplit"
+        />
 
-            <template v-else>
-              <div class="verify-submit-head">
-                <n-select v-model:value="language" :options="languageOptions" class="verify-lang" />
-                <n-button
-                  type="primary"
-                  size="large"
-                  :loading="submitting"
-                  :disabled="!code.trim()"
-                  @click="submit"
-                >
-                  {{ t('problems.verify.submit') }}
-                </n-button>
-              </div>
-              <div class="verify-editor">
-                <CodeEditor v-model="code" :language="language" />
-              </div>
-            </template>
-          </section>
-        </n-card>
-      </n-spin>
-    </main>
+        <!-- 右：提交验题 -->
+        <section class="verify-work">
+          <template v-if="!userStore.isLoggedIn">
+            <n-alert type="warning" class="verify-alert">{{
+              t('problems.verify.loginRequired')
+            }}</n-alert>
+            <n-button type="primary" block size="large" @click="goLogin">{{
+              t('problems.verify.goLogin')
+            }}</n-button>
+          </template>
+
+          <template v-else>
+            <div class="verify-submit-head">
+              <n-select v-model:value="language" :options="languageOptions" class="verify-lang" />
+              <n-button
+                type="primary"
+                :loading="submitting"
+                :disabled="!code.trim()"
+                @click="submit"
+              >
+                {{ t('problems.verify.submit') }}
+              </n-button>
+            </div>
+            <div class="verify-editor">
+              <CodeEditor v-model="code" :language="language" />
+            </div>
+          </template>
+        </section>
+      </div>
+    </n-spin>
   </div>
 </template>
 
@@ -194,6 +210,7 @@ function submit() {
   align-items: center;
   gap: 9px;
   width: max-content;
+  margin-bottom: 18px;
   color: var(--app-text);
   cursor: pointer;
   font-size: 16px;
@@ -207,6 +224,8 @@ function submit() {
   border-radius: 8px;
   background: var(--app-card-bg);
 }
+
+/* 解析失败态：居中窄卡 */
 .verify-pane {
   display: grid;
   place-items: start center;
@@ -215,6 +234,25 @@ function submit() {
 .verify-card {
   width: min(860px, 100%);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* 三列网格：左题面 + 分隔条 + 右编辑器，与题库详情页同款。
+   独立页无 .app-main 滚动容器，高度直接按视口扣除头部与页面内边距 */
+.verify-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, var(--split, 50%)) auto minmax(360px, 1fr);
+  align-items: stretch;
+  gap: 4px;
+  height: calc(100dvh - 130px);
+  min-height: 480px;
+}
+
+/* 左：题面（独立滚动） */
+.verify-statement {
+  overflow-y: auto;
+  min-width: 0;
+  min-height: 0;
+  padding-right: 6px;
 }
 .verify-head h1 {
   margin: 6px 0 10px;
@@ -233,8 +271,9 @@ function submit() {
   gap: 6px 16px;
   color: var(--app-text-secondary);
   font-size: 12px;
+  margin-bottom: 14px;
 }
-.verify-statement {
+.verify-content {
   line-height: 1.75;
 }
 .verify-subtitle {
@@ -243,25 +282,76 @@ function submit() {
   border-top: 1px solid var(--app-border);
   font-size: 15px;
 }
+
+/* 可拖拽分隔条：细长手柄，hover / 聚焦变主色 */
+.verify-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  margin: 0 -3px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+}
+.verify-divider::before {
+  content: '';
+  width: 4px;
+  height: 56px;
+  border-radius: var(--app-radius-sm, 4px);
+  background: var(--app-border);
+  transition: background-color 0.15s ease;
+}
+.verify-divider:hover::before,
+.verify-divider:focus-visible::before {
+  background: var(--app-primary);
+}
+
+/* 右：工具行 + 编辑器 */
+.verify-work {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding-left: 10px;
+}
 .verify-alert {
-  margin-bottom: 14px;
+  align-self: flex-start;
 }
 .verify-submit-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
 }
 .verify-lang {
   width: 180px;
 }
 .verify-editor {
-  height: 360px;
+  flex: 1;
+  min-height: 0;
 }
-@media (max-width: 560px) {
+
+@media (max-width: 899px) {
   .verify-page {
     padding: 16px;
+  }
+  .verify-layout.stacked {
+    display: block;
+    height: auto;
+    min-height: 0;
+  }
+  .verify-statement {
+    overflow: visible;
+    padding-right: 0;
+  }
+  .verify-divider {
+    display: none;
+  }
+  .verify-work {
+    padding-left: 0;
+    margin-top: 16px;
   }
   .verify-submit-head {
     flex-direction: column;
@@ -271,7 +361,8 @@ function submit() {
     width: 100%;
   }
   .verify-editor {
-    height: 280px;
+    height: 320px;
+    flex: none;
   }
 }
 </style>

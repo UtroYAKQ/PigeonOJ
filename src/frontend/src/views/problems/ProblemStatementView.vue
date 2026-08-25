@@ -11,6 +11,7 @@ import {
 } from '@/api/problems'
 import { message } from '@/utils/feedback'
 import WizardShell from '@/components/WizardShell.vue'
+import MarkdownEditor from '@/components/MarkdownEditor.vue'
 import type { ProblemDetailEx, ProblemTagItem } from '@/types'
 
 const route = useRoute()
@@ -34,6 +35,13 @@ const form = reactive({
   memory_limit_mb: 256,
 })
 const tagOptions = ref<Array<{ label: string; value: string }>>([])
+/** 官方题解编辑器懒挂载：首次展开折叠面板时才创建编辑器实例 */
+const solutionMounted = ref(false)
+
+function toggleSolution() {
+  showSolution.value = !showSolution.value
+  if (showSolution.value) solutionMounted.value = true
+}
 
 async function loadTagOptions() {
   try {
@@ -151,35 +159,14 @@ const visibilityOptions = computed(() => [
         </template>
 
         <n-form label-placement="top" class="wizard-body">
+          <div class="form-hint">{{ t('problems.create.requiredHint') }}</div>
+
+          <!-- 基础信息：标题 + 低频元数据（标签 / 可见性 / 限制）合并为一行区，压缩纵向空间 -->
+          <div class="section-title">{{ t('problems.create.sectionBasic') }}</div>
           <n-form-item :label="t('problems.create.name')" required>
             <n-input v-model:value="form.title" size="large" />
           </n-form-item>
-          <n-form-item :label="t('problems.create.statement')" required>
-            <n-input v-model:value="form.description" type="textarea" :rows="10" />
-          </n-form-item>
-          <div class="form-grid">
-            <n-form-item :label="t('problems.create.inputDescription')" required>
-              <n-input v-model:value="form.input_description" type="textarea" :rows="4" />
-            </n-form-item>
-            <n-form-item :label="t('problems.create.outputDescription')" required>
-              <n-input v-model:value="form.output_description" type="textarea" :rows="4" />
-            </n-form-item>
-          </div>
-          <n-collapse-transition :show="showSolution">
-            <n-form-item :label="t('problems.create.solution')" class="solution-field">
-              <n-input v-model:value="form.solution" type="textarea" :rows="5" />
-            </n-form-item>
-          </n-collapse-transition>
-          <n-button
-            text
-            size="small"
-            type="primary"
-            class="solution-toggle"
-            @click="showSolution = !showSolution"
-          >
-            {{ showSolution ? t('problems.create.solutionHide') : t('problems.create.solutionToggle') }}
-          </n-button>
-          <div class="form-grid">
+          <div class="meta-grid">
             <n-form-item :label="t('problems.create.tags')">
               <n-select
                 :value="form.tags"
@@ -201,6 +188,33 @@ const visibilityOptions = computed(() => [
               <n-input-number v-model:value="form.memory_limit_mb" :min="16" class="w-full" />
             </n-form-item>
           </div>
+
+          <!-- 题面内容：页面主体，编辑器沉到元数据之后，形成自上而下的书写动线 -->
+          <div class="section-title section-gap">{{ t('problems.create.sectionStatement') }}</div>
+          <n-form-item :label="t('problems.create.statement')" required>
+            <MarkdownEditor v-model="form.description" min-height="360px" />
+          </n-form-item>
+          <div class="form-grid">
+            <n-form-item :label="t('problems.create.inputDescription')" required>
+              <MarkdownEditor v-model="form.input_description" min-height="180px" compact />
+            </n-form-item>
+            <n-form-item :label="t('problems.create.outputDescription')" required>
+              <MarkdownEditor v-model="form.output_description" min-height="180px" compact />
+            </n-form-item>
+          </div>
+
+          <!-- 官方题解：分区头 + 右侧展开入口；首次展开才挂载编辑器（避免在 0 高折叠容器中初始化） -->
+          <div class="solution-head">
+            <span class="section-title">{{ t('problems.create.solution') }}</span>
+            <n-button text size="small" type="primary" @click="toggleSolution">
+              {{ showSolution ? t('problems.create.solutionHide') : t('problems.create.solutionAdd') }}
+            </n-button>
+          </div>
+          <n-collapse-transition :show="showSolution">
+            <n-form-item v-if="solutionMounted" :show-feedback="false" class="solution-field">
+              <MarkdownEditor v-model="form.solution" min-height="200px" />
+            </n-form-item>
+          </n-collapse-transition>
         </n-form>
       </WizardShell>
     </n-spin>
@@ -211,22 +225,54 @@ const visibilityOptions = computed(() => [
 .wizard-body {
   min-height: 320px;
 }
+.form-hint {
+  margin-bottom: 4px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 16px;
 }
-.solution-field {
-  margin-bottom: 8px;
+/* 基础信息元数据行：桌面四列一行放下，窄屏逐级降列 */
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 12px;
 }
-.solution-toggle {
-  margin-bottom: 16px;
+.section-gap {
+  margin-top: 20px;
+}
+.solution-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--app-border);
+}
+.solution-head .section-title {
+  margin: 0;
+}
+.solution-field {
+  margin-top: 4px;
 }
 .w-full {
   width: 100%;
 }
+@media (max-width: 960px) {
+  .meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 @media (max-width: 760px) {
   .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 560px) {
+  .meta-grid {
     grid-template-columns: 1fr;
   }
 }

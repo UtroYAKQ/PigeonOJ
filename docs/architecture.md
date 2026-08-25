@@ -144,7 +144,7 @@ src/backend/
 - 页面级组件管理状态（Pinia），展示型组件纯渲染
 - **工程化门禁**：ESLint（`eslint.config.js`）+ Prettier（`.prettierrc.json`）+ Vitest（jsdom 环境）；
   变更提交前须过 `npm run lint:check` / `npm test` / `npm run build`（命令见 `docs/operations.md`，约定见 `docs/frontend.md`）
-- 前端用户可见文案通过 vue-i18n 管理，默认中文并支持 English 切换；上传统一走 `src/api/files.ts`
+- 前端用户可见文案通过 vue-i18n 管理，默认中文并支持 English 切换；上传统一走 `src/frontend/src/api/files.ts`
 - **国际化要求**：所有面向用户的静态文案（页面、组件、路由标题、菜单、表格列、表单标签/占位符、空状态、弹窗、通知、导出表头及展示字典）必须使用 `src/i18n/` 中的 key，不得在 Vue/TS 中硬编码自然语言；新增或修改文案时必须同时提供 `zh-CN` 与 `en-US` 翻译。服务端返回的业务错误信息可按原样展示，但前端兜底错误提示必须国际化。
 - 每个数据视图覆盖 loading / error / empty / success 四种状态
 - 通过统一 API 层调用后端，统一处理响应信封 `{ code, message, data }`

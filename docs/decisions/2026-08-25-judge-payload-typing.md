@@ -13,7 +13,7 @@
    各写字面量；`x-node-token` metadata 键、心跳状态值 `"online"` 为行内硬编码；
    结果落库的状态兜底写死 `"system_error"` 字符串而同函数其他位置使用枚举。
 3. **提交详情违反序列化规范且字段与契约不符**：`SubmissionService.get_detail`
-   手写 dict 组装 cases 明细（refactoring-notes 第四节明确禁止），字段名为 `test_case_id`，
+   手写 dict 组装 cases 明细（违反 `docs/workflow.md` 禁止事项「直接使用字典封装数据而不是类」，应经 Pydantic schema 序列化），字段名为 `test_case_id`，
    而 `schemas/judge.TestCaseResult`、前端 `types/judge.ts` 与评测页表格列均期望 `case_name`
    ——前端「测试点名」列实际恒为空。
 

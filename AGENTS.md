@@ -9,7 +9,7 @@
 3. `docs/contracts/` — 数据模型、API 契约和错误码
 4. `docs/operations.md` — 测试、部署和环境变量
 5. `docs/workflow.md` — 文档同步工作流
-6. 修改前端时加读 `docs/frontend.md`；重构后端模块时加读 `docs/refactoring-notes.md`
+6. 修改前端时加读 `docs/frontend.md`；重构后端模块时先读 `docs/decisions/2026-08-24-backend-layered-restructure.md` 与 `docs/decisions/2026-08-25-backend-service-repository-split.md`
 
 ## 工作规则
 
@@ -21,7 +21,6 @@
 - API 使用统一响应信封 `{ code, message, data }`，`code=0` 表示成功（见 `docs/contracts/common.md`）
 - 越权规则：所有用户数据查询必须带 `WHERE user_id = ?`；测试点期望输出、沙箱内部路径不返回前端
 - 代码执行仅在 nsjail 沙箱进行；AI 修改代码必须用户确认后应用
-- Codex 专属行为写在本文件或 `.codex/` 目录下
 
 ## 决策记录
 
@@ -30,7 +29,7 @@
 ## 验证
 
 - 仅文档变更时，检查链接、路径和示例的一致性
-- 后端变更时：`python scripts/check_import_rules.py` + 运行最相关的 pytest（见 `docs/operations.md`）
+- 后端变更时：`python src/backend/scripts/check_import_rules.py`（仓库根目录可直接运行）+ 在 `src/backend/` 下运行最相关的 pytest（见 `docs/operations.md`）
 - 前端变更时，依次运行 `npm run lint:check` / `npm test` / `npm run build`
 - 如果验证命令不可用，在最终回复中说明
 

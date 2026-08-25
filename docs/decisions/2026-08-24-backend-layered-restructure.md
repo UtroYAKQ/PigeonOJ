@@ -51,7 +51,7 @@ run.py               # 开发启动入口（uvicorn app:app --reload）
 
 ### 3. 导入规则重写
 
-`scripts/check_import_rules.py` 改为技术分层规则：
+`src/backend/scripts/check_import_rules.py` 改为技术分层规则：
 
 1. `app.api/**` 仅可被 api 层内部引用（路由不可被下穿依赖）
 2. `models` / `schemas` 不得 import `controllers`

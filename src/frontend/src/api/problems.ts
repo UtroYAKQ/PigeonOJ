@@ -82,6 +82,13 @@ export function resolveVerifyInvite(
   return apiRequest('GET', `/verify-invites/${token}`)
 }
 
+/** 查询题目当前有效的验题邀请链接；无或已失效返回 null */
+export function getVerifyInvite(
+  id: string,
+): Promise<{ token: string; expires_at: string | null } | null> {
+  return apiRequest('GET', `/problems/${id}/verify/invite`)
+}
+
 /** 提交验题代码：存在进行中验题时任意登录用户可提交（invite_token 可选） */
 export function submitVerifyCode(
   id: string,

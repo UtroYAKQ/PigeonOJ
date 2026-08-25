@@ -68,7 +68,7 @@ CHECK (status <> 'published' OR is_verified)
 
 索引：INDEX(`problem_id`, `sort_order`)
 
-> **展示样例不落本表**：样例以字符串数组存于 `problems.samples`，仅用于题目详情页展示与自测，不参与正式判题（见 `docs/decisions/2026-08-15-sample-not-judged.md` 与 `docs/decisions/2026-08-24-samples-jsonb-column.md`）。正式判题只使用本表测试点。
+> **展示样例不落本表**：样例以字符串数组存于 `problems.samples`，仅用于题目详情页展示与自测，不参与正式判题（见 `docs/decisions/2026-08-15-sample-not-judged.md` 与 `docs/decisions/2026-08-24-samples-jsonb-and-invite-cleanup.md`）。正式判题只使用本表测试点。
 
 ### 验题表
 
@@ -136,6 +136,7 @@ CHECK (status <> 'published' OR is_verified)
 | POST | /problems/{id}/archive | admin/tutor/team_creator/team_admin | 下线归档 | - | problem |
 | GET | /teams/{team_id}/problems | admin/tutor/team_creator/team_admin | 团队题库列表（随 teams 模块实现） | 分页/可见性 | problem[] |
 | POST | /files/upload/avatar | auth（头像） | 头像上传（multipart → ossId） | file | ossId |
+| POST | /files/upload/image | auth（公共图片，登录用户可用） | 题面插图上传（multipart → url），Markdown 编辑器以 `![](url)` 引用；详见 admin.md files 表 | file（≤5MB，JPG/PNG/WEBP/GIF） | ossId |
 
 > 测试点与样例均不走独立上传接口：`PUT /problems/{id}/test-cases` 接收 UTF-8 的 `input` / `expected_output` 内容（每项 ≤2MB），全部作为正式测试点由后端生成对象 key 并分别上传 `problems/{problem_id}/cases/{case_id}/input` 与 `/output`，回填双 ossId；样例经 `PUT /problems/{id}/samples` 直接存库（≤10 组、单项各 ≤64KB），不上传 MinIO。不生成测试点归档 ZIP，前端 ZIP 只在浏览器内解压为内容。
 
@@ -151,7 +152,7 @@ CHECK (status <> 'published' OR is_verified)
 
 ## 当前基础前端页面
 
-前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端左右两栏独立滚动、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题面 / 输入输出说明 / 官方题解按 Markdown 渲染（markdown-it + DOMPurify，见 `docs/decisions/2026-08-23-problem-statement-markdown.md`），样例仍为等宽文本块并提供复制。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
+前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面题面 / 输入输出说明 / 官方题解使用 Markdown 编辑器（md-editor-v3，编辑 + 按需分屏预览；存储仍为 Markdown 文本）。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端高度锁定为一屏、左右两栏独立滚动（题面过长时左栏内部滚动）、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题面 / 输入输出说明 / 官方题解按 Markdown 渲染（markdown-it + DOMPurify，支持 KaTeX 公式 `$...$` / `$$...$$`，见 `docs/decisions/2026-08-23-problem-statement-markdown.md`），样例仍为等宽文本块并提供复制。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
 
 ## 关键流程 / 验收条件
 

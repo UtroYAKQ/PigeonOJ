@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
+import { watch } from 'vue'
 
 import MenuCollapse from './components/MenuCollapse.vue'
 import SideLogo from './components/SideLogo.vue'
@@ -14,15 +15,14 @@ import { useAppStore } from '@/stores/app'
 const appStore = useAppStore()
 
 // 窄屏（平板 / 手机）强制收起侧栏，与参考模板断点行为一致
-const media = window.matchMedia(`(max-width: ${COLLAPSE_BREAKPOINT}px)`)
-function applyBreakpoint() {
-  appStore.setCollapsed(media.matches)
-}
-onMounted(() => {
-  applyBreakpoint()
-  media.addEventListener('change', applyBreakpoint)
-})
-onBeforeUnmount(() => media.removeEventListener('change', applyBreakpoint))
+const isNarrowScreen = useMediaQuery(`(max-width: ${COLLAPSE_BREAKPOINT}px)`)
+watch(
+  isNarrowScreen,
+  (narrow) => {
+    appStore.setCollapsed(narrow)
+  },
+  { immediate: true },
+)
 </script>
 
 <template>

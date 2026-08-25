@@ -1,4 +1,5 @@
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useEventListener, useMediaQuery } from '@vueuse/core'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 const SPLIT_KEY = 'pigeonoj.problems.splitRatio'
 
@@ -12,8 +13,8 @@ function loadRatio(): number {
  * 从 ProblemDetailView.vue 提取，供需要分栏的页面复用。
  */
 export function useSplitPane() {
-  const desktopQuery = window.matchMedia('(min-width: 900px)')
-  const isDesktop = ref(desktopQuery.matches)
+  // 窄屏（<900px）自动上下堆叠；断点监听由 useMediaQuery 接管（卸载自动清理）
+  const isDesktop = useMediaQuery('(min-width: 900px)')
   const splitRef = ref<HTMLElement>()
   const ratio = ref(loadRatio())
   const splitHeight = ref('')
@@ -25,8 +26,6 @@ export function useSplitPane() {
     event.preventDefault()
     resizing = true
     document.body.classList.add('is-splitting')
-    window.addEventListener('pointermove', onPointerMove)
-    window.addEventListener('pointerup', endResize)
   }
 
   function onPointerMove(event: PointerEvent) {
@@ -40,8 +39,6 @@ export function useSplitPane() {
     resizing = false
     document.body.classList.remove('is-splitting')
     localStorage.setItem(SPLIT_KEY, String(ratio.value))
-    window.removeEventListener('pointermove', onPointerMove)
-    window.removeEventListener('pointerup', endResize)
   }
 
   function resetSplit() {
@@ -69,11 +66,6 @@ export function useSplitPane() {
     splitHeight.value = `${height}px`
   }
 
-  function onDesktopChange(event: MediaQueryListEvent) {
-    isDesktop.value = event.matches
-    updateSplitHeight()
-  }
-
   const layoutStyle = computed(() =>
     isDesktop.value
       ? ({ '--split': `${ratio.value * 100}%`, height: splitHeight.value || undefined } as Record<
@@ -83,19 +75,17 @@ export function useSplitPane() {
       : {},
   )
 
-  onMounted(() => {
-    desktopQuery.addEventListener('change', onDesktopChange)
-    window.addEventListener('resize', updateSplitHeight)
-    window.addEventListener('pigeonoj:locale-change', updateSplitHeight)
-  })
+  // 拖拽 / 窗口尺寸 / 语言切换事件统一交给 useEventListener：组件卸载自动解绑；
+  // pointermove / pointerup 常驻但由 resizing 标志守卫，等价于原先的动态挂载
+  useEventListener(window, 'pointermove', onPointerMove)
+  useEventListener(window, 'pointerup', endResize)
+  useEventListener(window, 'resize', updateSplitHeight)
+  useEventListener(window, 'pigeonoj:locale-change', updateSplitHeight)
+  watch(isDesktop, updateSplitHeight)
 
+  // 卸载兜底：拖拽中途离开页面时移除拖拽态样式（正常路径由 endResize 移除）
   onBeforeUnmount(() => {
-    desktopQuery.removeEventListener('change', onDesktopChange)
-    window.removeEventListener('resize', updateSplitHeight)
-    window.removeEventListener('pigeonoj:locale-change', updateSplitHeight)
     document.body.classList.remove('is-splitting')
-    window.removeEventListener('pointermove', onPointerMove)
-    window.removeEventListener('pointerup', endResize)
   })
 
   return {

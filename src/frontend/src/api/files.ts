@@ -7,3 +7,10 @@ export function uploadAvatar(file: File) {
   data.append('file', file)
   return requestUpload<UploadResult>('/files/upload/avatar', data)
 }
+
+/** 公共图片上传（登录用户可用）：题面插图等 Markdown 引用场景。 */
+export function uploadImage(file: File) {
+  const data = new FormData()
+  data.append('file', file)
+  return requestUpload<UploadResult>('/files/upload/image', data)
+}

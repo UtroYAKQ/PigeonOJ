@@ -182,8 +182,9 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
   grid-template-columns: minmax(300px, var(--split, 50%)) auto minmax(360px, 1fr);
   align-items: stretch;
   gap: 4px;
-  /* 与列表工作台同口径：视口高 - 顶栏 60px - 内容区上下内边距 28px */
-  min-height: calc(100dvh - 88px);
+  /* 高度锁定为一屏（顶栏 60px + 内容区上下内边距 28px）：
+     题面过长时左栏内部滚动，不再把整页撑高 */
+  height: calc(100dvh - 88px);
 }
 .problem-detail__statement {
   display: flex;
@@ -255,6 +256,7 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
 @media (max-width: 899px) {
   .problem-detail__layout.stacked {
     display: block;
+    height: auto; /* 堆叠时按内容自然高度，整页滚动 */
   }
   .problem-detail__statement {
     overflow: visible;

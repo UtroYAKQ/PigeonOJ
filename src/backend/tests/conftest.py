@@ -32,6 +32,7 @@ from app import app
 from app.models.user import Role, User, UserRole
 from app.core.database import Base, SessionLocal, engine
 from app.core.redis import get_redis
+from app.core.storage import StoredObject
 from app.utils.security import hash_password
 
 ROLE_SEEDS = [
@@ -137,6 +138,7 @@ class FakeStorage:
     async def put_bytes(self, key, content, content_type):
         self.puts.append((key, content, content_type))
         self.store[key] = (content, content_type)
+        return StoredObject(object_key=key, content_type=content_type, size=len(content))
 
     async def get_bytes(self, key):
         if key not in self.store:
@@ -151,6 +153,8 @@ class FakeStorage:
 def fake_storage(monkeypatch) -> FakeStorage:
     storage = FakeStorage()
     for target in (
+        "app.services.file.get_storage",
+        "app.api.v1.files.get_storage",
         "app.services.problem.get_storage",
         "app.services.judge.get_storage",
         "app.rpc.judge_jobs.get_storage",

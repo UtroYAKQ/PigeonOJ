@@ -17,7 +17,12 @@ const stepLabel = computed(() => `${props.step} / 3`)
 </script>
 
 <template>
-  <n-card :bordered="false">
+  <!-- 内边距较 n-card 默认（19/24/20）收窄：向导页以表单 / 编辑器为主体，减少两侧空转区 -->
+  <n-card
+    :bordered="false"
+    :header-style="{ padding: '12px 16px' }"
+    :content-style="{ padding: '12px 16px 16px' }"
+  >
     <template #header>
       <div class="wizard-shell__head">
         <div class="card-head__title">
