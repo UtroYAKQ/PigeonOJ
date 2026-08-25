@@ -16,6 +16,11 @@
   --app-text: #333639;
   --app-text-secondary: #666e75;
   --app-muted-bg: #fafafc;
+  /* 语义色（与 settings/theme.ts 的 naive themeOverrides 同源；供 CSS 场景引用） */
+  --app-info: #2080f0;
+  --app-success: #18a058;
+  --app-warning: #f0a020;
+  --app-error: #d03050;
   /* 圆角与弱表面令牌（MarkdownView / CodeEditor 等组件引用） */
   --app-radius-sm: 4px;
   --app-radius: 6px;

@@ -38,6 +38,7 @@ export default {
     handle: 'Handle',
     export: 'Export current page CSV',
     copyLink: 'Copy link',
+    copy: 'Copy',
   },
   common: {
     allStatus: 'All statuses',

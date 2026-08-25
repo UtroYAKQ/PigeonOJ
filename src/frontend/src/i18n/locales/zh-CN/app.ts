@@ -38,6 +38,7 @@ export default {
     handle: '处理',
     export: '导出当前页 CSV',
     copyLink: '复制链接',
+    copy: '复制',
   },
   common: {
     allStatus: '全部状态',

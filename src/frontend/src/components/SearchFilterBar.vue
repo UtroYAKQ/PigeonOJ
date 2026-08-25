@@ -2,16 +2,21 @@
 import { Search as SearchIcon } from '@element-plus/icons-vue'
 import { ref } from 'vue'
 
-defineProps<{
-  /** 搜索关键词 v-model */
-  keyword?: string
-  /** 搜索框占位文案 */
-  placeholder?: string
-  /** 搜索框宽度（默认 240px） */
-  searchWidth?: string
-  /** 是否显示搜索框（默认 true） */
-  showSearch?: boolean
-}>()
+// showSearch 必须显式给默认值 true：Boolean prop 缺省时会被 Vue 强转为 false（而非 undefined），
+// 「未传 = 显示」的语义必须经 withDefaults 落实，否则搜索输入框永远不渲染
+withDefaults(
+  defineProps<{
+    /** 搜索关键词 v-model */
+    keyword?: string
+    /** 搜索框占位文案 */
+    placeholder?: string
+    /** 搜索框宽度（默认 240px） */
+    searchWidth?: string
+    /** 是否显示搜索框（默认 true） */
+    showSearch?: boolean
+  }>(),
+  { searchWidth: '240px', showSearch: true },
+)
 
 const emit = defineEmits<{
   'update:keyword': [value: string]
@@ -43,11 +48,11 @@ function onInput(value: string) {
 <template>
   <div class="search-filter-bar">
     <n-input
-      v-if="showSearch !== false"
+      v-if="showSearch"
       :value="keyword"
       clearable
       class="search-filter-bar__search"
-      :style="{ width: searchWidth ?? '240px' }"
+      :style="{ width: searchWidth }"
       :placeholder="placeholder"
       @input="onInput"
       @compositionstart="onCompositionStart"

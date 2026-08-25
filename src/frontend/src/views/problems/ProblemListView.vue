@@ -21,7 +21,6 @@ const keyword = ref('')
 /** 标签筛选（单选；docs/decisions/2026-08-24-remove-difficulty-use-tags.md） */
 const tag = ref<string | null>(null)
 const tagOptions = ref<Array<{ label: string; value: string }>>([])
-let searchTimer: number | undefined
 
 async function load() {
   loading.value = true
@@ -50,18 +49,8 @@ async function loadTagOptions() {
   }
 }
 
-function scheduleSearch() {
-  window.clearTimeout(searchTimer)
-  searchTimer = window.setTimeout(() => {
-    resetPage()
-    load()
-  }, 300)
-}
-
-function onKeywordInput() {
-  scheduleSearch()
-}
-function onKeywordClear() {
+/** 搜索 / 清空筛选：SearchFilterBar 内部已做输入防抖，这里立即查询 */
+function onSearch() {
   resetPage()
   load()
 }
@@ -110,11 +99,11 @@ function rowProps(row: ProblemSummary) {
     <n-card :bordered="false">
       <SearchFilterBar
         :keyword="keyword"
-        :placeholder="t('problems.list.name')"
+        :placeholder="t('problems.list.search')"
         search-width="300px"
         @update:keyword="(v: string) => { keyword = v }"
-        @search="onKeywordInput"
-        @reset="onKeywordClear"
+        @search="onSearch"
+        @reset="onSearch"
       >
         <n-select
           v-model:value="tag"

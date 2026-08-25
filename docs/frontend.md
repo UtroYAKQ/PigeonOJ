@@ -20,7 +20,9 @@
 - 布局层 CSS 变量唯一来源为 `assets/main.css` 的 `:root` + `html.dark`：
   `--app-primary` / `--app-content-bg`(浅 #f5f6fb · 深 #101014) / `--app-card-bg` /
   `--app-chrome-bg` / `--app-border`(#efeff5) / `--app-text` / `--app-text-secondary` /
-  `--app-muted-bg`。组件只允许引用令牌，禁止硬编码色值；修改色板须同步
+  `--app-muted-bg`，以及语义色 `--app-info` / `--app-success` / `--app-warning` / `--app-error`
+  （与 `settings/theme.ts` 的 themeOverrides 同值，供 CSS 场景引用）。
+  组件只允许引用令牌，禁止硬编码色值；修改色板须同步
   `settings/theme.ts` 与 CSS 变量两处。
 - 暗色模式由 `html.dark` class 驱动（Tailwind `dark:` 变体、Monaco 主题同步），
   同时传给 `n-config-provider` 的 `darkTheme`；模式持久化 localStorage，
@@ -97,7 +99,7 @@
 
 - **题面展示两件套**（题目详情 / 管理预览 / 验题面板共用）：
   - `components/problem/ProblemMetaBar.vue` —— 标题 + 时限内存 + 状态/可见性/待重验标签 + 标签；props：`showTitle`（卡片头场景）、`hidePublishedStatus`（前台详情页口径，已发布不显示状态标签）、`showReverifyTag`（管理预览口径）。
-  - `components/problem/ProblemStatement.vue` —— 描述 / 输入输出说明 / 展示样例（内部复用 `ProblemSamples.vue`）/ 官方题解（可选）；样例「复制输入」交互全站一致。
+  - `components/problem/ProblemStatement.vue` —— 描述 / 输入输出说明 / 展示样例（内部复用 `ProblemSamples.vue`）/ 官方题解（可选）；样例输入输出上下排布，各展示框右上角带复制按钮，复制成功后图标短暂切换为对勾。
   - 例外：验题邀请落地页 `/verify/:token` 数据形态不同（无题解、空段落隐藏、含过期信息），保留自有排版，仅复用语言常量与 `ProblemSamples`。
 - **出题向导壳** `components/WizardShell.vue`：三个步骤页共用卡片头（标题 + 步骤序号 + 动作插槽），不渲染步骤条；各页只提供标题、动作按钮与主体内容。
 - **提交状态标签** `components/StatusTag.vue` + `constants/submissionStatus.ts`：提交 / 测试点状态 → 标签颜色与文案的统一映射，提交历史与结果页测试点表共用。
