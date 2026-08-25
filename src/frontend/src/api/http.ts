@@ -82,3 +82,15 @@ export async function requestUpload<T = unknown>(path: string, data: FormData): 
     headers: {},
   })
 }
+
+/** 类型化 API 请求入口：自动 JSON 序列化 body。 */
+export async function apiRequest<T = unknown>(
+  method: string,
+  path: string,
+  data?: unknown,
+): Promise<T> {
+  return request<T>(path, {
+    method,
+    body: data === undefined ? undefined : JSON.stringify(data),
+  })
+}

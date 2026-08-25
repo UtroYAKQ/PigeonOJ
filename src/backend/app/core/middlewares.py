@@ -8,7 +8,8 @@ import uuid
 
 from fastapi import Request
 
-from app.controllers.audit import write_exception_log, write_request_log
+from app.enums import LogLevel
+from app.repositories.audit import write_exception_log, write_request_log
 from app.core.database import SessionLocal
 from app.core.dependency import parse_client_ip
 
@@ -30,7 +31,7 @@ async def request_logging_middleware(request: Request, call_next):
             async with SessionLocal() as db:
                 await write_exception_log(
                     db,
-                    level="error",
+                    level=LogLevel.ERROR,
                     message=str(exc)[:2000],
                     traceback=traceback.format_exc()[:8000],
                     request_id=request_id,

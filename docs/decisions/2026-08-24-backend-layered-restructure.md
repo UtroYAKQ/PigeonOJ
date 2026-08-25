@@ -1,7 +1,7 @@
 # 后端目录重构：按技术层分包（对齐 vue-fastapi-admin）
 
 - 日期：2026-08-24
-- 状态：已实施（取代 [2026-08-24-backend-module-packaging.md](2026-08-24-backend-module-packaging.md) 的目录组织部分）
+- 状态：已实施（取代 [2026-08-24-backend-module-packaging.md](2026-08-24-backend-module-packaging.md) 的目录组织部分）；`controllers/` 已于 2026-08-25 按 [2026-08-25-backend-service-repository-split.md](2026-08-25-backend-service-repository-split.md) 拆分为 `services / repositories / rpc`，本文的分层方向与规则思路仍有效
 
 ## 背景
 

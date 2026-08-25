@@ -7,7 +7,9 @@ import type { DataTableColumns } from 'naive-ui'
 import { adminArchiveTag, adminCreateTag, adminListTags, adminUpdateTag } from '@/api/admin'
 import type { ProblemTagItem } from '@/types'
 import { formatDateTime } from '@/utils/format'
-import { dialog, message } from '@/utils/feedback'
+import { confirmAsyncDialog, message } from '@/utils/feedback'
+import ModalFooter from '@/components/ModalFooter.vue'
+import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
@@ -70,20 +72,13 @@ async function submitEditor() {
 }
 
 function doArchive(tag: ProblemTagItem) {
-  dialog.warning({
+  confirmAsyncDialog({
     title: t('admin.tags.archive'),
     content: t('admin.tags.archiveConfirm', { name: tag.name }),
     positiveText: t('admin.tags.archive'),
-    negativeText: t('action.cancel'),
-    onPositiveClick: async () => {
-      try {
-        await adminArchiveTag(tag.id)
-        message.success(t('admin.tags.archivedSuccess'))
-        await load()
-      } catch (e) {
-        message.error(e instanceof Error ? e.message : t('common.operationFailed'))
-      }
-    },
+    action: () => adminArchiveTag(tag.id),
+    successMessage: t('admin.tags.archivedSuccess'),
+    onAfterSuccess: () => load(),
   })
 }
 
@@ -166,11 +161,13 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
 <template>
   <div class="page-fill">
     <n-card :title="t('admin.tags.title')" :bordered="false">
-      <div class="toolbar">
-        <n-button type="primary" size="small" @click="openCreate">
-          {{ t('admin.tags.create') }}
-        </n-button>
-      </div>
+      <SearchFilterBar :show-search="false">
+        <template #actions>
+          <n-button type="primary" size="small" @click="openCreate">
+            {{ t('admin.tags.create') }}
+          </n-button>
+        </template>
+      </SearchFilterBar>
 
       <n-data-table
         v-if="loading || list.length"
@@ -206,12 +203,7 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
           </n-form-item>
         </n-form>
         <template #footer>
-          <div class="modal-footer">
-            <n-button @click="cancelEditor">{{ t('action.cancel') }}</n-button>
-            <n-button type="primary" :loading="submitting" @click="submitEditor">{{
-              t('action.confirm')
-            }}</n-button>
-          </div>
+          <ModalFooter :loading="submitting" @cancel="cancelEditor" @confirm="submitEditor" />
         </template>
       </n-modal>
     </n-card>
@@ -219,11 +211,6 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
 </template>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  align-items: center;
-  margin-bottom: 14px;
-}
 .color-cell {
   display: flex;
   align-items: center;
@@ -238,10 +225,5 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
 .cell-muted {
   color: var(--app-text-secondary);
   font-size: 12px;
-}
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 </style>

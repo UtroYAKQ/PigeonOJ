@@ -7,14 +7,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.exceptions import register_exception_handlers
-from app.core.middlewares import make_middlewares
 from app.core.redis import close_redis
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """应用生命周期：启动判题网关 gRPC 服务与巡检循环，退出时优雅关闭。"""
-    from app.controllers import judge_gateway
+    from app.rpc import judge_gateway
 
     grpc_server = await judge_gateway.start_grpc_server()
     maint_task = asyncio.create_task(judge_gateway.maintenance_loop())

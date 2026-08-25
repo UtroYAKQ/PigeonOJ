@@ -23,6 +23,7 @@ from sqlalchemy.dialects.postgresql import INET, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.enums import UserStatus, Theme, UserRoleScope
 
 
 class User(Base):
@@ -37,9 +38,9 @@ class User(Base):
     nickname: Mapped[str] = mapped_column(String(64), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(String(512))
     signature: Mapped[str | None] = mapped_column(String(255))
-    theme: Mapped[str] = mapped_column(String(32), nullable=False, default="light")
+    theme: Mapped[str] = mapped_column(String(32), nullable=False, default=Theme.LIGHT)
     # active / frozen / banned / deleted（语义见 docs/contracts/users.md「账号状态语义」）
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active", server_default="active")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default=UserStatus.ACTIVE, server_default=UserStatus.ACTIVE)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -89,7 +90,7 @@ class UserRole(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     role_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("roles.id"), nullable=False)
     # global / team（team 场景 object_id = 团队 id；全局角色 object_id = NULL）
-    scope: Mapped[str] = mapped_column(String(8), nullable=False, default="global")
+    scope: Mapped[str] = mapped_column(String(8), nullable=False, default=UserRoleScope.GLOBAL)
     object_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.enums import ProblemScope, ProblemStatus, ProblemVisibility, TagStatus
+
 
 def _clean_tag_names(names: list[str]) -> list[str]:
     """去空白、去重、保序；空白项剔除（docs/contracts/problems.md 标签节）。"""
@@ -29,7 +31,7 @@ class ProblemCreate(BaseModel):
     output_description: str = Field(min_length=1)
     solution: str | None = None
     tags: list[str] = Field(default_factory=list, max_length=8)
-    visibility: str = Field(default="public", pattern="^(private|public)$")
+    visibility: ProblemVisibility = ProblemVisibility.PUBLIC
     time_limit_ms: int = Field(default=1000, ge=1, le=60000)
     memory_limit_mb: int = Field(default=256, ge=16, le=4096)
 
@@ -49,7 +51,7 @@ class ProblemUpdate(BaseModel):
     solution: str | None = None
     # None = 不改动标签关联；空数组 = 清空
     tags: list[str] | None = Field(default=None, max_length=8)
-    visibility: str | None = Field(default=None, pattern="^(private|public)$")
+    visibility: ProblemVisibility | None = None
     time_limit_ms: int | None = Field(default=None, ge=1, le=60000)
     memory_limit_mb: int | None = Field(default=None, ge=16, le=4096)
 
@@ -71,8 +73,8 @@ class ProblemQuery(BaseModel):
     page_size: int = Field(default=20, ge=1, le=100)
     keyword: str | None = Field(default=None, max_length=128)
     tag: str | None = Field(default=None, max_length=64)
-    scope: str = Field(default="all", pattern="^(all|mine)$")
-    status: str | None = Field(default=None, pattern="^(draft|published|archived)$")
+    scope: ProblemScope = ProblemScope.ALL
+    status: ProblemStatus | None = None
 
 
 class TestCaseItem(BaseModel):
@@ -92,6 +94,18 @@ class TestCaseItem(BaseModel):
 
 class TestCasesUpdate(BaseModel):
     cases: list[TestCaseItem] = Field(min_length=1, max_length=1000)
+
+
+class TestCasesPatch(BaseModel):
+    """增量更新正式测试点：
+
+    - upserts：带 id 为修改既有测试点（input / expected_output 留空表示内容不变，
+      可仅改名或调序）；不带 id 为新增（输入输出不能全空）
+    - delete_ids：删除指定测试点（历史判题结果保留，引用置空）
+    """
+
+    upserts: list[TestCaseItem] = Field(default_factory=list, max_length=1000)
+    delete_ids: list[uuid.UUID] = Field(default_factory=list, max_length=1000)
 
 
 class SampleItem(BaseModel):
@@ -143,11 +157,29 @@ class TagOut(BaseModel):
     id: uuid.UUID
     name: str
     color: str | None
-    status: str
+    status: TagStatus
     created_at: datetime
 
 
+class TagPublic(BaseModel):
+    """公开标签（仅 id/name/color，用于打标选择器与题库筛选）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    color: str | None
+
+
 # ---- Response Schemas（统一 ORM 序列化） ----
+
+
+class SampleOut(BaseModel):
+    """展示样例输出（name 按序派生，不暴露内部 id）。"""
+
+    name: str
+    input: str
+    output: str
 
 
 class ProblemSummary(BaseModel):
@@ -159,10 +191,20 @@ class ProblemSummary(BaseModel):
     title: str
     time_limit_ms: int
     memory_limit_mb: int
-    status: str
-    visibility: str
+    status: ProblemStatus
+    visibility: ProblemVisibility
     is_verified: bool
     created_at: datetime
+
+
+class TestCaseOut(BaseModel):
+    """测试点输出（管理角色可见）。"""
+
+    id: str
+    name: str | None
+    sort_order: int
+    input: str | None
+    expected_output: str | None
 
 
 class ProblemDetail(BaseModel):
@@ -175,15 +217,50 @@ class ProblemDetail(BaseModel):
     description: str
     input_description: str | None
     output_description: str | None
-    solution: str | None
+    solution: str | None = None
     time_limit_ms: int
     memory_limit_mb: int
-    status: str
-    visibility: str
+    status: ProblemStatus
+    visibility: ProblemVisibility
     is_verified: bool
-    verified_by: uuid.UUID | None
-    verified_at: datetime | None
+    verified_by: uuid.UUID | None = None
+    verified_at: datetime | None = None
     owner_id: uuid.UUID
-    published_at: datetime | None
+    published_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+    samples: list[SampleOut] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    can_manage: bool = False
+    needs_reverification: bool = False
+    test_cases: list[TestCaseOut] | None = None
+    cases_updated_at: datetime | None = None
+    samples_updated_at: datetime | None = None
+
+
+# ---- 验题相关 Response Schemas ----
+
+
+class VerificationInviteOut(BaseModel):
+    """验题邀请详情。"""
+
+    problem_id: str
+    problem_title: str
+    expires_at: str | None
+    description: str
+    input_description: str | None
+    output_description: str | None
+    tags: list[str]
+    time_limit_ms: int
+    memory_limit_mb: int
+    samples: list[SampleOut]
+
+
+class VerificationInitOut(BaseModel):
+    """发起验题响应。"""
+
+    model_config = ConfigDict(exclude_none=True)
+
+    verification_id: str
+    invite: dict | None = None
+

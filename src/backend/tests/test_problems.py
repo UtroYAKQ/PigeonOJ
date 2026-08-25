@@ -7,8 +7,9 @@ from datetime import datetime
 import pytest
 from sqlalchemy import select, text
 
-from app.models.judge import Submission
-from app.models.problem import Problem
+from app.models.judge import Submission, SubmissionTestCaseResult
+from app.models.problem import Problem, TestCase
+from app.models.user import User
 from app.core.database import SessionLocal
 
 
@@ -310,7 +311,7 @@ async def test_any_user_can_submit_verification(client, admin_headers, user_head
         assert submission.submit_type == "verify"
 
         submission.status = "accepted"
-        from app.controllers.problem import complete_verification
+        from app.services.problem import complete_verification
 
         await complete_verification(
             db, submission.verification_id, passed=True, verifier_id=submission.user_id
@@ -371,7 +372,7 @@ async def test_verification_invite_flow_and_writeback(client, admin_headers, use
 
         # 模拟判题通过后的回写
         submission.status = "accepted"
-        from app.controllers.problem import complete_verification
+        from app.services.problem import complete_verification
 
         await complete_verification(
             db, submission.verification_id, passed=True, verifier_id=submission.user_id
@@ -448,6 +449,139 @@ async def test_submission_history_and_detail(client, admin_headers, user_headers
         headers=user_headers,
     )
     assert resp.json()["code"] == 2003
+
+
+@pytest.mark.asyncio
+async def test_replace_cases_keeps_history_results(client, admin_headers, fake_storage):
+    """回归（0010 迁移）：结果表仍引用旧测试点时全量替换不因外键失败；历史结果保留且引用置空。"""
+    data = await _create_problem(client, admin_headers)
+    pid = uuid.UUID(data["id"])
+    resp = await client.put(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"cases": [{"name": "c1", "input": "1", "expected_output": "2"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+
+    # 模拟一次已完成判题的提交：结果行引用当前测试点
+    async with SessionLocal() as db:
+        case = (await db.execute(select(TestCase).where(TestCase.problem_id == pid))).scalars().one()
+        user_id = (await db.execute(select(User).limit(1))).scalar_one().id
+        submission = Submission(
+            user_id=user_id, problem_id=pid, language="cpp17",
+            code="int main(){}", status="accepted",
+        )
+        db.add(submission)
+        await db.flush()
+        db.add(SubmissionTestCaseResult(
+            submission_id=submission.id, test_case_id=case.id, status="accepted",
+        ))
+        await db.commit()
+
+    # 替换测试点：修复前此处抛 IntegrityError（FK NO ACTION）
+    resp = await client.put(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"cases": [{"name": "c2", "input": "3", "expected_output": "4"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    # 历史结果保留，test_case_id 被 SET NULL
+    async with SessionLocal() as db:
+        row = (await db.execute(select(SubmissionTestCaseResult))).scalars().one()
+        assert row.test_case_id is None
+
+
+@pytest.mark.asyncio
+async def test_detail_reads_back_case_contents(client, admin_headers, fake_storage):
+    """回归：管理角色读详情回读测试点内容（而非 MinIO 对象 key）。"""
+    data = await _create_problem(client, admin_headers)
+    resp = await client.put(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"cases": [{"name": "c1", "input": "1", "expected_output": "2"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    body = resp.json()
+    assert body["code"] == 0, resp.text
+    cases = body["data"]["test_cases"]
+    assert len(cases) == 1
+    assert cases[0]["input"] == "1"
+    assert cases[0]["expected_output"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_patch_test_cases_incremental(client, admin_headers, fake_storage):
+    """PATCH 增量语义：只改动提交的行；内容留空表示保持不变；空补丁不 bump updated_at。"""
+    data = await _create_problem(client, admin_headers)
+    pid = uuid.UUID(data["id"])
+    resp = await client.put(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"cases": [
+            {"name": "c1", "input": "1", "expected_output": "2"},
+            {"name": "c2", "input": "3", "expected_output": "4"},
+        ]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    detail_cases = resp.json()["data"]["test_cases"]
+    c1 = next(c for c in detail_cases if c["name"] == "c1")
+    c2 = next(c for c in detail_cases if c["name"] == "c2")
+
+    # 增量：仅改名 c1（input/expected_output 留空 = 内容不变）+ 删除 c2
+    resp = await client.patch(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={
+            "upserts": [{"id": c1["id"], "name": "c1-renamed", "sort_order": 1}],
+            "delete_ids": [c2["id"]],
+        },
+        headers=admin_headers,
+    )
+    body = resp.json()
+    assert body["code"] == 0, resp.text
+    returned = body["data"]["cases"]
+    assert len(returned) == 1
+    kept = returned[0]
+    assert kept["id"] == c1["id"]
+    assert kept["name"] == "c1-renamed"
+    assert kept["input"] == "1" and kept["expected_output"] == "2"  # 内容保持不变
+
+    # 空 PATCH：无任何行被触碰，updated_at 全部不变（不触发重验与节点缓存失效）
+    async with SessionLocal() as db:
+        before = {str(r.id): r.updated_at for r in (
+            await db.execute(select(TestCase).where(TestCase.problem_id == pid))).scalars().all()}
+    resp = await client.patch(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"upserts": [], "delete_ids": []},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+    async with SessionLocal() as db:
+        after = {str(r.id): r.updated_at for r in (
+            await db.execute(select(TestCase).where(TestCase.problem_id == pid))).scalars().all()}
+    assert after == before
+
+
+@pytest.mark.asyncio
+async def test_patch_test_cases_rejects_unknown_and_conflicting_ids(client, admin_headers):
+    data = await _create_problem(client, admin_headers)
+    fake_id = str(uuid.uuid4())
+    resp = await client.patch(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"upserts": [], "delete_ids": [fake_id]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 3001
+    resp = await client.patch(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"upserts": [{"id": fake_id, "name": "x"}], "delete_ids": [fake_id]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 1001
 
 
 @pytest.mark.asyncio

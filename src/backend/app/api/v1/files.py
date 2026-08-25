@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import Response
 
-from app.controllers.file import FileService
+from app.services.file import FileService
 from app.models.user import User
 from app.core.dependency import get_current_user
 from app.core.exceptions import APIError, RESOURCE_NOT_FOUND

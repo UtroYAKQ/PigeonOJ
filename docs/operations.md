@@ -4,7 +4,7 @@
 
 ## 一键启动（Windows）
 
-双击仓库根目录的 `run-local.bat`：自动启动 PostgreSQL / MinIO / Redis 容器（本地镜像，不拉取），构建沙箱基础层（`sandbox:local`）与判题节点镜像（`pigeonoj/judge-node`）并启动 1 个本地判题节点容器（首次自动复制 `.env.node.example` 为 `.env.node`），执行数据库迁移与演示账号引导，随后弹出两个窗口分别运行后端（8000，内含判题 gRPC 网关 :50051 与维护循环）与前端（5173，真实 API 模式）。
+双击仓库根目录的 `run-local.bat`：自动启动 PostgreSQL / MinIO / Redis 容器（本地镜像，不拉取），构建判题节点镜像（`pigeonoj/judge-node`，单镜像含 nsjail 沙箱层）并启动 1 个本地判题节点容器（首次自动复制 `.env.node.example` 为 `.env.node`），执行数据库迁移与演示账号引导，随后弹出两个窗口分别运行后端（8000，内含判题 gRPC 网关 :50051 与维护循环）与前端（5173，真实 API 模式）。
 
 ## 本地运行（不用 Docker）
 
@@ -28,8 +28,7 @@ cd src/frontend && npm install && npm run dev
 # 生产（后端 + 前端 + 基础设施；判题 gRPC 网关随后端进程启动）
 docker compose -f docker/docker-compose.yml up -d
 
-# 构建判题节点镜像（底座 sandbox:local 缺失时会先要求构建，见 run-local.bat 同逻辑）
-docker build -t sandbox:local src/judge/sandbox
+# 构建判题节点镜像（单镜像：nsjail 沙箱层 + gRPC 守护进程，一次构建）
 docker build -t pigeonoj/judge-node src/judge
 
 # 启动判题节点容器（在另一台服务器上部署时改 SERVER_ADDRESS 为后端公网地址；
@@ -41,8 +40,8 @@ docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
 
 - **后端进程不执行任何用户代码**。代码执行只发生在 `pigeonoj/judge-node` 容器内；
   后端仅提供 gRPC 网关（`:50051`）做注册认证、负载均衡派发与结果落库。
-- 节点镜像 = 沙箱基础镜像（Ubuntu 24.04 + 阿里云 APT 源 + nsjail 3.4 + Python/C++/Java 工具链）+ grpcio + 守护进程
-  （`src/judge/Dockerfile`）。基础镜像单独构建为 `sandbox:local`。
+- 节点镜像为单镜像（`src/judge/Dockerfile`）：Ubuntu 24.04 + 阿里云 APT 源 + nsjail 3.4 +
+  Python/C++/Java 工具链 + grpcio + 守护进程，一次构建产出 `pigeonoj/judge-node`，无独立基础镜像。
 - 节点固定挂载两个宿主机目录：工作区 → 容器 `/workspace`（每作业子目录自动创建/清理）、
   数据缓存 → 容器 `/cache`（按题目 data_version 复用）。绝不能配置为宿主机根目录、用户代码目录或 Docker socket。
 - 节点需要 `privileged: true`（nsjail 嵌套 namespace）并**只做出站连接**后端网关；不开放任何入站端口。
@@ -125,7 +124,7 @@ npm test                # 前端单元测试（Vitest + jsdom；utils / constant
 - Vitest 配置在 `vite.config.ts` 的 `test` 块：jsdom 环境（dict.ts / http.ts 依赖 localStorage 与 DOMPurify）；测试与被测文件同目录，命名 `*.spec.ts`
 - ⚠️ 模板内联事件避免多条语句（如 `@click="a = 1; load()"`）：Prettier 折行后会生成非法模板表达式，统一收敛为 script 内方法
 
-> 导入规则检查无外部依赖（纯标准库 AST），改动后端任何 import 后建议先跑它再跑 pytest；规则见 `docs/architecture.md` 分层架构与 `docs/decisions/2026-08-24-backend-module-packaging.md`。
+> 导入规则检查无外部依赖（纯标准库 AST），改动后端任何 import 后建议先跑它再跑 pytest；规则见 `docs/architecture.md` 分层架构与 `docs/decisions/2026-08-25-backend-service-repository-split.md`。
 
 后端集成测试需要本地 PostgreSQL / Redis（`src/backend/tests/conftest.py`）：
 

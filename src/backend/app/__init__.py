@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.init_app import lifespan, register_exceptions, register_routers
 from app.core.middlewares import request_logging_middleware
-from app.log.log import setup_logging
+from app.core.log import setup_logging
 from app.settings.config import get_settings
 
 

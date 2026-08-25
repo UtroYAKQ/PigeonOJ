@@ -10,6 +10,7 @@ import { LOG_LEVEL, toNaiveTagType } from '@/constants/dict'
 import { downloadCsv } from '@/utils/csv'
 import { formatDateTime } from '@/utils/format'
 import { message } from '@/utils/feedback'
+import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
@@ -238,27 +239,28 @@ const emptyText = computed(() =>
         <n-tab-pane name="exception" :tab="t('admin.logs.exception')" />
       </n-tabs>
 
-      <div class="toolbar">
-        <n-input
-          v-model:value="query.keyword"
-          clearable
-          class="toolbar__search"
-          :placeholder="searchPlaceholder"
-          @keyup.enter="onSearch"
-          @clear="onSearch"
-        />
+      <SearchFilterBar
+        :keyword="query.keyword"
+        :placeholder="searchPlaceholder"
+        search-width="200px"
+        @update:keyword="(v: string) => { query.keyword = v }"
+        @search="onSearch"
+        @reset="onReset"
+      >
         <n-date-picker
           v-model:value="query.range"
           type="datetimerange"
           clearable
-          class="toolbar__range"
+          style="width: 280px"
           :start-placeholder="t('admin.logs.start')"
           :end-placeholder="t('admin.logs.end')"
           @update:value="onSearch"
         />
-        <n-button type="primary" @click="onSearch">{{ t('action.search') }}</n-button>
-        <n-button secondary @click="onReset">{{ t('action.reset') }}</n-button>
-      </div>
+        <template #actions>
+          <n-button type="primary" @click="onSearch">{{ t('action.search') }}</n-button>
+          <n-button secondary @click="onReset">{{ t('action.reset') }}</n-button>
+        </template>
+      </SearchFilterBar>
 
       <div class="table-fill">
         <template v-if="loading || rows.length">
@@ -309,28 +311,9 @@ const emptyText = computed(() =>
 </template>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 4px 0 14px;
-}
-.toolbar__search {
-  width: 240px;
-}
-.toolbar__range {
-  width: 360px;
-}
 .pager {
   display: flex;
   justify-content: flex-end;
   margin-top: 14px;
-}
-@media (max-width: 700px) {
-  .toolbar__search,
-  .toolbar__range {
-    width: 100%;
-  }
 }
 </style>

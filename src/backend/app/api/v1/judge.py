@@ -10,16 +10,18 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.controllers.judge_gateway import REGISTRY, dispatch_submission
+from app.rpc.judge_gateway import REGISTRY, dispatch_submission
 from app.schemas.judge import (
+    SandboxHealthOut,
     SubmissionCreate,
-    SubmissionDetail,
+    SubmissionCreatedResponse,
     SubmissionQuery,
     SubmissionSummary,
     VerifyRequest,
 )
-from app.controllers.judge import SubmissionService
-from app.controllers.problem import ProblemService
+from app.schemas.admin import SandboxNodeOut
+from app.services.judge import SubmissionService
+from app.services.problem import ProblemService
 from app.models.user import User
 from app.core.dependency import get_current_admin, get_current_user
 from app.core.exceptions import PARAM_FORMAT_INVALID, APIError
@@ -40,10 +42,12 @@ async def verify_problem(problem_id: uuid.UUID, body: VerifyRequest, user: User 
         submission = await service.create_verify_submission(user, problem_id, body)
         await db.commit()  # 显式提交：确保 submission 已持久化，dispatch_submission 才能找到它
         await dispatch_submission(submission.id)
-        return ok({"submission_id": str(submission.id), "status": submission.status})
+        return ok(SubmissionCreatedResponse(
+            submission_id=str(submission.id), status=submission.status,
+        ).model_dump(mode="json"))
     result = await ProblemService(db).init_verification(user, problem_id, body.invite_expires_hours)
     await db.commit()  # 显式提交：确保数据持久化
-    return ok(result)
+    return ok(result.model_dump(exclude_none=True))
 
 
 # ---- 提交 ----
@@ -54,7 +58,9 @@ async def create_submission(body: SubmissionCreate, user: User = Depends(get_cur
     submission = await SubmissionService(db).create(user, body)
     await db.commit()  # 显式提交：确保 submission 已持久化，dispatch_submission 才能找到它
     await dispatch_submission(submission.id)
-    return ok({"submission_id": str(submission.id), "status": submission.status})
+    return ok(SubmissionCreatedResponse(
+        submission_id=str(submission.id), status=submission.status,
+    ).model_dump(mode="json"))
 
 
 @router.get("/submissions")
@@ -78,10 +84,7 @@ async def list_submissions(
 @router.get("/submissions/{submission_id}")
 async def get_submission(submission_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     detail = await SubmissionService(db).get_detail(user, submission_id)
-    submission = detail["submission"]
-    submission_dict = SubmissionDetail.model_validate(submission).model_dump(mode="json")
-    submission_dict["cases"] = detail["cases"]
-    return ok(submission_dict)
+    return ok(detail.model_dump(mode="json"))
 
 
 # ---- 沙箱 ----
@@ -90,5 +93,5 @@ async def get_submission(submission_id: uuid.UUID, user: User = Depends(get_curr
 @router.get("/sandbox/health")
 async def sandbox_health(admin: User = Depends(get_current_admin)):
     """沙箱节点健康（admin；docs/contracts/judge.md）：在线节点来自网关注册表。"""
-    nodes = [conn.to_payload() for conn in REGISTRY.list_nodes()]
-    return ok({"nodes": nodes})
+    nodes = [SandboxNodeOut(**conn.to_payload()) for conn in REGISTRY.list_nodes()]
+    return ok(SandboxHealthOut(nodes=nodes).model_dump(mode="json"))

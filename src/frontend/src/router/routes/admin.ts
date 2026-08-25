@@ -1,0 +1,155 @@
+import type { RouteRecordRaw } from 'vue-router'
+
+import { useUserStore } from '@/stores/user'
+
+/**
+ * 管理后台路由（hidden：不在前台侧栏显示；入口在头像菜单）。
+ * tutor 仅见「题目管理」，admin 见全部区块。
+ */
+export const adminRoutes: RouteRecordRaw[] = [
+  {
+    path: 'admin',
+    redirect: () => {
+      const userStore = useUserStore()
+      return userStore.hasAnyRole(['admin']) ? '/admin/users' : '/admin/problems'
+    },
+    meta: {
+      title: '管理后台',
+      titleKey: 'nav.admin',
+      icon: 'Monitor',
+      roles: ['admin', 'tutor'],
+      hidden: true,
+    },
+    children: [
+      {
+        path: 'problems',
+        name: 'admin-problems-section',
+        meta: {
+          title: '题目管理',
+          titleKey: 'nav.problemsManage',
+          icon: 'Collection',
+          roles: ['admin', 'tutor'],
+        },
+        children: [
+          {
+            path: '',
+            name: 'problem-mine',
+            component: () => import('@/views/problems/ProblemMineView.vue'),
+            meta: {
+              title: '题目管理',
+              titleKey: 'nav.problemsManage',
+              icon: 'Collection',
+              roles: ['admin', 'tutor'],
+              requiresAuth: true,
+            },
+          },
+          {
+            path: 'new',
+            name: 'problem-create',
+            component: () => import('@/views/problems/ProblemStatementView.vue'),
+            meta: {
+              title: '创建题目',
+              titleKey: 'problems.create.title',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            path: ':id/edit',
+            redirect: (to) => `/admin/problems/${String(to.params.id)}/edit/statement`,
+          },
+          {
+            path: ':id/edit/statement',
+            name: 'problem-edit-statement',
+            component: () => import('@/views/problems/ProblemStatementView.vue'),
+            meta: {
+              title: '编辑题目',
+              titleKey: 'problems.create.editTitle',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            path: ':id/edit/cases',
+            name: 'problem-edit-cases',
+            component: () => import('@/views/problems/ProblemCasesView.vue'),
+            meta: {
+              title: '样例与测试点',
+              titleKey: 'problems.wizard.cases',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            path: ':id/edit/verify',
+            name: 'problem-edit-verify',
+            component: () => import('@/views/problems/ProblemVerifyView.vue'),
+            meta: {
+              title: '验题与发布',
+              titleKey: 'problems.wizard.verifyPublish',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            path: ':id/preview',
+            name: 'problem-preview',
+            component: () => import('@/views/problems/ProblemPreviewView.vue'),
+            meta: {
+              title: '题目预览',
+              titleKey: 'problems.preview.title',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+        ],
+      },
+      {
+        path: 'users',
+        name: 'admin-users',
+        component: () => import('@/views/admin/AdminUsersView.vue'),
+        meta: { title: '用户管理', titleKey: 'nav.users', icon: 'User', roles: ['admin'] },
+      },
+      {
+        path: 'configs',
+        name: 'admin-configs',
+        component: () => import('@/views/admin/AdminConfigsView.vue'),
+        meta: { title: '系统配置', titleKey: 'nav.configs', icon: 'Setting', roles: ['admin'] },
+      },
+      {
+        path: 'logs',
+        name: 'admin-logs',
+        component: () => import('@/views/admin/AdminLogsView.vue'),
+        meta: { title: '日志', titleKey: 'nav.logs', icon: 'Document', roles: ['admin'] },
+      },
+      {
+        path: 'sandbox',
+        name: 'admin-sandbox',
+        component: () => import('@/views/admin/AdminSandboxView.vue'),
+        meta: { title: '沙箱状态', titleKey: 'nav.sandbox', icon: 'Odometer', roles: ['admin'] },
+      },
+      {
+        path: 'reports',
+        name: 'admin-reports',
+        component: () => import('@/views/admin/AdminReportsView.vue'),
+        meta: { title: '举报管理', titleKey: 'nav.reports', icon: 'Warning', roles: ['admin'] },
+      },
+      {
+        path: 'tags',
+        name: 'admin-tags',
+        component: () => import('@/views/admin/AdminTagsView.vue'),
+        meta: { title: '标签管理', titleKey: 'nav.tags', icon: 'PriceTag', roles: ['admin'] },
+      },
+    ],
+  },
+]

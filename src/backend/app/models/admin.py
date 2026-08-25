@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.enums import ReportStatus, ReportTargetType
 
 
 class Report(Base):
@@ -27,7 +28,7 @@ class Report(Base):
     target_type: Mapped[str] = mapped_column(String(32), nullable=False)
     target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default=ReportStatus.PENDING, server_default=ReportStatus.PENDING)
     handled_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     handled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

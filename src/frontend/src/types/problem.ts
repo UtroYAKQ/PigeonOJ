@@ -57,8 +57,18 @@ export interface ProblemDetail extends ProblemSummary {
   samples_updated_at?: string | null
 }
 
-/** 测试点草稿：编辑器内编辑、整体替换提交（PUT /problems/:id/test-cases）；全部为正式判题点，出题不设分值 */
+/** 测试点草稿：编辑器内编辑；id 存在表示服务器已有该测试点（保存时按行 diff 增量提交） */
 export interface TestCaseDraft {
+  id?: string
+  name: string
+  input: string
+  expected_output: string
+  sort_order: number
+}
+
+/** 增量更新测试点载荷（PATCH /problems/:id/test-cases）；id=null 表示新增 */
+export interface TestCaseUpsertPayload {
+  id?: string | null
   name: string
   input: string
   expected_output: string
@@ -98,5 +108,5 @@ export interface ProblemCreatePayload extends ProblemEditPayload {
 
 /** 管理角色读取详情时返回测试点内容（含正式点回读，用于编辑） */
 export interface ProblemDetailEx extends ProblemDetail {
-  test_cases?: TestCaseDraft[] | null
+  test_cases?: ProblemTestCase[] | null
 }

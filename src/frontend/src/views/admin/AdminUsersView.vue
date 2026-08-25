@@ -8,7 +8,9 @@ import * as adminApi from '@/api/admin'
 import type { GlobalRoleCode, User, UserStatus } from '@/types'
 import { ROLE_NAME, USER_STATUS, toNaiveTagType } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
-import { dialog, message } from '@/utils/feedback'
+import { confirmAsyncDialog, message } from '@/utils/feedback'
+import ModalFooter from '@/components/ModalFooter.vue'
+import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
@@ -123,24 +125,16 @@ async function submitReason() {
 }
 
 function confirmState(action: 'unban' | 'unfreeze', user: User) {
-  dialog.warning({
+  confirmAsyncDialog({
     title: t(`admin.users.${action}`),
     content: t(
       action === 'unban' ? 'admin.users.confirmUnban' : 'admin.users.confirmUnfreeze',
       { name: user.nickname },
     ),
     positiveText: t('action.confirm'),
-    negativeText: t('action.cancel'),
-    onPositiveClick: async () => {
-      try {
-        if (action === 'unban') await adminApi.adminUnbanUser(user.id)
-        else await adminApi.adminUnfreezeUser(user.id)
-        message.success(t('common.success'))
-        await load()
-      } catch (e) {
-        message.error(e instanceof Error ? e.message : t('common.operationFailed'))
-      }
-    },
+    action: () => action === 'unban' ? adminApi.adminUnbanUser(user.id) : adminApi.adminUnfreezeUser(user.id),
+    successMessage: t('common.success'),
+    onAfterSuccess: () => load(),
   })
 }
 
@@ -256,26 +250,26 @@ const columns = computed<DataTableColumns<User>>(() => [
 <template>
   <div class="page-fill">
     <n-card :title="t('admin.users.title')" :bordered="false">
-    <div class="toolbar">
-      <n-input
-        v-model:value="query.keyword"
-        clearable
-        class="toolbar__search"
-        :placeholder="t('admin.users.search')"
-        @keyup.enter="onSearch"
-        @clear="onSearch"
-      />
+    <SearchFilterBar
+      :keyword="query.keyword"
+      :placeholder="t('admin.users.search')"
+      @update:keyword="(v: string) => { query.keyword = v }"
+      @search="onSearch"
+      @reset="onReset"
+    >
       <n-select
         v-model:value="query.status"
         clearable
-        class="toolbar__status"
+        style="width: 150px"
         :options="statusOptions"
         :placeholder="t('common.allStatus')"
         @update:value="onSearch"
       />
-      <n-button type="primary" @click="onSearch">{{ t('action.search') }}</n-button>
-      <n-button secondary @click="onReset">{{ t('action.reset') }}</n-button>
-    </div>
+      <template #actions>
+        <n-button type="primary" @click="onSearch">{{ t('action.search') }}</n-button>
+        <n-button secondary @click="onReset">{{ t('action.reset') }}</n-button>
+      </template>
+    </SearchFilterBar>
 
     <n-data-table
       v-if="loading || list.length"
@@ -315,12 +309,7 @@ const columns = computed<DataTableColumns<User>>(() => [
         </div>
       </n-checkbox-group>
       <template #footer>
-        <div class="modal-footer">
-          <n-button @click="roleModal = false">{{ t('action.cancel') }}</n-button>
-          <n-button type="primary" :loading="roleSaving" @click="saveRoles">{{
-            t('action.save')
-          }}</n-button>
-        </div>
+        <ModalFooter :loading="roleSaving" :confirm-text="t('action.save')" @cancel="roleModal = false" @confirm="saveRoles" />
       </template>
     </n-modal>
 
@@ -350,19 +339,6 @@ const columns = computed<DataTableColumns<User>>(() => [
 </template>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.toolbar__search {
-  width: 240px;
-}
-.toolbar__status {
-  width: 150px;
-}
 .pager {
   display: flex;
   justify-content: flex-end;
@@ -386,10 +362,5 @@ const columns = computed<DataTableColumns<User>>(() => [
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 </style>

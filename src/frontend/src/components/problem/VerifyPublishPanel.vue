@@ -150,7 +150,7 @@ const languageOptions = [
   { label: 'Java 21', value: 'java21' },
 ]
 
-// 发布动作由外层向导底栏承载（ProblemVerifyView wizard-footer），经模板 ref 调用
+// 发布动作由外层卡片头承载（ProblemVerifyView card-head__actions），经模板 ref 调用
 defineExpose({ publish, blocked, publishing })
 </script>
 
@@ -251,31 +251,31 @@ defineExpose({ publish, blocked, publishing })
 .vp-split {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-  gap: 16px;
   align-items: stretch;
   /* 由外层 verify-stage 决定高度：左右栏满高，编辑器 flex:1 吃掉右栏剩余 */
   height: 100%;
 }
-/* 左栏：独立滚动（高度由外层 stage 拉伸决定，不再固定 vh） */
+/* 左栏：独立滚动（高度由外层 stage 拉伸决定，不再固定 vh）。
+   分栏以右栏发丝线分界，线两侧各留 16px，左短内容时不显空 */
 .vp-statement {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 8px;
+  padding-right: 16px;
 }
 .vp-title {
   margin: 0 0 10px;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.4;
 }
 .vp-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin-bottom: 16px;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: 12px;
 }
 .vp-subtitle {
   margin: 16px 0 8px;
@@ -301,18 +301,20 @@ defineExpose({ publish, blocked, publishing })
   word-break: break-word;
 }
 
-/* 右栏：工具行 + 链接条 + 编辑器 + 底部发布 */
+/* 右栏：工具行 + 链接条 + 编辑器；左侧发丝线与左栏分界 */
 .vp-work {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
+  border-left: 1px solid var(--app-border);
+  padding-left: 16px;
 }
 .vp-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 .vp-toolbar__spacer {
   flex: 1;
@@ -330,12 +332,6 @@ defineExpose({ publish, blocked, publishing })
   color: var(--app-text-secondary);
   font-size: 13px;
 }
-.vp-invite {
-  padding: 8px 10px;
-  border: 1px solid var(--app-border);
-  border-radius: 6px;
-  background: var(--app-muted-bg);
-}
 .vp-editor {
   flex: 1;
   /* 保底不低于原固定高度；视口更大时随 flex 继续增长 */
@@ -347,16 +343,18 @@ defineExpose({ publish, blocked, publishing })
     height: auto; /* 单列堆叠时按内容自然高度 */
   }
   .vp-statement {
+    padding-right: 0;
     max-height: 60vh;
     overflow-y: auto;
+  }
+  .vp-work {
+    border-left: none;
+    padding-left: 0;
   }
   .vp-editor {
     height: 60vh;
     min-height: 320px;
     flex: none;
-  }
-  .vp-publish {
-    width: 100%;
   }
 }
 </style>

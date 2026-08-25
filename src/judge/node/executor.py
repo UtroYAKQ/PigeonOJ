@@ -9,6 +9,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -101,7 +102,14 @@ class NsjailExecutor:
             command, time_limit_ms=limits.time_limit_ms, as_limit_mb=as_limit_mb
         )
         started = time.monotonic()
-        env = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/workspace"}
+        env = {
+            "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "HOME": "/workspace",
+            # 编译驱动（gcc/libiberty choose_temp）与运行时临时文件统一落在 jail 内
+            # tmpfs /tmp；禁写 pycache，避免向作业目录写入字节码噪音
+            "TMPDIR": "/tmp",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
         try:
             proc = subprocess.Popen(
                 args,
@@ -247,7 +255,9 @@ class PreparedSubmission:
         self._tempdir = tempfile.TemporaryDirectory(prefix="pigeonoj-judge-", dir=worker.workspace_root)
         self.workdir = Path(self._tempdir.name)
         source_name, self.run_command, self.compile_command = _commands(language, self._jail_workdir())
-        (self.workdir / source_name).write_bytes(source)
+        source_path = self.workdir / source_name
+        source_path.write_bytes(source)
+        _grant_jail_access(self.workdir, source_path)
         self.compile_result: ExecutionResult | None = None
         self._closed = False
         if self.compile_command:
@@ -372,10 +382,40 @@ def _commands(language: Language, jail_dir: str) -> tuple[str, list[str], list[s
     if language == "cpp17":
         return "Main.cpp", [f"{jail_dir}/Main"], ["/usr/bin/g++", "-B/usr/bin/", "-std=c++17", "-O2", "-pipe", "-o", f"{jail_dir}/Main", f"{jail_dir}/Main.cpp"]
     if language == "java21":
-        return "Main.java", ["/usr/lib/jvm/java-21-openjdk-amd64/bin/java", "-Xmx256m", "-cp", jail_dir, "Main"], [
-            "/usr/lib/jvm/java-21-openjdk-amd64/bin/javac", "-d", jail_dir, f"{jail_dir}/Main.java"
+        # JVM 崩溃日志（hs_err）默认写 cwd，重定向到 /tmp 避免污染工作区
+        return "Main.java", [
+            "/usr/lib/jvm/java-21-openjdk-amd64/bin/java", "-XX:ErrorFile=/tmp/hs_err_pid%p.log",
+            "-Xmx256m", "-cp", jail_dir, "Main",
+        ], [
+            "/usr/lib/jvm/java-21-openjdk-amd64/bin/javac", "-J-XX:ErrorFile=/tmp/hs_err_pid%p.log",
+            "-d", jail_dir, f"{jail_dir}/Main.java",
         ]
     raise JudgeWorkerError("unsupported language")
+
+
+_JAIL_UID = 65534  # nobody：预留的沙箱内执行身份（当前 nsjail 默认映射仍为全局 root）
+
+
+def _grant_jail_access(workdir: Path, *files: Path) -> None:
+    """保证沙箱内进程可在作业目录产出编译物。
+
+    仅在 Linux root（判题节点容器）下生效；开发机跳过。目录最终态为
+    「属主 nobody + 0777」，同时覆盖三类执行身份语义：
+    - 未来把 nsjail 映射收紧为 nobody 时：属主位即可写；
+    - Docker Desktop 等文件共享层：按元数据属主严格判 DAC 且不提供 root
+      旁路，须依赖 other 写位；
+    - 现行默认（clone_newuser 映射 0→0，进程具全局 root 文件访问）：任意
+      权限均可写。
+    每个提交使用一次性独立目录，放开 other 位不构成额外攻击面。
+    """
+    if sys.platform != "linux" or not hasattr(os, "geteuid") or os.geteuid() != 0:
+        return
+    try:
+        for path in (workdir, *files):
+            os.chown(path, _JAIL_UID, _JAIL_UID)
+        os.chmod(workdir, 0o777)
+    except OSError:
+        pass
 
 
 def _validate_source(source: bytes) -> None:

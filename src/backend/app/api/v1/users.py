@@ -22,7 +22,7 @@ from app.schemas.user import (
     RegisterRequest,
     ResetPasswordRequest,
 )
-from app.controllers.user import AuthService, UserService
+from app.services.user import AuthService, UserService
 from app.utils.security import hash_token
 from app.utils.response import ok
 from app.core.database import get_db
@@ -69,7 +69,7 @@ async def login(
 ):
     ip, ua = _client_meta(request)
     result = await AuthService(db).login(body, ip, ua)
-    return ok(result)
+    return ok(result.model_dump(mode="json"))
 
 
 @_auth.post("/logout")

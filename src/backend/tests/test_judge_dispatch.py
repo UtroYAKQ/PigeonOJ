@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from app.controllers.judge_gateway import (
+from app.rpc.judge_gateway import (
     REGISTRY,
     NodeConnection,
     _reset_to_pending,
@@ -74,7 +74,7 @@ async def test_dispatch_picks_least_loaded_node():
 
 @pytest.mark.asyncio
 async def test_dispatch_returns_none_without_nodes():
-    from app.controllers.judge_gateway import dispatch_submission
+    from app.rpc.judge_gateway import dispatch_submission
 
     assert await dispatch_submission(uuid_mod.uuid4()) is None
 

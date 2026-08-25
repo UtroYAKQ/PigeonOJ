@@ -26,6 +26,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.enums import ProblemStatus, ProblemVisibility, TagStatus, VerificationStatus
 
 
 class Problem(Base):
@@ -47,8 +48,8 @@ class Problem(Base):
     memory_limit_mb: Mapped[int] = mapped_column(Integer, nullable=False, server_default="256")
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     # 全站题目：private / public（团队题目 admin_visible / team_visible / public 随 teams 模块扩展）
-    visibility: Mapped[str] = mapped_column(String(16), nullable=False, server_default="public")
-    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="draft")
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemVisibility.PUBLIC)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemStatus.DRAFT)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     verified_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -76,7 +77,7 @@ class ProblemTag(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     color: Mapped[str | None] = mapped_column(String(16))
-    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="active")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=TagStatus.ACTIVE)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
@@ -103,7 +104,7 @@ class ProblemVerification(Base):
     problem_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("problems.id"), nullable=False)
     # 指定验题人；链接邀请模式为空，验题通过时回写实际提交人
     verifier_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
-    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=VerificationStatus.PENDING)
     language: Mapped[str | None] = mapped_column(String(32))
     code: Mapped[str | None] = mapped_column(Text)
     comment: Mapped[str | None] = mapped_column(Text)

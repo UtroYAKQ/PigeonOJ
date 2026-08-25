@@ -1,7 +1,7 @@
 """平台级系统配置表：system_configs（docs/contracts/admin.md system_configs）。
 
 系统配置是横切基础设施——中间件与各业务 Service 都要读取策略值，
-模型独立于业务模块；读写服务见 app.controllers.system_config，
+模型独立于业务模块；读写服务见 app.services.system_config，
 admin 路由仅提供管理端点（查询 / 修改）。
 """
 from __future__ import annotations
@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.enums import ConfigCategory
 
 
 class SystemConfig(Base):

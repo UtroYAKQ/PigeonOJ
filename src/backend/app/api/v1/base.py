@@ -4,8 +4,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.controllers.system_config import get_site_public_configs
+from app.services.system_config import get_site_public_configs
 from app.core.database import get_db
+from app.schemas.common import HealthStatus
 from app.utils.response import ok
 
 router = APIRouter(tags=["system"])
@@ -18,7 +19,7 @@ v1_router = APIRouter(prefix="/api/v1", tags=["system"])
 @router.get("/health")
 async def health() -> dict:
     """健康检查：返回统一信封 {code: 0, message: "ok", data: {...}}。"""
-    return ok({"status": "ok"})
+    return ok(HealthStatus(status="ok").model_dump(mode="json"))
 
 
 @v1_router.get("/site-config")

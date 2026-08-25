@@ -42,7 +42,7 @@ CHECK (
 | --- | --- | --- | --- |
 | id | UUID | PK | |
 | submission_id | UUID | NOT NULL, FK → submissions.id | |
-| test_case_id | UUID | NULL, FK → test_cases.id | 对应测试点 |
+| test_case_id | UUID | NULL, FK → test_cases.id ON DELETE SET NULL | 对应测试点；测试点被替换 / 删除时置空，历史结果行保留（迁移 0010） |
 | status | VARCHAR(24) | NOT NULL | 单测试点判题状态 |
 | time_used_ms | INT | NULL | |
 | memory_used_kb | INT | NULL | |
@@ -95,7 +95,7 @@ CHECK (
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | POST | /submissions | auth | 提交判题 | problem_id, language, code, submit_type, contest_id?/verification_id? | submission_id |
-| GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细：状态/耗时/内存/得分/程序输出；不返回期望输出） | - | submission |
+| GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细 case_name + 状态/耗时/内存/得分/程序输出；不返回期望输出） | - | submission |
 | GET | /submissions | auth | 提交历史（本人，`WHERE user_id=?`） | problem_id/contest_id/status/分页 | submission[] |
 | GET | /sandbox/health | admin | 沙箱节点健康 | - | nodes[{id, status, load}] |
 
@@ -134,7 +134,7 @@ CHECK (
 ### 节点网关协议
 
 `.proto` 契约见 `protos/pigeonoj/judge/v1/judge.proto`（机器可读契约，stub 已生成入库于
-`app/rpc_gen` 与 `src/judge/node/gen`）：
+`app/rpc/gen` 与 `src/judge/node/gen`）：
 
 - `Connect(stream NodeMessage) returns (stream ServerMessage)`：节点生命周期主通道。
   首条 Register 携带令牌（后端 `JUDGE_GATEWAY_TOKENS` 其一），不符即 UNAUTHENTICATED；
@@ -185,6 +185,7 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 | 默认比对 | 忽略行尾空白与末尾换行、行内严格 |
 | stderr 归集 | 执行器过滤 nsjail 自身的 `[I]`/`[W]` 日志行后仅返回/记录程序真实错误输出；nsjail 的 `[E]`/`[F]` 故障行保留用于执行器排障 |
 | 输出上限 | 程序输出超出 `sandbox_configs.output_limit_kb` 截断并判 `output_limit_exceeded` |
+| 沙箱身份与临时目录 | nsjail 开启 `clone_newuser`，默认映射 `inside 0 ↔ outside 0`——jailed 进程当前具备全局 root 级文件访问（nsjail 启动日志有 [W] 提示）。作业目录仍统一按「属主 nobody(65534) + 0777」准备：同时兼容未来把映射收紧为真实 nobody、以及不给 root DAC 旁路的挂载层（如 Docker Desktop 文件共享）。jail 内挂载可写 tmpfs `/tmp`（64MB）与 `/dev/shm`（32MB），均 `mode=1777`、nodev/nosuid；**tmpfs 挂载必须位于 nsjail.cfg 挂载列表末尾**——nsjail 的 pivot_root 暂存树固定在 `/tmp/nsjail.root`，提前覆盖 `/tmp` 会破坏根文件系统组装。执行环境显式注入 `TMPDIR=/tmp` 与 `PYTHONDONTWRITEBYTECODE=1`；`rlimit_as` 基线为 16384 以容纳 JVM 虚拟地址预留（4096 会使 javac/JVM 启动即 OOM），C++ / Python 每次执行由执行器按题目内存限制动态覆盖 |
 
 > 上表为文档约定；实际编译 / 运行命令以 `sandbox_configs` 语言级配置为准。判题节点负责准备与工作区 `/workspace` 挂载根一致的本地临时工作目录，并将容器内路径转换为 jail 内 `/workspace/<relative-job-path>` 的绝对路径；nsjail 执行器只接收受控 argv 和 jail 可见路径，不使用 shell 拼接。沙箱不访问 MinIO、数据库或公网，所有执行均在 nsjail 隔离内完成。
 

@@ -24,6 +24,12 @@ from app.settings.config import get_settings
 _client: aioredis.Redis | None = None
 _client_loop_id: int | None = None
 
+# Key 前缀约定（docs/architecture.md「Redis 使用点」）
+SANDBOX_NODE_KEY_PREFIX = "sandbox:node:"
+SESSION_KEY_PREFIX = "session:"
+EMAIL_CODE_KEY_PREFIX = "email:code:"
+EMAIL_RESEND_KEY_PREFIX = "email:resend:"
+
 
 def get_redis() -> aioredis.Redis:
     """获取当前事件循环的 Redis 客户端（懒初始化，循环内单例）。"""

@@ -11,6 +11,7 @@ import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/feedback'
 import CodeEditor from '@/components/CodeEditor.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
+import ProblemSamples from '@/components/ProblemSamples.vue'
 import { formatDateTime } from '@/utils/format'
 
 interface InviteResolution {
@@ -134,9 +135,7 @@ const languageOptions = [
             </div>
           </div>
 
-          <n-divider />
-
-          <!-- 题面 -->
+          <!-- 题面（小节标题自带分隔线，不再叠加 n-divider） -->
           <section class="verify-statement">
             <MarkdownView :source="invite.description" />
             <template v-if="invite.input_description">
@@ -150,25 +149,9 @@ const languageOptions = [
 
             <template v-if="invite.samples.length">
               <h3 class="verify-subtitle">{{ t('problems.detail.samples') }}</h3>
-              <div class="verify-samples">
-                <div v-for="(sample, index) in invite.samples" :key="index" class="sample-block">
-                  <strong>#{{ index + 1 }} {{ sample.name }}</strong>
-                  <div class="sample-grid2">
-                    <div>
-                      <p class="sample-label">{{ t('problems.detail.stdin') }}</p>
-                      <pre class="result-box">{{ sample.input || t('problems.detail.noOutput') }}</pre>
-                    </div>
-                    <div>
-                      <p class="sample-label">{{ t('problems.detail.expected') }}</p>
-                      <pre class="result-box">{{ sample.output || t('problems.detail.noOutput') }}</pre>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <ProblemSamples :samples="invite.samples" />
             </template>
           </section>
-
-          <n-divider />
 
           <!-- 提交验题 -->
           <section>
@@ -225,8 +208,9 @@ const languageOptions = [
   place-items: center;
   width: 32px;
   height: 32px;
+  border: 1px solid var(--app-border);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--app-card-bg);
 }
 .verify-pane {
   display: grid;
@@ -239,7 +223,7 @@ const languageOptions = [
 }
 .verify-head h1 {
   margin: 6px 0 10px;
-  font-size: 20px;
+  font-size: 18px;
 }
 .verify-eyebrow {
   margin: 0;
@@ -264,31 +248,6 @@ const languageOptions = [
   border-top: 1px solid var(--app-border);
   font-size: 15px;
 }
-.verify-samples {
-  display: grid;
-  gap: 12px;
-}
-.sample-block {
-  border: 1px solid var(--app-border);
-  border-radius: 6px;
-  padding: 12px;
-  background: var(--app-muted-bg);
-}
-.sample-block strong {
-  font-size: 13px;
-}
-.sample-grid2 {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 10px;
-}
-.sample-label {
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: var(--app-text-secondary);
-  font-weight: 500;
-}
 .verify-alert {
   margin-bottom: 14px;
 }
@@ -309,9 +268,7 @@ const languageOptions = [
   .verify-page {
     padding: 16px;
   }
-  .sample-grid2,
   .verify-submit-head {
-    grid-template-columns: 1fr;
     flex-direction: column;
     align-items: stretch;
   }

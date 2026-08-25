@@ -59,7 +59,27 @@ onMounted(loadExisting)
       <template #header>
         <div class="card-head">
           <span>{{ t('problems.wizard.verifyPublish') }}</span>
-          <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
+          <!-- 向导导航收进卡片头：上一步 / 发布 / 取消，无需滚动即可见 -->
+          <div class="card-head__actions">
+            <n-button size="small" :disabled="loading" @click="goPrev">
+              {{ t('problems.wizard.prev') }}
+            </n-button>
+            <n-tooltip trigger="hover" placement="top" :disabled="!publishBlocked">
+              <template #trigger>
+                <n-button
+                  type="primary"
+                  size="small"
+                  :loading="publishing"
+                  :disabled="publishBlocked || loading"
+                  @click="onPublish"
+                >
+                  {{ t('problems.detail.publish') }}
+                </n-button>
+              </template>
+              {{ t('problems.manage.publishNeedVerified') }}
+            </n-tooltip>
+            <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
+          </div>
         </div>
       </template>
 
@@ -80,25 +100,6 @@ onMounted(loadExisting)
           @published="onPublished"
         />
       </n-spin>
-
-      <!-- 底部导航：上一步 + 发布（门禁与动作由面板提供） -->
-      <div class="wizard-footer">
-        <n-button :disabled="loading" @click="goPrev">{{ t('problems.wizard.prev') }}</n-button>
-        <div class="wizard-footer__spacer" />
-        <n-tooltip trigger="hover" placement="top" :disabled="!publishBlocked">
-          <template #trigger>
-            <n-button
-              type="primary"
-              :loading="publishing"
-              :disabled="publishBlocked || loading"
-              @click="onPublish"
-            >
-              {{ t('problems.detail.publish') }}
-            </n-button>
-          </template>
-          {{ t('problems.manage.publishNeedVerified') }}
-        </n-tooltip>
-      </div>
     </n-card>
   </div>
 </template>
@@ -110,6 +111,11 @@ onMounted(loadExisting)
   justify-content: space-between;
   gap: 12px;
   width: 100%;
+}
+.card-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 /* 面板区：flex 拉伸链 stage → spin-content → vp-split 逐层吃满剩余高度。
    不用 height:100%（百分比高度在纯 flex 分配高度的父级下解析不可靠） */
@@ -128,16 +134,5 @@ onMounted(loadExisting)
 .verify-stage :deep(.vp-split) {
   flex: 1;
   min-height: 0;
-}
-.wizard-footer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--app-border);
-}
-.wizard-footer__spacer {
-  flex: 1;
 }
 </style>

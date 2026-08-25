@@ -17,11 +17,11 @@ from app.schemas.admin import (
     StatusReasonRequest,
 )
 from app.schemas.problem import TagCreate, TagOut, TagUpdate
-from app.controllers.admin import AdminConfigService, LogService, ReportService, SandboxService
-from app.controllers.tag import TagService
+from app.services.admin import AdminConfigService, LogService, ReportService, SandboxService
+from app.services.tag import TagService
 from app.models.user import User
 from app.core.dependency import get_current_admin
-from app.controllers.user import UserService
+from app.services.user import UserService
 from app.utils.response import ok
 from app.core.database import get_db
 
@@ -124,7 +124,8 @@ async def list_logs(
     start: str | None = None,
     end: str | None = None,
 ):
-    return ok(await LogService(db).list(log_type, page, page_size, keyword, start, end))
+    result = await LogService(db).list(log_type, page, page_size, keyword, start, end)
+    return ok(result.model_dump(mode="json"))
 
 
 @router.get("/sandbox/status")
@@ -142,7 +143,8 @@ async def list_reports(
     page_size: int = Query(20, ge=1, le=100),
     status: str | None = None,
 ):
-    return ok(await ReportService(db).list(page, page_size, status))
+    result = await ReportService(db).list(page, page_size, status)
+    return ok(result.model_dump(mode="json"))
 
 
 @router.post("/reports/{report_id}/handle")

@@ -15,7 +15,7 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
-from app.controllers.user import RoleRepository, SessionRepository, UserRepository
+from app.repositories.user import RoleRepository, SessionRepository, UserRepository
 from app.core.database import get_db
 from app.core.exceptions import (
     AUTH_FORBIDDEN,
@@ -23,7 +23,7 @@ from app.core.exceptions import (
     AUTH_SESSION_EXPIRED,
     APIError,
 )
-from app.core.redis import redis_get, redis_set
+from app.core.redis import SESSION_KEY_PREFIX, redis_get, redis_set
 from app.utils.security import hash_token
 
 _SESSION_CACHE_TTL_BUFFER = 60  # 秒；缓存 TTL 略长于数据库过期时间，避免边界竞态
@@ -59,7 +59,7 @@ async def _load_user(db: AsyncSession, raw_token: str) -> User:
     token_hash = hash_token(raw_token)
 
     # 1) Redis 热点缓存命中
-    cache_key = f"session:{token_hash}"
+    cache_key = f"{SESSION_KEY_PREFIX}{token_hash}"
     cached_user_id = await redis_get(cache_key)
     if cached_user_id:
         user_id = uuid.UUID(cached_user_id)

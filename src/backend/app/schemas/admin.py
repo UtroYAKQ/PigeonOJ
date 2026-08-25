@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal
+from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.enums import ConfigCategory, LogLevel, LoginAction, ReportAction, ReportStatus, ReportTargetType
 
 
 class ConfigUpdateItem(BaseModel):
@@ -25,4 +28,129 @@ class StatusReasonRequest(BaseModel):
 
 
 class ReportHandleRequest(BaseModel):
-    action: Literal["handled", "ignored"]
+    action: ReportAction
+
+
+# ---- Response Schemas ----
+
+
+class ConfigItemOut(BaseModel):
+    """管理配置项输出。"""
+
+    id: str
+    category: str
+    config_key: str
+    config_value: Any
+    description: str | None
+    updated_by: str | None
+    updated_at: str
+
+
+class RequestLogOut(BaseModel):
+    """请求日志输出。"""
+
+    id: str
+    request_id: str
+    user_id: str | None
+    method: str
+    path: str
+    status_code: int
+    ip_address: str | None
+    duration_ms: int | None
+    created_at: str
+
+    @field_validator("ip_address", mode="before")
+    @classmethod
+    def coerce_ip(cls, v):
+        return str(v) if v is not None else None
+
+
+class LoginLogOut(BaseModel):
+    """登录日志输出。"""
+
+    id: str
+    user_id: str | None
+    email: str | None
+    action: LoginAction
+    ip_address: str | None
+    success: bool
+    reason: str | None
+    created_at: str
+
+    @field_validator("ip_address", mode="before")
+    @classmethod
+    def coerce_ip(cls, v):
+        return str(v) if v is not None else None
+
+
+class ExceptionLogOut(BaseModel):
+    """异常日志输出。"""
+
+    id: str
+    level: LogLevel
+    message: str
+    traceback: str | None
+    request_id: str | None
+    user_id: str | None
+    created_at: str
+
+
+class ReportOut(BaseModel):
+    """举报输出。"""
+
+    id: str
+    target_type: ReportTargetType
+    target_id: str
+    target_summary: str | None
+    reporter_nickname: str
+    reason: str
+    status: ReportStatus
+    handled_by: str | None
+    handled_at: str | None
+    created_at: str
+
+
+class SandboxNodeOut(BaseModel):
+    """沙箱节点状态输出。"""
+
+    id: str
+    name: str
+    status: str
+    channel: str
+    load: float
+    cpu_usage: int
+    memory_usage: int
+    running_tasks: int
+    capacity: int
+    version: str
+    last_heartbeat_at: str
+
+
+class SitePublicConfig(BaseModel):
+    """公开站点配置（GET /site-config）。"""
+
+    name: str
+    logo: str
+    icp: str
+    default_theme: str
+    register_enabled: bool
+    email_verify_enabled: bool
+
+
+class EmailCodePolicy(BaseModel):
+    """邮箱验证码安全策略。"""
+
+    expire_seconds: int
+    resend_seconds: int
+    max_attempts: int
+
+
+class SMTPConfig(BaseModel):
+    """SMTP 发信配置。"""
+
+    host: str
+    port: int
+    username: str
+    password: str
+    sender: str
+    use_ssl: bool

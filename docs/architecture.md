@@ -34,29 +34,34 @@
 ## 分层架构
 
 ```text
-api/v1（路由）→ controllers（业务 + 仓储）→ models → Database
-                    └────────────→ core（横切：数据库 / Redis / 存储 / 异常 / 依赖注入）
-                                    utils（纯工具：安全 · 响应信封 · 分页 · 校验）
+api/v1（路由）→ services（业务）→ repositories（仓储）→ models → Database
+                    └────────────→ core（横切：数据库 / Redis / 存储 / 异常 / 依赖注入 / 日志）
+                                    rpc（判题网关基础设施：gRPC 服务 · 节点注册 · 巡检；gen/ 为生成代码）
+                                    utils（纯工具：安全 · 响应信封 · 分页 · 校验）　enums（全局枚举常量）
 ```
 
 | 层 | 目录 | 职责 | 绝对不能做 |
 | --- | --- | --- | --- |
-| 路由层 | `app/api/v1/` | 解析 HTTP 请求，声明鉴权依赖，调用控制器，返回响应信封 | ❌ 业务逻辑、SQL |
-| 控制器层 | `app/controllers/` | 业务规则、校验、编排、RBAC 分支 + 数据访问仓储（SQLAlchemy） | ❌ 处理 HTTP 细节 |
-| 模型层 | `app/models/` | ORM 表模型（按资源域拆分文件，聚合包统一注册 metadata） | ❌ 依赖 controllers / api |
-| 契约层 | `app/schemas/` | Pydantic 请求 / 响应模型 | ❌ 依赖 controllers / api |
-| 核心设施 | `app/core/` | database / redis / storage / exceptions / dependency / middlewares / init_app | — |
-| 工具层 | `app/utils/` | security / response / pagination / validation 纯函数 | ❌ 依赖其他应用层 |
+| 路由层 | `app/api/v1/` | 解析 HTTP 请求，声明鉴权依赖，调用服务，返回响应信封 | ❌ 业务逻辑、SQL |
+| 业务层 | `app/services/` | 业务规则、校验、编排、RBAC 分支（组合仓储完成） | ❌ 处理 HTTP 细节、手写 SQL 细节 |
+| 仓储层 | `app/repositories/` | 数据访问（SQLAlchemy 纯 CRUD）+ 审计日志写入助手 | ❌ 业务规则分支 |
+| 判题网关基础设施 | `app/rpc/` | gRPC 网关服务、节点注册表、负载均衡派发、巡检循环（`gen/` 为生成代码勿手改） | ❌ 处理 HTTP 细节 |
+| 模型层 | `app/models/` | ORM 表模型（按资源域拆分文件，聚合包统一注册 metadata） | ❌ 依赖 services / repositories / rpc / api |
+| 契约层 | `app/schemas/` | Pydantic 请求 / 响应模型 | ❌ 依赖 services / repositories / rpc / api |
+| 枚举层 | `app/enums/` | 全局枚举常量（按业务域拆分，聚合包再导出），不 import 任何应用层 | ❌ 依赖任何应用层 |
+| 核心设施 | `app/core/` | database / redis / storage / exceptions / dependency / middlewares / log / init_app | — |
+| 工具层 | `app/utils/` | security / response / pagination / validation 纯函数 | ❌ 依赖 api / services / repositories / rpc / models / schemas |
 
-依赖方向永远向下且无环（见 `docs/decisions/2026-08-24-backend-layered-restructure.md`）：
+依赖方向永远向下且无环（见 `docs/decisions/2026-08-24-backend-layered-restructure.md`
+与 `docs/decisions/2026-08-25-backend-service-repository-split.md`）：
 
 - **`app/api/**` 是最上层**：任何非 api 层 import `app.api` 即违规（路由不可被下穿依赖）
-- **models / schemas 不依赖 controllers**；平台表（`system_configs` 与审计日志三表）模型在 `models/system_config.py`、`models/audit.py`，读写服务在 `controllers/system_config.py`、`controllers/audit.py`，admin 只提供管理端点
-- **utils 保持纯净**：不得 import api / controllers / models / schemas
-- 组合根只有两处允许装配全图：`app/__init__.py`（create_app 工厂）与 `app/core/init_app.py`（路由注册）；认证依赖在 `core/dependency.py`（允许引用 controllers 的仓储做会话校验）
+- **models / schemas 不依赖 services / repositories / rpc**；平台表（`system_configs` 与审计日志三表）模型在 `models/system_config.py`、`models/audit.py`，服务在 `services/system_config.py`、写入助手在 `repositories/audit.py`，admin 只提供管理端点
+- **enums 与 utils 保持纯净**：enums 不 import 其他应用分层；utils 不 import api / services / repositories / rpc / models / schemas（允许 core，如 validation 复用 core.exceptions 错误定义）
+- 组合根只有两处允许装配全图：`app/__init__.py`（create_app 工厂）与 `app/core/init_app.py`（路由注册）；认证依赖在 `core/dependency.py`（允许引用 repositories 做会话校验）
 - 以上规则由 `src/backend/scripts/check_import_rules.py` 机械检查（用法见 `docs/operations.md`）
 
-> 架构定位：按技术层分包的分层单体（Controller 模式），目录结构对齐 vue-fastapi-admin 模板。业务域仍按资源域拆分控制器 / 模型 / 契约文件（user.py / problem.py / judge.py…）；不变量复杂的局部（判题状态机、比赛状态推进）可在属主控制器内引入充血模型，不要求全面转向。
+> 架构定位：按技术层分包的分层单体，目录结构对齐 vue-fastapi-admin 模板。业务域仍按资源域拆分 service / repository / model / contract 文件（user.py / problem.py / judge.py…）；不变量复杂的局部（判题状态机、比赛状态推进）可在属主 service 内引入充血模型，不要求全面转向。
 
 ## 代码组织（按技术层分包）
 
@@ -69,19 +74,21 @@ src/backend/
     settings/config.py        # 配置加载（backend.toml + .env / 环境变量覆盖）
     api/v1/                   # 路由层（每资源一个文件 + base.py 系统端点）
       base.py users.py files.py problems.py judge.py admin.py
-    controllers/              # 控制器层：业务逻辑 + 数据访问仓储（按资源域拆分文件）
-      user.py file.py problem.py judge.py judge_jobs.py judge_gateway.py admin.py
-      audit.py system_config.py   # 平台表写入助手 / 配置服务（横切）
+    services/                 # 业务逻辑层：<resource>.py = Service 类（组合仓储）
+      user.py file.py problem.py judge.py tag.py admin.py system_config.py
+    repositories/             # 数据访问仓储层：<resource>.py = Repository 类（纯 CRUD）+ audit 写入助手
+      user.py problem.py judge.py admin.py system_config.py audit.py
+    rpc/                      # 判题网关基础设施：judge_gateway.py judge_jobs.py
+      gen/                      # gRPC 生成代码（scripts/gen_proto.py 产出，勿手改）
+    enums/                    # 全局枚举常量（user.py problem.py judge.py audit.py…，__init__ 再导出）
     models/                   # ORM 模型（__init__.py 聚合注册全部表到 Base.metadata）
       user.py audit.py system_config.py problem.py judge.py admin.py
-    schemas/                  # Pydantic 契约（user.py file.py problem.py judge.py admin.py）
-    core/                     # 数据库 · Redis · MinIO · 异常 · 认证依赖 · 中间件 · 应用初始化
+    schemas/                  # Pydantic 契约（user.py file.py problem.py judge.py admin.py common.py）
+    core/                     # 数据库 · Redis · MinIO · 异常 · 认证依赖 · 中间件 · 日志 · 应用初始化
     utils/                    # 密码哈希 / Token · 响应信封 · 分页 · 校验（纯工具）
-    log/log.py                # 日志配置
-    rpc_gen/                  # gRPC 生成代码（scripts/gen_proto.py 产出，勿手改）
 ```
 
-- 控制器文件 = 该资源域的 Service 类 + Repository 类（如 `controllers/user.py` 含 `UserService / AuthService / UserRepository / SessionRepository / RoleRepository`）
+- service 文件 = 该资源域的业务 Service 类；repository 文件 = 数据访问类（如 `services/user.py` 含 `UserService / AuthService`，`repositories/user.py` 含 `UserRepository / SessionRepository / RoleRepository`）
 - 迁移文件集中在 `alembic/versions/`；表结构唯一来源是迁移 SQL，契约文件中的表结构是其文档化说明
 
 ## 模块
@@ -95,7 +102,7 @@ src/backend/
 | 比赛（contests） | 公开 / 团队比赛、报名、榜单 | `contests`、`contest_problems`、`contest_registrations`、`contest_rankings` | 建赛 / 报名 / 提交 / 榜单 / 封榜 |
 | 判题（judge） | 提交 / 验题提交 / 判题调度（gRPC 节点网关） | `submissions`、`submission_test_case_results`、`sandbox_configs` | 提交判题、验题代码提交、历史查询、节点健康 |
 | 社区（community） | 通知、消息、题解、讨论、评论、举报 | `notifications`、`messages`、`solutions`、`posts`、`comments`、`reports` | 社区互动 |
-| 系统配置 / 运维（admin） | 站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区配置的管理端点，日志查询，举报处理 | 管理端点覆盖平台表（`system_configs` 与日志三表模型在 `models/`、服务在 `controllers/`）、`reports` | 配置管理、日志查询 / 导出、异常追踪、举报处理 |
+| 系统配置 / 运维（admin） | 站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区配置的管理端点，日志查询，举报处理 | 管理端点覆盖平台表（`system_configs` 与日志三表模型在 `models/`、服务在 `services/system_config.py`、写入助手在 `repositories/audit.py`）、`reports` | 配置管理、日志查询 / 导出、异常追踪、举报处理 |
 | 运维 | 日志、状态 | `request_logs`、`login_logs`、`exception_logs` | 日志查询 / 导出 / 异常追踪 |
 
 > 判题采用 Codeforces 风格的「后端 gRPC 网关 → 判题节点 → nsjail 执行器」链路：网关维护节点注册表并按负载派发作业，判题节点容器经双向流接收作业、按 `data_version` 经 `FetchProblemData` 拉取测试点到本地缓存后在 nsjail 内执行，结果沿流回传落库；**后端进程不执行任何用户代码**，沙箱不访问 MinIO、数据库或公网（见 `docs/contracts/judge.md`）。
@@ -118,7 +125,7 @@ src/backend/
 - 模型字段、校验 Schema 遵循 `docs/contracts/` 数据模型（迁移 SQL 为唯一来源）
 - 枚举字段使用 `VARCHAR(n)` + CHECK 约束（SQLAlchemy 侧可用 `Enum`）；状态 / 可见性语义见对应契约文件
 - 空值用 `None` 表示「无」
-- 每个 Service 方法单一职责；跨模块只 import 对方 `api.py` 门面（见分层架构与 `docs/decisions/2026-08-24-backend-module-packaging.md`）
+- 每个 Service 方法单一职责；跨模块只 import 对方 service / repository 的公开类与函数（见分层架构与 `docs/decisions/2026-08-25-backend-service-repository-split.md`）
 
 ### 错误处理
 
@@ -227,7 +234,7 @@ src/backend/
 
 > 缓存一致性：会话、邀请链接、判题节点状态为 Redis 唯一事实来源，不落库；榜单以数据库 `contest_rankings` 为权威数据，Redis 仅作读缓存，失效 / 封榜切换时回源数据库。全局判题并发上限由网关注册表在内存中统计（节点 in-flight 之和），不占用 Redis。
 
-### 后台调度机制（无 Celery / 无独立 worker 进程）
+### 后台调度机制
 
 | 机制 | 说明 | 现状 |
 | --- | --- | --- |

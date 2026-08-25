@@ -1,7 +1,7 @@
 """平台级审计日志表：login_logs / request_logs / exception_logs（docs/contracts/admin.md）。
 
 三类日志由中间件与各业务流程写入（登录、请求、异常），属横切基础设施；
-admin 路由仅提供查询端点。写入助手与查询仓储见 app.controllers.audit。
+admin 路由仅提供查询端点。写入助手与查询仓储见 app.repositories.audit。
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.enums import LogLevel, LoginAction
 
 
 class RequestLog(Base):

@@ -3,9 +3,9 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
-import { getProblem, replaceSamples, replaceTestCases } from '@/api/problems'
+import { getProblem, patchTestCases, replaceSamples } from '@/api/problems'
 import { message } from '@/utils/feedback'
-import type { ProblemDetailEx, TestCaseDraft } from '@/types'
+import type { ProblemDetailEx, ProblemTestCase, TestCaseDraft, TestCaseUpsertPayload } from '@/types'
 import TestCaseImporter from '@/components/problem/TestCaseImporter.vue'
 
 const route = useRoute()
@@ -55,14 +55,15 @@ async function loadExisting() {
     if (!loaded.can_manage) throw new Error(t('problems.create.noPermission'))
     if (loaded.test_cases?.length)
       cases.value = loaded.test_cases.map((item) => ({
+        id: item.id,
         name: item.name ?? '',
         input: item.input ?? '',
         expected_output: item.expected_output ?? '',
         sort_order: item.sort_order,
       }))
     samples.value = (loaded.samples ?? []).map((item) => ({ input: item.input, output: item.output }))
-    // 记录服务器端快照，保存时用于签名比对跳过无变化上传
-    serverCases = loaded.test_cases ?? undefined
+    // 记录服务器端基线快照，保存时按行 diff 只提交变化的测试点
+    serverCases = loaded.test_cases ?? []
     serverSamples = samples.value.map((item) => ({ ...item }))
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
@@ -72,30 +73,67 @@ async function loadExisting() {
   }
 }
 
-/** 签名对比：内容未变化时不重复上传，避免无谓触发「需重新验题」 */
-function caseSignature(list?: Array<{ name?: string | null; input: string; expected_output: string }>) {
-  return JSON.stringify((list ?? []).map((item) => [item.name ?? '', item.input ?? '', item.expected_output ?? '']))
-}
 function sampleSignature(list?: Array<{ input: string; output: string }>) {
   return JSON.stringify((list ?? []).map((item) => [item.input ?? '', item.output ?? '']))
 }
 
-/** 服务器端当前内容快照（loadExisting 时记录） */
-let serverCases: TestCaseDraft[] | undefined = undefined
+/** 服务器端当前内容快照（loadExisting / 保存成功后刷新） */
+let serverCases: ProblemTestCase[] = []
 let serverSamples: Array<{ input: string; output: string }> = []
+
+/** 行级 diff：新增（无 id）、内容/名称变化、位置变化、被移除的行 */
+function diffCases(validCases: TestCaseDraft[]): {
+  upserts: TestCaseUpsertPayload[]
+  delete_ids: string[]
+} {
+  const baselineIndex = new Map(serverCases.map((c, index) => [c.id, index]))
+  const upserts = validCases
+    .map((row, index) => ({ row, index }))
+    .filter(({ row, index }) => {
+      if (!row.id) return true // 新增行
+      const base = serverCases.find((c) => c.id === row.id)
+      if (!base) return true
+      return (
+        (row.name || '') !== (base.name ?? '') ||
+        row.input !== (base.input ?? '') ||
+        row.expected_output !== (base.expected_output ?? '') ||
+        baselineIndex.get(row.id) !== index
+      )
+    })
+    .map(({ row, index }) => ({
+      id: row.id ?? null,
+      name: row.name,
+      input: row.input,
+      expected_output: row.expected_output,
+      sort_order: index + 1,
+    }))
+  const keepIds = new Set(validCases.map((row) => row.id).filter(Boolean) as string[])
+  const delete_ids = serverCases.filter((c) => !keepIds.has(c.id)).map((c) => c.id)
+  return { upserts, delete_ids }
+}
 
 /** 持久化样例 + 测试点；成功返回 true */
 async function save(): Promise<boolean> {
   normalize()
   saving.value = true
   try {
-    // 空白草稿行不提交（后端拒绝全空测试点）；内容与服务器一致时跳过上传
+    // 空白草稿行不提交（后端拒绝全空测试点）；按行对比只提交有变化的测试点
     const validCases = cases.value
       .filter((item) => item.input.trim() || item.expected_output.trim())
       .map((item, index) => ({ ...item, sort_order: index + 1 }))
-    if (validCases.length && caseSignature(validCases) !== caseSignature(serverCases)) {
-      await replaceTestCases(problemId, validCases)
-      serverCases = validCases
+    const { upserts, delete_ids } = diffCases(validCases)
+    if (upserts.length || delete_ids.length) {
+      const resp = await patchTestCases(problemId, { upserts, delete_ids })
+      // 以服务器权威列表重置本地行与基线（新建行获得 id）
+      cases.value = resp.cases.map((c) => ({
+        id: c.id,
+        name: c.name ?? '',
+        input: c.input ?? '',
+        expected_output: c.expected_output ?? '',
+        sort_order: c.sort_order,
+      }))
+      normalize()
+      serverCases = resp.cases.map((c) => ({ ...c }))
     }
     const validSamples = samples.value.filter((item) => item.input.trim() || item.output.trim())
     if (sampleSignature(validSamples) !== sampleSignature(serverSamples)) {
@@ -139,8 +177,20 @@ onMounted(loadExisting)
       <n-card :bordered="false">
         <template #header>
           <div class="card-head">
-            <span>{{ t('problems.wizard.cases') }}</span>
-            <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
+            <div class="card-head__title">
+              <span>{{ t('problems.wizard.cases') }}</span>
+              <span class="card-head__step">2 / 3</span>
+            </div>
+            <!-- 向导导航收进卡片头：无需滚动即可见（上一步 / 下一步 / 取消） -->
+            <div class="card-head__actions">
+              <n-button size="small" :disabled="saving" @click="goPrev">
+                {{ t('problems.wizard.prev') }}
+              </n-button>
+              <n-button type="primary" size="small" :loading="saving" @click="goNext">
+                {{ t('problems.wizard.next') }}
+              </n-button>
+              <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
+            </div>
           </div>
         </template>
 
@@ -163,7 +213,7 @@ onMounted(loadExisting)
             <div v-if="samples.length" class="test-cases">
               <div v-for="(sample, index) in samples" :key="index" class="test-case">
                 <div class="case-top">
-                  <span class="case-index">{{ index + 1 }}</span>
+                  <span class="case-index case-index--accent">{{ index + 1 }}</span>
                   <n-button text type="error" size="small" @click="removeSample(index)">
                     {{ t('problems.create.removeCase') }}
                   </n-button>
@@ -223,15 +273,6 @@ onMounted(loadExisting)
           </div>
           <n-empty v-else :description="t('problems.create.contentRequired')" />
         </div>
-
-        <!-- 底部导航：下一步自动保存样例与测试点 -->
-        <div class="wizard-footer">
-          <n-button :disabled="saving" @click="goPrev">{{ t('problems.wizard.prev') }}</n-button>
-          <div class="wizard-footer__spacer" />
-          <n-button type="primary" :loading="saving" @click="goNext">{{
-            t('problems.wizard.next')
-          }}</n-button>
-        </div>
       </n-card>
     </n-spin>
   </div>
@@ -245,6 +286,11 @@ onMounted(loadExisting)
   gap: 12px;
   width: 100%;
 }
+.card-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .wizard-body {
   min-height: 320px;
 }
@@ -252,11 +298,11 @@ onMounted(loadExisting)
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 .test-cases {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 .samples-section {
   margin-bottom: 24px;
@@ -286,16 +332,23 @@ onMounted(loadExisting)
   justify-content: flex-start;
   gap: 10px;
 }
+/* 序号 chip：测试点用中性底，样例用主题色底（--accent），一眼区分两类卡片 */
 .case-index {
   display: grid;
   place-items: center;
   width: 24px;
   height: 24px;
+  border: 1px solid var(--app-border);
   border-radius: 4px;
-  color: var(--app-primary);
-  background: rgba(244, 81, 30, 0.09);
+  color: var(--app-text-secondary);
+  background: var(--app-card-bg);
   font-size: 12px;
   font-weight: 600;
+}
+.case-index--accent {
+  border-color: transparent;
+  color: var(--app-primary);
+  background: color-mix(in srgb, var(--app-primary) 9%, transparent);
 }
 .case-name {
   max-width: 160px;
@@ -305,17 +358,6 @@ onMounted(loadExisting)
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-top: 12px;
-}
-.wizard-footer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--app-border);
-}
-.wizard-footer__spacer {
-  flex: 1;
 }
 @media (max-width: 760px) {
   .case-content {

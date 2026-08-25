@@ -4,7 +4,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import * as usersApi from '@/api/users'
-import { dialog, message } from '@/utils/feedback'
+import { confirmAsyncDialog, message } from '@/utils/feedback'
 import type { UserSession } from '@/types'
 import { formatDateTime } from '@/utils/format'
 
@@ -23,22 +23,15 @@ async function load() {
 }
 onMounted(load)
 function onRevoke(session: UserSession) {
-  dialog.warning({
+  confirmAsyncDialog({
     title: t('sessions.revokeTitle'),
     content: t('sessions.revokeConfirm', {
       device: session.device_info ?? t('common.unknownDevice'),
     }),
     positiveText: t('action.revoke'),
-    negativeText: t('action.cancel'),
-    onPositiveClick: async () => {
-      try {
-        await usersApi.revokeSession(session.id)
-        message.success(t('sessions.revoked'))
-        await load()
-      } catch (e) {
-        message.error(e instanceof Error ? e.message : t('common.operationFailed'))
-      }
-    },
+    action: () => usersApi.revokeSession(session.id),
+    successMessage: t('sessions.revoked'),
+    onAfterSuccess: () => load(),
   })
 }
 </script>

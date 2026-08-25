@@ -6,6 +6,9 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.enums import SubmissionStatus, SubmitType
+from app.schemas.admin import SandboxNodeOut
+
 
 class VerifyRequest(BaseModel):
     """POST /problems/{id}/verify 的双模式请求体：
@@ -57,10 +60,7 @@ class SubmissionQuery(BaseModel):
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
     problem_id: uuid.UUID | None = None
-    status: str | None = Field(
-        default=None,
-        pattern="^(pending|judging|accepted|wrong_answer|time_limit_exceeded|memory_limit_exceeded|output_limit_exceeded|runtime_error|compile_error|system_error)$",
-    )
+    status: SubmissionStatus | None = None
 
 
 # ---- Response Schemas（统一 ORM 序列化） ----
@@ -74,8 +74,8 @@ class SubmissionSummary(BaseModel):
     id: uuid.UUID
     problem_id: uuid.UUID
     language: str
-    submit_type: str
-    status: str
+    submit_type: SubmitType
+    status: SubmissionStatus
     score: int | None
     time_used_ms: int | None
     memory_used_kb: int | None
@@ -90,9 +90,9 @@ class SubmissionDetail(BaseModel):
     id: uuid.UUID
     problem_id: uuid.UUID
     language: str
-    submit_type: str
+    submit_type: SubmitType
     code: str
-    status: str
+    status: SubmissionStatus
     score: int | None
     time_used_ms: int | None
     memory_used_kb: int | None
@@ -104,9 +104,28 @@ class TestCaseResult(BaseModel):
     """单个测试点结果。"""
 
     id: uuid.UUID
-    case_name: str
-    status: str
+    case_name: str | None
+    status: SubmissionStatus
     time_used_ms: int | None
     memory_used_kb: int | None
     score: int | None
     output: str | None
+
+
+class SubmissionDetailOut(SubmissionDetail):
+    """提交详情响应：详情字段 + 逐测试点明细。"""
+
+    cases: list[TestCaseResult] = []
+
+
+class SubmissionCreatedResponse(BaseModel):
+    """提交创建响应。"""
+
+    submission_id: str
+    status: SubmissionStatus
+
+
+class SandboxHealthOut(BaseModel):
+    """沙箱节点健康（GET /sandbox/health；节点状态来自网关注册表）。"""
+
+    nodes: list[SandboxNodeOut] = []

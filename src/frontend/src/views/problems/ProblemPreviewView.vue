@@ -7,7 +7,9 @@ import { NTag } from 'naive-ui'
 import { getProblem } from '@/api/problems'
 import { message } from '@/utils/feedback'
 import { goBackOrFallback } from '@/utils/navigation'
+import { problemStatusTagType, problemStatusLabelKey } from '@/constants/problemStatus'
 import MarkdownView from '@/components/MarkdownView.vue'
+import ProblemSamples from '@/components/ProblemSamples.vue'
 import type { ProblemDetailEx } from '@/types'
 
 const route = useRoute()
@@ -19,24 +21,6 @@ const loading = ref(false)
 /** 返回题目管理：来源优先（如从列表筛选态进入），直达打开时兜底固定路径 */
 function backToManage() {
   goBackOrFallback(router, '/admin/problems')
-}
-
-function statusTagType(s?: string): 'success' | 'warning' | 'default' {
-  return s === 'published' ? 'success' : s === 'archived' ? 'default' : 'warning'
-}
-const statusLabelKey: Record<string, string> = {
-  draft: 'problems.list.statusDraft',
-  published: 'problems.list.statusPublished',
-  archived: 'problems.list.statusArchived',
-}
-
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    message.success(t('problems.detail.copied'))
-  } catch {
-    message.error(t('common.operationFailed'))
-  }
 }
 
 async function load() {
@@ -63,8 +47,8 @@ onMounted(load)
             <div class="preview-head__meta">
               <span>{{ problem.time_limit_ms }} ms</span>
               <span>{{ problem.memory_limit_mb }} MB</span>
-              <n-tag size="small" round :type="statusTagType(problem.status)">
-                {{ t(statusLabelKey[problem.status] ?? problem.status) }}
+              <n-tag size="small" round :type="problemStatusTagType(problem.status)">
+                {{ t(problemStatusLabelKey[problem.status] ?? problem.status) }}
               </n-tag>
               <n-tag v-if="problem.visibility !== 'public'" size="small" round>
                 {{ t(`problems.visibility.${problem.visibility}`) }}
@@ -96,27 +80,7 @@ onMounted(load)
         <MarkdownView :source="problem.output_description || ''" />
 
         <h3 class="preview-subtitle">{{ t('problems.detail.samples') }}</h3>
-        <div v-if="problem.samples.length" class="samples">
-          <div v-for="(sample, index) in problem.samples" :key="index" class="sample-block">
-            <div class="sample-block__head">
-              <strong>#{{ index + 1 }} {{ sample.name }}</strong>
-              <n-button text size="small" @click="copyText(sample.input)">
-                {{ t('problems.detail.copyInput') }}
-              </n-button>
-            </div>
-            <div class="sample-grid2">
-              <div>
-                <p class="sample-label">{{ t('problems.detail.stdin') }}</p>
-                <pre class="result-box sample-io">{{ sample.input || t('problems.detail.noOutput') }}</pre>
-              </div>
-              <div>
-                <p class="sample-label">{{ t('problems.detail.expected') }}</p>
-                <pre class="result-box sample-io">{{ sample.output || t('problems.detail.noOutput') }}</pre>
-              </div>
-            </div>
-          </div>
-        </div>
-        <n-empty v-else size="small" :description="t('problems.detail.noSamples')" />
+        <ProblemSamples :samples="problem.samples" />
 
         <template v-if="problem.solution">
           <h3 class="preview-subtitle">{{ t('problems.detail.solution') }}</h3>
@@ -145,7 +109,7 @@ onMounted(load)
 }
 .preview-head__title {
   margin: 0;
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1.35;
 }
 .preview-head__meta {
@@ -162,41 +126,5 @@ onMounted(load)
   padding-top: 14px;
   border-top: 1px solid var(--app-border);
   font-size: 15px;
-}
-.samples {
-  display: grid;
-  gap: 14px;
-}
-.sample-block {
-  border: 1px solid var(--app-border);
-  border-radius: 6px;
-  padding: 12px;
-  background: var(--app-muted-bg);
-}
-.sample-block__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-.sample-grid2 {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-@media (max-width: 899px) {
-  .sample-grid2 {
-    grid-template-columns: 1fr;
-  }
-}
-.sample-label {
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: var(--app-text-secondary);
-  font-weight: 500;
-}
-.sample-io {
-  max-height: 240px;
-  min-height: 64px;
 }
 </style>

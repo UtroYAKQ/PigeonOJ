@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CirclePlus, EditPen, Refresh, Search as SearchIcon, TurnOff, View } from '@element-plus/icons-vue'
+import { CirclePlus, EditPen, Refresh, TurnOff, View } from '@element-plus/icons-vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -7,7 +7,11 @@ import { NButton, NIcon, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import { archiveProblem, listProblems } from '@/api/problems'
-import { dialog, message } from '@/utils/feedback'
+import { confirmAsyncDialog, message } from '@/utils/feedback'
+import { usePagination } from '@/composables/usePagination'
+import { problemStatusTagType, problemStatusLabelKey } from '@/constants/problemStatus'
+import SearchFilterBar from '@/components/SearchFilterBar.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import type { PageResult, ProblemSummary } from '@/types'
 
 type ProblemStatus = 'draft' | 'published' | 'archived'
@@ -17,10 +21,8 @@ const { t } = useI18n()
 
 const loading = ref(false)
 const list = ref<ProblemSummary[]>([])
-const total = ref(0)
+const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
 const query = reactive({
-  page: 1,
-  page_size: 20,
   keyword: '',
   status: '' as ProblemStatus | '',
 })
@@ -29,8 +31,8 @@ async function load() {
   loading.value = true
   try {
     const result: PageResult<ProblemSummary> = await listProblems({
-      page: query.page,
-      page_size: query.page_size,
+      page: page.value,
+      page_size: pageSize.value,
       keyword: query.keyword || undefined,
       scope: 'mine',
       status: query.status || undefined,
@@ -46,20 +48,11 @@ async function load() {
 
 function switchStatus(value: string) {
   query.status = value as ProblemStatus | ''
-  query.page = 1
+  resetPage()
   load()
 }
 function onSearch() {
-  query.page = 1
-  load()
-}
-function changePage(page: number) {
-  query.page = page
-  load()
-}
-function changeSize(size: number) {
-  query.page_size = size
-  query.page = 1
+  resetPage()
   load()
 }
 function goEdit(row: ProblemSummary) {
@@ -71,33 +64,19 @@ function goDetail(row: ProblemSummary) {
 }
 
 function doArchive(row: ProblemSummary) {
-  dialog.warning({
+  confirmAsyncDialog({
     title: t('problems.detail.archive'),
     content: t('problems.mine.archiveConfirm'),
     positiveText: t('problems.detail.archive'),
-    negativeText: t('action.cancel'),
-    onPositiveClick: async () => {
-      try {
-        Object.assign(row, await archiveProblem(row.id))
-        message.success(t('problems.detail.archiveSuccess'))
-        await load()
-      } catch (error) {
-        message.error(error instanceof Error ? error.message : t('common.operationFailed'))
-      }
+    action: async () => {
+      Object.assign(row, await archiveProblem(row.id))
     },
+    successMessage: t('problems.detail.archiveSuccess'),
+    onAfterSuccess: () => load(),
   })
 }
 
 onMounted(load)
-
-const statusLabelKey: Record<string, string> = {
-  draft: 'problems.list.statusDraft',
-  published: 'problems.list.statusPublished',
-  archived: 'problems.list.statusArchived',
-}
-function statusTagType(status: string): 'warning' | 'success' | 'default' {
-  return status === 'draft' ? 'warning' : status === 'published' ? 'success' : 'default'
-}
 
 const columns = computed<DataTableColumns<ProblemSummary>>(() => [
   {
@@ -121,8 +100,8 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
     render(row) {
       return h(
         NTag,
-        { size: 'small', bordered: false, type: statusTagType(row.status) },
-        { default: () => t(statusLabelKey[row.status] ?? row.status) },
+        { size: 'small', bordered: false, type: problemStatusTagType(row.status) },
+        { default: () => t(problemStatusLabelKey[row.status] ?? row.status) },
       )
     },
   },
@@ -185,17 +164,18 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
       }
       if (row.status === 'draft') {
         buttons.push(
+          actionButton(View, t('action.view'), () => goDetail(row)),
           actionButton(EditPen, t('action.edit'), () => goEdit(row), 'primary'),
         )
       } else if (row.status === 'published') {
         buttons.push(
-          actionButton(View, t('problems.detail.title'), () => goDetail(row)),
+          actionButton(View, t('action.view'), () => goDetail(row)),
           actionButton(EditPen, t('action.edit'), () => goEdit(row), 'primary'),
           actionButton(TurnOff, t('problems.detail.archive'), () => doArchive(row), 'error'),
         )
       } else {
         buttons.push(
-          actionButton(View, t('problems.detail.title'), () => goDetail(row)),
+          actionButton(View, t('action.view'), () => goDetail(row)),
         )
       }
       return h('div', { class: 'cell-actions' }, buttons)
@@ -218,31 +198,26 @@ function rowProps(row: ProblemSummary) {
 <template>
   <div class="page-fill">
     <n-card :bordered="false">
-      <div class="toolbar">
-        <n-input
-          v-model:value="query.keyword"
-          clearable
-          class="toolbar__search"
-          :placeholder="t('problems.mine.search')"
-          @keyup.enter="onSearch"
-          @clear="onSearch"
-        >
-          <template #prefix>
-            <n-icon size="15"><SearchIcon /></n-icon>
-          </template>
-        </n-input>
-        <n-button quaternary circle :loading="loading" :aria-label="t('action.refresh')" @click="load">
-          <n-icon :component="Refresh" />
-        </n-button>
-        <div class="toolbar__actions">
+      <SearchFilterBar
+        :keyword="query.keyword"
+        :placeholder="t('problems.mine.search')"
+        search-width="280px"
+        @update:keyword="(v: string) => { query.keyword = v }"
+        @search="onSearch"
+        @reset="onSearch"
+      >
+        <template #actions>
+          <n-button quaternary circle :loading="loading" :aria-label="t('action.refresh')" @click="load">
+            <n-icon :component="Refresh" />
+          </n-button>
           <n-button type="primary" @click="router.push('/admin/problems/new')">
             <template #icon>
               <n-icon :component="CirclePlus" />
             </template>
             {{ t('problems.list.create') }}
           </n-button>
-        </div>
-      </div>
+        </template>
+      </SearchFilterBar>
 
       <n-tabs type="line" size="small" class="status-tabs" :value="query.status || 'all'" @update:value="switchStatus">
         <n-tab-pane name="all" :tab="t('problems.mine.all')" />
@@ -251,53 +226,28 @@ function rowProps(row: ProblemSummary) {
         <n-tab-pane name="archived" :tab="t('problems.list.statusArchived')" />
       </n-tabs>
 
-      <n-data-table
-        v-if="loading || list.length"
-        class="table-fill"
+      <PaginatedDataTable
         :columns="columns"
         :data="list"
         :loading="loading"
-        :scroll-x="980"
-        :bordered="false"
-        :bottom-bordered="false"
-        :row-props="rowProps"
-      />
-      <div v-else class="table-fill-empty">
-        <n-empty size="large" :description="t('problems.mine.empty')" />
-      </div>
-
-      <div class="pager">
-        <span class="pager__total">{{ t('problems.list.totalCount', { count: total }) }}</span>
-        <n-pagination
-          :page="query.page"
-          :page-size="query.page_size"
-          :item-count="total"
-          :page-sizes="[20, 50, 100]"
-          show-size-picker
-          @update:page="changePage"
-          @update:page-size="changeSize"
-        />
-      </div>
+        :total="total"
+        v-model:page="page"
+        v-model:page-size="pageSize"
+        :page-sizes="[20, 50, 100]"
+        :empty-text="t('problems.mine.empty')"
+        :table-props="{ scrollX: 980, rowProps }"
+        @update:page="(p: number) => { changePage(p); load() }"
+        @update:page-size="(s: number) => { changeSize(s); load() }"
+      >
+        <template #pager-left>
+          <span class="pager__total">{{ t('problems.list.totalCount', { count: total }) }}</span>
+        </template>
+      </PaginatedDataTable>
     </n-card>
   </div>
 </template>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-.toolbar__search {
-  width: 280px;
-}
-.toolbar__actions {
-  margin-left: auto;
-  display: flex;
-  gap: 10px;
-}
 .status-tabs {
   margin-bottom: 4px;
 }
@@ -327,24 +277,11 @@ function rowProps(row: ProblemSummary) {
 .table-fill :deep(.cell-actions__btn:hover) {
   background: var(--app-muted-bg);
 }
-.pager {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--app-border);
-}
 .pager__total {
   color: var(--app-text-secondary);
   font-size: 13px;
 }
 @media (max-width: 700px) {
-  .toolbar__search {
-    width: 100%;
-  }
   .pager {
     justify-content: center;
   }

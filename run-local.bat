@@ -68,17 +68,11 @@ if errorlevel 1 (
     echo Redis 已在运行（端口 6379 已被占用，复用现有实例）
 )
 
-rem ---------- 2. 构建判题节点镜像（含 nsjail 沙箱基础层；仅首次或 Dockerfile 变更时） ----------
+rem ---------- 2. 构建判题节点镜像（单镜像含 nsjail 沙箱层；首次或 Dockerfile 变更时） ----------
 echo [2/7] 准备判题节点镜像...
-docker image inspect sandbox:local >nul 2>&1
-if errorlevel 1 (
-    echo 构建沙箱基础层 sandbox:local（仅首次，需几分钟）...
-    docker build -t sandbox:local "%~dp0src\judge\sandbox"
-    if errorlevel 1 ( echo [错误] 基础层构建失败 & pause & exit /b 1 )
-)
 docker image inspect pigeonoj/judge-node:latest >nul 2>&1
 if errorlevel 1 (
-    echo 构建判题节点镜像 pigeonoj/judge-node...
+    echo 构建判题节点镜像 pigeonoj/judge-node（首次，需数分钟）...
     docker build -t pigeonoj/judge-node:latest "%~dp0src\judge"
     if errorlevel 1 ( echo [错误] 节点镜像构建失败 & pause & exit /b 1 )
 ) else (

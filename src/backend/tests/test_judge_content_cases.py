@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.models.problem import Problem, TestCase as JudgeTestCase
 from app.schemas.problem import TestCaseItem as JudgeTestCaseItem, TestCasesUpdate as JudgeTestCasesUpdate
-from app.controllers.problem import ProblemService
+from app.services.problem import ProblemService
 from app.models.user import User
 
 
@@ -23,7 +23,7 @@ async def test_replace_cases_uploads_only_official_content(monkeypatch):
             self.deletes.append(key)
 
     storage = FakeStorage()
-    monkeypatch.setattr("app.controllers.problem.get_storage", lambda: storage)
+    monkeypatch.setattr("app.services.problem.get_storage", lambda: storage)
     from app.core.database import SessionLocal
 
     async with SessionLocal() as db:

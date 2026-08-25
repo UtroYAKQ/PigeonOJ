@@ -1,4 +1,5 @@
-import { apiRequest } from './request'
+import { apiRequest } from './http'
+import { buildQuery } from '@/utils/query'
 import type {
   PageResult,
   ProblemCreatePayload,
@@ -8,19 +9,13 @@ import type {
   ProblemListQuery,
   ProblemSummary,
   ProblemTagItem,
+  ProblemTestCase,
   TestCaseDraft,
+  TestCaseUpsertPayload,
 } from '@/types'
 
 export function listProblems(query: ProblemListQuery = {}): Promise<PageResult<ProblemSummary>> {
-  const params = new URLSearchParams()
-  if (query.page) params.set('page', String(query.page))
-  if (query.page_size) params.set('page_size', String(query.page_size))
-  if (query.keyword) params.set('keyword', query.keyword)
-  if (query.tag) params.set('tag', query.tag)
-  if (query.scope && query.scope !== 'all') params.set('scope', query.scope)
-  if (query.status) params.set('status', query.status)
-  const qs = params.toString()
-  return apiRequest('GET', `/problems${qs ? `?${qs}` : ''}`)
+  return apiRequest('GET', `/problems${buildQuery(query)}`)
 }
 
 /** 激活标签列表（public：打标选择器与题库筛选） */
@@ -38,6 +33,14 @@ export function updateProblem(id: string, body: ProblemEditPayload): Promise<Pro
 }
 export function replaceTestCases(id: string, cases: TestCaseDraft[]): Promise<null> {
   return apiRequest('PUT', `/problems/${id}/test-cases`, { cases })
+}
+
+/** 增量更新测试点：只提交变化的行（带 id=修改，内容留空=不变；无 id=新增；delete_ids=删除）。响应为服务器权威全量列表 */
+export function patchTestCases(
+  id: string,
+  body: { upserts: TestCaseUpsertPayload[]; delete_ids: string[] },
+): Promise<{ cases: ProblemTestCase[] }> {
+  return apiRequest('PATCH', `/problems/${id}/test-cases`, body)
 }
 
 /** 全量替换展示样例（存 problems.samples，不参与判题；≤10 组、单项各 ≤64KB） */

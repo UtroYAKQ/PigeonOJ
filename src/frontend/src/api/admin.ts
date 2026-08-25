@@ -3,7 +3,8 @@
  * 所有端点权限为 admin（后端 2003 拦截非管理员）。
  * 注：模型配置与 Token 用量端点随 AI 模块暂缓实现，未包含在本模块。
  */
-import { apiRequest } from './request'
+import { apiRequest } from './http'
+import { buildQuery } from '@/utils/query'
 import type {
   AdminUserQuery,
   ConfigCategory,
@@ -23,13 +24,7 @@ import type {
 
 /** GET /admin/users — 用户列表 */
 export function adminListUsers(query: AdminUserQuery = {}) {
-  const params = new URLSearchParams()
-  if (query.page) params.set('page', String(query.page))
-  if (query.page_size) params.set('page_size', String(query.page_size))
-  if (query.keyword) params.set('keyword', query.keyword)
-  if (query.status) params.set('status', query.status)
-  const qs = params.toString()
-  return apiRequest<PageResult<User>>('GET', `/admin/users${qs ? `?${qs}` : ''}`)
+  return apiRequest<PageResult<User>>('GET', `/admin/users${buildQuery(query)}`)
 }
 
 /** PUT /admin/users/:id/roles — 全局角色授权（scope='global'） */
@@ -74,14 +69,7 @@ export function adminUpdateConfigs(items: Array<{ id: string; config_value: unkn
 
 /** GET /admin/logs/:type — 日志查询（request / login / exception） */
 export function adminListLogs(type: LogType, query: LogQuery = {}) {
-  const params = new URLSearchParams()
-  if (query.page) params.set('page', String(query.page))
-  if (query.page_size) params.set('page_size', String(query.page_size))
-  if (query.keyword) params.set('keyword', query.keyword)
-  if (query.start) params.set('start', query.start)
-  if (query.end) params.set('end', query.end)
-  const qs = params.toString()
-  return apiRequest<PageResult<unknown>>('GET', `/admin/logs/${type}${qs ? `?${qs}` : ''}`)
+  return apiRequest<PageResult<unknown>>('GET', `/admin/logs/${type}${buildQuery(query)}`)
 }
 
 // ---------------- 沙箱状态 ----------------
@@ -97,12 +85,7 @@ export function adminSandboxStatus() {
 export function adminListReports(
   query: { page?: number; page_size?: number; status?: ReportStatus | '' } = {},
 ) {
-  const params = new URLSearchParams()
-  if (query.page) params.set('page', String(query.page))
-  if (query.page_size) params.set('page_size', String(query.page_size))
-  if (query.status) params.set('status', query.status)
-  const qs = params.toString()
-  return apiRequest<PageResult<Report>>('GET', `/admin/reports${qs ? `?${qs}` : ''}`)
+  return apiRequest<PageResult<Report>>('GET', `/admin/reports${buildQuery(query)}`)
 }
 
 /** POST /admin/reports/:id/handle — 处理举报（handled 通过 / ignored 驳回，docs/contracts/community.md） */

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NTag } from 'naive-ui'
@@ -8,8 +8,11 @@ import type { DataTableColumns } from 'naive-ui'
 import { createSubmission, listSubmissions } from '@/api/judge'
 import { getProblem } from '@/api/problems'
 import { dialog, message } from '@/utils/feedback'
+import { useSplitPane } from '@/composables/useSplitPane'
+import { problemStatusTagType, problemStatusLabelKey } from '@/constants/problemStatus'
 import CodeEditor from '@/components/CodeEditor.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
+import ProblemSamples from '@/components/ProblemSamples.vue'
 import type { ProblemDetailEx, ProblemLanguage, Submission } from '@/types'
 
 const route = useRoute()
@@ -24,23 +27,8 @@ const mySubmissions = ref<Submission[]>([])
 
 const code = ref('')
 
-function statusTagType(s?: string): 'success' | 'warning' | 'default' {
-  return s === 'published' ? 'success' : s === 'archived' ? 'default' : 'warning'
-}
-const statusLabelKey: Record<string, string> = {
-  draft: 'problems.list.statusDraft',
-  published: 'problems.list.statusPublished',
-  archived: 'problems.list.statusArchived',
-}
-
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    message.success(t('problems.detail.copied'))
-  } catch {
-    message.error(t('common.operationFailed'))
-  }
-}
+const { isDesktop, splitRef, layoutStyle, startResize, resetSplit, updateSplitHeight } =
+  useSplitPane()
 
 async function load() {
   loading.value = true
@@ -69,7 +57,6 @@ function openSubmission(row: Submission) {
 
 async function submit() {
   if (!problem.value || submitting.value) return
-  // 提交前二次确认，避免误触；取消则不发起请求
   dialog.warning({
     title: t('problems.detail.submit'),
     content: t('problems.detail.submitConfirm'),
@@ -94,95 +81,7 @@ async function submit() {
 }
 
 onMounted(load)
-
-// ---- 可拖拽分栏：桌面端左右独立滚动，比例持久化；窄屏自动上下堆叠 ----
-const SPLIT_KEY = 'pigeonoj.problems.splitRatio'
-const desktopQuery = window.matchMedia('(min-width: 900px)')
-const isDesktop = ref(desktopQuery.matches)
-const splitRef = ref<HTMLElement>()
-const ratio = ref(loadRatio())
-const splitHeight = ref('')
-
-function loadRatio(): number {
-  const raw = Number(localStorage.getItem(SPLIT_KEY))
-  return Number.isFinite(raw) && raw >= 0.25 && raw <= 0.75 ? raw : 0.5
-}
-let resizing = false
-function startResize(event: PointerEvent) {
-  if (!isDesktop.value) return
-  event.preventDefault()
-  resizing = true
-  document.body.classList.add('is-splitting')
-  window.addEventListener('pointermove', onPointerMove)
-  window.addEventListener('pointerup', endResize)
-}
-function onPointerMove(event: PointerEvent) {
-  if (!resizing || !splitRef.value) return
-  const rect = splitRef.value.getBoundingClientRect()
-  ratio.value = Math.min(0.75, Math.max(0.25, (event.clientX - rect.left) / rect.width))
-}
-function endResize() {
-  if (!resizing) return
-  resizing = false
-  document.body.classList.remove('is-splitting')
-  localStorage.setItem(SPLIT_KEY, String(ratio.value))
-  window.removeEventListener('pointermove', onPointerMove)
-  window.removeEventListener('pointerup', endResize)
-}
-function resetSplit() {
-  ratio.value = 0.5
-  localStorage.setItem(SPLIT_KEY, String(ratio.value))
-}
-
-/** 计算分栏可用高度：视口高度 - 分栏上方内容 - 滚动容器上下内边距，使两栏独立滚动而非整页滚动 */
-function updateSplitHeight() {
-  if (!isDesktop.value) {
-    splitHeight.value = ''
-    return
-  }
-  const el = splitRef.value
-  const scroller = el?.closest('.app-main') as HTMLElement | null
-  if (!el || !scroller) {
-    splitHeight.value = ''
-    return
-  }
-  const styles = getComputedStyle(scroller)
-  const padTop = parseFloat(styles.paddingTop) || 0
-  const padBottom = parseFloat(styles.paddingBottom) || 0
-  // 分栏顶部相对滚动容器内容区顶部的距离（含已滚动量）
-  const topGap =
-    el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - padTop
-  // 可用高度 = 内容区总高(clientHeight 已含上下 padding) - 上 padding - 下 padding - 顶部距离；取整并留 1px 余量防亚像素溢出
-  const height = Math.max(420, Math.floor(scroller.clientHeight - padTop - padBottom - topGap) - 1)
-  splitHeight.value = `${height}px`
-}
-const layoutStyle = computed(() =>
-  isDesktop.value
-    ? ({ '--split': `${ratio.value * 100}%`, height: splitHeight.value || undefined } as Record<
-        string,
-        string | undefined
-      >)
-    : {},
-)
-function onDesktopChange(event: MediaQueryListEvent) {
-  isDesktop.value = event.matches
-  updateSplitHeight()
-}
 watch(problem, () => nextTick(updateSplitHeight))
-
-onMounted(() => {
-  desktopQuery.addEventListener('change', onDesktopChange)
-  window.addEventListener('resize', updateSplitHeight)
-  window.addEventListener('pigeonoj:locale-change', updateSplitHeight)
-})
-onBeforeUnmount(() => {
-  desktopQuery.removeEventListener('change', onDesktopChange)
-  window.removeEventListener('resize', updateSplitHeight)
-  window.removeEventListener('pigeonoj:locale-change', updateSplitHeight)
-  document.body.classList.remove('is-splitting')
-  window.removeEventListener('pointermove', onPointerMove)
-  window.removeEventListener('pointerup', endResize)
-})
 
 const submissionColumns = computed<DataTableColumns<Submission>>(() => [
   {
@@ -233,9 +132,9 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
                     v-if="problem.status !== 'published'"
                     size="small"
                     round
-                    :type="statusTagType(problem.status)"
+                    :type="problemStatusTagType(problem.status)"
                   >
-                    {{ t(statusLabelKey[problem.status] ?? problem.status) }}
+                    {{ t(problemStatusLabelKey[problem.status] ?? problem.status) }}
                   </n-tag>
                   <n-tag v-if="problem.visibility !== 'public'" size="small" round>
                     {{ t(`problems.visibility.${problem.visibility}`) }}
@@ -254,35 +153,7 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
           <MarkdownView :source="problem.output_description || ''" />
 
           <h3 class="statement-card__subtitle">{{ t('problems.detail.samples') }}</h3>
-          <div v-if="problem.samples.length" class="samples">
-            <div
-              v-for="(sample, index) in problem.samples"
-              :key="index"
-              class="sample-block"
-            >
-              <div class="sample-block__head">
-                <strong>#{{ index + 1 }} {{ sample.name }}</strong>
-                <n-button text size="small" @click="copyText(sample.input)">
-                  {{ t('problems.detail.copyInput') }}
-                </n-button>
-              </div>
-              <div class="sample-grid2">
-                <div>
-                  <p class="sample-label">{{ t('problems.detail.stdin') }}</p>
-                  <pre class="result-box sample-io">{{
-                    sample.input || t('problems.detail.noOutput')
-                  }}</pre>
-                </div>
-                <div>
-                  <p class="sample-label">{{ t('problems.detail.expected') }}</p>
-                  <pre class="result-box sample-io">{{
-                    sample.output || t('problems.detail.noOutput')
-                  }}</pre>
-                </div>
-              </div>
-            </div>
-          </div>
-          <n-empty v-else size="small" :description="t('problems.detail.noSamples')" />
+          <ProblemSamples :samples="problem.samples" />
 
           <template v-if="problem.solution">
             <h3 class="statement-card__subtitle">{{ t('problems.detail.solution') }}</h3>
@@ -400,38 +271,6 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
   font-size: 15px;
 }
 
-.samples {
-  display: grid;
-  gap: 14px;
-}
-.sample-block {
-  border: 1px solid var(--app-border);
-  border-radius: 6px;
-  padding: 12px;
-  background: var(--app-muted-bg);
-}
-.sample-block__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-.sample-grid2 {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-.sample-label {
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: var(--app-text-secondary);
-  font-weight: 500;
-}
-.sample-io {
-  max-height: 240px;
-  min-height: 64px;
-}
-
 .problem-detail__divider {
   display: flex;
   align-items: center;
@@ -504,9 +343,6 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
   }
   .statement-card__head {
     flex-direction: column;
-  }
-  .sample-grid2 {
-    grid-template-columns: 1fr;
   }
 }
 </style>

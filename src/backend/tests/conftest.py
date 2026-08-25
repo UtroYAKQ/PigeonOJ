@@ -151,10 +151,10 @@ class FakeStorage:
 def fake_storage(monkeypatch) -> FakeStorage:
     storage = FakeStorage()
     for target in (
-        "app.controllers.problem.get_storage",
-        "app.controllers.judge.get_storage",
-        "app.controllers.judge_jobs.get_storage",
-        "app.controllers.judge_gateway.get_storage",
+        "app.services.problem.get_storage",
+        "app.services.judge.get_storage",
+        "app.rpc.judge_jobs.get_storage",
+        "app.rpc.judge_gateway.get_storage",
     ):
         monkeypatch.setattr(target, lambda: storage)
     return storage

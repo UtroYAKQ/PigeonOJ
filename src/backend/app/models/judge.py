@@ -24,6 +24,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.enums import SubmissionStatus, SubmitType
 
 
 class SandboxConfig(Base):
@@ -61,8 +62,8 @@ class Submission(Base):
     verification_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("problem_verifications.id"))
     language: Mapped[str] = mapped_column(String(32), nullable=False)
     code: Mapped[str] = mapped_column(Text, nullable=False)
-    submit_type: Mapped[str] = mapped_column(String(16), nullable=False, server_default="practice")
-    status: Mapped[str] = mapped_column(String(24), nullable=False, server_default="pending")
+    submit_type: Mapped[str] = mapped_column(String(16), nullable=False, server_default=SubmitType.PRACTICE)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, server_default=SubmissionStatus.PENDING)
     score: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     time_used_ms: Mapped[int | None] = mapped_column(Integer)
     memory_used_kb: Mapped[int | None] = mapped_column(Integer)
@@ -87,7 +88,7 @@ class SubmissionTestCaseResult(Base):
     __tablename__ = "submission_test_case_results"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     submission_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("submissions.id"), nullable=False)
-    test_case_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("test_cases.id"))
+    test_case_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("test_cases.id", ondelete="SET NULL"))
     status: Mapped[str] = mapped_column(String(24), nullable=False)
     time_used_ms: Mapped[int | None] = mapped_column(Integer)
     memory_used_kb: Mapped[int | None] = mapped_column(Integer)

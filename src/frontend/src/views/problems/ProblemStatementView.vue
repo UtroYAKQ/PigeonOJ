@@ -141,8 +141,16 @@ const visibilityOptions = computed(() => [
       <n-card :bordered="false">
         <template #header>
           <div class="card-head">
-            <span>{{ isEdit ? t('problems.create.editTitle') : t('problems.create.title') }}</span>
-            <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
+            <div class="card-head__title">
+              <span>{{ isEdit ? t('problems.create.editTitle') : t('problems.create.title') }}</span>
+              <span class="card-head__step">1 / 3</span>
+            </div>
+            <div class="card-head__actions">
+              <n-button type="primary" size="small" :loading="saving" @click="goNext">
+                {{ t('problems.wizard.next') }}
+              </n-button>
+              <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
+            </div>
           </div>
         </template>
 
@@ -154,10 +162,10 @@ const visibilityOptions = computed(() => [
         </n-steps>
 
         <n-form label-placement="top" class="wizard-body">
-          <n-form-item :label="t('problems.create.name')">
+          <n-form-item :label="t('problems.create.name')" required>
             <n-input v-model:value="form.title" size="large" />
           </n-form-item>
-          <n-form-item :label="t('problems.create.statement')">
+          <n-form-item :label="t('problems.create.statement')" required>
             <n-input v-model:value="form.description" type="textarea" :rows="10" />
           </n-form-item>
           <div class="form-grid">
@@ -205,14 +213,6 @@ const visibilityOptions = computed(() => [
             </n-form-item>
           </div>
         </n-form>
-
-        <!-- 底部导航：下一步自动保存题面 -->
-        <div class="wizard-footer">
-          <div class="wizard-footer__spacer" />
-          <n-button type="primary" :loading="saving" @click="goNext">{{
-            t('problems.wizard.next')
-          }}</n-button>
-        </div>
       </n-card>
     </n-spin>
   </div>
@@ -225,6 +225,11 @@ const visibilityOptions = computed(() => [
   justify-content: space-between;
   gap: 12px;
   width: 100%;
+}
+.card-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .wizard-body {
   min-height: 320px;
@@ -242,17 +247,6 @@ const visibilityOptions = computed(() => [
 }
 .w-full {
   width: 100%;
-}
-.wizard-footer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--app-border);
-}
-.wizard-footer__spacer {
-  flex: 1;
 }
 @media (max-width: 760px) {
   .form-grid {

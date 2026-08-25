@@ -2,7 +2,7 @@
  * 用户中心 API（docs/contracts/users.md）：资料 / 注销 / 会话管理。
  * 数据所有权：所有查询均限定当前登录用户（后端按 user_id 约束）。
  */
-import { apiRequest } from './request'
+import { apiRequest } from './http'
 import type { ProfilePatch, User, UserSession } from '@/types'
 
 /** GET /users/me — 当前用户（auth） */

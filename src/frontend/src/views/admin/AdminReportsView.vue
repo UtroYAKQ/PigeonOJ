@@ -9,6 +9,8 @@ import type { Report, ReportStatus, ReportType } from '@/types'
 import { REPORT_STATUS, REPORT_TYPE, toNaiveTagType } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 import { message } from '@/utils/feedback'
+import ModalFooter from '@/components/ModalFooter.vue'
+import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
@@ -163,16 +165,16 @@ const columns = computed<DataTableColumns<Report>>(() => [
 <template>
   <div class="page-fill">
     <n-card :title="t('admin.reports.title')" :bordered="false">
-    <div class="toolbar">
+    <SearchFilterBar :show-search="false">
       <n-select
         v-model:value="query.status"
         clearable
-        class="toolbar__filter"
+        style="width: 140px"
         :options="statusOptions"
         :placeholder="t('common.allStatus')"
         @update:value="onFilter"
       />
-    </div>
+    </SearchFilterBar>
 
     <n-data-table
       v-if="loading || list.length"
@@ -211,12 +213,7 @@ const columns = computed<DataTableColumns<Report>>(() => [
         <n-radio value="ignored">{{ t('admin.reports.ignore') }}</n-radio>
       </n-radio-group>
       <template #footer>
-        <div class="modal-footer">
-          <n-button @click="cancelHandle">{{ t('action.cancel') }}</n-button>
-          <n-button type="primary" :loading="handling" @click="submitHandle">{{
-            t('action.confirm')
-          }}</n-button>
-        </div>
+        <ModalFooter :loading="handling" @cancel="cancelHandle" @confirm="submitHandle" />
       </template>
     </n-modal>
     </n-card>
@@ -224,15 +221,6 @@ const columns = computed<DataTableColumns<Report>>(() => [
 </template>
 
 <style scoped>
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.toolbar__filter {
-  width: 140px;
-}
 .cell-target-id,
 .cell-muted {
   color: var(--app-text-secondary);
@@ -246,11 +234,6 @@ const columns = computed<DataTableColumns<Report>>(() => [
 .handle-actions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
   gap: 8px;
 }
 </style>

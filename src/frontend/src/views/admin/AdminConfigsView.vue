@@ -9,6 +9,7 @@ import type { ConfigCategory, SystemConfigItem } from '@/types'
 import { configCategories } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 import { message } from '@/utils/feedback'
+import ModalFooter from '@/components/ModalFooter.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
@@ -186,12 +187,7 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
         class="configs__control"
       />
       <template #footer>
-        <div class="modal-footer">
-          <n-button @click="editDialog = false">{{ t('action.cancel') }}</n-button>
-          <n-button type="primary" :loading="saving" @click="saveEdit">{{
-            t('action.save')
-          }}</n-button>
-        </div>
+        <ModalFooter :loading="saving" :confirm-text="t('action.save')" @cancel="editDialog = false" @confirm="saveEdit" />
       </template>
     </n-modal>
   </div>
@@ -224,10 +220,5 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
   gap: 8px;
   font-size: 13px;
   cursor: pointer;
-}
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 </style>
