@@ -217,7 +217,9 @@ class JudgeGatewayService(judge_pb2_grpc.JudgeGatewayServicer):
             await context.abort(grpc.StatusCode.UNAUTHENTICATED, "invalid node token")
         problem_id = uuid.UUID(request.problem_id)
         async with SessionLocal() as db:
-            async for path, content in jobs.stream_problem_data(db, problem_id):
+            async for path, content in jobs.stream_problem_data(
+                db, problem_id, requested_version=request.data_version or None
+            ):
                 yield judge_pb2.FileChunk(path=path, content=content)
 
 

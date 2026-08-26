@@ -61,6 +61,7 @@ async function loadExisting() {
         input: item.input ?? '',
         expected_output: item.expected_output ?? '',
         sort_order: item.sort_order,
+        staged: item.staged ?? false,
       }))
     samples.value = (loaded.samples ?? []).map((item) => ({ input: item.input, output: item.output }))
     // 记录服务器端基线快照，保存时按行 diff 只提交变化的测试点
@@ -132,6 +133,7 @@ async function save(): Promise<boolean> {
         input: c.input ?? '',
         expected_output: c.expected_output ?? '',
         sort_order: c.sort_order,
+        staged: c.staged ?? false,
       }))
       normalize()
       serverCases = resp.cases.map((c) => ({ ...c }))
@@ -236,6 +238,9 @@ onMounted(loadExisting)
                   size="small"
                   :placeholder="t('problems.create.caseName')"
                 />
+                <n-tag v-if="item.staged" size="small" type="warning" round :bordered="false">
+                  {{ t('problems.create.stagedBadge') }}
+                </n-tag>
                 <n-button text type="error" size="small" @click="removeCase(index)">
                   {{ t('problems.create.removeCase') }}
                 </n-button>

@@ -1,8 +1,14 @@
 # 生产环境编排：后端 API（内含判题 gRPC 网关）+ 前端 + 基础设施
 # 服务端口见 .env.example 与 docs/operations.md
+# ⚠️ 必须从仓库根目录加 --env-file 启动，否则 ${MINIO_ACCESS_KEY} 等插值回落到弱默认值，
+#    与后端 env_file 注入的真实密钥不一致（表现为对象存储全部 503 InvalidAccessKeyId）：
+#    docker compose --env-file .env -f docker/docker-compose.yml up -d --build
+name: pigeonoj
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 384m
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-pigeonoj}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pigeonoj}
@@ -17,6 +23,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 128m
     command: redis-server --appendonly yes
     volumes:
       - redisdata:/data
@@ -27,7 +35,10 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:latest
+    # 钉住版本：MinIO 存储格式有破坏性变更历史，floating latest 拉新即可能不兼容旧数据卷
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    mem_limit: 384m
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-pigeonoj}
@@ -44,6 +55,8 @@ services:
     build:
       context: ../src/backend
       dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 512m
     env_file: ../.env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pigeonoj}:${POSTGRES_PASSWORD:-pigeonoj}@db:5432/${POSTGRES_DB:-pigeonoj}
@@ -56,19 +69,35 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      # 深度健康：自身 /health + TCP 探测三个依赖（静态 /health 不反映依赖可用性，
+      # 曾出现依赖挂掉仍显示 healthy 误导排障）。slim 镜像无 curl，用 python 标准库。
+      test: ["CMD-SHELL", "python -c \"import socket,urllib.request; [socket.create_connection((h,p),3).close() for h,p in (('db',5432),('redis',6379),('minio',9000))]; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     expose:
       - "8000"
+    ports:
+      # 判题节点 gRPC 网关。默认只绑宿主机回环，配合边缘 nginx 按路径转发
+      # （location /pigeonoj.judge.v1.JudgeGateway/ → grpc_pass grpc://127.0.0.1:50051），
+      # 与 Web 共用 443 域名证书；跨机节点也可经域名直连。
+      # 若需直接暴露公网端口，改为 "50051:50051"（凭 JUDGE_GATEWAY_TOKENS 认证）
+      - "127.0.0.1:50051:50051"
 
   frontend:
     build:
       context: ../src/frontend
       dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 64m
     depends_on:
       - backend
     ports:
       - "8080:80"     # Nginx 托管构建产物，反代 /api -> backend:8000
 
-  # 判题节点：独立容器部署（见仓库根 docker-compose-node.yml 与 .env.node.example）；
+  # 判题节点：独立容器部署（见同目录 docker-compose-node.yml 与 .env.node.example）；
   # 后端进程不执行用户代码，代码执行只发生在判题节点容器内。
 
 volumes:

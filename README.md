@@ -36,13 +36,13 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 - **生产环境**（后端 + 前端 + 基础设施）：
 
   ```bash
-  docker compose -f docker/docker-compose.yml up -d
+  docker compose --env-file .env -f docker/docker-compose.yml up -d --build
   ```
 
 - **判题节点**（默认本机 1 个；配置模板 `.env.node.example` → 复制为 `.env.node`）：
 
   ```bash
-  docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
+  docker compose --env-file .env.node --project-directory . -f docker/docker-compose-node.yml up -d --build
   ```
 
 详细命令见 [docs/operations.md](docs/operations.md)。后端配置主文件为 [src/backend/backend.toml](src/backend/backend.toml)（`.env` / 环境变量可覆盖，模板见 [.env.example](.env.example)，本地使用 `cp .env.example .env`）。
@@ -82,7 +82,7 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 | `docs/frontend.md` | 前端设计系统与实现契约 |
 | `docs/workflow.md` | AI 如何读文档、同步文档、写报告 |
 | `docs/decisions/` | 架构决策记录 |
-| `docker/` | Docker Compose 编排（生产；判题节点编排见根目录 `docker-compose-node.yml`） |
+| `docker/` | Docker Compose 编排（生产 `docker-compose.yml` 与判题节点 `docker-compose-node.yml`） |
 | `src/backend` / `src/frontend` / `src/judge` | 后端 / 前端 / 判题节点（含 nsjail 沙箱镜像与节点守护进程） |
 
 ## 说明

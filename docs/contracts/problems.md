@@ -16,15 +16,19 @@
 | solution | TEXT | NULL | 官方题解（Markdown） |
 | samples | JSONB | NOT NULL DEFAULT '[]' | 展示样例数组（`[{"input": "...", "output": "..."}]`，出题人字符串录入；仅用于详情页展示与自测，**不参与判题**，见 `docs/decisions/2026-08-15-sample-not-judged.md`）；≤10 组，单项 input / output 各 ≤64KB |
 | samples_updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | 样例最近一次变更时间（重验判定依据之一） |
+| active_case_ids | JSONB | NOT NULL DEFAULT '[]' | 生效测试点 id 列表（test_cases.id 引用；判题唯一数据来源，见 `docs/decisions/2026-08-26-test-case-staged-promotion.md`） |
+| pending_case_ids | JSONB | NULL DEFAULT NULL | 暂存测试点 id 列表（编辑目标状态，验题判定对象）；**NULL = 无暂存改动**，数组（含 `'[]'`）= 有暂存改动 |
+| case_status | VARCHAR(16) | NOT NULL | 测试点集合状态缓存：`empty` / `to_verify` / `to_reverify` / `verified`（已验待生效） / `ok`，与两列表及 `pending_verified` 同事务维护；生效集非空后永不为空（不晋升空集、拒绝删除最后一个测试点） |
+| cases_revision | INT | NOT NULL DEFAULT 0 | 集合写操作自增计数（预留并发 CAS） |
+| pending_verified | BOOLEAN | NOT NULL DEFAULT false | 暂存集已通过验题、待显式应用（任何新的暂存写入即清除；见决策记录修订） |
 | time_limit_ms | INT | NOT NULL DEFAULT 1000 | 时间限制（**C++ 基准**；其他语言按 `sandbox_configs` 语言比例换算有效限制，见 `judge.md`「语言限制换算」） |
 | memory_limit_mb | INT | NOT NULL DEFAULT 256 | 内存限制（**C++ 基准**；其他语言按 `sandbox_configs` 语言比例换算，并受 `memory_min_mb` 下限约束） |
 | team_id | UUID | NULL, FK → teams.id | 归属团队；NULL=全站题目，非 NULL=团队题目（永久归属该团队，不进入公开题库） |
 | owner_id | UUID | NOT NULL, FK → users.id | 创建者 |
 | visibility | VARCHAR(16) | NOT NULL DEFAULT 'public' | 全站题目：`private` / `public`；团队题目：`admin_visible` / `team_visible` |
 | status | VARCHAR(16) | NOT NULL DEFAULT 'draft' | `draft` 草稿 / `published` 已发布 / `archived` 已下线归档 |
-| is_verified | BOOLEAN | NOT NULL DEFAULT false | 是否验题通过 |
+| verified_at | TIMESTAMPTZ | NULL | 验题通过时间；「已验题」≡ 本字段非空（原 `is_verified` 列冗余已移除，API 字段由后端派生输出） |
 | verified_by | UUID | NULL, FK → users.id | 验题通过审核人 |
-| verified_at | TIMESTAMPTZ | NULL | 验题通过时间 |
 | published_at | TIMESTAMPTZ | NULL | 发布时间 |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
@@ -40,7 +44,7 @@ CHECK (
 CHECK 约束（状态与验题组合）：
 
 ```sql
-CHECK (status <> 'published' OR is_verified)
+CHECK (status <> 'published' OR verified_at IS NOT NULL)
 ```
 
 索引：INDEX(`owner_id`)、INDEX(`team_id`, `visibility`, `status`)、INDEX(`visibility`, `status`)、GIN(`title` gin_trgm_ops)
@@ -54,21 +58,28 @@ CHECK (status <> 'published' OR is_verified)
 
 ### `test_cases` — 测试点表
 
-表内全部为**正式判题测试点**（`input_oss_id` 与 `expected_output_oss_id` 均非空）。
+测试点行**不可变版本化**：集合成员资格由 `problems.active_case_ids`（生效集，判题使用）与
+`problems.pending_case_ids`（暂存集，编辑与验题对象）定义，
+见 `docs/decisions/2026-08-26-test-case-staged-promotion.md`。
 
 | 字段 | 类型 | 约束/默认 | 说明 |
 | --- | --- | --- | --- |
-| id | UUID | PK | |
+| id | UUID | PK | 行身份永不变更、永不删除；历史判题结果外键恒有效 |
 | problem_id | UUID | NOT NULL, FK → problems.id | |
 | name | VARCHAR(64) | NULL | 测试点名（如 case1） |
 | input_oss_id | VARCHAR(512) | NOT NULL | 判题输入（MinIO 对象 key：`problems/{problem_id}/cases/{case_id}/input`） |
 | expected_output_oss_id | VARCHAR(512) | NOT NULL | 判题期望输出（MinIO 对象 key） |
+| origin_id | UUID | NULL, FK → test_cases.id | 内容改版时指向被取代的原始行；首版为 NULL |
 | sort_order | INT | NOT NULL DEFAULT 0 | 顺序 |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
 索引：INDEX(`problem_id`, `sort_order`)
 
-> **展示样例不落本表**：样例以字符串数组存于 `problems.samples`，仅用于题目详情页展示与自测，不参与正式判题（见 `docs/decisions/2026-08-15-sample-not-judged.md` 与 `docs/decisions/2026-08-24-samples-jsonb-and-invite-cleanup.md`）。正式判题只使用本表测试点。
+> - **行一经被任一列表引用即不可变**：改名 / 换内容一律新增行（origin_id 指回原行）
+> - 保存 = 目标状态写入 pending 列表：未改动点沿用原 id（零拷贝），改动点为新行 id，
+>   删除点不出现；验题通过单事务 `active := pending` 并清空，失败保留继续编辑
+> - 被取代的旧行退役留档（不再属于任何列表），不做清理
+> - **展示样例不落本表**：样例以字符串数组存于 `problems.samples`，仅用于题目详情页展示与自测，不参与正式判题（见 `docs/decisions/2026-08-15-sample-not-judged.md` 与 `docs/decisions/2026-08-24-samples-jsonb-and-invite-cleanup.md`）。正式判题只使用 active 列表引用的测试点。
 
 ### 验题表
 
@@ -118,7 +129,7 @@ CHECK (status <> 'published' OR is_verified)
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：创建者见自己全部题目，管理角色（admin/tutor/team_creator）见可管理范围全量，可叠加 `status` 过滤；mine 视图每项附 `needs_reverification`（未验题或测试点/样例晚于最近验题通过时间变更） | 分页/标签/关键字/scope/status | problem[] |
+| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：创建者见自己全部题目，管理角色（admin/tutor/team_creator）见可管理范围全量，可叠加 `status` 过滤；mine 视图每项附 `needs_reverification`（存在待验证测试点，或样例晚于最近验题通过时间） | 分页/标签/关键字/scope/status | problem[] |
 | GET | /problems/tags | public | 激活标签列表（打标选择器与列表筛选用，仅 `status='active'`） | - | tag[]（id/name/color） |
 | GET | /admin/tags | admin | 标签管理全量列表（含已归档） | - | tag[] |
 | POST | /admin/tags | admin | 新增标签（name 唯一，重复返回 1001） | name/color? | tag |
@@ -127,18 +138,19 @@ CHECK (status <> 'published' OR is_verified)
 | GET | /problems/{id} | public/owner | 题目详情（按可见性过滤） | - | problem |
 | POST | /problems | admin/tutor/team_creator/team_admin | 创建题目（公开/团队） | team_id?/title/.../tags?/visibility/limits | problem |
 | PUT | /problems/{id} | admin/tutor/team_creator/team_admin | 编辑题目 | ...（`tags` 全量替换标签关联） | problem |
-| PUT | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 全量替换正式测试点（出题不设分值；提交得分由判题服务端按通过比例派生，比赛计分随 contests 模块配置）；被替换测试点的 MinIO 旧对象异步清理 | cases[]（name?、input、expected_output、sort_order） | - |
-| PATCH | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 增量更新正式测试点（前端编辑器按行 diff 只提交变化的行）：upserts 带 id 为修改（input/expected_output 留空 = 内容不变，可仅改名 / 调序；未触碰行不更新 `updated_at`，不触发「需重新验题」与判题节点 data_version 缓存失效）、无 id 为新增（输入输出不能全空）；delete_ids 删除指定测试点（历史判题结果保留，`test_case_id` 由 ON DELETE SET NULL 置空）；同一 id 不得同时出现在 upserts 与 delete_ids（1001），未知 id 返回 3001；被替换内容的 MinIO 旧对象异步清理 | upserts[]（id?、name?、input?、expected_output?、sort_order?）/ delete_ids[] | cases[]（服务器权威全量列表，含内容与 id，供前端重置基线） |
+| PUT | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 全量替换**暂存集**测试点（出题不设分值；提交得分由判题服务端按通过比例派生，比赛计分随 contests 模块配置）；被替换内容的 MinIO 旧对象异步清理；生效集不动，验题通过后晋升 | cases[]（name?、input、expected_output、sort_order） | - |
+| PATCH | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 增量更新**暂存集**（前端编辑器按行 diff 只提交变化的行）：upserts 带 id 为修改（input/expected_output 缺省或 null = 内容不变，可仅改名 / 调序；传字符串则整体替换该侧内容，空字符串 = 显式清空——写入空对象、ossId 保持非空，两侧同时置空返回 1001；改动生成新行、origin_id 指回原行）、无 id 为新增（输入输出不能全空）；delete_ids 表示目标状态中不含该点；同一 id 不得同时出现在 upserts 与 delete_ids（1001），未知 id 返回 3001；被替换内容的 MinIO 旧对象异步清理。生效集在晋升前不受影响 | upserts[]（id?、name?、input?、expected_output?、sort_order?）/ delete_ids[] | cases[]（目标状态合并视图：未改动点沿用原 id，含内容与 staged 标记，供前端重置基线） |
+| POST | /problems/{id}/test-cases/apply | admin/tutor/team_creator/team_admin | 显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦，点「保存」才生效）；无暂存改动返回 3002，未通过验题（`pending_verified=false`）返回 3002；任何新的暂存写入都会清除已验标记 | - | problem |
 | PUT | /problems/{id}/samples | admin/tutor/team_creator/team_admin | 全量替换展示样例（写 `problems.samples`，同时更新 `samples_updated_at`；不上传 MinIO） | samples[]（input、output），≤10 组、单项各 ≤64KB | - |
 | POST | /problems/{id}/verify | admin/tutor/team_creator/team_admin（发起）/ auth（提交验题代码） | 发起验题 / 提交验题代码（双模式请求体：`code+language` 为提交，否则为发起）；提交不限身份，`invite_token` 可选 | invite_expires_hours?/invite_token?/code?/language? | verification 或 submission_id |
 | GET | /verify-invites/{token} | public | 解析验题邀请链接（数据源 Redis `verify_invite:{token}`；返回题面与样例供受邀人查看，不含正式测试点内容与题解；`expires_at` 由 TTL 推算） | - | {problem_id, problem_title, expires_at, description, input_description?, output_description?, tags[], time_limit_ms, memory_limit_mb, samples[]} |
-| POST | /problems/{id}/publish | admin/tutor/team_creator/team_admin | 发布（须验题通过 + 至少 1 个正式测试点；测试点 / 样例更新时间晚于 verified_at 时返回 3002，须重新验题） | - | problem |
+| POST | /problems/{id}/publish | admin/tutor/team_creator/team_admin | 发布（须验题通过 + active 测试点 ≥ 1 + `pending_case_ids` 为 NULL；存在暂存改动或样例晚于 verified_at 时返回 3002，须重新验题） | - | problem |
 | POST | /problems/{id}/archive | admin/tutor/team_creator/team_admin | 下线归档 | - | problem |
 | GET | /teams/{team_id}/problems | admin/tutor/team_creator/team_admin | 团队题库列表（随 teams 模块实现） | 分页/可见性 | problem[] |
 | POST | /files/upload/avatar | auth（头像） | 头像上传（multipart → ossId） | file | ossId |
 | POST | /files/upload/image | auth（公共图片，登录用户可用） | 题面插图上传（multipart → url），Markdown 编辑器以 `![](url)` 引用；详见 admin.md files 表 | file（≤5MB，JPG/PNG/WEBP/GIF） | ossId |
 
-> 测试点与样例均不走独立上传接口：`PUT /problems/{id}/test-cases` 接收 UTF-8 的 `input` / `expected_output` 内容（每项 ≤2MB），全部作为正式测试点由后端生成对象 key 并分别上传 `problems/{problem_id}/cases/{case_id}/input` 与 `/output`，回填双 ossId；样例经 `PUT /problems/{id}/samples` 直接存库（≤10 组、单项各 ≤64KB），不上传 MinIO。不生成测试点归档 ZIP，前端 ZIP 只在浏览器内解压为内容。
+> 测试点与样例均不走独立上传接口：`PUT /problems/{id}/test-cases` 接收 UTF-8 的 `input` / `expected_output` 内容（每项 ≤2MB），由后端生成对象 key 并分别上传 `problems/{problem_id}/cases/{case_id}/input` 与 `/output`，回填双 ossId，**写入暂存集（验题通过后晋升生效）**；样例经 `PUT /problems/{id}/samples` 直接存库（≤10 组、单项各 ≤64KB），不上传 MinIO。不生成测试点归档 ZIP，前端 ZIP 只在浏览器内解压为内容。
 
 ## 错误码
 
@@ -157,8 +169,8 @@ CHECK (status <> 'published' OR is_verified)
 ## 关键流程 / 验收条件
 
 1. **题目生命周期**：创建默认 `status='draft'` → 编辑 / 维护测试点 → 验题 → `publish`（`status='published'`，CHECK 强制 `is_verified`）→ `archive`（`status='archived'`）。被题单 / 比赛引用时不得物理删除，仅归档。
-2. **验题时效**：题目内容（题面等）变更不影响验题有效性；**测试点或样例在最近一次验题通过后发生变更，则须重新走验题流程才能发布**——判定依据为 `MAX(test_cases.updated_at) > problems.verified_at` **或** `problems.samples_updated_at > problems.verified_at`，发布接口违反时返回 3002；`scope=mine` 列表与详情分别以 `needs_reverification` 字段透出。
-3. **验题**：发起 `POST /problems/{id}/verify`（生成邀请链接存 Redis，或不带参数创建空白记录）→ 任意登录用户提交代码（凭邀请链接或直接提交，身份不限）→ 系统按题目正式测试点判题（复用 `submissions`，`submit_type='verify'`）→ 全部通过 → `problem_verifications.status='passed'` 且判题链路回写 `problems.is_verified / verified_by / verified_at`（`verifier_id` 回写实际提交人）。
+2. **验题时效**：题目内容（题面等）变更不影响验题有效性；**测试点存在暂存集（pending 非空，精确判定）或样例在最近一次验题通过后变更（`problems.samples_updated_at > verified_at`），则须重新走验题流程才能发布**——发布接口违反时返回 3002；`scope=mine` 列表与详情分别以 `needs_reverification` 字段透出。测试点编辑只落暂存集，生效集（active）在晋升前不受影响，比赛中判题始终使用已验证的 active 集。
+3. **验题**：发起 `POST /problems/{id}/verify`（生成邀请链接存 Redis，或不带参数创建空白记录）→ 任意登录用户提交代码（凭邀请链接或直接提交，身份不限）→ 系统按题目**暂存集（pending 为空时退化为生效集）**判题（复用 `submissions`，`submit_type='verify'`）→ 全部通过 → 仅打「已验待生效」标记（`pending_verified=true`，`case_status='verified'`）并回写 `problem_verifications.status='passed'`、判题链路回写 `verified_by / verified_at`（`verifier_id` 回写实际提交人）；**晋升与验题解耦**——管理角色调 `POST /problems/{id}/test-cases/apply` 显式生效后，单事务 `active_case_ids := pending_case_ids`、清空 pending（被取代旧行退役留档）。任何新的暂存写入都会清除已验标记。
 4. **样例自测**：题目详情页展示样例字符串（`problems.samples` 数组）并提供复制；在线试运行能力规划由判题节点侧专用端点承担（当前后端不执行用户代码）。
 
 ## 明确不做

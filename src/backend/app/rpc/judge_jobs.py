@@ -4,8 +4,9 @@
   原子认领（pending→judging），产出 JobBundle 作业描述（含 data_version 指纹）。
 - apply_job_result：把节点回传的判题结果写回 DB 与 MinIO（幂等，可重复应用）。
 
-data_version 指纹 = sha256(测试点数量 | 最大 updated_at)；替换测试点必然改变指纹，
-节点据此做 <problem_id>-<version> 本地缓存。
+data_version 指纹 = sha256(测试点数量 | 最大 updated_at)，按**判定集**计算：
+练习/比赛=生效集（active_case_ids），验题=暂存集（pending_case_ids，空则退化生效集）；
+晋升必然改变生效集指纹，节点据此做 <problem_id>-<version> 本地缓存。
 题目 / 测试点经 problems.api 读取；验题结果回写走 complete_verification 钩子。
 """
 from __future__ import annotations
@@ -115,9 +116,12 @@ def resolve_limits(problem, config: SandboxConfig | None) -> tuple[ResourceLimit
     return limits, compile_limits
 
 
-async def compute_data_version(db, problem_id: uuid.UUID) -> tuple[str, list[problems.TestCase]]:
-    """数据指纹 + 排序后的正式测试点列表。"""
-    rows = await problems.list_formal_cases(db, problem_id)
+async def compute_data_version(db, problem, *, verify: bool = False) -> tuple[str, list[problems.TestCase]]:
+    """数据指纹 + 判定集排序行。
+
+    练习 / 比赛 = 生效集；验题提交（verify=True）= 暂存集（NULL 退化生效集）。
+    """
+    rows = await problems.list_judged_cases(db, problem, verify=verify)
     latest = max((r.updated_at for r in rows), default=None)
     raw = f"{len(rows)}|{latest.isoformat() if latest else 'empty'}"
     return hashlib.sha256(raw.encode()).hexdigest()[:32], rows
@@ -152,7 +156,9 @@ async def build_job_bundle(db, submission_id: uuid.UUID, *, storage) -> JobBundl
         await _finish_with_error(db, repository, submission, "language is disabled")
         return None
 
-    data_version, cases = await compute_data_version(db, submission.problem_id)
+    # 判定集：验题提交判暂存集（先试新点），练习 / 比赛恒用生效集
+    is_verify = submission.submit_type == SubmitType.VERIFY
+    data_version, cases = await compute_data_version(db, problem, verify=is_verify)
     if not cases:
         await _finish_with_error(db, repository, submission, "no test cases")
         return None
@@ -258,10 +264,33 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
     return True
 
 
-async def stream_problem_data(db, problem_id: uuid.UUID):
-    """按 (path, content) 产出题目数据文件；供网关流式下发。"""
+async def stream_problem_data(db, problem_id: uuid.UUID, requested_version: str | None = None):
+    """按 (path, content) 产出题目数据文件；供网关流式下发。
+
+    双集合语义：按请求的 data_version 匹配候选集（生效集 / 验题暂存集）；
+    未携带或无匹配时回退生效集。
+    """
+
+    def _fingerprint(rows: list[problems.TestCase]) -> str:
+        latest = max((r.updated_at for r in rows), default=None)
+        raw = f"{len(rows)}|{latest.isoformat() if latest else 'empty'}"
+        return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+    problem = await problems.get_problem(db, problem_id)
+    if problem is None:
+        return
     storage = get_storage()
-    data_version, cases = await compute_data_version(db, problem_id)
+    candidates = [
+        (await problems.list_active_cases(db, problem)),
+        await problems.list_judged_cases(db, problem, verify=True),
+    ]
+    chosen = candidates[0]
+    if requested_version:
+        for rows in candidates:
+            if rows and _fingerprint(rows) == requested_version:
+                chosen = rows
+                break
+    data_version, cases = _fingerprint(chosen), chosen
     manifest = json.dumps({"data_version": data_version, "case_count": len(cases)})
     yield _MANIFEST_OBJECT_NAME, manifest.encode()
     for case in cases:

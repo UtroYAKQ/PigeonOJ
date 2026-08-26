@@ -51,9 +51,6 @@ export default {
       needStatement: 'Title and statement are required',
       stepNeedCases: 'Add at least one formal test case; input and output cannot both be empty',
     },
-    selfVerify: {
-      submit: 'Submit & judge',
-    },
     create: {
       title: 'Create problem',
       editTitle: 'Edit problem',
@@ -77,6 +74,7 @@ export default {
       memoryLimit: 'Memory limit (MB)',
       addCase: 'Add test case',
       removeCase: 'Remove',
+      stagedBadge: 'Staged',
       importZip: 'Import ZIP',
       caseName: 'Test case name',
       addSample: 'Add sample',
@@ -133,13 +131,14 @@ export default {
       hideCode: 'Hide code',
       stillJudging:
         'Judging is taking longer than expected. Auto-refresh has stopped — click "Refresh" to check again.',
+      restrictedNotice:
+        'ACM contest in progress: score and test-case details will be revealed after the contest ends.',
     },
     manage: {
+      applyStaged: 'Apply staged cases',
+      applySuccess: 'Test cases applied. Judging now uses the new cases.',
       shareTitle: 'Publish & verify',
       inviteVerify: 'Invite verifier',
-      verifySubmissions: 'Verify submissions',
-      submittedAt: 'Submitted at',
-      viewSubmission: 'View',
       inviteDialogTitle: 'Verification invite link',
       existingInvite: 'This problem already has a valid verification link. Copy it or regenerate:',
       regenerate: 'Regenerate link',
@@ -153,7 +152,6 @@ export default {
       verifiedTag: 'Verified',
       unverifiedTag: 'Not verified',
       reverifyTag: 'Re-verify needed',
-      notVerified: 'Not verified yet',
       verifiedAt: 'Verified at {time}',
       reverifyRequired:
         'Test cases or samples changed after the last passed verification. Re-verification is required.',

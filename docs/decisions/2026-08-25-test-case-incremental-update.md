@@ -25,6 +25,9 @@
 | upserts 不带 id | 新增（输入输出不能全空） |
 | delete_ids | 删除该行（MinIO 旧对象异步清理；历史判题结果保留、引用置空） |
 
+> 2026-08-26 细化：「留空 = 内容不变」拆分为「缺省 / null = 不变，空字符串 = 显式清空
+> （写入空对象）」，见 `2026-08-26-test-case-clear-content.md`。
+
 - 仅被触碰的行 bump `updated_at`：未动行不改变 `MAX(test_cases.updated_at)`，
   因此不触发发布门禁的「需重新验题」（problems.md），也不使判题节点 data_version 缓存失效
 - 校验：同一 id 不得同时出现在 upserts 与 delete_ids（1001）；未知 id 返回 3001；

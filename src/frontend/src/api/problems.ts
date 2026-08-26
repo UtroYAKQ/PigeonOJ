@@ -35,7 +35,12 @@ export function replaceTestCases(id: string, cases: TestCaseDraft[]): Promise<nu
   return apiRequest('PUT', `/problems/${id}/test-cases`, { cases })
 }
 
-/** 增量更新测试点：只提交变化的行（带 id=修改，内容留空=不变；无 id=新增；delete_ids=删除）。响应为服务器权威全量列表 */
+/** 显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦；点「保存」才生效） */
+export function applyTestCases(id: string): Promise<ProblemSummary> {
+  return apiRequest('POST', `/problems/${id}/test-cases/apply`)
+}
+
+/** 增量更新测试点：只提交变化的行（带 id=修改，input/expected_output 缺省或 null=内容不变、空字符串=清空该侧；无 id=新增；delete_ids=删除）。响应为服务器权威全量列表 */
 export function patchTestCases(
   id: string,
   body: { upserts: TestCaseUpsertPayload[]; delete_ids: string[] },

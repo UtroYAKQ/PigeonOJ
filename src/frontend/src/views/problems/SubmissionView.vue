@@ -101,7 +101,12 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
     width: 110,
     render: (row) => `${row.memory_used_kb ?? '-'} KB`,
   },
-  { title: t('problems.submission.score'), key: 'score', width: 80 },
+  {
+    title: t('problems.submission.score'),
+    key: 'score',
+    width: 80,
+    render: (row) => row.score ?? '-',
+  },
 ])
 </script>
 
@@ -131,8 +136,12 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
             </n-button>
           </div>
 
-          <div class="submission-stats">
-            <div class="stat-box">
+          <n-alert v-if="submission.restricted" type="warning" class="restricted-notice">
+            {{ t('problems.submission.restrictedNotice') }}
+          </n-alert>
+
+          <div class="submission-stats" :class="{ 'submission-stats--two': submission.score === null }">
+            <div v-if="submission.score !== null" class="stat-box">
               <span>{{ t('problems.submission.score') }}</span>
               <strong>{{ submission.score }}</strong>
             </div>
@@ -224,11 +233,18 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
 .poll-stopped {
   margin-bottom: 14px;
 }
+.restricted-notice {
+  margin-bottom: 14px;
+}
 .submission-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin: 10px 0 16px;
+}
+/* ACM 限分模式：隐藏得分格后时间 / 内存两格均分 */
+.submission-stats--two {
+  grid-template-columns: repeat(2, 1fr);
 }
 .stat-box {
   display: grid;

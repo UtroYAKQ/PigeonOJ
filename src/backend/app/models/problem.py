@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.enums import ProblemStatus, ProblemVisibility, TagStatus, VerificationStatus
+from app.enums import CaseStatus, ProblemStatus, ProblemVisibility, TagStatus, VerificationStatus
 
 
 class Problem(Base):
@@ -44,14 +44,21 @@ class Problem(Base):
     samples_updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # 测试点集合：生效集（判题唯一来源）/ 暂存集（NULL=无暂存改动）
+    active_case_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    pending_case_ids: Mapped[list | None] = mapped_column(JSONB)
+    case_status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=CaseStatus.EMPTY)
+    cases_revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # 暂存集已通过验题、待显式应用（验题与晋升解耦，见决策记录修订）
+    pending_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     time_limit_ms: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1000")
     memory_limit_mb: Mapped[int] = mapped_column(Integer, nullable=False, server_default="256")
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     # 全站题目：private / public（团队题目 admin_visible / team_visible / public 随 teams 模块扩展）
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemVisibility.PUBLIC)
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemStatus.DRAFT)
-    is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     verified_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    # 验题通过时间即「已验题」事实载体（is_verified 列已移除，≡ verified_at 非空）
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -63,8 +70,13 @@ class Problem(Base):
         CheckConstraint(
             "visibility IN ('private','public')", name="ck_problems_site_visibility"
         ),
-        CheckConstraint("(status <> 'published' OR is_verified)", name="ck_problems_published_verified"),
+        CheckConstraint("(status <> 'published' OR verified_at IS NOT NULL)", name="ck_problems_published_verified"),
     )
+
+    @property
+    def is_verified(self) -> bool:
+        """已验题通过 ≡ verified_at 非空（列移除后的派生兼容字段，API 输出不变）。"""
+        return self.verified_at is not None
 
 
 class ProblemTag(Base):
@@ -115,7 +127,9 @@ class ProblemVerification(Base):
 
 
 class TestCase(Base):
-    """正式判题测试点（docs/contracts/problems.md test_cases）；样例存 problems.samples，不落本表。"""
+    """判题测试点（docs/contracts/problems.md test_cases）；行不可变版本化，
+    集合成员资格由 problems.active_case_ids / pending_case_ids 定义；
+    样例存 problems.samples，不落本表。"""
 
     __tablename__ = "test_cases"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -123,6 +137,7 @@ class TestCase(Base):
     name: Mapped[str | None] = mapped_column(String(64))
     input_oss_id: Mapped[str] = mapped_column(String(512), nullable=False)
     expected_output_oss_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    origin_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("test_cases.id"))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

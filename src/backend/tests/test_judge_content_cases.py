@@ -34,21 +34,26 @@ async def test_replace_cases_uploads_only_official_content(monkeypatch):
         db.add(problem)
         await db.flush()
         await db.commit()
-        stale_keys = await ProblemService(db).replace_cases(user, problem.id, JudgeTestCasesUpdate(cases=[
+        await ProblemService(db).replace_cases(user, problem.id, JudgeTestCasesUpdate(cases=[
             JudgeTestCaseItem(name="case1", input="1", expected_output="1"),
             JudgeTestCaseItem(name="hidden", input="2", expected_output="4"),
         ]))
         await db.commit()
-        # 全部 cases 均为正式测试点：input/output 各上传一份
+        # 全部 cases 均上传判题内容：input/output 各一份对象（行不可变，无旧对象清理）
         assert len(storage.puts) == 4
         rows = list((await db.scalars(select(JudgeTestCase).where(JudgeTestCase.problem_id == problem.id))).all())
         assert all(row.input_oss_id and row.expected_output_oss_id for row in rows)
         assert rows[0].input_oss_id.startswith(f"problems/{problem.id}/cases/")
-        # 返回被替换对象 key 供事务提交后异步清理（首次替换为空）
-        assert stale_keys == []
+        # 目标状态写入暂存集（生效集为空 → 待首验）
+        assert len(problem.pending_case_ids) == 2
+        assert problem.active_case_ids == []
+        assert problem.case_status == "to_verify"
 
-        # 二次全量替换：旧对象进入待清理列表
-        stale_keys = await ProblemService(db).replace_cases(user, problem.id, JudgeTestCasesUpdate(cases=[
+        # 二次全量替换：旧行退役留档（不物理删除、不清理对象），暂存集整体改写
+        await ProblemService(db).replace_cases(user, problem.id, JudgeTestCasesUpdate(cases=[
             JudgeTestCaseItem(name="case2", input="5", expected_output="5"),
         ]))
-        assert len(stale_keys) == 4
+        rows = list((await db.scalars(select(JudgeTestCase).where(JudgeTestCase.problem_id == problem.id))).all())
+        assert len(rows) == 3  # 2 旧行留档 + 1 新行
+        assert len(problem.pending_case_ids) == 1
+        assert storage.deletes == []

@@ -41,7 +41,7 @@
 - **危险与关键操作二次确认**：删除、封禁、注销、提交判题等先确认再执行；确认弹窗用 `utils/feedback.ts` 的 `$dialog.warning`，需要输入的确认（封禁原因、注销密码）用内联 `n-modal`；取消则不发起请求。
 - **命令式反馈统一走 `utils/feedback.ts`**（`message` / `dialog`，基于 createDiscreteApi），组件内不得自行再包 MessageProvider。
 - **配置多分类横向排布**：系统配置等按域分类的页面用横向 `n-tabs type="line"`。
-- 「题面 + 编辑器」类双栏工作台占满视口剩余高度，整页无滚动条、各栏独立滚动；比例持久化 localStorage；窄屏（<900px）退化为上下堆叠；分隔条提供 `role="separator"` 与提示文案。
+- 「题面 + 编辑器」类双栏工作台统一复用 `components/problem/ProblemWorkbench.vue`（左栏题面卡片 + 可拖拽分隔条 + 右栏编辑器工具行，内聚 `useSplitPane` 分栏与高度实测）：占满视口剩余高度，整页无滚动条、各栏独立滚动；比例持久化 localStorage；窄屏（<900px）退化为上下堆叠；分隔条提供 `role="separator"` 与提示文案。工具行固定为「语言选择 + 我的提交 + 提交代码」，按钮只抛 `show-submissions` / `submit` 事件，具体行为由宿主页面注入；页面特有动作放页面自己的头部区域（如向导卡片头），不得塞进该组件。
 
 ### 表格工作台
 
@@ -80,9 +80,9 @@
   - 新建 `/admin/problems/new`——仅校验题面四要素，保存即创建草稿，成功后 **replace** 进入第 2 步（浏览器后退不回 `/new`，避免重复建草稿）；
   - 编辑 `/admin/problems/:id/edit/statement`（旧链接 `/admin/problems/:id/edit` 301 到此）——保存后 push 进入第 2 步；
   - 表单按三段式分区（共享类 `.section-title` 作分区标题）：「基础信息」标题 + 标签多选（激活标签 ≤8）/ 可见性 / 时限 / 内存一行四列（窄屏逐级降列）；「题面内容」题面 + 输入输出说明双栏（必填）；「官方题解」折叠懒挂载，展开入口在分区头右侧。
-- **第 2 步「样例与测试点」** `/admin/problems/:id/edit/cases`（`ProblemCasesView.vue`）：展示样例（≤10 组，不参与判题）+ 正式测试点（ZIP 导入或手工编辑）；「下一步」先自动保存（空白草稿行不提交；内容签名与服务器一致时跳过上传，避免纯题面改动误触发重新验题），无任何非空测试点时拦截在本页。
-- **第 3 步「验题与发布」** `/admin/problems/:id/edit/verify`（`ProblemVerifyView.vue`，共享组件 `VerifyPublishPanel.vue`）：WizardShell 卡片内为可拖拽双栏工作台 —— 页面级一屏锁定（视口高 - 顶栏 - 内容区内边距），左栏标题元信息 + 题面整体独立滚动、分隔条调比例（与详情页共享持久化），窄屏 <900px 自动堆叠；状态标签（未验题 / 已于 X 通过验题 / 测试点或样例已变更需重新验题）；**自行验题** —— 语言选择 + Monaco 提交代码（先发起空白验题记录，再 `POST /problems/{id}/verify` 提交 `{code, language}`；提交不限身份），判题通过即完成验题并跳评测结果页；工具栏提供「验题提交」入口（弹窗列出本人该题的 verify 类型提交，可回看状态 / 得分并跳评测结果页）；或生成邀请链接发给他人验题。「上一步」「完成，返回列表」等导航动作常驻卡片头。
-- **发布门禁以后端 `needs_reverification` 为准**：未验题，或测试点 / 样例晚于最近验题通过时间变更 ⇒ 发布按钮禁用（tooltip 说明），后端 publish 同样拒绝（3002）；纯题面改动不影响验题有效性。发布成功回管理工作台。
+- **第 2 步「样例与测试点」** `/admin/problems/:id/edit/cases`（`ProblemCasesView.vue`）：展示样例（≤10 组，不参与判题）+ 正式测试点（ZIP 导入或手工编辑）；「下一步」先自动保存（空白草稿行不提交；内容签名与服务器一致时跳过上传，避免纯题面改动误触发重新验题），无任何非空测试点时拦截在本页。**暂存/生效分离**：保存只写暂存集，判题在验题晋升前仍用生效集——未验证的测试点带「待验证」徽标（`cases[].staged`），不另设整段提示条（见 `docs/decisions/2026-08-26-test-case-staged-promotion.md`）。
+- **第 3 步「验题与发布」** `/admin/problems/:id/edit/verify`（`ProblemVerifyView.vue`）：WizardShell 卡片内复用 `ProblemWorkbench.vue` 双栏工作台（左栏题面不展示官方题解，右栏工具行与做题页一致），分栏比例与详情页共享持久化、窄屏 <900px 自动堆叠；验题特有动作全部收进 WizardShell 卡片头 —— 状态短标签（未验题 / 已验题 / 需重新验题，与「我的题目」列表口径一致；悬停展示通过时间或变更原因详情）、「邀请验题」（生成带有效期的邀请链接）、「使测试点生效」「发布」「上一步」等；**自行验题** —— 工作台「提交代码」按钮触发（先发起空白验题记录，再 `POST /problems/{id}/verify` 提交 `{code, language}`；提交不限身份；验题按暂存集判，通过后标记「已验待生效」，页头出现「使测试点生效」按钮，显式应用才晋升生效），判题通过即完成验题并跳评测结果页；「我的提交」弹窗列出本人该题最近提交并可跳评测结果页（含 verify 类型）。已发布题目页头不显示发布按钮。
+- **发布门禁以后端 `needs_reverification` 为准**：存在暂存测试点改动（精确判定），或样例晚于最近验题通过时间 ⇒ 发布按钮禁用（tooltip 说明），后端 publish 同样拒绝（3002）；纯题面改动不影响验题有效性。发布成功回管理工作台。
 
 ### 验题邀请落地页
 
@@ -98,7 +98,8 @@
 
 以下组件消除多视图重复实现，新增同场景页面时必须复用而非复制：
 
-- **题面展示两件套**（题目详情 / 管理预览 / 验题面板共用）：
+- **写题工作台** `components/problem/ProblemWorkbench.vue`（题目详情 `/problems/:id` 与编辑向导第 3 步共用）：左栏题面卡片 + 可拖拽分隔条 + 右栏编辑器工具行的大组件；props：`problem`、`submitting`、`submitDisabled`、`showSolution`、`hidePublishedStatus`，双向绑定 `v-model:code` / `v-model:language`，事件 `@submit` / `@show-submissions` 由宿主注入行为。
+- **题面展示两件套**（题目详情 / 管理预览 / 写题工作台共用）：
   - `components/problem/ProblemMetaBar.vue` —— 标题 + 时限内存 + 状态/可见性/待重验标签 + 标签；props：`showTitle`（卡片头场景）、`hidePublishedStatus`（前台详情页口径，已发布不显示状态标签）、`showReverifyTag`（管理预览口径）。
   - `components/problem/ProblemStatement.vue` —— 描述 / 输入输出说明 / 展示样例（内部复用 `ProblemSamples.vue`）/ 官方题解（可选）；样例输入输出上下排布，各展示框右上角带复制按钮，复制成功后图标短暂切换为对勾。
   - 例外：验题邀请落地页 `/verify/:token` 数据形态不同（无题解、空段落隐藏、含过期信息），保留自有排版，仅复用语言常量与 `ProblemSamples`。

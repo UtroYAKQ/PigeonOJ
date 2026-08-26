@@ -40,14 +40,17 @@ async def _any_user_id() -> str:
 
 
 async def _seed_problem_with_case(storage) -> str:
-    """已发布题目 + 1 个正式测试点（数据写入 fake storage）。"""
+    """已发布题目 + 1 个生效测试点（数据写入 fake storage）。"""
+    from datetime import datetime
+
     async with SessionLocal() as db:
+        case_id = uuid_mod.uuid4()
         problem = Problem(title=f"P-{uuid_mod.uuid4().hex[:8]}", description="D",
                           owner_id=uuid_mod.UUID(await _any_user_id()),
-                          status="published", visibility="public", is_verified=True)
+                          status="published", visibility="public", verified_at=datetime.now(),
+                          active_case_ids=[str(case_id)], case_status="ok")
         db.add(problem)
         await db.flush()
-        case_id = uuid_mod.uuid4()
         db.add(TestCase(id=case_id, problem_id=problem.id, name="c1",
                         input_oss_id=f"cases/{case_id}.in",
                         expected_output_oss_id=f"cases/{case_id}.out", sort_order=1))

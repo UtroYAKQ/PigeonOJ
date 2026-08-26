@@ -20,7 +20,7 @@ from app.schemas.problem import (
     TestCasesPatch,
     TestCasesUpdate,
 )
-from app.services.problem import ProblemDetailData, ProblemService, schedule_object_cleanup
+from app.services.problem import ProblemDetailData, ProblemService
 from app.services.tag import TagService
 from app.models.user import User
 from app.core.dependency import get_current_user, get_optional_user
@@ -65,6 +65,7 @@ def _detail(detail: ProblemDetailData) -> dict:
         tags=detail.tags,
         can_manage=detail.can_manage,
         needs_reverification=bool(detail.needs_reverification),
+        case_status=problem.case_status,
         test_cases=test_cases,
         cases_updated_at=detail.cases_updated_at,
         samples_updated_at=problem.samples_updated_at,
@@ -140,21 +141,29 @@ async def update_problem(problem_id: uuid.UUID, body: ProblemUpdate, user: User 
 
 @router.put("/problems/{problem_id}/test-cases")
 async def update_test_cases(problem_id: uuid.UUID, body: TestCasesUpdate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    stale_keys = await ProblemService(db).replace_cases(user, problem_id, body)
+    """全量替换暂存集（生效集不动，验题通过后晋升；行不可变不物理删除）。"""
+    await ProblemService(db).replace_cases(user, problem_id, body)
     await db.commit()  # 显式提交：确保数据持久化
-    schedule_object_cleanup(stale_keys)  # 事务提交后异步清理旧对象（docs/contracts/problems.md）
     return ok(None)
 
 
 @router.patch("/problems/{problem_id}/test-cases")
 async def patch_test_cases(problem_id: uuid.UUID, body: TestCasesPatch, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """增量更新：只提交变化的测试点（带 id=修改 / 无 id=新增 / delete_ids=删除）。"""
+    """增量更新暂存集：只提交变化的测试点（带 id=修改 / 无 id=新增 / delete_ids=目标状态移除）。"""
     service = ProblemService(db)
-    stale_keys = await service.patch_cases(user, problem_id, body)
+    await service.patch_cases(user, problem_id, body)
     await db.commit()  # 显式提交：确保数据持久化
-    schedule_object_cleanup(stale_keys)
-    cases = await service.list_cases_with_contents(problem_id)
+    problem = await service.problems.get_by_id(problem_id)
+    cases = await service.list_cases_view(problem) if problem else []
     return ok({"cases": [tc.model_dump(mode="json") for tc in cases]})
+
+
+@router.post("/problems/{problem_id}/test-cases/apply")
+async def apply_test_cases(problem_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦）。"""
+    problem = await ProblemService(db).apply_pending_cases(user, problem_id)
+    await db.commit()
+    return ok(_summary(problem))
 
 
 @router.put("/problems/{problem_id}/samples")

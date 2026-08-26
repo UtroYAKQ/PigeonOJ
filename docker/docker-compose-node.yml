@@ -1,20 +1,27 @@
 # 判题节点编排：在任意可出站访问后端网关的服务器上部署。
-# 配置统一来自 .env.node（模板见 .env.node.example）：
-#   docker compose --env-file .env.node -f docker-compose-node.yml up -d --build
+# 配置统一来自 .env.node（模板见 .env.node.example），仓库根目录执行：
+#   docker compose --env-file .env.node --project-directory . -f docker/docker-compose-node.yml up -d --build
 # 节点只做出站连接后端网关，不开放任何入站端口；privileged 仅为 nsjail 嵌套 namespace 所需。
 services:
   judge-node:
     build:
-      context: ./src/judge
+      context: ../src/judge
     image: pigeonoj/judge-node:latest
     privileged: true            # nsjail 嵌套 namespace 所需（受控节点信任边界）
     restart: unless-stopped
+    mem_limit: 1g               # 防止编译/判题失控拖垮宿主机（单作业限额另由 sandbox_configs 下发）
+    # Linux 下让 SERVER_ADDRESS=host.docker.internal 指向宿主机（同机部署后端时使用）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       SERVER_ADDRESS: ${SERVER_ADDRESS:?请在 .env.node 设置后端网关地址}
       SERVER_TOKEN: ${SERVER_TOKEN:?请在 .env.node 设置注册令牌}
+      SERVER_TLS: ${SERVER_TLS:-false}
       JUDGE_NODE_ID: ${JUDGE_NODE_ID:-}
       JUDGE_NODE_NAME: ${JUDGE_NODE_NAME:-}
       JUDGE_NODE_CAPACITY: ${JUDGE_NODE_CAPACITY:-2}
+      JUDGE_CACHE_MAX_MB: ${JUDGE_CACHE_MAX_MB:-512}
+      JUDGE_CACHE_GC_INTERVAL_SECONDS: ${JUDGE_CACHE_GC_INTERVAL_SECONDS:-300}
     volumes:
       # 宿主机工作区 → 容器 /workspace（每作业子目录自动创建/清理，nsjail 内唯一可写挂载）
       - ${NODE_WORKSPACE_DIR:?请在 .env.node 设置工作区目录}:/workspace

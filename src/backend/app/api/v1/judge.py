@@ -87,8 +87,16 @@ async def list_submissions(
         query = SubmissionQuery(page=page, page_size=page_size, problem_id=problem_id, status=status)
     except Exception as exc:
         raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
-    rows, total = await SubmissionService(db).list_for_user(user, query)
-    items = [SubmissionSummary.model_validate(row).model_dump(mode="json") for row in rows]
+    service = SubmissionService(db)
+    rows, total = await service.list_for_user(user, query)
+    items = []
+    for row in rows:
+        summary = SubmissionSummary.model_validate(row).model_dump(mode="json")
+        # ACM 赛制进行中：列表同样隐藏得分（与详情接口同一可见性策略）
+        if await service.is_score_restricted(row):
+            summary["score"] = None
+            summary["restricted"] = True
+        items.append(summary)
     return ok(PaginatedResponse(items=items, total=total, page=query.page, page_size=query.page_size))
 
 

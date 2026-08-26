@@ -17,6 +17,7 @@ from pathlib import Path
 class ServerConfig:
     address: str = "127.0.0.1:50051"
     token: str = ""
+    tls: bool = False           # true 时走 TLS（如经 nginx 按路径反代复用 443 域名）
 
 
 @dataclass
@@ -39,11 +40,18 @@ class SandboxConfig:
 
 
 @dataclass
+class CacheConfig:
+    max_mb: int = 512               # /cache 总大小上限；0 表示不限制（不回收）
+    gc_interval_seconds: int = 300  # 回收巡检间隔
+
+
+@dataclass
 class JudgeNodeConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     node: NodeConfig = field(default_factory=NodeConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
 
 
 def load_config(path: str | Path) -> JudgeNodeConfig:
@@ -56,15 +64,22 @@ def load_config(path: str | Path) -> JudgeNodeConfig:
         node=NodeConfig(**raw.get("node", {})),
         paths=PathsConfig(**raw.get("paths", {})),
         sandbox=SandboxConfig(**raw.get("sandbox", {})),
+        cache=CacheConfig(**raw.get("cache", {})),
     )
 
     # 环境变量覆盖（compose/K8s 注入场景）
     cfg.server.address = os.environ.get("SERVER_ADDRESS", cfg.server.address)
     cfg.server.token = os.environ.get("SERVER_TOKEN", cfg.server.token)
+    if tls := os.environ.get("SERVER_TLS"):
+        cfg.server.tls = tls.strip().lower() in ("1", "true", "yes", "on")
     cfg.node.id = os.environ.get("JUDGE_NODE_ID", cfg.node.id)
     cfg.node.name = os.environ.get("JUDGE_NODE_NAME", cfg.node.name)
     if cap := os.environ.get("JUDGE_NODE_CAPACITY"):
         cfg.node.capacity = int(cap)
+    if max_mb := os.environ.get("JUDGE_CACHE_MAX_MB"):
+        cfg.cache.max_mb = int(max_mb)
+    if gc_interval := os.environ.get("JUDGE_CACHE_GC_INTERVAL_SECONDS"):
+        cfg.cache.gc_interval_seconds = int(gc_interval)
 
     if not cfg.node.id:
         cfg.node.id = f"{socket.gethostname()}-{os.getpid()}"

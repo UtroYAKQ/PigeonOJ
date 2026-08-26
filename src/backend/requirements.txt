@@ -1,28 +1,30 @@
 # ============ Web 框架 ============
-fastapi
-uvicorn[standard]
+# 版本策略：钉住小版本（与生产实测一致）；升级需在测试环境验证后手动提升
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
 
 # ============ 配置 / 校验 ============
-pydantic
-pydantic-settings
+pydantic==2.13.4
+pydantic-settings==2.15.0
 
 # ============ 数据库（SQLAlchemy 异步 + 迁移）============
-sqlalchemy[asyncio]
-alembic
-asyncpg
+sqlalchemy[asyncio]==2.0.52
+alembic==1.19.1
+asyncpg==0.31.0
 
 # ============ 缓存 ============
-redis
+redis==8.1.0
 
 # ============ 判题节点网关（gRPC）============
-grpcio
+grpcio==1.83.0
+protobuf==7.36.0       # 生成的 judge_pb2*.py 依赖 google.protobuf
 
 # ============ 安全 ============
-bcrypt                # 密码哈希
+bcrypt==5.0.0          # 密码哈希
 
 # ============ 对象存储 ============
-minio                  # MinIO SDK（生产部署）
-python-multipart       # FastAPI multipart/form-data 上传
+minio==7.2.20          # MinIO SDK（生产部署）
+python-multipart==0.0.32   # FastAPI multipart/form-data 上传
 
 # ============ 测试（开发依赖）============
 # 运行 pytest 前安装：pip install -r requirements-dev.txt

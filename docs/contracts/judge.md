@@ -95,9 +95,11 @@ CHECK (
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | POST | /submissions | auth | 提交判题 | problem_id, language, code, submit_type, contest_id?/verification_id? | submission_id |
-| GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细 case_name + 状态/耗时/内存/得分/程序输出；不返回期望输出） | - | submission |
-| GET | /submissions | auth | 提交历史（本人，`WHERE user_id=?`） | problem_id/contest_id/status/分页 | submission[] |
+| GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细 case_name + 状态/耗时/内存/得分/程序输出；不返回期望输出） | - | submission（含 restricted 标志） |
+| GET | /submissions | auth | 提交历史（本人，`WHERE user_id=?`） | problem_id/contest_id/status/分页 | submission[]（含 restricted 标志） |
 | GET | /sandbox/health | admin | 沙箱节点健康 | - | nodes[{id, status, load}] |
+
+> **得分可见性（ACM 赛制限分）**：`submit_type=contest` 且关联比赛 `rule_type=ACM` 且 `end_time` 未到时，详情与列表接口的 `restricted=true`、`score=null`、`cases=[]`（服务端扣数据，前端仅做条件渲染）；IOI 赛制 / 练习 / 验题 / 比赛结束（含赛后补题）恒为完整可见。contests 模块落地前无比赛数据，恒为 `restricted=false`。策略实现在 `SubmissionService.is_score_restricted`。
 
 > **提交校验**：语言须在 `sandbox_configs` 白名单且启用；代码大小上限 64KB（UTF-8 字节）；按 user+problem 提交冷却 + 全局并发上限做 Redis 频控。
 > **提交越权校验**：`submit_type=contest` 时 `contest_id` 由服务端从当前请求上下文推导（已报名 + 比赛进行中 + 本人），不信任客户端传入；`submit_type=verify` 须校验 `verification` 记录的 `verifier_id` 与当前用户一致。
@@ -142,6 +144,9 @@ CHECK (
 - `FetchProblemData(ProblemDataRequest) returns (stream FileChunk)`：
   按 `data_version` 流式传输 manifest / cases/<id>.in|.out；
   令牌经 metadata `x-node-token` 携带。数据指纹 = sha256(测试点数量|最大 updated_at)，
+  **按判定集统计**：练习 / 比赛 = 生效集（`problems.active_case_ids`），
+  验题 = 暂存集（`pending_case_ids`，NULL 时退化生效集）；暂存编辑不影响生效集指纹，
+  晋升瞬间自然失效（见 `docs/decisions/2026-08-26-test-case-staged-promotion.md`），
   节点按 `<problem_id>-<data_version>` 缓存于容器 `/cache`，跨提交复用。
 - 断线语义：连接断开即离线，其名下 in-flight 提交由服务端重置 pending 并重派；
   判题写入幂等，重复执行安全。

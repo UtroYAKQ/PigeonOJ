@@ -80,14 +80,15 @@ class ProblemQuery(BaseModel):
 class TestCaseItem(BaseModel):
     id: uuid.UUID | None = None
     name: str | None = Field(default=None, max_length=64)
-    input: str = Field(default="", max_length=2 * 1024 * 1024)
-    expected_output: str = Field(default="", max_length=2 * 1024 * 1024)
+    # PATCH 增量语义：None（字段缺省或显式 null）= 内容不变；字符串（含 ""）= 设置为该内容
+    input: str | None = Field(default=None, max_length=2 * 1024 * 1024)
+    expected_output: str | None = Field(default=None, max_length=2 * 1024 * 1024)
     sort_order: int = Field(default=0, ge=0)
 
     @field_validator("input", "expected_output")
     @classmethod
-    def content_bytes_limit(cls, value: str) -> str:
-        if len(value.encode("utf-8")) > 2 * 1024 * 1024:
+    def content_bytes_limit(cls, value: str | None) -> str | None:
+        if value is not None and len(value.encode("utf-8")) > 2 * 1024 * 1024:
             raise ValueError("test case content exceeds 2MB")
         return value
 
@@ -97,11 +98,14 @@ class TestCasesUpdate(BaseModel):
 
 
 class TestCasesPatch(BaseModel):
-    """增量更新正式测试点：
+    """增量更新暂存集（行不可变版本化，生效集在晋升前不受影响）：
 
-    - upserts：带 id 为修改既有测试点（input / expected_output 留空表示内容不变，
-      可仅改名或调序）；不带 id 为新增（输入输出不能全空）
-    - delete_ids：删除指定测试点（历史判题结果保留，引用置空）
+    - upserts：带 id 为修改既有测试点（input / expected_output 缺省或 null = 内容不变，
+      可仅改名或调序；传字符串则整体替换该侧内容，空字符串 = 显式清空——写入空对象；
+      有效变更生成新版本行，origin_id 指回原行；两侧同时置空返回 1001）；
+      不带 id 为新增（输入输出不能全空）
+    - delete_ids：目标状态中不含该点（旧行退役留档）；目标状态不允许为空
+    - delete_ids 与 upserts 的 id 均须存在于当前目标视图（未知 id 返回 3001）
     """
 
     upserts: list[TestCaseItem] = Field(default_factory=list, max_length=1000)
@@ -198,13 +202,18 @@ class ProblemSummary(BaseModel):
 
 
 class TestCaseOut(BaseModel):
-    """测试点输出（管理角色可见）。"""
+    """测试点输出（管理角色可见）。
+
+    staged=true 表示当前返回的是暂存目标状态（存在未验证改动或尚未首验）；
+    验题通过晋升后全部转为 staged=false。
+    """
 
     id: str
     name: str | None
     sort_order: int
     input: str | None
     expected_output: str | None
+    staged: bool = False
 
 
 class ProblemDetail(BaseModel):
@@ -233,6 +242,7 @@ class ProblemDetail(BaseModel):
     tags: list[str] = Field(default_factory=list)
     can_manage: bool = False
     needs_reverification: bool = False
+    case_status: str | None = None
     test_cases: list[TestCaseOut] | None = None
     cases_updated_at: datetime | None = None
     samples_updated_at: datetime | None = None

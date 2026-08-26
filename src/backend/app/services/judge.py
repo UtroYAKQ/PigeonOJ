@@ -27,7 +27,6 @@ from app.schemas.judge import (
 from app.services.problem import (
     can_manage_problem,
     get_problem,
-    list_formal_cases,
 )
 
 
@@ -57,14 +56,27 @@ class SubmissionService:
             user.id, query.problem_id, query.status, query.page, query.page_size,
         )
 
+    async def is_score_restricted(self, submission: Submission) -> bool:
+        """得分可见性策略：ACM 赛制比赛进行中的提交隐藏得分与测试点明细。
+
+        IOI 赛制 / 练习 / 验题 / 赛后（含补题）恒为完整可见。
+        contests 模块接入点：submit_type=contest 且关联比赛 rule_type=ACM
+        且 end_time 未到时返回 True；contests 模块落地前无比赛数据，恒为 False。
+        """
+        if submission.submit_type != SubmitType.CONTEST or not submission.contest_id:
+            return False
+        # TODO(contests): 查 contests 表 —— rule_type == 'ACM' and now() < end_time 时返回 True
+        return False
+
     async def get_detail(self, user: object, submission_id: uuid.UUID) -> SubmissionDetailOut:
         submission = await self.submissions.get_by_id(submission_id)
         if submission is None:
             raise APIError(RESOURCE_NOT_FOUND, "提交不存在", 404)
         if submission.user_id != user.id:
             raise APIError(RESOURCE_NOT_FOUND, "提交不存在", 404)
+        restricted = await self.is_score_restricted(submission)
         storage = get_storage()
-        results = list(
+        results = [] if restricted else list(
             (
                 await self.db.execute(
                     select(SubmissionTestCaseResult)
@@ -98,7 +110,9 @@ class SubmissionService:
                 output=output,
             ))
         detail = SubmissionDetail.model_validate(submission).model_dump()
-        return SubmissionDetailOut(**detail, cases=cases)
+        if restricted:
+            detail["score"] = None
+        return SubmissionDetailOut(**detail, cases=cases, restricted=restricted)
 
     async def create_verify_submission(self, user: object, problem_id: uuid.UUID, body: object) -> Submission:
         from app.services.problem import get_pending_verification, attach_verification_code

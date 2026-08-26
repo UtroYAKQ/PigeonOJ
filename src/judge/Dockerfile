@@ -49,5 +49,7 @@ WORKDIR /opt/judge-node
 #   -v <宿主机工作区>:/workspace     —— 任务临时目录
 #   -v <宿主机缓存>:/cache          —— 题目数据缓存
 #   SERVER_ADDRESS / SERVER_TOKEN   —— 后端网关地址与注册令牌
+#   SERVER_TLS=true                 —— 走 TLS 连域名 443（nginx grpc_pass 按路径转发）
+#   JUDGE_CACHE_MAX_MB              —— /cache 容量上限，超出 LRU 回收（0 不限制）
 ENTRYPOINT []
 CMD ["python3.12", "daemon.py", "--config", "node.toml"]

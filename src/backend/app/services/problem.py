@@ -7,11 +7,13 @@ import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 from sqlalchemy import func, outerjoin, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
+    CaseStatus,
     ProblemStatus,
     ProblemVisibility,
     SubmissionStatus,
@@ -67,6 +69,57 @@ VERIFY_INVITE_KEY_PREFIX = "verify_invite:"
 VERIFY_INVITE_PROBLEM_PREFIX = "verify_invite_problem:"
 
 
+def _uuid_list(raw: list | None) -> list[uuid.UUID]:
+    """JSONB id 引用列表 → UUID 列表（NULL / 空数组 → 空列表）。"""
+    return [uuid.UUID(str(v)) for v in raw] if raw else []
+
+
+def derive_case_status(problem: Problem) -> str:
+    """case_status 缓存值：由两集合与已验标记推导
+    （docs/decisions/2026-08-26-test-case-staged-promotion.md）。"""
+    if problem.pending_case_ids is None:
+        return CaseStatus.OK if problem.active_case_ids else CaseStatus.EMPTY
+    if getattr(problem, "pending_verified", False):
+        return CaseStatus.VERIFIED
+    return CaseStatus.TO_VERIFY if not problem.active_case_ids else CaseStatus.TO_REVERIFY
+
+
+def staged_target(problem: Problem) -> tuple[list[uuid.UUID], bool]:
+    """编辑视图目标状态：暂存集优先，否则生效集。返回 (ids, staged)。"""
+    if problem.pending_case_ids is not None:
+        return _uuid_list(problem.pending_case_ids), True
+    return _uuid_list(problem.active_case_ids), False
+
+
+def judged_case_ids(problem: Problem, *, verify: bool) -> list[uuid.UUID]:
+    """判定集：验题提交按暂存集判（先试新点，NULL 退化生效集）；
+    练习 / 比赛恒用生效集——未验证的暂存改动绝不影响正常判题。"""
+    if verify and problem.pending_case_ids is not None:
+        return _uuid_list(problem.pending_case_ids)
+    return _uuid_list(problem.active_case_ids)
+
+
+async def list_active_cases(db: AsyncSession, problem: Problem) -> list[TestCase]:
+    """生效集行（判题唯一数据来源），按集合顺序。"""
+    return await TestCaseRepository(db).list_by_ids(problem.id, _uuid_list(problem.active_case_ids))
+
+
+async def list_judged_cases(db: AsyncSession, problem: Problem, *, verify: bool = False) -> list[TestCase]:
+    """判定集行（verify=True 时为暂存集退化生效集，否则生效集）。"""
+    return await TestCaseRepository(db).list_by_ids(problem.id, judged_case_ids(problem, verify=verify))
+
+
+def needs_reverification(problem: Problem) -> bool:
+    """重验精确判定：存在暂存改动，或样例晚于最近验题通过时间。"""
+    if problem.verified_at is None:
+        return True
+    if problem.pending_case_ids is not None:
+        return True
+    return bool(
+        problem.samples_updated_at and problem.samples_updated_at > problem.verified_at
+    )
+
+
 @dataclass(frozen=True)
 class ProblemDetailData:
     """题目详情装配结果：get_detail → 路由 _detail 的进程内传输结构。"""
@@ -113,40 +166,31 @@ class ProblemService:
         return await self.problems.list_published(query, viewer_id, manager)
 
     async def verification_flags(self, problem_ids: list[uuid.UUID]) -> dict[uuid.UUID, bool]:
-        """返回 {problem_id: needs_reverification} 用于 scope=mine 列表。"""
+        """返回 {problem_id: needs_reverification} 用于 scope=mine 列表。
+
+        精确判定：存在暂存改动（pending 非NULL）或样例晚于最近验题通过时间。
+        """
         if not problem_ids:
             return {}
-        tc_max = (
-            select(
-                TestCase.problem_id,
-                func.max(TestCase.updated_at).label("cases_max"),
-            )
-            .where(TestCase.problem_id.in_(problem_ids))
-            .group_by(TestCase.problem_id)
-            .subquery()
-        )
         rows = (
             await self.db.execute(
                 select(
                     Problem.id,
                     Problem.verified_at,
                     Problem.samples_updated_at,
-                    tc_max.c.cases_max,
+                    Problem.pending_case_ids,
                 )
-                .outerjoin(tc_max, Problem.id == tc_max.c.problem_id)
                 .where(Problem.id.in_(problem_ids))
             )
         ).all()
         flags: dict[uuid.UUID, bool] = {}
         for row in rows:
-            verified_at = row.verified_at
-            if verified_at is None:
-                flags[row.id] = True
-                continue
-            latest_content = max(
-                (row.cases_max or datetime.min, row.samples_updated_at or datetime.min),
+            snapshot = SimpleNamespace(
+                verified_at=row.verified_at,
+                samples_updated_at=row.samples_updated_at,
+                pending_case_ids=row.pending_case_ids,
             )
-            flags[row.id] = latest_content > verified_at
+            flags[row.id] = needs_reverification(snapshot)
         return flags
 
     async def create(self, user: object, body: ProblemCreate) -> Problem:
@@ -178,24 +222,21 @@ class ProblemService:
         tags = await self.verifications.tag_names(problem_id)
         tag_names = sorted(tags)
         samples = self._samples_view(problem)
-        formal_count = await self.problems.count_formal_cases(problem_id)
-        cases_updated_at = await self.problems.max_cases_updated_at(problem_id)
-        needs_reverification = False
-        if problem.verified_at and problem.is_verified:
-            latest_content = max(
-                (cases_updated_at or datetime.min, problem.samples_updated_at or datetime.min),
-            )
-            needs_reverification = latest_content > problem.verified_at
+        cases_updated_at = await self.test_cases.max_updated_at(
+            problem_id, _uuid_list(problem.active_case_ids)
+        )
+        # 管理角色编辑用：目标状态（暂存优先）回读内容而非对象 key（docs/contracts/problems.md）
         test_cases = None
         if can_manage:
-            # 管理角色编辑用：回读内容而非对象 key（docs/contracts/problems.md）
-            test_cases = await self.list_cases_with_contents(problem_id)
+            test_cases = await self.list_cases_view(problem)
         return ProblemDetailData(
             problem=problem,
             samples=samples,
             tags=tag_names,
             can_manage=can_manage,
-            needs_reverification=needs_reverification,
+            needs_reverification=(
+                needs_reverification(problem) if problem.verified_at and problem.is_verified else False
+            ),
             test_cases=test_cases,
             cases_updated_at=cases_updated_at,
         )
@@ -235,53 +276,65 @@ class ProblemService:
         await self.db.flush()
         return problem
 
-    async def replace_cases(self, user: object, problem_id: uuid.UUID, body: TestCasesUpdate) -> list[str]:
+    async def replace_cases(self, user: object, problem_id: uuid.UUID, body: TestCasesUpdate) -> None:
+        """全量替换**暂存集**（PUT 语义；生效集不动，验题通过后晋升）。"""
         problem = await self._require_manage(user, problem_id)
         if problem.status == ProblemStatus.ARCHIVED:
             raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑测试点", 409)
-        old_keys = await self.problems.get_old_test_case_keys(problem_id)
-        await self.problems.delete_test_cases(problem_id)
         try:
             storage = get_storage()
         except OSError as exc:
             raise APIError(SYSTEM_UPSTREAM_FAILURE, "对象存储服务未配置或不可用", 503) from exc
-        uploaded: list[tuple[str, str, TestCase]] = []
+        created: list[TestCase] = []
+        uploaded_keys: list[str] = []
         try:
             for idx, item in enumerate(body.cases):
                 if not item.input and not item.expected_output:
                     raise APIError(PARAM_FORMAT_INVALID, "测试点输入和输出不能为空", 400)
-                input_content = item.input.encode("utf-8")
-                output_content = item.expected_output.encode("utf-8")
                 input_key = f"problems/{problem_id}/cases/{uuid.uuid4()}/input"
                 output_key = f"problems/{problem_id}/cases/{uuid.uuid4()}/output"
-                await storage.put_bytes(input_key, input_content, "text/plain; charset=utf-8")
-                await storage.put_bytes(output_key, output_content, "text/plain; charset=utf-8")
-                uploaded.append((input_key, output_key, TestCase(
+                await storage.put_bytes(input_key, (item.input or "").encode("utf-8"), "text/plain; charset=utf-8")
+                uploaded_keys.append(input_key)
+                await storage.put_bytes(output_key, (item.expected_output or "").encode("utf-8"), "text/plain; charset=utf-8")
+                uploaded_keys.append(output_key)
+                created.append(TestCase(
                     problem_id=problem_id,
                     name=item.name or str(idx + 1),
                     input_oss_id=input_key,
                     expected_output_oss_id=output_key,
                     sort_order=item.sort_order or idx + 1,
-                )))
+                ))
         except Exception as exc:
-            for input_key, output_key, _ in uploaded:
-                for key in (input_key, output_key):
-                    try:
-                        await storage.delete(key)
-                    except Exception:
-                        pass
+            for key in uploaded_keys:
+                try:
+                    await storage.delete(key)
+                except Exception:
+                    pass
             if isinstance(exc, APIError):
                 raise
             raise APIError(SYSTEM_UPSTREAM_FAILURE, "测试点上传失败", 503) from exc
-        await self.problems.add_test_cases([row for _, _, row in uploaded])
-        return old_keys
+        # 行不可变：旧行退役留档（历史判题结果外键恒有效），目标状态整体写入暂存集
+        await self.problems.add_test_cases(created)
+        problem.pending_case_ids = [str(row.id) for row in created]
+        problem.pending_verified = False  # 任何新的暂存写入都会使「已验」标记失效
+        problem.case_status = derive_case_status(problem)
+        problem.cases_revision += 1
+        await self.db.flush()
 
-    async def list_cases_with_contents(self, problem_id: uuid.UUID) -> list[TestCaseOut]:
-        """管理角色编辑用：回读测试点内容（docs/contracts/problems.md 管理角色读详情）。"""
+    async def list_cases_view(self, problem: Problem) -> list[TestCaseOut]:
+        """管理角色编辑用：目标状态（暂存优先）回读内容，附 staged 标记。"""
+        ids, staged = staged_target(problem)
+        rows = await self.test_cases.list_by_ids(problem.id, ids)
+        return await self._cases_out(problem.id, rows, staged=staged)
+
+    async def _cases_out(
+        self, problem_id: uuid.UUID, rows: list[TestCase], *, staged: bool,
+    ) -> list[TestCaseOut]:
         storage = get_storage()
         out: list[TestCaseOut] = []
-        for tc in await self.test_cases.list_formal_cases(problem_id):
-            input_text = expected_text = None
+        for tc in rows:
+            input_text = None
+            expected_text = None
             if tc.input_oss_id:
                 raw, _ = await storage.get_bytes(tc.input_oss_id)
                 input_text = raw.decode("utf-8", errors="replace")
@@ -294,30 +347,39 @@ class ProblemService:
                 sort_order=tc.sort_order,
                 input=input_text,
                 expected_output=expected_text,
+                staged=staged,
             ))
         return out
 
-    async def patch_cases(self, user: object, problem_id: uuid.UUID, body: TestCasesPatch) -> list[str]:
-        """增量更新测试点（PATCH /problems/{id}/test-cases）：只改动提交的行。
+    async def patch_cases(self, user: object, problem_id: uuid.UUID, body: TestCasesPatch) -> None:
+        """增量更新**暂存集**（PATCH /problems/{id}/test-cases）：只改动提交的行。
 
-        - upserts 带 id：改名 / 调序 / 换内容（内容留空 = 保持不变），仅变更行 bump updated_at
-          （未动行不触发「需重新验题」与判题节点 data_version 缓存失效）
-        - upserts 不带 id：新增
-        - delete_ids：删除（历史判题结果保留，test_case_id 由 ON DELETE SET NULL 置空）
-        返回需异步清理的 MinIO 旧对象 key。
+        行不可变版本化：对既有点的任何有效变更生成新行（origin_id 指回原行），
+        未改动点在目标状态中沿用原 id；delete_ids 表示目标状态中不含该点。
+        生效集在晋升前不受影响（docs/decisions/2026-08-26-test-case-staged-promotion.md）。
+
+        - upserts 带 id：改名 / 调序 / 换内容。input / expected_output 缺省或 null = 保持
+          不变；传字符串则整体替换该侧内容，空字符串 = 显式清空（写入空对象），
+          见 docs/decisions/2026-08-26-test-case-clear-content.md
+        - upserts 不带 id：新增（输入输出不能全空；两侧同时显式置空同样拒绝）
+        - 至少保留一个测试点：目标状态不允许为空（生效集非空后永不为空的不变式）
         """
         problem = await self._require_manage(user, problem_id)
         if problem.status == ProblemStatus.ARCHIVED:
             raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑测试点", 409)
+        if not body.upserts and not body.delete_ids:
+            return  # 空 PATCH：不触碰任何集合状态
 
-        existing = {tc.id: tc for tc in await self.test_cases.list_formal_cases(problem_id)}
+        base_ids, _staged = staged_target(problem)
+        base_set = set(base_ids)
+        rows_by_id = {tc.id: tc for tc in await self.test_cases.list_by_problem(problem_id)}
         upsert_ids = [item.id for item in body.upserts if item.id is not None]
         if len(upsert_ids) != len(set(upsert_ids)):
             raise APIError(PARAM_FORMAT_INVALID, "同一测试点被重复更新", 400)
         overlap = set(upsert_ids) & set(body.delete_ids)
         if overlap:
             raise APIError(PARAM_FORMAT_INVALID, "测试点不能同时更新和删除", 400)
-        unknown = [cid for cid in upsert_ids + body.delete_ids if cid not in existing]
+        unknown = [cid for cid in upsert_ids + list(body.delete_ids) if cid not in base_set]
         if unknown:
             raise APIError(RESOURCE_NOT_FOUND, "测试点不存在", 404)
         try:
@@ -325,58 +387,103 @@ class ProblemService:
         except OSError as exc:
             raise APIError(SYSTEM_UPSTREAM_FAILURE, "对象存储服务未配置或不可用", 503) from exc
 
-        stale_keys: list[str] = []
-        uploaded_keys: list[tuple[uuid.UUID, str]] = []
+        uploaded_keys: list[str] = []
 
-        async def _put_content(case_pk: uuid.UUID, kind: str, content: str) -> str:
+        async def _upload(kind: str, content: str) -> str:
             key = f"problems/{problem_id}/cases/{uuid.uuid4()}/{'input' if kind == 'input' else 'output'}"
             await storage.put_bytes(key, content.encode("utf-8"), "text/plain; charset=utf-8")
-            uploaded_keys.append((case_pk, key))
+            uploaded_keys.append(key)
             return key
 
+        async def _resolve_side(row: TestCase, field: str, content: str | None) -> str:
+            """None=沿用原引用；与存储内容一致则复用（避免无谓新版本）；否则上传新对象。"""
+            oss_field = "input_oss_id" if field == "input" else "expected_output_oss_id"
+            current_key = getattr(row, oss_field)
+            if content is None:
+                return current_key
+            raw, _ = await storage.get_bytes(current_key)
+            if raw.decode("utf-8", errors="replace") == content:
+                return current_key
+            return await _upload(field, content)
+
+        # 目标序列：(位置键, id)。未触碰成员保持其在目标视图中的相对位置；
+        # 被 upsert 触碰的成员 / 新增行使用提交的 sort_order（前端按全列表下标下发，允许空洞）
+        entries: list[tuple[int, uuid.UUID]] = []
+        sort_overrides: dict[uuid.UUID, int] = {
+            item.id: item.sort_order for item in body.upserts if item.id is not None and item.sort_order
+        }
+        deleted = set(body.delete_ids)
+
         try:
+            id_map: dict[uuid.UUID, uuid.UUID] = {}
+            brand_new: list[tuple[int, uuid.UUID]] = []
             for index, item in enumerate(body.upserts):
                 if item.id is None:
-                    if not item.input.strip() and not item.expected_output.strip():
+                    new_input = item.input or ""
+                    new_output = item.expected_output or ""
+                    if not new_input.strip() and not new_output.strip():
                         raise APIError(PARAM_FORMAT_INVALID, "测试点输入和输出不能为空", 400)
                     row = TestCase(
                         problem_id=problem_id,
                         name=item.name or str(index + 1),
-                        input_oss_id=None,
-                        expected_output_oss_id=None,
+                        input_oss_id=await _upload("input", new_input),
+                        expected_output_oss_id=await _upload("output", new_output),
+                        origin_id=None,
                         sort_order=item.sort_order or index + 1,
                     )
                     self.db.add(row)
                     await self.db.flush()
-                    if item.input.strip():
-                        row.input_oss_id = await _put_content(row.id, "input", item.input)
-                    if item.expected_output.strip():
-                        row.expected_output_oss_id = await _put_content(row.id, "output", item.expected_output)
+                    brand_new.append((item.sort_order or index + 1, row.id))
                     continue
-                row = existing[item.id]
-                changed = False
-                if item.name is not None and item.name != row.name:
-                    row.name = item.name
-                    changed = True
-                if item.sort_order and item.sort_order != row.sort_order:
-                    row.sort_order = item.sort_order
-                    changed = True
-                for field in ("input", "expected_output"):
-                    content = getattr(item, field)
-                    if content.strip():
-                        oss_field = "input_oss_id" if field == "input" else "expected_output_oss_id"
-                        stale_keys.append(getattr(row, oss_field))
-                        setattr(row, oss_field, await _put_content(row.id, field, content))
-                        changed = True
+                row = rows_by_id[item.id]
+                provided = {
+                    field: getattr(item, field)
+                    for field in ("input", "expected_output")
+                    if getattr(item, field) is not None
+                }
+                if len(provided) == 2 and all(not value.strip() for value in provided.values()):
+                    raise APIError(PARAM_FORMAT_INVALID, "测试点输入和输出不能同时为空", 400)
+                new_input_key = await _resolve_side(row, "input", item.input)
+                new_output_key = await _resolve_side(row, "expected_output", item.expected_output)
+                new_name = item.name if item.name is not None else row.name
+                changed = (
+                    new_input_key != row.input_oss_id
+                    or new_output_key != row.expected_output_oss_id
+                    or new_name != row.name
+                )
                 if changed:
-                    row.updated_at = datetime.now()
-            rows_to_delete = [existing[cid] for cid in body.delete_ids]
-            for row in rows_to_delete:
-                stale_keys.extend(key for key in (row.input_oss_id, row.expected_output_oss_id) if key)
-            await self.test_cases.delete_cases(rows_to_delete)
+                    # 行不可变：生成新版本行，origin_id 指回原行；原行退役留档（外键恒有效）
+                    new_row = TestCase(
+                        problem_id=problem_id,
+                        origin_id=row.id,
+                        name=new_name,
+                        input_oss_id=new_input_key,
+                        expected_output_oss_id=new_output_key,
+                        sort_order=row.sort_order,
+                    )
+                    self.db.add(new_row)
+                    await self.db.flush()
+                    id_map[item.id] = new_row.id
+
+            position_of = {cid: idx + 1 for idx, cid in enumerate(base_ids)}
+            for cid in base_ids:
+                if cid in deleted:
+                    continue
+                key = sort_overrides.get(cid) or position_of[cid]
+                entries.append((key, id_map.get(cid, cid)))
+            entries.extend(brand_new)
+            entries.sort(key=lambda pair: pair[0])
+            target = [cid for _, cid in entries]
+            if not target:
+                # 目标状态为空 = 删除全部测试点：违反「生效集非空后永不为空」不变式
+                raise APIError(PARAM_FORMAT_INVALID, "至少保留一个测试点", 400)
+            problem.pending_case_ids = [str(cid) for cid in target]
+            problem.pending_verified = False  # 任何新的暂存写入都会使「已验」标记失效
+            problem.case_status = derive_case_status(problem)
+            problem.cases_revision += 1
             await self.db.flush()
         except Exception as exc:
-            for _, key in uploaded_keys:
+            for key in uploaded_keys:
                 try:
                     await storage.delete(key)
                 except Exception:
@@ -384,7 +491,26 @@ class ProblemService:
             if isinstance(exc, APIError):
                 raise
             raise APIError(SYSTEM_UPSTREAM_FAILURE, "测试点上传失败", 503) from exc
-        return [key for key in stale_keys if key]
+
+    async def apply_pending_cases(self, user: object, problem_id: uuid.UUID) -> Problem:
+        """显式生效（点「保存」才晋升）：把已通过验题的暂存集晋升为生效集。
+
+        前置：存在暂存改动且已打「已验待生效」标记；任何新的暂存写入都会清除标记。
+        """
+        problem = await self._require_manage(user, problem_id)
+        if problem.status == ProblemStatus.ARCHIVED:
+            raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可应用测试点", 409)
+        if problem.pending_case_ids is None:
+            raise APIError(RESOURCE_STATE_CONFLICT, "没有待生效的测试点改动", 409)
+        if not problem.pending_verified:
+            raise APIError(RESOURCE_STATE_CONFLICT, "测试点尚未通过验题，不能生效", 409)
+        problem.active_case_ids = problem.pending_case_ids
+        problem.pending_case_ids = None
+        problem.pending_verified = False
+        problem.case_status = derive_case_status(problem)
+        problem.cases_revision += 1
+        await self.db.flush()
+        return problem
 
     async def replace_samples(self, user: object, problem_id: uuid.UUID, body: SamplesUpdate) -> None:
         problem = await self._require_manage(user, problem_id)
@@ -401,12 +527,10 @@ class ProblemService:
             raise APIError(RESOURCE_STATE_CONFLICT, "已归档题目不可发布", 409)
         if not problem.is_verified:
             raise APIError(RESOURCE_STATE_CONFLICT, "题目未验题，不可发布", 409)
-        formal_count = await self.problems.count_formal_cases(problem_id)
-        if formal_count == 0:
+        if not problem.active_case_ids:
             raise APIError(RESOURCE_STATE_CONFLICT, "题目无正式测试点，不可发布", 409)
-        cases_updated_at = await self.problems.max_cases_updated_at(problem_id)
-        if problem.verified_at and cases_updated_at and cases_updated_at > problem.verified_at:
-            raise APIError(RESOURCE_STATE_CONFLICT, "测试点在验题通过后被修改，请重新验题", 409)
+        if problem.pending_case_ids is not None:
+            raise APIError(RESOURCE_STATE_CONFLICT, "测试点存在待验证的改动，请重新验题", 409)
         if problem.verified_at and problem.samples_updated_at and problem.samples_updated_at > problem.verified_at:
             raise APIError(RESOURCE_STATE_CONFLICT, "样例在验题通过后被修改，请重新验题", 409)
         problem.status = ProblemStatus.PUBLISHED
@@ -553,10 +677,6 @@ async def get_test_case(db: AsyncSession, test_case_id: uuid.UUID) -> TestCase:
     return tc
 
 
-async def list_formal_cases(db: AsyncSession, problem_id: uuid.UUID) -> list[TestCase]:
-    return await TestCaseRepository(db).list_formal_cases(problem_id)
-
-
 async def can_manage_problem(db: AsyncSession, user: object, problem: Problem) -> bool:
     return await _can_manage(db, user, problem)
 
@@ -618,7 +738,10 @@ async def complete_verification(
     if passed:
         problem = await ProblemRepository(db).get_by_id(verification.problem_id)
         if problem is not None:
-            problem.is_verified = True
+            # 验题与晋升解耦：通过仅打「已验待生效」标记，晋升由管理角色显式 apply
+            # （docs/decisions/2026-08-26-test-case-staged-promotion.md 修订）
+            problem.pending_verified = True
+            problem.case_status = derive_case_status(problem)
             problem.verified_by = verifier_id
             problem.verified_at = datetime.now()
             problem.updated_at = datetime.now()

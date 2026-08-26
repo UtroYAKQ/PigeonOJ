@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,24 +65,6 @@ class ProblemRepository:
         )
         return rows, int(total)
 
-    async def count_formal_cases(self, problem_id: uuid.UUID) -> int:
-        return (
-            await self.db.scalar(
-                select(func.count())
-                .select_from(TestCase)
-                .where(
-                    TestCase.problem_id == problem_id,
-                    TestCase.input_oss_id.is_not(None),
-                    TestCase.expected_output_oss_id.is_not(None),
-                )
-            )
-        ) or 0
-
-    async def max_cases_updated_at(self, problem_id: uuid.UUID) -> datetime | None:
-        return await self.db.scalar(
-            select(func.max(TestCase.updated_at)).where(TestCase.problem_id == problem_id)
-        )
-
     async def get_test_cases(self, problem_id: uuid.UUID) -> list[TestCase]:
         return list(
             (
@@ -95,21 +76,9 @@ class ProblemRepository:
             ).scalars()
         )
 
-    async def delete_test_cases(self, problem_id: uuid.UUID) -> None:
-        await self.db.execute(delete(TestCase).where(TestCase.problem_id == problem_id))
-
     async def add_test_cases(self, cases: list[TestCase]) -> None:
         self.db.add_all(cases)
         await self.db.flush()
-
-    async def get_old_test_case_keys(self, problem_id: uuid.UUID) -> list[str]:
-        rows = list((await self.db.scalars(select(TestCase).where(TestCase.problem_id == problem_id))).all())
-        return [
-            key
-            for row in rows
-            for key in (row.input_oss_id, row.expected_output_oss_id)
-            if key
-        ]
 
 
 class TagRepository:

@@ -143,11 +143,11 @@ echo Backend is ready
 rem ---------- 6. Start judge node container (1 by default; copy .env.node.example to .env.node) ----------
 echo [6/7] Starting judge node...
 if not exist "%~dp0.env.node" copy /y "%~dp0.env.node.example" "%~dp0.env.node" >nul
-docker compose --env-file "%~dp0.env.node" -f "%~dp0docker-compose-node.yml" up -d --build 1>nul 2>&1
+docker compose --env-file "%~dp0.env.node" --project-directory "%~dp0." -f "%~dp0docker\docker-compose-node.yml" up -d --build 1>nul 2>&1
 if errorlevel 1 (
     echo [WARN] Judge node failed to start, please check .env.node and Docker logs; other services are unaffected, you can start it manually later
 ) else (
-    start "PigeonOJ Judge Node" cmd /k "docker compose --env-file %~dp0.env.node -f %~dp0docker-compose-node.yml logs -f"
+    start "PigeonOJ Judge Node" cmd /k "docker compose --env-file %~dp0.env.node --project-directory %~dp0. -f %~dp0docker\docker-compose-node.yml logs -f"
 )
 
 rem ---------- 7. Start frontend ----------

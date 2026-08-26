@@ -80,14 +80,21 @@ class SubmissionRepository:
 
 
 class TestCaseRepository:
+    """测试点数据访问。
+
+    行不可变版本化：集合成员资格由 problems.active_case_ids / pending_case_ids
+    引用列表定义（docs/decisions/2026-08-26-test-case-staged-promotion.md），
+    行永不物理删除，被取代的旧行自然退役留档。
+    """
+
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
     async def get_by_id(self, test_case_id: uuid.UUID) -> TestCase | None:
         return await self.db.get(TestCase, test_case_id)
 
-    async def list_formal_cases(self, problem_id: uuid.UUID) -> list[TestCase]:
-        """按判题顺序返回正式测试点（test_cases 表内全部为正式数据）。"""
+    async def list_by_problem(self, problem_id: uuid.UUID) -> list[TestCase]:
+        """题目全部版本行（含已退役），按判题顺序。"""
         return list(
             (
                 await self.db.execute(
@@ -98,39 +105,34 @@ class TestCaseRepository:
             ).scalars()
         )
 
-    async def count_formal_cases(self, problem_id: uuid.UUID) -> int:
-        return (
-            await self.db.scalar(
-                select(func.count())
-                .select_from(TestCase)
-                .where(
-                    TestCase.problem_id == problem_id,
-                    TestCase.input_oss_id.is_not(None),
-                    TestCase.expected_output_oss_id.is_not(None),
-                )
-            )
-        ) or 0
-
-    async def get_by_ids(self, problem_id: uuid.UUID, case_ids: list[uuid.UUID]) -> list[TestCase]:
+    async def list_by_ids(
+        self, problem_id: uuid.UUID, case_ids: list[uuid.UUID],
+    ) -> list[TestCase]:
+        """按给定 id 顺序返回集合行（限定 problem 防越界；未知 id 忽略）。"""
         if not case_ids:
             return []
-        return list(
-            (
+        rows = {
+            row.id: row
+            for row in (
                 await self.db.execute(
                     select(TestCase).where(TestCase.problem_id == problem_id, TestCase.id.in_(case_ids))
                 )
             ).scalars()
-        )
+        }
+        return [rows[cid] for cid in case_ids if cid in rows]
 
     async def add_test_case(self, row: TestCase) -> None:
         self.db.add(row)
         await self.db.flush()
 
-    async def delete_cases(self, cases: list[TestCase]) -> None:
-        for row in cases:
-            await self.db.delete(row)
-
-    async def max_updated_at(self, problem_id: uuid.UUID) -> uuid.UUID | None:
+    async def max_updated_at(
+        self, problem_id: uuid.UUID, case_ids: list[uuid.UUID],
+    ) -> object | None:
+        """集合内最大 updated_at（详情展示用；空集返回 None）。"""
+        if not case_ids:
+            return None
         return await self.db.scalar(
-            select(func.max(TestCase.updated_at)).where(TestCase.problem_id == problem_id)
+            select(func.max(TestCase.updated_at)).where(
+                TestCase.problem_id == problem_id, TestCase.id.in_(case_ids)
+            )
         )

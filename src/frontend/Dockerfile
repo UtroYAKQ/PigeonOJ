@@ -4,6 +4,10 @@
 # ---- 构建阶段 ----
 FROM node:22-alpine AS build
 WORKDIR /app
+# 允许部署侧注入 Node 堆限制（小内存机器构建 vue-tsc 需要，如 --max-old-space-size=1536）；
+# 不传则用默认值。经 compose build args 或 --build-arg 注入，不在镜像内写死。
+ARG NODE_OPTIONS=""
+ENV NODE_OPTIONS=${NODE_OPTIONS}
 COPY package.json ./
 RUN npm install
 COPY . .

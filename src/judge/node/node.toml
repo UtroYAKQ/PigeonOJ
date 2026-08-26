@@ -5,6 +5,7 @@
 [server]
 address = "127.0.0.1:50051"   # 后端 gRPC 网关地址
 token = "dev-token"
+tls = false                    # true：走 TLS 连域名 443（nginx grpc_pass 按路径转发，如 www.example.com:443）
 
 [node]
 id = ""                        # 留空自动 {hostname}-{pid}
@@ -14,6 +15,10 @@ capacity = 2                   # 并发判题容量
 [paths]
 workspace = "/workspace"       # 容器内固定；宿主机目录由 docker -v 提供
 data_cache = "/cache"
+
+[cache]
+max_mb = 512                   # /cache 总大小上限；超出按 LRU 回收（0 = 不限制不回收）
+gc_interval_seconds = 300      # 回收巡检间隔
 
 [sandbox]
 nsjail_binary = "nsjail"

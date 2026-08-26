@@ -27,6 +27,27 @@ async def _create_problem(client, admin_headers, **overrides) -> dict:
     return resp.json()["data"]
 
 
+async def _pass_verification(pid: str) -> None:
+    """模拟验题通过：仅打「已验待生效」标记（不晋升；晋升走 apply 端点）。"""
+    async with SessionLocal() as db:
+        await db.execute(
+            text(
+                "UPDATE problems SET pending_verified = true, case_status = 'verified', "
+                "verified_at = now() WHERE id = :pid"
+            ),
+            {"pid": pid},
+        )
+        await db.commit()
+
+
+async def _apply_pending(client, admin_headers, pid: str) -> None:
+    """显式生效暂存集（POST /test-cases/apply）。"""
+    resp = await client.post(
+        f"/api/v1/problems/{pid}/test-cases/apply", headers=admin_headers
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+
 @pytest.mark.asyncio
 async def test_create_problem_requires_manager_role(client, user_headers):
     resp = await client.post(
@@ -86,7 +107,7 @@ async def test_list_pagination_and_filters(client, admin_headers):
         async with SessionLocal() as db:
             row = await db.get(Problem, uuid.UUID(problem["id"]))
             row.status = "published"
-            row.is_verified = True
+            row.verified_at = datetime.now()
             row.published_at = datetime.now()
             await db.commit()
 
@@ -118,35 +139,19 @@ async def test_publish_blocked_when_cases_changed_after_verification(client, adm
     )
     assert resp.json()["code"] == 0, resp.text
 
-    # 模拟验题通过：verified_at 晚于当前全部测试点更新（数据未再变更 → 无需重验）
-    async with SessionLocal() as db:
-        await db.execute(
-            text(
-                "UPDATE problems SET is_verified = true, verified_at = "
-                "(SELECT MAX(updated_at) FROM test_cases WHERE problem_id = :pid) + interval '1 minute' "
-                "WHERE id = :pid"
-            ),
-            {"pid": pid},
-        )
-        await db.commit()
-
+    # 模拟验题通过并显式生效：此后数据未再变更 → 无需重验
+    await _pass_verification(pid)
+    await _apply_pending(client, admin_headers, pid)
     resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
     assert resp.json()["data"]["needs_reverification"] is False
 
-    # 案例变更：updated_at 被推到验题之后（模拟真实时间流逝）→ 必须重新验题，发布被阻断
+    # 再次编辑测试点：写入暂存集 → 必须重新验题，发布被阻断（生效集不受影响）
     resp = await client.put(
         cases_url,
         json={"cases": [{"name": "c2", "input": "3", "expected_output": "4"}]},
         headers=admin_headers,
     )
     assert resp.json()["code"] == 0, resp.text
-
-    async with SessionLocal() as db:
-        await db.execute(
-            text("UPDATE test_cases SET updated_at = updated_at + interval '5 minutes' WHERE problem_id = :pid"),
-            {"pid": pid},
-        )
-        await db.commit()
 
     resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
     assert resp.json()["data"]["needs_reverification"] is True
@@ -166,10 +171,10 @@ async def test_publish_requires_verification_and_cases(client, admin_headers, fa
 
     async with SessionLocal() as db:
         row = await db.get(Problem, data["id"])
-        row.is_verified = True
+        row.verified_at = datetime.now()  # 模拟曾经验题通过
         await db.commit()
 
-    # 无任何测试点 → 3002（发布须至少 1 个正式测试点；is_verified 手工置位时 verified_at 为空，不触发重验门禁）
+    # 无任何测试点 → 3002（发布须至少 1 个生效测试点）
     resp = await client.post(f"/api/v1/problems/{data['id']}/publish", headers=admin_headers)
     assert resp.json()["code"] == 3002
 
@@ -192,6 +197,9 @@ async def test_publish_requires_verification_and_cases(client, admin_headers, fa
     )
     assert resp.json()["code"] == 0, resp.text
 
+    # 暂存集须先经验题通过并显式生效才能发布
+    await _pass_verification(data["id"])
+    await _apply_pending(client, admin_headers, data["id"])
     resp = await client.post(f"/api/v1/problems/{data['id']}/publish", headers=admin_headers)
     assert resp.json()["code"] == 0, resp.text
     assert resp.json()["data"]["status"] == "published"
@@ -234,13 +242,9 @@ async def test_samples_change_requires_reverification(client, admin_headers, fak
     )
     assert resp.json()["code"] == 0
 
-    # 模拟验题通过：verified_at 晚于当前全部测试点 / 样例更新
-    async with SessionLocal() as db:
-        await db.execute(
-            text("UPDATE problems SET is_verified = true, verified_at = now() + interval '1 hour' WHERE id = :pid"),
-            {"pid": pid},
-        )
-        await db.commit()
+    # 模拟验题通过：暂存集标记已验（verified_at 晚于当前样例更新）
+    await _pass_verification(pid)
+    await _apply_pending(client, admin_headers, pid)
 
     resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
     assert resp.json()["data"]["needs_reverification"] is False
@@ -268,10 +272,10 @@ async def test_samples_change_requires_reverification(client, admin_headers, fak
     assert body["code"] == 3002, body
     assert "重新验题" in body["message"]
 
-    # 重新验题通过后可发布；详情返回 JSONB 样例数组
+    # 样例类重验不涉及暂存集：验题通过刷新 verified_at 即解除门禁（无应用动作）
     async with SessionLocal() as db:
         await db.execute(
-            text("UPDATE problems SET is_verified = true, verified_at = now() + interval '2 hour' WHERE id = :pid"),
+            text("UPDATE problems SET verified_at = now() + interval '2 hour' WHERE id = :pid"),
             {"pid": pid},
         )
         await db.commit()
@@ -396,13 +400,9 @@ async def test_verification_invite_flow_and_writeback(client, admin_headers, use
     )
     assert resp.json()["code"] == 0
 
-    # 测试点在验题通过后变更：对齐 verified_at（模拟重新验题通过）
-    async with SessionLocal() as db:
-        await db.execute(
-            text("UPDATE problems SET is_verified = true, verified_at = now() + interval '1 hour' WHERE id = :pid"),
-            {"pid": problem_id},
-        )
-        await db.commit()
+    # 测试点在验题通过后变更：模拟重新验题通过并显式生效
+    await _pass_verification(problem_id)
+    await _apply_pending(client, admin_headers, problem_id)
 
     resp = await client.post(f"/api/v1/problems/{problem_id}/publish", headers=admin_headers)
     assert resp.json()["code"] == 0
@@ -414,7 +414,7 @@ async def test_submission_history_and_detail(client, admin_headers, user_headers
     async with SessionLocal() as db:
         row = await db.get(Problem, data["id"])
         row.status = "published"
-        row.is_verified = True
+        row.verified_at = datetime.now()
         await db.commit()
 
     resp = await client.post(
@@ -425,18 +425,22 @@ async def test_submission_history_and_detail(client, admin_headers, user_headers
     assert resp.json()["code"] == 0, resp.text
     submission_id = resp.json()["data"]["submission_id"]
 
-    # 提交历史（本人）
+    # 提交历史（本人）：练习提交不受 ACM 限分策略影响
     resp = await client.get(f"/api/v1/submissions?problem_id={data['id']}", headers=admin_headers)
     history = resp.json()["data"]
     assert history["total"] == 1
     assert history["items"][0]["status"] in {"pending", "judging"}
+    assert history["items"][0]["restricted"] is False
+    assert history["items"][0]["score"] is not None
 
-    # 详情含代码与测试点明细骨架
+    # 详情含代码与测试点明细骨架；练习提交 restricted=False、得分完整可见
     resp = await client.get(f"/api/v1/submissions/{submission_id}", headers=admin_headers)
     detail = resp.json()["data"]
     assert detail["code"] == "int main(){}"
     assert detail["language"] == "cpp17"
     assert isinstance(detail["cases"], list)
+    assert detail["restricted"] is False
+    assert detail["score"] is not None
 
     # 他人不可读
     resp = await client.get(f"/api/v1/submissions/{submission_id}", headers=user_headers)
@@ -454,7 +458,8 @@ async def test_submission_history_and_detail(client, admin_headers, user_headers
 
 @pytest.mark.asyncio
 async def test_replace_cases_keeps_history_results(client, admin_headers, fake_storage):
-    """回归（0010 迁移）：结果表仍引用旧测试点时全量替换不因外键失败；历史结果保留且引用置空。"""
+    """回归（行不可变版本化）：全量替换只改写暂存集，旧行退役留档，
+    历史判题结果的 test_case_id 外键恒有效（不再置空）。"""
     data = await _create_problem(client, admin_headers)
     pid = uuid.UUID(data["id"])
     resp = await client.put(
@@ -467,6 +472,7 @@ async def test_replace_cases_keeps_history_results(client, admin_headers, fake_s
     # 模拟一次已完成判题的提交：结果行引用当前测试点
     async with SessionLocal() as db:
         case = (await db.execute(select(TestCase).where(TestCase.problem_id == pid))).scalars().one()
+        old_case_id = case.id
         user_id = (await db.execute(select(User).limit(1))).scalar_one().id
         submission = Submission(
             user_id=user_id, problem_id=pid, language="cpp17",
@@ -479,7 +485,7 @@ async def test_replace_cases_keeps_history_results(client, admin_headers, fake_s
         ))
         await db.commit()
 
-    # 替换测试点：修复前此处抛 IntegrityError（FK NO ACTION）
+    # 全量替换：目标状态写入暂存集，旧行不删除、仅退役
     resp = await client.put(
         f"/api/v1/problems/{data['id']}/test-cases",
         json={"cases": [{"name": "c2", "input": "3", "expected_output": "4"}]},
@@ -487,10 +493,16 @@ async def test_replace_cases_keeps_history_results(client, admin_headers, fake_s
     )
     assert resp.json()["code"] == 0, resp.text
 
-    # 历史结果保留，test_case_id 被 SET NULL
     async with SessionLocal() as db:
+        # 历史结果保留且 test_case_id 仍指向退役的原始行（可回溯判题依据）
         row = (await db.execute(select(SubmissionTestCaseResult))).scalars().one()
-        assert row.test_case_id is None
+        assert row.test_case_id == old_case_id
+        # 原始行仍在表中（永不物理删除），新版本行为另一行
+        remaining = (
+            await db.execute(select(TestCase).where(TestCase.problem_id == pid))
+        ).scalars().all()
+        assert {str(r.id) for r in remaining} >= {str(old_case_id)}
+        assert len(remaining) == 2
 
 
 @pytest.mark.asyncio
@@ -515,7 +527,7 @@ async def test_detail_reads_back_case_contents(client, admin_headers, fake_stora
 
 @pytest.mark.asyncio
 async def test_patch_test_cases_incremental(client, admin_headers, fake_storage):
-    """PATCH 增量语义：只改动提交的行；内容留空表示保持不变；空补丁不 bump updated_at。"""
+    """PATCH 增量语义：只改动提交的行；缺省字段内容不变；空补丁不触碰集合状态。"""
     data = await _create_problem(client, admin_headers)
     pid = uuid.UUID(data["id"])
     resp = await client.put(
@@ -533,7 +545,7 @@ async def test_patch_test_cases_incremental(client, admin_headers, fake_storage)
     c1 = next(c for c in detail_cases if c["name"] == "c1")
     c2 = next(c for c in detail_cases if c["name"] == "c2")
 
-    # 增量：仅改名 c1（input/expected_output 留空 = 内容不变）+ 删除 c2
+    # 增量：仅改名 c1（input/expected_output 缺省 = 内容不变）+ 目标状态移除 c2
     resp = await client.patch(
         f"/api/v1/problems/{data['id']}/test-cases",
         json={
@@ -547,11 +559,12 @@ async def test_patch_test_cases_incremental(client, admin_headers, fake_storage)
     returned = body["data"]["cases"]
     assert len(returned) == 1
     kept = returned[0]
-    assert kept["id"] == c1["id"]
     assert kept["name"] == "c1-renamed"
     assert kept["input"] == "1" and kept["expected_output"] == "2"  # 内容保持不变
+    assert kept["staged"] is True
+    assert kept["id"] != c1["id"]  # 行不可变：有效变更生成新版本行（origin_id 指回原行）
 
-    # 空 PATCH：无任何行被触碰，updated_at 全部不变（不触发重验与节点缓存失效）
+    # 空 PATCH：无任何行被触碰，updated_at 全部不变
     async with SessionLocal() as db:
         before = {str(r.id): r.updated_at for r in (
             await db.execute(select(TestCase).where(TestCase.problem_id == pid))).scalars().all()}
@@ -565,6 +578,219 @@ async def test_patch_test_cases_incremental(client, admin_headers, fake_storage)
         after = {str(r.id): r.updated_at for r in (
             await db.execute(select(TestCase).where(TestCase.problem_id == pid))).scalars().all()}
     assert after == before
+
+
+@pytest.mark.asyncio
+async def test_patch_test_cases_clear_content(client, admin_headers, fake_storage):
+    """回归：PATCH 显式空字符串 = 清空该侧内容（写空对象），缺省字段保持不变。"""
+    data = await _create_problem(client, admin_headers)
+    resp = await client.put(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"cases": [{"name": "c1", "input": "1", "expected_output": "2"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    c1 = resp.json()["data"]["test_cases"][0]
+
+    # 仅清空输入（显式空字符串），期望输出缺省 = 不变
+    resp = await client.patch(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"upserts": [{"id": c1["id"], "input": "", "sort_order": 1}], "delete_ids": []},
+        headers=admin_headers,
+    )
+    body = resp.json()
+    assert body["code"] == 0, resp.text
+    kept = body["data"]["cases"][0]
+    assert kept["input"] == ""  # 真正清空，而非保留旧值 "1"
+    assert kept["expected_output"] == "2"
+    assert kept["id"] != c1["id"]  # 内容变更 → 新版本行
+
+    # 两侧同时显式置空 → 1001（与新增路径「输入输出不能全空」一致）
+    resp = await client.patch(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"upserts": [{"id": kept["id"], "input": "", "expected_output": ""}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 1001
+
+    # 回读稳定：清空结果持久化，未触碰的期望输出不受影响
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    again = resp.json()["data"]["test_cases"][0]
+    assert again["input"] == "" and again["expected_output"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_staged_edit_does_not_touch_active_until_promotion(client, admin_headers, fake_storage):
+    """暂存/生效分离：编辑只落暂存集；判题生效集与 data_version 在晋升前不变。"""
+    data = await _create_problem(client, admin_headers)
+    pid = uuid.UUID(data["id"])
+    cases_url = f"/api/v1/problems/{data['id']}/test-cases"
+
+    resp = await client.put(
+        cases_url,
+        json={"cases": [
+            {"name": "c1", "input": "1", "expected_output": "2"},
+            {"name": "c2", "input": "3", "expected_output": "4"},
+        ]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+    await _pass_verification(pid)
+    await _apply_pending(client, admin_headers, pid)  # 首验通过并生效，生效集就位
+
+    async def _active_ids() -> list[str]:
+        async with SessionLocal() as db:
+            row = await db.get(Problem, pid)
+            return [str(v) for v in row.active_case_ids]
+
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    detail = resp.json()["data"]
+    active_snapshot = [c["id"] for c in detail["test_cases"]]
+    assert active_snapshot == await _active_ids()
+
+    from app.rpc.judge_jobs import compute_data_version
+    from app.services.problem import list_active_cases
+
+    def _fingerprint(rows) -> str:
+        import hashlib
+
+        latest = max((r.updated_at for r in rows), default=None)
+        raw = f"{len(rows)}|{latest.isoformat() if latest else 'empty'}"
+        return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+    async with SessionLocal() as db:
+        problem = await db.get(Problem, pid)
+        _, judged = await compute_data_version(db, problem)
+        assert [str(c.id) for c in judged] == active_snapshot
+        version_active_before = _fingerprint(await list_active_cases(db, problem))
+
+    # 仅修改 c1 的输入：生成新版本行进暂存集，c2 沿用原 id，生效集不动
+    c1 = detail["test_cases"][0]
+    c2 = detail["test_cases"][1]
+    resp = await client.patch(
+        cases_url,
+        json={"upserts": [{"id": c1["id"], "input": "9"}], "delete_ids": []},
+        headers=admin_headers,
+    )
+    body = resp.json()
+    assert body["code"] == 0, resp.text
+    cases = body["data"]["cases"]
+    new_c1 = next(c for c in cases if c["name"] == "c1")
+    new_c2 = next(c for c in cases if c["name"] == "c2")
+    assert new_c1["id"] != c1["id"]
+    assert new_c2["id"] == c2["id"]  # 未改动点沿用原 id
+    assert all(c["staged"] for c in cases)
+
+    async with SessionLocal() as db:
+        row = await db.get(Problem, pid)
+        assert [str(v) for v in row.active_case_ids] == active_snapshot  # 生效集未动
+        pending_ids = [str(v) for v in row.pending_case_ids]
+        assert pending_ids == [new_c1["id"], new_c2["id"]]
+        assert row.case_status == "to_reverify"
+        # 练习/比赛的判定集（生效集）不受暂存编辑影响；验题判定集为暂存集
+        version_active_after = _fingerprint(await list_active_cases(db, row))
+        assert version_active_after == version_active_before
+        _, judged_after = await compute_data_version(db, row)
+        assert [str(c.id) for c in judged_after] == active_snapshot
+        _, judged_verify = await compute_data_version(db, row, verify=True)
+        assert [str(c.id) for c in judged_verify] == pending_ids
+        # 旧行退役留档：3 行（原 c1、原 c2、新 c1）
+        total = len((
+            await db.execute(select(TestCase).where(TestCase.problem_id == pid))
+        ).scalars().all())
+        assert total == 3
+
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    assert resp.json()["data"]["needs_reverification"] is True
+
+    # 验题通过：仅标记「已验待生效」，生效集与练习判定集仍不动
+    await _pass_verification(pid)
+    async with SessionLocal() as db:
+        row = await db.get(Problem, pid)
+        assert row.pending_verified is True
+        assert row.case_status == "verified"
+        assert [str(v) for v in row.active_case_ids] == active_snapshot
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    assert resp.json()["data"]["needs_reverification"] is True  # 未显式生效前持续为真
+
+    # 显式应用（点保存）→ 晋升，之后可发布
+    await _apply_pending(client, admin_headers, pid)
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    promoted = resp.json()["data"]
+    assert promoted["needs_reverification"] is False
+    assert [c["id"] for c in promoted["test_cases"]] == [new_c1["id"], new_c2["id"]]
+    assert all(c["staged"] is False for c in promoted["test_cases"])
+    resp = await client.post(f"/api/v1/problems/{data['id']}/publish", headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+
+
+@pytest.mark.asyncio
+async def test_delete_last_case_rejected(client, admin_headers, fake_storage):
+    """目标状态不允许为空：删除最后一个测试点被拒绝，集合状态不被破坏。"""
+    data = await _create_problem(client, admin_headers)
+    cases_url = f"/api/v1/problems/{data['id']}/test-cases"
+    resp = await client.put(
+        cases_url,
+        json={"cases": [{"name": "c1", "input": "1", "expected_output": "2"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    case_id = resp.json()["data"]["test_cases"][0]["id"]
+
+    resp = await client.patch(
+        cases_url,
+        json={"upserts": [], "delete_ids": [case_id]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 1001
+
+    # 拒绝后集合状态完好：详情仍能看到该测试点
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    assert len(resp.json()["data"]["test_cases"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_verification_keeps_pending(client, admin_headers, user_headers, fake_storage):
+    """验题失败：暂存集保留（继续编辑后可重验），生效集不变。"""
+    data = await _create_problem(client, admin_headers)
+    cases_url = f"/api/v1/problems/{data['id']}/test-cases"
+    resp = await client.put(
+        cases_url,
+        json={"cases": [{"name": "c1", "input": "1", "expected_output": "2"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+    await _pass_verification(data["id"])
+    await _apply_pending(client, admin_headers, data["id"])  # 生效集就位
+
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    old_case = resp.json()["data"]["test_cases"][0]
+    resp = await client.patch(
+        cases_url,
+        json={"upserts": [{"id": old_case["id"], "expected_output": "9"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+
+    resp = await client.post(f"/api/v1/problems/{data['id']}/verify", json={}, headers=admin_headers)
+    verification_id = resp.json()["data"]["verification_id"]
+
+    from app.services.problem import complete_verification
+
+    async with SessionLocal() as db:
+        submission = (
+            await db.execute(select(User).limit(1))
+        ).scalar_one()
+        await complete_verification(db, uuid.UUID(verification_id), passed=False, verifier_id=submission.id)
+        await db.commit()
+
+        problem = await db.get(Problem, uuid.UUID(data["id"]))
+        assert problem.pending_case_ids is not None  # 暂存集保留
+        assert [str(v) for v in problem.active_case_ids] == [old_case["id"]]  # 生效集不动
+        assert problem.case_status == "to_reverify"
+        assert problem.is_verified is True  # 历史验题事实不受失败影响
 
 
 @pytest.mark.asyncio
@@ -716,7 +942,7 @@ async def test_problem_tag_assignment_and_filter(client, admin_headers):
     async with SessionLocal() as db:
         row = await db.get(Problem, uuid.UUID(problem["id"]))
         row.status = "published"
-        row.is_verified = True
+        row.verified_at = datetime.now()
         row.published_at = datetime.now()
         await db.commit()
     resp = await client.get("/api/v1/problems?tag=图论")

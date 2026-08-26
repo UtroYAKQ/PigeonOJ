@@ -59,7 +59,12 @@ class NodeDaemon:
     async def run(self) -> None:
         cfg = self.cfg
         self.semaphore = asyncio.Semaphore(max(1, cfg.node.capacity))
-        channel = grpc.aio.insecure_channel(cfg.server.address)
+        if cfg.server.tls:
+            # TLS 模式：连公网域名 443（nginx grpc_pass 按服务路径转发到网关），
+            # Let's Encrypt 等公共证书在 gRPC 默认根证书信任链内
+            channel = grpc.aio.secure_channel(cfg.server.address, grpc.ssl_channel_credentials())
+        else:
+            channel = grpc.aio.insecure_channel(cfg.server.address)
         stub = judge_pb2_grpc.JudgeGatewayStub(channel)
 
         async def outgoing():
@@ -75,6 +80,7 @@ class NodeDaemon:
                 yield msg
 
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        cache_gc_task = asyncio.create_task(self._cache_gc_loop())
         log.info("连接后端 %s（节点 %s）...", cfg.server.address, self.node_id)
         responses = stub.Connect(outgoing())
         try:
@@ -91,6 +97,7 @@ class NodeDaemon:
                     asyncio.create_task(self._execute_job(stub, sm.job))
         finally:
             heartbeat_task.cancel()
+            cache_gc_task.cancel()
             channel.close()
             log.info("连接关闭")
 
@@ -99,6 +106,22 @@ class NodeDaemon:
         while True:
             await self.outbox.put(judge_pb2.NodeMessage(heartbeat=judge_pb2.Heartbeat(running_tasks=self.running_tasks)))
             await asyncio.sleep(interval)
+
+    async def _cache_gc_loop(self) -> None:
+        """定时巡检缓存总量，超限则按 LRU 回收（max_mb<=0 表示不启用）。"""
+        max_bytes = int(self.cfg.cache.max_mb) * 1024 * 1024
+        if max_bytes <= 0:
+            return
+        interval = max(60, int(self.cfg.cache.gc_interval_seconds))
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                removed = await asyncio.to_thread(self.cache.collect, max_bytes)
+                if removed:
+                    total_mb = await asyncio.to_thread(lambda: round(self.cache.total_size() / 1048576, 1))
+                    log.info("缓存回收 %d 个目录，剩余 %.1fMB", len(removed), total_mb)
+            except Exception:  # noqa: BLE001 - 回收失败不影响判题
+                log.warning("缓存回收失败", exc_info=True)
 
     async def _ensure_data(self, stub, job: judge_pb2.SubmitJob) -> Path:
         if not self.cache.has(job.problem_id, job.data_version):
@@ -128,6 +151,14 @@ class NodeDaemon:
 
     async def _execute_inner(self, stub, job: judge_pb2.SubmitJob) -> dict:
         data_dir = await self._ensure_data(stub, job)
+        # 标记使用中：防止缓存回收删除正在判题的数据目录
+        self.cache.mark_in_use(data_dir.name)
+        try:
+            return await self._judge_with_data(job, data_dir)
+        finally:
+            self.cache.unmark_in_use(data_dir.name)
+
+    async def _judge_with_data(self, job: judge_pb2.SubmitJob, data_dir: Path) -> dict:
         limits = ResourceLimits(
             time_limit_ms=job.limits.time_limit_ms,
             memory_limit_mb=job.limits.memory_limit_mb,

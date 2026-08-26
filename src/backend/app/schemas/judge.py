@@ -80,6 +80,8 @@ class SubmissionSummary(BaseModel):
     time_used_ms: int | None
     memory_used_kb: int | None
     created_at: datetime
+    # ACM 赛制比赛进行中为 True：score 已置 None（docs/contracts/judge.md 可见性规则）
+    restricted: bool = False
 
 
 class SubmissionDetail(BaseModel):
@@ -116,6 +118,8 @@ class SubmissionDetailOut(SubmissionDetail):
     """提交详情响应：详情字段 + 逐测试点明细。"""
 
     cases: list[TestCaseResult] = []
+    # ACM 赛制比赛进行中为 True：score 置 None、cases 为空，赛后恢复完整可见
+    restricted: bool = False
 
 
 class SubmissionCreatedResponse(BaseModel):

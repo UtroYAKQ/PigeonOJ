@@ -6,6 +6,7 @@ from enum import StrEnum
 
 class SubmitType(StrEnum):
     PRACTICE = "practice"
+    CONTEST = "contest"
     VERIFY = "verify"
 
 

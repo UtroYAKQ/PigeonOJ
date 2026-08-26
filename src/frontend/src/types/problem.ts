@@ -37,6 +37,8 @@ export interface ProblemTestCase {
   sort_order: number
   input: string | null
   expected_output: string | null
+  /** true = 当前为暂存目标状态（改动未验题晋升；docs/decisions/2026-08-26-test-case-staged-promotion.md） */
+  staged?: boolean
 }
 
 /** 题目详情：test_cases / solution 仅管理角色返回（can_manage=true 时） */
@@ -53,6 +55,8 @@ export interface ProblemDetail extends ProblemSummary {
   published_at?: string | null
   /** 发布门禁：未验题 / 测试点或样例晚于最近验题通过时间变更须重验 */
   needs_reverification?: boolean
+  /** 测试点集合状态缓存：empty / to_verify / to_reverify / ok */
+  case_status?: string | null
   cases_updated_at?: string | null
   samples_updated_at?: string | null
 }
@@ -64,9 +68,15 @@ export interface TestCaseDraft {
   input: string
   expected_output: string
   sort_order: number
+  /** 暂存目标状态标记（服务器返回；保存后按响应重置） */
+  staged?: boolean
 }
 
-/** 增量更新测试点载荷（PATCH /problems/:id/test-cases）；id=null 表示新增 */
+/**
+ * 增量更新测试点载荷（PATCH /problems/:id/test-cases）；id=null 表示新增。
+ * input/expected_output 传字符串则整体替换该侧内容（空字符串 = 清空）；
+ * 前端编辑器始终提交完整内容，清空的文本框以 "" 提交
+ */
 export interface TestCaseUpsertPayload {
   id?: string | null
   name: string

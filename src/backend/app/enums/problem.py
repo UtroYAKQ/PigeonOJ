@@ -29,3 +29,17 @@ class VerificationStatus(StrEnum):
     PENDING = "pending"
     PASSED = "passed"
     FAILED = "failed"
+
+
+class CaseStatus(StrEnum):
+    """测试点集合状态（problems.case_status 缓存列）。
+
+    由 active_case_ids / pending_case_ids / pending_verified 推导
+    （docs/decisions/2026-08-26-test-case-staged-promotion.md）。
+    """
+
+    EMPTY = "empty"
+    TO_VERIFY = "to_verify"
+    TO_REVERIFY = "to_reverify"
+    VERIFIED = "verified"  # 已通过验题、待显式应用
+    OK = "ok"

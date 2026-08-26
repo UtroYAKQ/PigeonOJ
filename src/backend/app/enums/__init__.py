@@ -9,6 +9,7 @@ from app.enums.admin import ReportAction, ReportStatus, ReportTargetType
 from app.enums.audit import LogLevel, LoginAction
 from app.enums.judge import SubmissionStatus, SubmitType
 from app.enums.problem import (
+    CaseStatus,
     ProblemScope,
     ProblemStatus,
     ProblemVisibility,
@@ -29,6 +30,7 @@ __all__ = [
     "ProblemScope",
     "TagStatus",
     "VerificationStatus",
+    "CaseStatus",
     # 判题域
     "SubmitType",
     "SubmissionStatus",
