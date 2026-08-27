@@ -89,7 +89,7 @@ class TestCaseItem(BaseModel):
     @classmethod
     def content_bytes_limit(cls, value: str | None) -> str | None:
         if value is not None and len(value.encode("utf-8")) > 2 * 1024 * 1024:
-            raise ValueError("test case content exceeds 2MB")
+            raise ValueError("测试点内容不能超过 2MB")
         return value
 
 
@@ -122,7 +122,7 @@ class SampleItem(BaseModel):
     @classmethod
     def content_bytes_limit(cls, value: str) -> str:
         if len(value.encode("utf-8")) > 64 * 1024:
-            raise ValueError("sample content exceeds 64KB")
+            raise ValueError("样例内容不能超过 64KB")
         return value
 
 

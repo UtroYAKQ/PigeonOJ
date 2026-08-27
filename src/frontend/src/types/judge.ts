@@ -57,3 +57,21 @@ export interface SubmissionCreatePayload {
   code: string
   invite_token?: string
 }
+
+/** 用户自测载荷（POST /problems/{id}/run-code）：单次运行，无测试点、不计分、不落库 */
+export interface SelfTestPayload {
+  problem_id: string
+  language: ProblemLanguage
+  code: string
+  /** 自定义 stdin（可空） */
+  input?: string
+}
+
+/** 用户自测结果：仅程序 stdout 与运行元信息（无比对、无期望输出） */
+export interface SelfTestResult {
+  status: SubmissionStatus | 'ok'
+  output: string
+  error_message: string | null
+  time_used_ms: number
+  memory_used_kb: number | null
+}

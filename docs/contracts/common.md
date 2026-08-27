@@ -26,6 +26,10 @@
 - 错误码不可为 0（0 仅代表成功）
 - 框架层参数校验失败（FastAPI 422，含 Query / Path / Body）由全局异常处理器统一转换为
   `1001` / HTTP 400 信封响应，不返回原生 `{"detail": [...]}` 结构
+- **message 语言协商**：业务代码统一抛中文消息，异常处理出口按请求 `Accept-Language`
+  （`zh-CN` 默认 / `en-US`）经 `app/core/i18n.py` 目录翻译为英文，未命中回退中文；
+  错误码 `code` 不受语言影响。前端 `api/http.ts` 每次请求自动携带界面语言作为
+  `Accept-Language`
 
 ## 通用错误码
 

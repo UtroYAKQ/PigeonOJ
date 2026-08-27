@@ -95,6 +95,8 @@ class NodeDaemon:
                 kind = sm.WhichOneof("payload")
                 if kind == "job":
                     asyncio.create_task(self._execute_job(stub, sm.job))
+                elif kind == "run_code":
+                    asyncio.create_task(self._execute_run_code(sm.run_code))
         finally:
             heartbeat_task.cancel()
             cache_gc_task.cancel()
@@ -197,6 +199,58 @@ class NodeDaemon:
         return {"submission_id": job.submission_id, "status": status,
                 "time_used_ms": max_time, "memory_used_kb": None,
                 "error_message": error_message, "cases": case_results}
+
+    async def _execute_run_code(self, job: judge_pb2.RunCodeJob) -> None:
+        """用户自测：单次独立运行，无测试点、无比对、不落库（docs/contracts/judge.md「用户自测」）。"""
+        async with self.semaphore:
+            self.running_tasks += 1
+            try:
+                result = await self._run_code_inner(job)
+            except Exception as exc:  # noqa: BLE001 - 节点侧故障以 system_error 回传
+                log.exception("自测执行异常 request=%s", job.request_id)
+                result = {
+                    "request_id": job.request_id, "status": "system_error",
+                    "output": b"", "error_message": f"node error: {exc}"[:2000],
+                    "time_used_ms": 0, "memory_used_kb": None,
+                }
+            finally:
+                self.running_tasks -= 1
+        await self.outbox.put(judge_pb2.NodeMessage(run_code_result=judge_pb2.RunCodeResult(
+            request_id=result["request_id"],
+            status=result["status"],
+            output=result["output"],
+            error_message=result.get("error_message") or "",
+            time_used_ms=result.get("time_used_ms", 0),
+            memory_used_kb=result.get("memory_used_kb") or 0,
+        )))
+        log.info("自测完成 %s → %s", result["request_id"], result["status"])
+
+    async def _run_code_inner(self, job: judge_pb2.RunCodeJob) -> dict:
+        limits = ResourceLimits(
+            time_limit_ms=job.limits.time_limit_ms,
+            memory_limit_mb=job.limits.memory_limit_mb,
+            output_limit_kb=job.limits.output_limit_kb or 1024,
+            process_limit=job.limits.process_limit or 32,
+            cpu_cores=job.limits.cpu_cores or 1,
+        )
+        # 与正式判题一致：编译预算独立于单点运行限制（PreparedSubmission 编译一次）
+        compile_limits = ResourceLimits(
+            time_limit_ms=max(10_000, limits.time_limit_ms * 10),
+            memory_limit_mb=limits.memory_limit_mb,
+            output_limit_kb=limits.output_limit_kb,
+            cpu_cores=limits.cpu_cores,
+            process_limit=limits.process_limit,
+        )
+        with self.executor.prepare_submission(job.language, job.code, compile_limits) as submission:
+            res = submission.run_case(job.input, None, limits)
+        error_message = ""
+        if res.status in ("compile_error", "runtime_error", "system_error"):
+            error_message = res.stderr.decode("utf-8", errors="replace")[:8000]
+        return {
+            "request_id": job.request_id, "status": res.status,
+            "output": res.stdout, "error_message": error_message,
+            "time_used_ms": res.time_used_ms, "memory_used_kb": res.memory_used_kb,
+        }
 
 
 def _to_result_message(result: dict) -> judge_pb2.NodeMessage:

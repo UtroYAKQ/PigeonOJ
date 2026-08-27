@@ -27,14 +27,14 @@ class VerifyRequest(BaseModel):
     @classmethod
     def code_bytes_limit(cls, value: str | None) -> str | None:
         if value is not None and len(value.encode("utf-8")) > 64 * 1024:
-            raise ValueError("code exceeds 64KB")
+            raise ValueError("代码不能超过 64KB")
         return value
 
     @model_validator(mode="after")
     def check_mode(self) -> "VerifyRequest":
         if self.code is not None:
             if not self.language:
-                raise ValueError("language is required when submitting verification code")
+                raise ValueError("提交验题代码时必须指定语言")
             return self
         return self
 
@@ -50,7 +50,7 @@ class SubmissionCreate(BaseModel):
     @classmethod
     def code_bytes_limit(cls, value: str) -> str:
         if len(value.encode("utf-8")) > 64 * 1024:
-            raise ValueError("code exceeds 64KB")
+            raise ValueError("代码不能超过 64KB")
         return value
 
 
@@ -127,6 +127,41 @@ class SubmissionCreatedResponse(BaseModel):
 
     submission_id: str
     status: SubmissionStatus
+
+
+class SelfTestRequest(BaseModel):
+    """用户自测请求（POST /problems/{id}/run-code；单次运行，无测试点管理）。
+
+    input 为自定义 stdin（可空）；代码上限与提交一致（64KB UTF-8 字节）。
+    """
+
+    language: str = Field(max_length=32)
+    code: str = Field(min_length=1, max_length=65536)
+    input: str | None = Field(default=None, max_length=65536)
+
+    @field_validator("code")
+    @classmethod
+    def code_bytes_limit(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 64 * 1024:
+            raise ValueError("代码不能超过 64KB")
+        return value
+
+    @field_validator("input")
+    @classmethod
+    def input_bytes_limit(cls, value: str | None) -> str | None:
+        if value is not None and len(value.encode("utf-8")) > 64 * 1024:
+            raise ValueError("输入不能超过 64KB")
+        return value
+
+
+class SelfTestResultOut(BaseModel):
+    """用户自测结果：程序 stdout 与运行元信息（无比对、不计分、不落库）。"""
+
+    status: str
+    output: str
+    error_message: str | None = None
+    time_used_ms: int
+    memory_used_kb: int | None = None
 
 
 class SandboxHealthOut(BaseModel):

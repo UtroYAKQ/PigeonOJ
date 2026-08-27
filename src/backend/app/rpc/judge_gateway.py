@@ -3,8 +3,9 @@
 - 节点主动出站连接 Connect() 双向流（穿 NAT）；首条消息 Register 携带令牌认证。
 - 注册表 REGISTRY 保存每节点的下行队列（asyncio.Queue）与 in-flight 集合；
   心跳桥接写 Redis sandbox:node:<id>，管理后台沙箱状态页自动可见。
-- dispatch：负载最低节点优先；作业经 build_job_bundle 构建后推入该节点队列。
-- 断线/维护循环回收：in-flight 与超时未完成的提交重置 pending 并重派。
+- dispatch：负载最低节点优先；判题作业经 build_job_bundle 构建后推入该节点队列，
+  用户自测经 dispatch_run_code 挂 pending Future 等待节点沿流回传。
+- 断线/维护循环回收：in-flight 与超时未完成的提交重置 pending 并重派；自测请求即时置错。
 - 派发统计：active_judge_count（原 dispatcher 模块并入本文件）。
 """
 from __future__ import annotations
@@ -31,6 +32,8 @@ logger = logging.getLogger(__name__)
 _HEARTBEAT_TTL_SECONDS = 30
 _PENDING_RESCAN_SECONDS = 30
 _JUDGING_STALE_SECONDS = 5 * 60
+# 用户自测整链路兜底超时（> 节点侧编译+运行最大预算；到期未回传视为节点故障）
+_RUN_TIMEOUT_SECONDS = 120
 
 # FetchProblemData 的认证 metadata 键（与判题节点 daemon 约定一致）
 _NODE_TOKEN_METADATA_KEY = "x-node-token"
@@ -42,8 +45,20 @@ _REQUEUE_LOCK_PREFIX = "judge:requeue:"
 
 
 async def active_judge_count() -> int:
-    """全平台正在判题的任务数（提交并发上限 4002 依据）。"""
-    return sum(len(conn.inflight) for conn in REGISTRY.list_nodes())
+    """全平台正在执行的任务数（提交判题 + 用户自测；提交并发上限 4002 依据）。"""
+    return sum(len(conn.inflight) + len(conn.pending_runs) for conn in REGISTRY.list_nodes())
+
+
+class GatewayUnavailableError(RuntimeError):
+    """无在线判题节点 / 节点在作业派发后断线。"""
+
+
+class GatewayBusyError(RuntimeError):
+    """全局执行并发上限已达。"""
+
+
+class GatewayTimeoutError(RuntimeError):
+    """自测任务超时未回传（节点侧无响应）。"""
 
 
 class NodeConnection:
@@ -53,11 +68,19 @@ class NodeConnection:
         self.capacity = max(1, capacity)
         self.version = version
         self.outbox: asyncio.Queue[judge_pb2.ServerMessage | None] = asyncio.Queue()
+        # 正式判题 in-flight（submission_id 字符串）；自测任务另有 pending_runs，不与提交混用命名空间
         self.inflight: set[str] = set()
+        # 自测 pending：request_id → Future；节点断线时统一置错
+        self.pending_runs: dict[str, asyncio.Future] = {}
+
+    @property
+    def task_count(self) -> int:
+        """节点当前承担的任务数（判题 + 自测），负载均衡与并发统计共用。"""
+        return len(self.inflight) + len(self.pending_runs)
 
     @property
     def load(self) -> float:
-        return round(min(1.0, len(self.inflight) / self.capacity), 3)
+        return round(min(1.0, self.task_count / self.capacity), 3)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -68,7 +91,7 @@ class NodeConnection:
             "load": self.load,
             "cpu_usage": 0,
             "memory_usage": 0,
-            "running_tasks": len(self.inflight),
+            "running_tasks": self.task_count,
             "capacity": self.capacity,
             "version": self.version,
             "last_heartbeat_at": datetime.now().astimezone().isoformat(),
@@ -161,6 +184,26 @@ def _find_conn_by_submission(submission_id: str) -> NodeConnection | None:
     return None
 
 
+def _to_run_outcome(result: judge_pb2.RunCodeResult) -> jobs.RunCodeOutcome:
+    return jobs.RunCodeOutcome(
+        request_id=result.request_id,
+        status=result.status or SubmissionStatus.SYSTEM_ERROR,
+        output=result.output or b"",
+        error_message=result.error_message or None,
+        time_used_ms=result.time_used_ms,
+        memory_used_kb=result.memory_used_kb or None,
+    )
+
+
+async def _handle_run_code_result(result: judge_pb2.RunCodeResult) -> None:
+    """按 request_id 关联唤醒等待方；无人认领（等待已超时/断开）则静默丢弃。"""
+    for conn in REGISTRY.list_nodes():
+        fut = conn.pending_runs.get(result.request_id)
+        if fut is not None and not fut.done():
+            fut.set_result(_to_run_outcome(result))
+            return
+
+
 class JudgeGatewayService(judge_pb2_grpc.JudgeGatewayServicer):
     """Connect 双向流：注册 → 下行作业泵 + 上行消息处理。"""
 
@@ -202,6 +245,7 @@ class JudgeGatewayService(judge_pb2_grpc.JudgeGatewayServicer):
         finally:
             incoming.cancel()
             recovered = REGISTRY.unregister(conn)
+            _fail_pending_runs(conn, reason="node offline")
             await REGISTRY.remove_heartbeat(conn.node_id)
             if recovered:
                 await _reset_to_pending(recovered, reason="node offline")
@@ -231,6 +275,8 @@ async def _pump_incoming(request_iterator, context: grpc.aio.ServicerContext, co
                 await REGISTRY.redis_heartbeat(conn)
             elif kind == "result":
                 await _handle_result(msg.result)
+            elif kind == "run_code_result":
+                await _handle_run_code_result(msg.run_code_result)
     except Exception:  # noqa: BLE001 - 流断开属正常退出路径
         pass
 
@@ -325,14 +371,73 @@ async def maintenance_loop(interval: int | None = None) -> None:
 
 
 async def dispatch_submission(submission_id: uuid.UUID) -> str | None:
-    """负载均衡派发：in-flight 最少者优先。无在线节点返回 False（留待巡检）。"""
+    """负载均衡派发：任务数（判题 + 自测）最少者优先。无在线节点返回 False（留待巡检）。"""
     nodes = REGISTRY.list_nodes()
     if not nodes:
         return None
-    best = min(nodes, key=lambda n: (len(n.inflight), n.node_id))
+    best = min(nodes, key=lambda n: (n.task_count, n.node_id))
     if await send_job(best.node_id, submission_id):
         return best.node_id
     return None
+
+
+def _fail_pending_runs(conn: NodeConnection, *, reason: str) -> None:
+    """节点断线 / 重连：该连接名下未完成的自测请求全部置错，等待方立即失败。"""
+    for fut in conn.pending_runs.values():
+        if not fut.done():
+            fut.set_exception(GatewayUnavailableError(f"node offline: {reason}"))
+    conn.pending_runs.clear()
+
+
+async def dispatch_run_code(
+    *,
+    problem,
+    sandbox_config,
+    language: str,
+    code: bytes,
+    stdin_data: bytes,
+    max_concurrent: int,
+) -> jobs.RunCodeOutcome:
+    """用户自测派发（docs/contracts/judge.md「用户自测」）：
+
+    - 负载最低节点优先；作业不落库，等待节点沿流回传 RunCodeResult。
+    - 无在线节点 / 并发上限已满 → 立即失败；整链路超时兜底 _RUN_TIMEOUT_SECONDS。
+    - 节点断线时 pending Future 被置错，等待方即时感知。
+
+    运行限制按语言比例换算（基准取题目 time_limit_ms / memory_limit_mb），
+    编译预算由节点侧按运行限制独立推导（与正式判题一致）。
+    """
+    nodes = REGISTRY.list_nodes()
+    if not nodes:
+        raise GatewayUnavailableError("no judge node online")
+    if await active_judge_count() >= max_concurrent:
+        raise GatewayBusyError("judge concurrency limit reached")
+
+    limits, _compile_limits = jobs.resolve_limits(problem, sandbox_config)
+    request_id = uuid.uuid4().hex
+    best = min(nodes, key=lambda n: (n.task_count, n.node_id))
+    fut: asyncio.Future = asyncio.get_running_loop().create_future()
+    best.pending_runs[request_id] = fut
+    try:
+        best.outbox.put_nowait(judge_pb2.ServerMessage(run_code=judge_pb2.RunCodeJob(
+            request_id=request_id,
+            language=language,
+            code=code,
+            input=stdin_data,
+            limits=judge_pb2.ResourceLimits(
+                time_limit_ms=limits.time_limit_ms,
+                memory_limit_mb=limits.memory_limit_mb,
+                output_limit_kb=limits.output_limit_kb,
+                process_limit=limits.process_limit,
+                cpu_cores=limits.cpu_cores,
+            ),
+        )))
+        try:
+            return await asyncio.wait_for(fut, timeout=_RUN_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError as exc:
+            raise GatewayTimeoutError("selftest result timeout") from exc
+    finally:
+        best.pending_runs.pop(request_id, None)
 
 
 async def start_grpc_server() -> grpc.aio.Server | None:
@@ -353,6 +458,7 @@ __all__ = [
     "REGISTRY",
     "JudgeGatewayService",
     "dispatch_submission",
+    "dispatch_run_code",
     "maintenance_loop",
     "start_grpc_server",
 ]

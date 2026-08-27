@@ -6,10 +6,15 @@ import type { DataTableColumns } from 'naive-ui'
 
 import { createSubmission, listSubmissions } from '@/api/judge'
 import { getProblem } from '@/api/problems'
+import { useSelfTest } from '@/composables/useSelfTest'
 import { dialog, message } from '@/utils/feedback'
 import StatusTag from '@/components/StatusTag.vue'
 import ProblemWorkbench from '@/components/problem/ProblemWorkbench.vue'
-import type { ProblemDetailEx, ProblemLanguage, Submission } from '@/types'
+import type {
+  ProblemDetailEx,
+  ProblemLanguage,
+  Submission,
+} from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -21,6 +26,11 @@ const language = ref<ProblemLanguage>('cpp17')
 const mySubmissions = ref<Submission[]>([])
 
 const code = ref('')
+
+// 用户自测：控制台状态在 composable 内（docs/contracts/judge.md「用户自测」）
+const { selfTestInput, selfTesting, selfTestResult, runSelfTest: doSelfTest } = useSelfTest(
+  () => String(route.params.id),
+)
 
 async function load() {
   try {
@@ -46,6 +56,10 @@ function openSubmission(row: Submission) {
 
 async function submit() {
   if (!problem.value || submitting.value) return
+  if (!code.value.trim()) {
+    message.warning(t('problems.detail.codeRequired'))
+    return
+  }
   dialog.warning({
     title: t('problems.detail.submit'),
     content: t('problems.detail.submitConfirm'),
@@ -67,6 +81,11 @@ async function submit() {
       }
     },
   })
+}
+
+async function runSelfTest() {
+  if (!problem.value) return
+  await doSelfTest({ language: language.value, code: code.value })
 }
 
 onMounted(load)
@@ -96,16 +115,21 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
 
 <template>
   <div class="problem-detail">
-    <!-- 双栏工作台大组件：左题面 + 右编辑器；按钮行为由本页注入 -->
+    <!-- 双栏工作台大组件：左题面 + 右编辑器/自测控制台；按钮行为由本页注入 -->
     <ProblemWorkbench
       v-if="problem"
       v-model:code="code"
       v-model:language="language"
+      v-model:self-test-input="selfTestInput"
       :problem="problem"
       :submitting="submitting"
+      :submit-disabled="!code.trim()"
+      :self-testing="selfTesting"
+      :self-test-result="selfTestResult"
       hide-published-status
       @show-submissions="subsVisible = true"
       @submit="submit"
+      @self-test="runSelfTest"
     />
 
     <!-- 提交历史弹窗 -->

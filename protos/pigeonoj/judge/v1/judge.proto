@@ -24,6 +24,7 @@ message ServerMessage {
     RegisterAck ack = 1;
     SubmitJob job = 2;
     CancelJob cancel = 3; // 预留：节点断线前主动撤销执行中作业
+    RunCodeJob run_code = 4; // 用户自测（一次性运行，不落库、不计分）
   }
 }
 
@@ -62,6 +63,25 @@ message SubmitJob {
 
 message CancelJob { string submission_id = 1; }
 
+// 用户自测作业：单次独立运行，无测试点、无比对、不落库（docs/contracts/judge.md「用户自测」）。
+// 后端按 node 回传 request_id 关联；作业随节点断线作废。
+message RunCodeJob {
+  string request_id = 1;     // 网关生成的关联 ID（uuid4 hex）
+  string language = 2;       // python3.12 / cpp17 / java21
+  bytes code = 3;            // 源码 ≤64KB，内联
+  bytes input = 4;           // 用户自定义 stdin（≤64KB，可为空）
+  ResourceLimits limits = 5; // 已按语言比例换算的有效值（基准取题目限制）
+}
+
+message RunCodeResult {
+  string request_id = 1;
+  string status = 2;        // ok / compile_error / runtime_error / tle 系列 / system_error
+  bytes output = 3;         // 程序标准输出（已按输出上限截断）；仅回传 stdout，不含期望输出比对
+  string error_message = 4; // 编译 / 运行错误摘要（stderr 过滤 nsjail 日志，≤8KB）
+  int32 time_used_ms = 5;
+  int32 memory_used_kb = 6;
+}
+
 // ── 节点 → 服务端 ──────────────────────────────────────────────
 
 message NodeMessage {
@@ -69,6 +89,7 @@ message NodeMessage {
     Register register = 1;
     Heartbeat heartbeat = 2;
     JudgeResult result = 3;
+    RunCodeResult run_code_result = 4;
   }
 }
 

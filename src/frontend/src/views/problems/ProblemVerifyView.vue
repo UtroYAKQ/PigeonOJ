@@ -19,6 +19,7 @@ import {
   submitVerifyCode,
 } from '@/api/problems'
 import { listSubmissions } from '@/api/judge'
+import { useSelfTest } from '@/composables/useSelfTest'
 import type { ProblemDetailEx, ProblemLanguage, Submission } from '@/types'
 import { dialog, message } from '@/utils/feedback'
 import { copyToClipboard } from '@/utils/clipboard'
@@ -39,6 +40,11 @@ const detail = ref<ProblemDetailEx | null>(null)
 // ---- 工作台状态（v-model 双向绑定给 ProblemWorkbench）----
 const code = ref('')
 const language = ref<ProblemLanguage>('cpp17')
+
+// ---- 用户自测（控制台面板；验题人调试代码用，与做题页同款）----
+const { selfTestInput, selfTesting, selfTestResult, runSelfTest: doSelfTest } = useSelfTest(
+  () => problemId,
+)
 
 // ---- 验题状态标签与发布门禁（卡片头展示，以后端 needs_reverification 为准）----
 type VerifyState = 'verified' | 'stale' | 'unverified'
@@ -329,12 +335,16 @@ onMounted(() => void loadExisting())
           v-if="detail"
           v-model:code="code"
           v-model:language="language"
+          v-model:self-test-input="selfTestInput"
           :problem="detail"
           :submitting="submitting"
           :submit-disabled="!code.trim()"
+          :self-testing="selfTesting"
+          :self-test-result="selfTestResult"
           :show-solution="false"
           @show-submissions="openSubs"
           @submit="onSubmit"
+          @self-test="doSelfTest({ language: language, code: code })"
         />
       </n-spin>
     </WizardShell>

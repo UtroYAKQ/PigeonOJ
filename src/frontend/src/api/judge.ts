@@ -1,6 +1,13 @@
 import { apiRequest } from './http'
 import { buildQuery } from '@/utils/query'
-import type { PageResult, Submission, SubmissionCreatePayload, SubmissionListQuery } from '@/types'
+import type {
+  PageResult,
+  SelfTestPayload,
+  SelfTestResult,
+  Submission,
+  SubmissionCreatePayload,
+  SubmissionListQuery,
+} from '@/types'
 
 export function createSubmission(
   body: SubmissionCreatePayload,
@@ -13,4 +20,13 @@ export function listSubmissions(query: SubmissionListQuery = {}): Promise<PageRe
 }
 export function getSubmission(id: string): Promise<Submission> {
   return apiRequest('GET', `/submissions/${id}`)
+}
+
+/** 用户自测：经判题节点一次性运行，仅回传 stdout（docs/contracts/judge.md「用户自测」） */
+export function runProblemCode(body: SelfTestPayload): Promise<SelfTestResult> {
+  return apiRequest('POST', `/problems/${body.problem_id}/run-code`, {
+    language: body.language,
+    code: body.code,
+    input: body.input ?? '',
+  })
 }

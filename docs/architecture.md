@@ -151,7 +151,7 @@ src/backend/
 - 整体布局：左侧边栏为**可折叠菜单栏（展开 220px / 收起 64px 图标态，悬浮显示名称提示）**，**用户菜单在顶栏右上角**（头像下拉进入个人资料 / 安全设置 / 会话管理 / 管理后台）；顶栏左侧为折叠钮与**面包屑**，只反映真实层级（如 `管理后台/用户管理`、`题库/题目详情`），首页与顶级区块互相平级不入面包屑。**管理后台是独立工作空间**：从前台不可见侧栏入口（仅头像菜单进入），进入后侧栏整体切换为管理菜单（用户/配置/日志/沙箱/举报/标签），共用同一布局外壳
 - 路由权限：菜单与路由按 `meta.roles` 过滤（管理后台仅 `admin`），路由守卫做登录 / 角色校验（见 `docs/architecture.md` 权限设计）
 - **样式约定**：组件样式归 Naive UI（主题经 `settings/theme.ts` 注入）；页面布局 / 间距 / 排版用 Tailwind CSS v4 原子类（`dark:` 变体与 `html.dark` 暗色策略对齐），见 `docs/decisions/2026-08-17-frontend-tailwind.md`、`docs/decisions/2026-08-24-naive-ui-nova-style.md`
-- 题目样例提供「复制输入」入口；在线试运行能力规划由判题节点侧专用端点承担（后端进程不执行用户代码，见 `docs/contracts/judge.md`）
+- 题目样例提供「复制输入」入口；用户自测（「自测运行 / 自测输入 / 运行结果」控制台面板）内嵌题目详情页编辑器下方，经判题节点一次性运行，不计分不入提交记录（见 `docs/contracts/judge.md` 用户自测）
 
 ## 安全规则
 
@@ -230,6 +230,7 @@ src/backend/
 | `rank:contest:<id>` | 榜单热数据（前端轮询刷新，不做 WebSocket/SSE） | 比赛期 |
 | `sandbox:node:<id>` | 判题节点运行时状态（在线 / 负载 / 心跳），由网关心跳桥接写入 | 心跳周期（过期视为离线） |
 | `judge:cooldown:<user_id>:<problem_id>` | 提交冷却计数（存在即冷却中，过期视为可提交） | 冷却时长（默认配置，如 10s） |
+| `judge:selftest:<user_id>:<problem_id>` | 用户自测冷却（SETNX 认领；派发失败即删） | 冷却时长（复用提交冷却配置） |
 | `judge:requeue:<submission_id>` | 维护循环重派互斥锁（SETNX 防并发重复投递） | 重派窗口 |
 
 > 缓存一致性：会话、邀请链接、判题节点状态为 Redis 唯一事实来源，不落库；榜单以数据库 `contest_rankings` 为权威数据，Redis 仅作读缓存，失效 / 封榜切换时回源数据库。全局判题并发上限由网关注册表在内存中统计（节点 in-flight 之和），不占用 Redis。
@@ -238,7 +239,7 @@ src/backend/
 
 | 机制 | 说明 | 现状 |
 | --- | --- | --- |
-| gRPC 网关派发 | `dispatch_submission` 按 in-flight 最少优先选节点，`build_job_bundle` 原子认领后沿双向流推送作业；无在线节点保持 `pending` | 已实现（随应用 lifespan 启动） |
+| gRPC 网关派发 | `dispatch_submission` 按任务数最少优先选节点，`build_job_bundle` 原子认领后沿双向流推送作业；`dispatch_run_code` 同选节点策略派发用户自测并挂 pending Future 等待回传；无在线节点保持 `pending`（自测直接失败） | 已实现（随应用 lifespan 启动） |
 | 网关维护循环 | 每 30s 扫描超时提交（judging 过久重置 pending 重派、断线节点 in-flight 回收） | 已实现 |
 | 节点心跳桥接 | 上行 Heartbeat → 写 Redis `sandbox:node:<id>`，供管理后台沙箱状态页展示 | 已实现 |
 | 比赛状态推进（`contest_transition`：封榜 / 解封 / 结束重算） | 按比赛时间周期推进 | 随 contests 模块实现 |

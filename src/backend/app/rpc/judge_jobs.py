@@ -89,6 +89,17 @@ class JudgeOutcome:
     cases: tuple[CaseOutcome, ...]
 
 
+@dataclass(frozen=True)
+class RunCodeOutcome:
+    """节点回传的用户自测结果：dispatch_run_code 的返回值（不落库）。"""
+    request_id: str
+    status: str
+    output: bytes
+    error_message: str | None
+    time_used_ms: int
+    memory_used_kb: int | None
+
+
 def resolve_limits(problem, config: SandboxConfig | None) -> tuple[ResourceLimits, ResourceLimits]:
     """按 sandbox_configs 语言比例换算有效限制（docs/contracts/judge.md 语言限制换算）。"""
     time_ratio = config.time_ratio if config else 1.0

@@ -31,6 +31,12 @@ function translate(key: string, params?: Record<string, unknown>): string {
   ).global.t(key, params)
 }
 
+function readLocale(): string {
+  // legacy:false 模式下 global.locale 是 ref（zh-CN / en-US），与 i18n/index.ts 的 setLocale 同步
+  const global = (i18n as unknown as { global: { locale: { value: string } } }).global
+  return global.locale.value
+}
+
 function readToken(): string | null {
   try {
     return localStorage.getItem(TOKEN_STORAGE_KEY)
@@ -53,12 +59,14 @@ function isEnvelopeBody(value: unknown): value is EnvelopeBody {
 /** axios 实例：导出以便测试注入 adapter */
 export const httpClient: AxiosInstance = axios.create({ baseURL: BASE_URL })
 
-// 请求拦截器：自动携带 Bearer Token（localStorage 持久化，与 stores/user.ts 共用）
+// 请求拦截器：自动携带 Bearer Token（localStorage 持久化，与 stores/user.ts 共用）；
+// 同时携带 Accept-Language，后端据此返回对应语言的错误 message（docs/contracts/common.md）
 httpClient.interceptors.request.use((config) => {
   const token = readToken()
   if (token && !config.headers.Authorization) {
     config.headers.Authorization = `Bearer ${token}`
   }
+  config.headers['Accept-Language'] = readLocale()
   return config
 })
 

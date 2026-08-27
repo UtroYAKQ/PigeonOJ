@@ -86,7 +86,19 @@ CHECK (
 - 提交结果不返回测试点期望输出（`expected_output`）
 - 沙箱执行日志作为子记录按 `request_id` 归入 `request_logs.extra`，不单独建日志表
 - **后端进程不执行任何用户代码**：代码执行只发生在注册的判题节点容器内；
-  样例自测能力规划由判题节点侧开放专用端点承担，当前前端不提供在线试运行
+  样例 / 用户自测经网关派发到节点一次性运行，后端进程同样不经手代码执行
+
+## 用户自测
+
+题目详情页的轻量代码运行入口（「试运行」，不计分、不入提交记录）：
+
+- **输入**：用户代码 + 编程语言 + 可选自定义 stdin（各 ≤64KB UTF-8 字节）
+- **输出**：仅程序 stdout 与运行元信息（状态 / 耗时 / 内存 / 错误摘要）；无比对、无期望输出概念
+- **每次独立**：单次运行互不影响，无测试用例列表管理，请求不落库、不写对象存储
+- **限制换算**：以该题 `time_limit_ms` / `memory_limit_mb` 为基准按语言比例换算（防滥用口径），编译预算由节点按运行限制独立推导；与测试点无关
+- **可见性**：与题目详情页同一规则（已发布 或 具备管理权限）；语言白名单取 `sandbox_configs` 且 `is_enabled`
+- **频控**：user+problem 冷却（Redis `judge:selftest:` 前缀，时长复用 `sandbox.cooldown_seconds`；派发失败自动释放冷却槽）+ 全局并发上限（复用 `sandbox.judge_concurrency`，网关在途统计含自测）
+- **生命周期**：作业仅存在于网关内存 pending 表（request_id 关联）；节点断线即时置错、整链路 120s 兜底超时，不参与维护循环重派
 
 ## 端点
 
@@ -97,6 +109,7 @@ CHECK (
 | POST | /submissions | auth | 提交判题 | problem_id, language, code, submit_type, contest_id?/verification_id? | submission_id |
 | GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细 case_name + 状态/耗时/内存/得分/程序输出；不返回期望输出） | - | submission（含 restricted 标志） |
 | GET | /submissions | auth | 提交历史（本人，`WHERE user_id=?`） | problem_id/contest_id/status/分页 | submission[]（含 restricted 标志） |
+| POST | /problems/{id}/run-code | auth | 用户自测（单次运行，不落库不计分；见「用户自测」节） | language, code, input? | status, output(stdout), error_message?, time_used_ms, memory_used_kb? |
 | GET | /sandbox/health | admin | 沙箱节点健康 | - | nodes[{id, status, load}] |
 
 > **得分可见性（ACM 赛制限分）**：`submit_type=contest` 且关联比赛 `rule_type=ACM` 且 `end_time` 未到时，详情与列表接口的 `restricted=true`、`score=null`、`cases=[]`（服务端扣数据，前端仅做条件渲染）；IOI 赛制 / 练习 / 验题 / 比赛结束（含赛后补题）恒为完整可见。contests 模块落地前无比赛数据，恒为 `restricted=false`。策略实现在 `SubmissionService.is_score_restricted`。
@@ -108,12 +121,12 @@ CHECK (
 
 | 错误码 | HTTP | 说明 |
 | --- | --- | --- |
-| 1001 | 400 | 语言不在白名单 / 代码大小超 64KB |
+| 1001 | 400 | 语言不在白名单 / 代码或自测输入大小超 64KB |
 | 3001 | 404 | 提交不存在 / 题目不存在 |
 | 3002 | 409 | 提交状态冲突（如对已结束比赛提交非补题） |
-| 4001 | 429 | 提交冷却中（user+problem 冷却期未过） |
-| 4002 | 429 | 全局判题并发上限触发排队 / 拒绝 |
-| 5001 | 502 | 上游沙箱执行失败 |
+| 4001 | 429 | 提交冷却中（user+problem 冷却期未过；含用户自测冷却） |
+| 4002 | 429 | 全局判题并发上限触发排队 / 拒绝（统计口径含用户自测） |
+| 5001 | 502 | 上游沙箱执行失败（提交判题链路异常 / 自测无在线节点或节点超时） |
 
 ## 判题流程（gRPC 节点网关，已实现；无 Celery）
 
@@ -122,7 +135,7 @@ CHECK (
   → API 创建 submissions(status=pending)
     · 语言白名单取 sandbox_configs 且 is_enabled
     · user+problem 冷却（4001）与全局并发上限（4002），阈值来自系统配置 sandbox 域
-  → dispatch_submission：网关注册表按 in-flight 最少优先选节点；
+  → dispatch_submission：网关注册表按任务数（判题 + 自测）最少优先选节点；
     build_job_bundle 原子认领（UPDATE ... WHERE status='pending'）后经 gRPC 流推送 SubmitJob
   → 无在线节点：保持 pending，网关维护循环每 30s 重扫派发
 节点（pigeonoj/judge-node 容器，privileged，出站连接后端 :50051）
@@ -140,7 +153,7 @@ CHECK (
 
 - `Connect(stream NodeMessage) returns (stream ServerMessage)`：节点生命周期主通道。
   首条 Register 携带令牌（后端 `JUDGE_GATEWAY_TOKENS` 其一），不符即 UNAUTHENTICATED；
-  上行 Heartbeat / JudgeResult，下行 SubmitJob / CancelJob(预留)。
+  上行 Heartbeat / JudgeResult / RunCodeResult，下行 SubmitJob / RunCodeJob / CancelJob(预留)。
 - `FetchProblemData(ProblemDataRequest) returns (stream FileChunk)`：
   按 `data_version` 流式传输 manifest / cases/<id>.in|.out；
   令牌经 metadata `x-node-token` 携带。数据指纹 = sha256(测试点数量|最大 updated_at)，
@@ -148,8 +161,13 @@ CHECK (
   验题 = 暂存集（`pending_case_ids`，NULL 时退化生效集）；暂存编辑不影响生效集指纹，
   晋升瞬间自然失效（见 `docs/decisions/2026-08-26-test-case-staged-promotion.md`），
   节点按 `<problem_id>-<data_version>` 缓存于容器 `/cache`，跨提交复用。
-- 断线语义：连接断开即离线，其名下 in-flight 提交由服务端重置 pending 并重派；
-  判题写入幂等，重复执行安全。
+- 断线语义：连接断开即离线，其名下 in-flight 提交由服务端重置 pending 并重派，
+  在途用户自测请求（pending Future）即时置错返回；判题写入幂等，重复执行安全。
+
+**RunCodeJob / RunCodeResult（用户自测）**：网关 `dispatch_run_code` 按负载最低节点派发
+单次运行作业（request_id 关联、代码内联、自定义 stdin 内联、限制已换算），在节点队列推入
+`run_code` 消息后挂 pending Future 等待节点沿流回传；结果不落库，仅透传给发起请求。
+节点复用正式判题的「编译一次 + 单点运行」执行路径（无比对阶段）。
 
 ### Judge Worker 边界
 
@@ -164,7 +182,7 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 - 输出超限：程序输出超过沙箱输出上限时截断比对，判定 `output_limit_exceeded`，不再继续比对剩余输出。
 - 判题失败（沙箱异常、超时）自动重试，超过阈值转 `system_error`。
 - 判题结果仅返回用户程序输出与判定状态，不返回测试点期望输出。
-- 后端进程不执行用户代码；样例自测能力规划由判题节点侧开放专用端点（暂缓）。
+- 后端进程不执行用户代码；用户自测经网关派发到节点一次性运行（见「用户自测」节）。
 
 ## 语言限制换算
 
@@ -199,6 +217,6 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 - 不单独建判题日志表（明细在 `submission_test_case_results` + `submissions`，沙箱日志归入 `request_logs.extra`）
 - 不单独建验题判题表（验题复用 `submissions`，`submit_type='verify'`）
 - 沙箱默认禁止网络访问，不提供例外开关（SSRF 防护）；不提供用户可控 URL 执行接口，代码和测试点由判题节点从内部存储准备到本地临时目录
-- **后端进程不执行任何用户代码**（无内联执行端点；样例试运行能力规划由节点侧专用端点承担）
+- **后端进程不执行任何用户代码**（无内联执行端点；用户自测经网关派发到节点 nsjail 执行，见「用户自测」节）
 - 测试点对象不向前端暴露下载 / 预签名 URL（判题节点经网关认证后按 data_version 拉取）
 - 不做 per-problem 语言级限制覆盖（C++ 基准 + `sandbox_configs` 全局语言比例即可，见 `docs/decisions/2026-08-15-language-limit-ratio.md`）

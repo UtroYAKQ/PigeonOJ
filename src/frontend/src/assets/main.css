@@ -161,6 +161,11 @@ body.is-splitting {
   user-select: none;
 }
 
+/* 自测控制台高度拖拽：仅禁止选中，光标保持不变（用户要求无光标反馈） */
+body.is-console-resizing {
+  user-select: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
