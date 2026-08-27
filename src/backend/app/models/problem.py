@@ -35,6 +35,8 @@ class Problem(Base):
     __tablename__ = "problems"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 题目背景：必填题面要素；存量行由迁移 0014 回填「无」，server_default 兜底未显式传值的建题路径
+    background: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'无'"))
     description: Mapped[str] = mapped_column(Text, nullable=False)
     input_description: Mapped[str | None] = mapped_column(Text)
     output_description: Mapped[str | None] = mapped_column(Text)

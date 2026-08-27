@@ -12,6 +12,7 @@ from app.core.database import SessionLocal
 async def _create_problem(client, admin_headers, **overrides) -> dict:
     payload = {
         "title": "A+B Problem",
+        "background": "经典入门题",
         "description": "计算 A+B",
         "input_description": "一行两个整数 A B",
         "output_description": "一行输出 A+B 的值",

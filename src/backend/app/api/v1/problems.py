@@ -46,6 +46,7 @@ def _detail(detail: ProblemDetailData) -> dict:
     return ProblemDetail(
         id=problem.id,
         title=problem.title,
+        background=problem.background,
         description=problem.description,
         input_description=problem.input_description,
         output_description=problem.output_description,

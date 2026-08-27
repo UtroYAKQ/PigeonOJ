@@ -6,6 +6,7 @@ import type { DataTableColumns } from 'naive-ui'
 
 import { createSubmission, listSubmissions } from '@/api/judge'
 import { getProblem } from '@/api/problems'
+import { useCodeDraft } from '@/composables/useCodeDraft'
 import { useSelfTest } from '@/composables/useSelfTest'
 import { dialog, message } from '@/utils/feedback'
 import StatusTag from '@/components/StatusTag.vue'
@@ -26,6 +27,13 @@ const language = ref<ProblemLanguage>('cpp17')
 const mySubmissions = ref<Submission[]>([])
 
 const code = ref('')
+
+// 代码本地草稿：进入恢复、编辑防抖保存、切换语言分语言存档（提交/切页返回不丢）
+const { restore: restoreDraft } = useCodeDraft({
+  problemId: () => String(route.params.id),
+  code,
+  language,
+})
 
 // 用户自测：控制台状态在 composable 内（docs/contracts/judge.md「用户自测」）
 const { selfTestInput, selfTesting, selfTestResult, runSelfTest: doSelfTest } = useSelfTest(
@@ -88,7 +96,10 @@ async function runSelfTest() {
   await doSelfTest({ language: language.value, code: code.value })
 }
 
-onMounted(load)
+onMounted(() => {
+  restoreDraft()
+  void load()
+})
 
 const submissionColumns = computed<DataTableColumns<Submission>>(() => [
   {

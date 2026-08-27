@@ -76,6 +76,7 @@ export function resolveVerifyInvite(
   problem_id: string
   problem_title: string
   expires_at: string | null
+  background: string
   description: string
   input_description?: string | null
   output_description?: string | null

@@ -198,6 +198,7 @@ class ProblemService:
             raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
         problem = Problem(
             title=body.title,
+            background=body.background,
             description=body.description,
             input_description=body.input_description,
             output_description=body.output_description,
@@ -256,6 +257,8 @@ class ProblemService:
             raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑", 409)
         if body.title is not None:
             problem.title = body.title
+        if body.background is not None:
+            problem.background = body.background
         if body.description is not None:
             problem.description = body.description
         if body.input_description is not None:
@@ -631,6 +634,7 @@ class ProblemService:
             expires_at=(datetime.now() + timedelta(seconds=remaining)).isoformat()
             if isinstance(remaining, int) and remaining > 0
             else None,
+            background=problem.background,
             description=problem.description,
             input_description=problem.input_description,
             output_description=problem.output_description,

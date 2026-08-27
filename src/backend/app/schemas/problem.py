@@ -22,10 +22,11 @@ def _clean_tag_names(names: list[str]) -> list[str]:
 class ProblemCreate(BaseModel):
     """创建题目：生命周期只允许从 draft 起步，发布走 POST /problems/{id}/publish。
 
-    题面四要素（题面 / 输入说明 / 输出说明）均为必填；tags 为激活标签名（≤8）。
+    题面要素（题目背景 / 题面 / 输入说明 / 输出说明）均为必填；tags 为激活标签名（≤8）。
     """
 
     title: str = Field(min_length=1, max_length=255)
+    background: str = Field(min_length=1)
     description: str = Field(min_length=1)
     input_description: str = Field(min_length=1)
     output_description: str = Field(min_length=1)
@@ -45,6 +46,7 @@ class ProblemUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = Field(default=None, min_length=1, max_length=255)
+    background: str | None = Field(default=None, min_length=1)
     description: str | None = Field(default=None, min_length=1)
     input_description: str | None = None
     output_description: str | None = None
@@ -223,6 +225,7 @@ class ProblemDetail(BaseModel):
 
     id: uuid.UUID
     title: str
+    background: str
     description: str
     input_description: str | None
     output_description: str | None
@@ -257,6 +260,7 @@ class VerificationInviteOut(BaseModel):
     problem_id: str
     problem_title: str
     expires_at: str | None
+    background: str
     description: str
     input_description: str | None
     output_description: str | None

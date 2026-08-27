@@ -20,6 +20,7 @@ interface InviteResolution {
   problem_id: string
   problem_title: string
   expires_at: string | null
+  background: string
   description: string
   input_description?: string | null
   output_description?: string | null
@@ -138,6 +139,12 @@ function submit() {
           </div>
 
           <section class="verify-content">
+            <template v-if="invite.background">
+              <h3 class="verify-subtitle verify-subtitle--first">
+                {{ t('problems.detail.background') }}
+              </h3>
+              <MarkdownView :source="invite.background" />
+            </template>
             <MarkdownView :source="invite.description" />
             <template v-if="invite.input_description">
               <h3 class="verify-subtitle">{{ t('problems.detail.inputDescription') }}</h3>
@@ -281,6 +288,12 @@ function submit() {
   padding-top: 14px;
   border-top: 1px solid var(--app-border);
   font-size: 15px;
+}
+/* 题目背景为题面首个分区：去掉顶部分隔线与间距 */
+.verify-subtitle--first {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
 /* 可拖拽分隔条：细长手柄，hover / 聚焦变主色 */

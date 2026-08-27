@@ -24,6 +24,7 @@ const showSolution = ref(false)
 
 const form = reactive({
   title: '',
+  background: '',
   description: '',
   input_description: '',
   output_description: '',
@@ -60,6 +61,7 @@ async function loadExisting() {
     if (!loaded.can_manage) throw new Error(t('problems.create.noPermission'))
     Object.assign(form, {
       title: loaded.title,
+      background: loaded.background,
       description: loaded.description,
       input_description: loaded.input_description ?? '',
       output_description: loaded.output_description ?? '',
@@ -83,7 +85,7 @@ function onTagsChange(value: string[]) {
 }
 
 function validate(): boolean {
-  if (!form.title.trim() || !form.description.trim()) {
+  if (!form.title.trim() || !form.background.trim() || !form.description.trim()) {
     message.error(t('problems.wizard.needStatement'))
     return false
   }
@@ -101,6 +103,7 @@ async function goNext() {
   try {
     const payload = () => ({
       title: form.title,
+      background: form.background,
       description: form.description,
       input_description: form.input_description || null,
       output_description: form.output_description || null,
@@ -191,6 +194,9 @@ const visibilityOptions = computed(() => [
 
           <!-- 题面内容：页面主体，编辑器沉到元数据之后，形成自上而下的书写动线 -->
           <div class="section-title section-gap">{{ t('problems.create.sectionStatement') }}</div>
+          <n-form-item :label="t('problems.create.background')" required>
+            <MarkdownEditor v-model="form.background" min-height="180px" compact />
+          </n-form-item>
           <n-form-item :label="t('problems.create.statement')" required>
             <MarkdownEditor v-model="form.description" min-height="360px" />
           </n-form-item>

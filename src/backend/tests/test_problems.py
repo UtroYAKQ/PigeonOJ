@@ -16,6 +16,7 @@ from app.core.database import SessionLocal
 async def _create_problem(client, admin_headers, **overrides) -> dict:
     payload = {
         "title": "A+B Problem",
+        "background": "经典入门题",
         "description": "计算 A+B",
         "input_description": "一行两个整数 A B",
         "output_description": "一行输出 A+B 的值",
@@ -54,6 +55,7 @@ async def test_create_problem_requires_manager_role(client, user_headers):
         "/api/v1/problems",
         json={
             "title": "T",
+            "background": "B",
             "description": "D",
             "input_description": "I",
             "output_description": "O",
@@ -79,7 +81,23 @@ async def test_create_defaults_and_draft_visibility(client, admin_headers):
     assert resp.json()["code"] == 0
     detail = resp.json()["data"]
     assert detail["can_manage"] is True
+    assert detail["background"] == "经典入门题"
     assert "solution" in detail and "test_cases" in detail
+
+
+@pytest.mark.asyncio
+async def test_update_background_roundtrip(client, admin_headers):
+    data = await _create_problem(client, admin_headers)
+
+    resp = await client.put(
+        f"/api/v1/problems/{data['id']}",
+        json={"background": "新的题目背景"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
+    assert resp.json()["data"]["background"] == "新的题目背景"
 
 
 @pytest.mark.asyncio
@@ -95,6 +113,19 @@ async def test_validation_failures_use_unified_envelope(client, admin_headers):
     assert resp.json()["code"] == 1001
 
     resp = await client.post("/api/v1/problems", json={"title": "No Description"}, headers=admin_headers)
+    assert resp.status_code == 400
+    assert resp.json()["code"] == 1001
+
+    resp = await client.post(
+        "/api/v1/problems",
+        json={
+            "title": "No Background",
+            "description": "D",
+            "input_description": "I",
+            "output_description": "O",
+        },
+        headers=admin_headers,
+    )
     assert resp.status_code == 400
     assert resp.json()["code"] == 1001
 
@@ -356,6 +387,7 @@ async def test_verification_invite_flow_and_writeback(client, admin_headers, use
     parsed = resp.json()["data"]
     assert parsed["problem_id"] == problem_id
     assert parsed["problem_title"] == "A+B Problem"
+    assert parsed["background"] == "经典入门题"
     assert parsed["description"]
     assert isinstance(parsed["samples"], list)
 

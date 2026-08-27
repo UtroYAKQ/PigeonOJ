@@ -43,6 +43,8 @@ export interface ProblemTestCase {
 
 /** 题目详情：test_cases / solution 仅管理角色返回（can_manage=true 时） */
 export interface ProblemDetail extends ProblemSummary {
+  /** 题目背景（必填；存量数据为「无」） */
+  background: string
   description: string
   input_description?: string | null
   output_description?: string | null
@@ -97,6 +99,7 @@ export interface ProblemListQuery {
 
 export interface ProblemEditPayload {
   title?: string
+  background?: string | null
   description?: string
   input_description?: string | null
   output_description?: string | null
@@ -110,8 +113,9 @@ export interface ProblemEditPayload {
 
 export interface ProblemCreatePayload extends ProblemEditPayload {
   title: string
+  background: string
   description: string
-  /** 题面四要素必填（docs/contracts/problems.md） */
+  /** 题面要素必填（docs/contracts/problems.md） */
   input_description: string
   output_description: string
 }

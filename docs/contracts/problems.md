@@ -10,6 +10,7 @@
 | --- | --- | --- | --- |
 | id | UUID | PK | |
 | title | VARCHAR(255) | NOT NULL | 题目标题 |
+| background | TEXT | NOT NULL DEFAULT '无' | 题目背景（Markdown，**必填**：创建接口校验非空；存量行由迁移回填为「无」；详情页渲染于题面之前） |
 | description | TEXT | NOT NULL | 题面（Markdown） |
 | input_description | TEXT | NULL | 输入说明（Markdown，**必填**：创建接口校验非空；存量列保留可空以兼容历史数据） |
 | output_description | TEXT | NULL | 输出说明（Markdown，必填，同上） |
@@ -143,7 +144,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 | POST | /problems/{id}/test-cases/apply | admin/tutor/team_creator/team_admin | 显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦，点「保存」才生效）；无暂存改动返回 3002，未通过验题（`pending_verified=false`）返回 3002；任何新的暂存写入都会清除已验标记 | - | problem |
 | PUT | /problems/{id}/samples | admin/tutor/team_creator/team_admin | 全量替换展示样例（写 `problems.samples`，同时更新 `samples_updated_at`；不上传 MinIO） | samples[]（input、output），≤10 组、单项各 ≤64KB | - |
 | POST | /problems/{id}/verify | admin/tutor/team_creator/team_admin（发起）/ auth（提交验题代码） | 发起验题 / 提交验题代码（双模式请求体：`code+language` 为提交，否则为发起）；提交不限身份，`invite_token` 可选 | invite_expires_hours?/invite_token?/code?/language? | verification 或 submission_id |
-| GET | /verify-invites/{token} | public | 解析验题邀请链接（数据源 Redis `verify_invite:{token}`；返回题面与样例供受邀人查看，不含正式测试点内容与题解；`expires_at` 由 TTL 推算） | - | {problem_id, problem_title, expires_at, description, input_description?, output_description?, tags[], time_limit_ms, memory_limit_mb, samples[]} |
+| GET | /verify-invites/{token} | public | 解析验题邀请链接（数据源 Redis `verify_invite:{token}`；返回题面与样例供受邀人查看，不含正式测试点内容与题解；`expires_at` 由 TTL 推算） | - | {problem_id, problem_title, expires_at, background, description, input_description?, output_description?, tags[], time_limit_ms, memory_limit_mb, samples[]} |
 | POST | /problems/{id}/publish | admin/tutor/team_creator/team_admin | 发布（须验题通过 + active 测试点 ≥ 1 + `pending_case_ids` 为 NULL；存在暂存改动或样例晚于 verified_at 时返回 3002，须重新验题） | - | problem |
 | POST | /problems/{id}/archive | admin/tutor/team_creator/team_admin | 下线归档 | - | problem |
 | GET | /teams/{team_id}/problems | admin/tutor/team_creator/team_admin | 团队题库列表（随 teams 模块实现） | 分页/可见性 | problem[] |
@@ -164,7 +165,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 ## 当前基础前端页面
 
-前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面题面 / 输入输出说明 / 官方题解使用 Markdown 编辑器（md-editor-v3，编辑 + 按需分屏预览；存储仍为 Markdown 文本）。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端高度锁定为一屏、左右两栏独立滚动（题面过长时左栏内部滚动）、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题面 / 输入输出说明 / 官方题解按 Markdown 渲染（markdown-it + DOMPurify，支持 KaTeX 公式 `$...$` / `$$...$$`，见 `docs/decisions/2026-08-23-problem-statement-markdown.md`），样例仍为等宽文本块并提供复制。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
+前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面题面 / 题目背景 / 输入输出说明 / 官方题解使用 Markdown 编辑器（md-editor-v3，编辑 + 按需分屏预览；存储仍为 Markdown 文本），题目背景为必填、渲染于题面之前。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端高度锁定为一屏、左右两栏独立滚动（题面过长时左栏内部滚动）、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题目背景 / 题面 / 输入输出说明 / 官方题解按 Markdown 渲染（markdown-it + DOMPurify，支持 KaTeX 公式 `$...$` / `$$...$$`，见 `docs/decisions/2026-08-23-problem-statement-markdown.md`），样例仍为等宽文本块并提供复制。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
 
 ## 关键流程 / 验收条件
 
