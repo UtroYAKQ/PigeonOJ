@@ -131,7 +131,7 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
               </template>
               {{ t('action.refresh') }}
             </n-button>
-            <n-button v-else text type="primary" class="result-back" @click="back">
+            <n-button text type="primary" class="result-back" @click="back">
               {{ backLabel }}
             </n-button>
           </div>

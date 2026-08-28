@@ -101,6 +101,11 @@ useEventListener(window, 'pointerup', endConsoleResize)
 const canSelfTest = () => Boolean(code.value.trim()) && !props.selfTesting
 
 function switchTab(tab: 'result' | 'input') {
+  // 点击当前已展开的分页再次收起（自测输入/结果都可做展开/收起开关）
+  if (activeTab.value === tab && !collapsed.value) {
+    collapsed.value = true
+    return
+  }
   activeTab.value = tab
   collapsed.value = false
 }
@@ -382,7 +387,8 @@ watch(
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 10;
+  /* 高于 Monaco 内部滚动条浮层（z-index:11），避免编辑器右侧滚动条压在自测弹窗上 */
+  z-index: 20;
   border-top: 1px solid var(--app-border);
   background: var(--app-card-bg);
   box-shadow: 0 -6px 20px rgb(0 0 0 / 0.08);

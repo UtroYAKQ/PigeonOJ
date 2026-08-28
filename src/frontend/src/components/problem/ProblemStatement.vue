@@ -34,6 +34,12 @@ const { t } = useI18n()
       <MarkdownView :source="problem.background" />
     </template>
 
+    <h3
+      class="problem-statement__subtitle"
+      :class="{ 'problem-statement__subtitle--first': !problem.background }"
+    >
+      {{ t('problems.detail.description') }}
+    </h3>
     <MarkdownView :source="problem.description" />
 
     <h3 class="problem-statement__subtitle">{{ t('problems.detail.inputDescription') }}</h3>
@@ -42,8 +48,13 @@ const { t } = useI18n()
     <h3 class="problem-statement__subtitle">{{ t('problems.detail.outputDescription') }}</h3>
     <MarkdownView :source="problem.output_description || ''" />
 
-    <h3 class="problem-statement__subtitle">{{ t('problems.detail.samples') }}</h3>
-    <ProblemSamples :samples="problem.samples" />
+    <h3
+      v-if="problem.samples?.length"
+      class="problem-statement__subtitle"
+    >
+      {{ t('problems.detail.samples') }}
+    </h3>
+    <ProblemSamples v-if="problem.samples?.length" :samples="problem.samples" />
 
     <template v-if="showSolution && problem.solution">
       <h3 class="problem-statement__subtitle">{{ t('problems.detail.solution') }}</h3>

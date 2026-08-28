@@ -1,0 +1,78 @@
+/* ===== PigeonOJ 代码补全浮层样式 ===== */
+/* 全局（非 scoped），用于覆盖 Monaco 注入的 suggest-widget DOM。
+   颜色优先引用 main.css 的 CSS 变量，随 html.dark 自动明暗切换；
+   需要压过 Monaco 内联样式的属性加 !important。 */
+
+/* 浮层容器：圆角 + 阴影 + 细边框 */
+.monaco-editor .suggest-widget {
+  border-radius: var(--app-radius-lg) !important;
+  border: 1px solid var(--app-border) !important;
+  box-shadow: 0 10px 30px rgba(16, 16, 20, 0.14) !important;
+  overflow: hidden;
+}
+
+html.dark .monaco-editor .suggest-widget {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55) !important;
+}
+
+/* 列表行间距 */
+.monaco-editor .suggest-widget .monaco-list-row {
+  padding: 2px 8px;
+}
+
+/* 选中行：圆角，与主题 selectedBackground 互补 */
+.monaco-editor .suggest-widget .monaco-list-row.focused {
+  border-radius: var(--app-radius-sm);
+}
+
+/* 补全项左侧图标：统一尺寸与间距 */
+.monaco-editor .suggest-widget .monaco-list-row .codicon {
+  font-size: 14px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* 按补全类型给图标上品牌色，提升可读性（类/函数/方法/关键字/模块/常量） */
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-keyword {
+  color: var(--app-primary);
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-class {
+  color: var(--app-info);
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-function {
+  color: var(--app-success);
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-module {
+  color: #8b5cf6;
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-method {
+  color: #13c2c2;
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-constant {
+  color: var(--app-warning);
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-text {
+  color: var(--app-text-muted);
+}
+
+/* 匹配片段高亮（主题已设 highlightForeground，这里兜底） */
+.monaco-editor .suggest-widget .monaco-list-row .highlight {
+  color: var(--app-primary);
+}
+
+/* 右侧类型标签 / detail：弱化、略小 */
+.monaco-editor .suggest-widget .monaco-list-row .label-description,
+.monaco-editor .suggest-widget .monaco-list-row .type-label {
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+/* 文档说明面板 */
+.monaco-editor .suggest-widget .details {
+  border-left: 1px solid var(--app-border);
+  padding: 8px 10px;
+}
+
+.monaco-editor .suggest-widget .details .description {
+  color: var(--app-text-secondary);
+}

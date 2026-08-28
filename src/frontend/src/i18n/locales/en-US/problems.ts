@@ -105,6 +105,7 @@ export default {
       status: 'Status',
       noOutput: 'No output',
       background: 'Background',
+      description: 'Description',
       inputDescription: 'Input description',
       outputDescription: 'Output description',
       solution: 'Official solution',

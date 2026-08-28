@@ -145,6 +145,9 @@ function submit() {
               </h3>
               <MarkdownView :source="invite.background" />
             </template>
+            <h3 class="verify-subtitle" :class="{ 'verify-subtitle--first': !invite.background }">
+              {{ t('problems.detail.description') }}
+            </h3>
             <MarkdownView :source="invite.description" />
             <template v-if="invite.input_description">
               <h3 class="verify-subtitle">{{ t('problems.detail.inputDescription') }}</h3>

@@ -2,6 +2,8 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as monaco from 'monaco-editor'
 import type { ProblemLanguage } from '@/types'
+import { registerProblemCompletions } from '@/monaco/completions'
+import { definePigeonThemes, pigeonThemeName } from '@/monaco/theme'
 
 const props = defineProps<{ modelValue: string; language: ProblemLanguage; readOnly?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -15,12 +17,18 @@ const monacoLanguage: Record<ProblemLanguage, string> = {
   java21: 'java',
 }
 
+// 编程字体：优先 JetBrains Mono（已通过 @fontsource 打包引入），回退系统等宽字体。
+const CODE_FONT_FAMILY =
+  "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace"
+
 function currentTheme(): string {
-  return document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs'
+  return pigeonThemeName(document.documentElement.classList.contains('dark'))
 }
 
 onMounted(() => {
   if (!host.value) return
+  registerProblemCompletions()
+  definePigeonThemes()
   editor = monaco.editor.create(host.value, {
     value: props.modelValue,
     language: monacoLanguage[props.language],
@@ -28,8 +36,12 @@ onMounted(() => {
     automaticLayout: true,
     minimap: { enabled: false },
     fontSize: 14,
+    fontFamily: CODE_FONT_FAMILY,
+    fontLigatures: true,
     tabSize: 4,
     scrollBeyondLastLine: false,
+    // 不显示横向滚动条（超出部分仍可用 Shift+滚轮横向浏览）
+    scrollbar: { horizontal: 'hidden' },
     readOnly: props.readOnly ?? false,
   })
   editor.onDidChangeModelContent(() => emit('update:modelValue', editor?.getValue() ?? ''))
