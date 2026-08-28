@@ -14,6 +14,15 @@
     booleanOff: 'Disabled',
     manualReview: 'Manual review',
     autoApprove: 'Auto approve',
+    smtpMode: {
+      ssl: 'SSL (implicit TLS, port 465)',
+      starttls: 'STARTTLS (upgrade after plaintext, port 587)',
+      plain: 'Plaintext (intranet only, port 25)',
+    },
+    htmlTemplateLabel: 'HTML template',
+    htmlTemplateHint: 'Placeholders: {code} = code, {purpose} = purpose label (e.g. "register")',
+    preview: 'Email code card preview',
+    previewPurpose: 'Register',
   },
   admin: {
     backToApp: 'Back to site',

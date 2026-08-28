@@ -15,6 +15,7 @@ os.environ.setdefault(
 )
 os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
+os.environ.setdefault("ENVIRONMENT", "development")
 
 import uuid
 
@@ -29,6 +30,7 @@ import app.models.user  # noqa: F401
 import app.models.audit  # noqa: F401  (平台表：审计日志)
 import app.models.system_config  # noqa: F401  (平台表：系统配置)
 from app import app
+from app.services.system_config import EMAIL_CODE_HTML_TEMPLATE_DEFAULT
 from app.models.user import Role, User, UserRole
 from app.core.database import Base, SessionLocal, engine
 from app.core.redis import get_redis
@@ -60,11 +62,13 @@ CONFIG_SEEDS = [
     ("auth_email", "email.code.max_attempts", 5, "验证码最大尝试次数"),
     ("auth_email", "email.verify_enabled", True, "注册是否需要邮箱验证码"),
     ("auth_email", "email.smtp.host", "", "SMTP 服务器地址（留空则验证码打印到后端日志）"),
-    ("auth_email", "email.smtp.port", 465, "SMTP 端口（465 SSL / 587 STARTTLS）"),
+    ("auth_email", "email.smtp.port", 0, "SMTP 端口（0=按 smtp_mode 自动：ssl=465/starttls=587/plain=25）"),
     ("auth_email", "email.smtp.username", "", "SMTP 用户名"),
     ("auth_email", "email.smtp.password", "", "SMTP 密码 / 授权码（管理接口掩码返回）"),
     ("auth_email", "email.smtp.sender", "", "发件人地址（留空用 SMTP 用户名）"),
-    ("auth_email", "email.smtp.use_ssl", True, "是否使用 SSL 直连（false 时用 STARTTLS）"),
+    ("auth_email", "email.smtp.smtp_mode", "ssl", "SMTP 加密模式（ssl / starttls / plain）"),
+    ("auth_email", "email.smtp.use_ssl", True, "（已废弃）旧版是否使用 SSL 直连，存在 smtp_mode 时忽略"),
+    ("auth_email", "email.template.code_html", EMAIL_CODE_HTML_TEMPLATE_DEFAULT, "验证码邮件 HTML 正文模板，占位符 {code} / {purpose}（留空用内置默认卡片）"),
     ("team", "invite.expire_hours", 72, "邀请链接有效期（小时）"),
     ("team", "team.apply.review_rule", "manual", "加入审批规则"),
     ("contest", "contest.freeze_default_seconds", 3600, "封榜默认时长（秒）"),

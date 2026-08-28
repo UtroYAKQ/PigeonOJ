@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -146,11 +146,17 @@ class EmailCodePolicy(BaseModel):
 
 
 class SMTPConfig(BaseModel):
-    """SMTP 发信配置。"""
+    """SMTP 发信配置。
+
+    smtp_mode:
+      - "ssl": 隐式 TLS（SMTP_SSL，常见端口 465）
+      - "starttls": 明文连接后 STARTTLS 升级（常见端口 587）
+      - "plain": 明文连接，不加密（仅内网可信场景）
+    """
 
     host: str
     port: int
     username: str
     password: str
     sender: str
-    use_ssl: bool
+    smtp_mode: Literal["ssl", "starttls", "plain"]

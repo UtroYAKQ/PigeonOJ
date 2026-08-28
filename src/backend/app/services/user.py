@@ -54,6 +54,7 @@ from app.core.redis import (
 from app.utils.security import generate_token, hash_password, hash_token, verify_password
 from app.utils.validation import validate_email, validate_nickname, validate_password
 from app.services.system_config import ConfigService
+from app.settings.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -66,28 +67,43 @@ LOGIN_FAIL_MAX = 5  # 触发冻结的失败次数
 
 
 def _smtp_send(cfg: SMTPConfig, message: EmailMessage) -> None:
-    """同步 SMTP 发送（在线程池中执行，避免阻塞事件循环）。"""
-    if cfg.use_ssl:
+    """同步 SMTP 发送（在线程池中执行，避免阻塞事件循环）。
+
+    smtp_mode:
+      - "ssl": 隐式 TLS（SMTP_SSL）
+      - "starttls": 明文连接后 STARTTLS 升级
+      - "plain": 明文连接，不加密（仅内网可信场景）
+    """
+    if cfg.smtp_mode == "ssl":
         with smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=10) as server:
             if cfg.username:
                 server.login(cfg.username, cfg.password)
             server.send_message(message)
     else:
         with smtplib.SMTP(cfg.host, cfg.port, timeout=10) as server:
-            server.starttls()
+            if cfg.smtp_mode == "starttls":
+                server.starttls()
             if cfg.username:
                 server.login(cfg.username, cfg.password)
             server.send_message(message)
 
 
-def _build_code_email(cfg: SMTPConfig, email: str, purpose: str, code: str) -> EmailMessage:
+def _build_code_email(
+    cfg: SMTPConfig, email: str, purpose: str, code: str, html_template: str | None = None
+) -> EmailMessage:
     subject = "PigeonOJ 邮箱验证码"
-    body = f"你的验证码是 {code}（purpose={purpose}），请勿泄露给他人。"
+    sender = cfg.sender or cfg.username
     message = EmailMessage()
     message["Subject"] = subject
-    message["From"] = cfg.sender or cfg.username
+    message["From"] = sender
     message["To"] = email
-    message.set_content(body)
+    # 纯文本兜底（无 HTML 客户端 / 默认）
+    text_body = f"你的验证码是 {code}（用途：{purpose}），请勿泄露给他人。"
+    message.set_content(text_body)
+    # HTML 卡片（占位符安全替换；code 为纯数字、purpose 取自固定枚举，无注入风险）
+    if html_template:
+        html_body = html_template.replace("{code}", code).replace("{purpose}", purpose)
+        message.add_alternative(html_body, subtype="html")
     return message
 
 
@@ -255,16 +271,26 @@ class AuthService:
     # ---------------- 验证码 ----------------
 
     async def _send_email_code(self, email: str, purpose: str, code: str) -> None:
-        """发送邮箱验证码：SMTP 已配置走真实发信，未配置（host 空）打印到后端日志（本地开发兜底）。"""
+        """发送邮箱验证码：SMTP 已配置走真实发信，未配置（host 空）按环境兜底。
+
+        - 生产环境：SMTP 未配置视为部署错误，直接报错，避免静默失败导致用户永远收不到验证码。
+        - 开发/测试环境：将验证码打印到后端日志，供本地调试（返回成功）。
+        """
         cfg = await self.config.get_email_smtp_config()
         if not cfg.host:
-            logger.info("[email-code] purpose=%s email=%s code=%s（SMTP 未配置，开发期打印）", purpose, email, code)
+            if get_settings().environment == "production":
+                raise APIError(SYSTEM_UPSTREAM_FAILURE, "邮件服务未配置，请联系管理员", 502)
+            logger.warning("[email-code] purpose=%s email=%s code=%s（SMTP 未配置，开发期打印）", purpose, email, code)
             return
-        message = _build_code_email(cfg, email, purpose, code)
+        sender = cfg.sender or cfg.username
+        if not sender:
+            raise APIError(SYSTEM_UPSTREAM_FAILURE, "邮件发件人未配置", 502)
+        html_template = await self.config.get_email_code_html_template()
+        message = _build_code_email(cfg, email, purpose, code, html_template)
         try:
             await asyncio.to_thread(_smtp_send, cfg, message)
         except Exception as exc:  # noqa: BLE001 - 发信失败统一转为上游错误
-            logger.exception("SMTP 邮件发送失败: host=%s port=%s", cfg.host, cfg.port)
+            logger.exception("SMTP 邮件发送失败: host=%s port=%s mode=%s", cfg.host, cfg.port, cfg.smtp_mode)
             raise APIError(SYSTEM_UPSTREAM_FAILURE, "邮件发送失败，请稍后重试", 502) from exc
 
     async def send_email_code(self, req: EmailCodeRequest, ip: str | None, user_agent: str | None) -> None:

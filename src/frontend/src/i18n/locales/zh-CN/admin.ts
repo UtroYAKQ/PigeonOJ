@@ -14,6 +14,15 @@ export default {
     booleanOff: '关闭',
     manualReview: '人工审核',
     autoApprove: '自动通过',
+    smtpMode: {
+      ssl: 'SSL（隐式加密，端口 465）',
+      starttls: 'STARTTLS（明文后升级，端口 587）',
+      plain: '明文（仅内网，端口 25）',
+    },
+    htmlTemplateLabel: 'HTML 模板',
+    htmlTemplateHint: '支持占位符：{code} 验证码、{purpose} 用途文案（如「注册」「重置密码」）',
+    preview: '邮箱验证码卡片预览',
+    previewPurpose: '注册',
   },
   admin: {
     backToApp: '返回前台',

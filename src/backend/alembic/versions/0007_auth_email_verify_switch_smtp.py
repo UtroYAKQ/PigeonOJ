@@ -11,6 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from app.services.system_config import EMAIL_CODE_HTML_TEMPLATE_DEFAULT
+
 revision = "0007"
 down_revision = "0006"
 branch_labels = None
@@ -20,11 +22,13 @@ depends_on = None
 CONFIG_SEEDS = [
     ("auth_email", "email.verify_enabled", True, "注册是否需要邮箱验证码"),
     ("auth_email", "email.smtp.host", "", "SMTP 服务器地址（留空则验证码打印到后端日志）"),
-    ("auth_email", "email.smtp.port", 465, "SMTP 端口（465 SSL / 587 STARTTLS）"),
+    ("auth_email", "email.smtp.port", 0, "SMTP 端口（0=按 smtp_mode 自动：ssl=465/starttls=587/plain=25）"),
     ("auth_email", "email.smtp.username", "", "SMTP 用户名"),
     ("auth_email", "email.smtp.password", "", "SMTP 密码 / 授权码（管理接口掩码返回）"),
     ("auth_email", "email.smtp.sender", "", "发件人地址（留空用 SMTP 用户名）"),
-    ("auth_email", "email.smtp.use_ssl", True, "是否使用 SSL 直连（false 时用 STARTTLS）"),
+    ("auth_email", "email.smtp.smtp_mode", "ssl", "SMTP 加密模式（ssl / starttls / plain）"),
+    ("auth_email", "email.smtp.use_ssl", True, "（已废弃）旧版是否使用 SSL 直连，存在 smtp_mode 时忽略"),
+    ("auth_email", "email.template.code_html", EMAIL_CODE_HTML_TEMPLATE_DEFAULT, "验证码邮件 HTML 正文模板，占位符 {code} / {purpose}"),
 ]
 
 
@@ -50,6 +54,7 @@ def downgrade() -> None:
         sa.text(
             "DELETE FROM system_configs WHERE category = 'auth_email' AND config_key IN ("
             "'email.verify_enabled', 'email.smtp.host', 'email.smtp.port', 'email.smtp.username', "
-            "'email.smtp.password', 'email.smtp.sender', 'email.smtp.use_ssl')"
+            "'email.smtp.password', 'email.smtp.sender', 'email.smtp.smtp_mode', 'email.smtp.use_ssl', "
+            "'email.template.code_html')"
         )
     )

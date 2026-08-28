@@ -189,7 +189,7 @@ python scripts/check_import_rules.py     # 分层导入规则机械检查：api 
 - 新增功能必须添加测试；变更后运行最相关测试，不必全量
 - 判题 / 沙箱相关测试在无沙箱环境标注 skip 或 mock，注明原因
 
-> 邮箱验证码发信：系统配置 `email.smtp.host` 为空（默认）时未接入 SMTP，验证码打印在后端日志（`[email-code] ... code=xxxxxx`），便于本地联调；在管理后台「认证邮箱」域配置 SMTP 服务器后走真实邮件发送，发送失败返回 `5001`。
+> 邮箱验证码发信：系统配置 `email.smtp.host` 为空（默认）时未接入 SMTP，开发/测试环境将验证码打印在后端日志（`[email-code] ... code=xxxxxx`）便于联调；**生产环境** host 为空会直接返回 `5001`（邮件服务未配置），避免静默失败导致用户收不到验证码。配置 SMTP 后由 `email.smtp.smtp_mode`（`ssl` / `starttls` / `plain`）决定加密方式，发送失败返回 `5001`。
 
 ## 部署拓扑选择
 

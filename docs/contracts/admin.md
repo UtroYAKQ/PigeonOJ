@@ -28,7 +28,8 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | site | `site.register_enabled` | 注册开关 |
 | auth_email | `email.code.expire_seconds` / `email.code.resend_seconds` / `email.code.max_attempts` | 验证码安全策略 |
 | auth_email | `email.verify_enabled` | 注册邮箱验证开关（false 时注册无需验证码） |
-| auth_email | `email.smtp.host` / `port` / `username` / `password` / `sender` / `use_ssl` | SMTP 发信配置；host 为空时验证码打印到后端日志（本地开发兜底）。`*.password` 类键管理接口一律掩码返回（`******`），提交掩码值视为未修改 |
+| auth_email | `email.smtp.host` / `port` / `username` / `password` / `sender` / `smtp_mode` | SMTP 发信配置。`smtp_mode` 取值 `ssl`（隐式 TLS）/ `starttls`（明文后升级）/ `plain`（明文，仅内网）；端口未显式配置（`email.smtp.port=0`）时按模式自动推导：`ssl=465` / `starttls=587` / `plain=25`，设正数则视为显式覆盖。`use_ssl`（旧键）已废弃，存在 `smtp_mode` 时忽略。host 为空且为生产环境时直接报错（不再静默兜底）；开发/测试环境将验证码打印到后端日志便于联调。`*.password` 类键管理接口一律掩码返回（`******`），提交掩码值视为未修改 |
+| auth_email | `email.template.code_html` | 验证码邮件 HTML 正文模板（管理员可编辑的美化卡片）。占位符 `{code}` = 验证码、`{purpose}` = 用途文案（取自固定枚举：注册 / 重置密码 / 修改邮箱）。留空使用内置默认卡片。后端同时附带纯文本兜底，模板中必须保留 `{code}` 否则邮件无验证码。 |
 | team | `invite.expire_hours` | 邀请链接默认有效期 |
 | team | `team.apply.review_rule` | 加入审批规则 |
 | contest | `contest.freeze_default_seconds` / `contest.penalty_factor_minutes` | 封榜 / 罚时系数默认 |
