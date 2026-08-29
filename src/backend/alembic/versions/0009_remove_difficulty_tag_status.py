@@ -1,6 +1,5 @@
 """移除题目难度字段；标签体系补全（status / updated_at）
 
-docs/decisions/2026-08-24-remove-difficulty-use-tags.md：
 - problems 删除 difficulty 列（三档枚举由 admin 维护的标签体系替代，无自动映射，数据随迁移丢弃）
 - problem_tags 增加 status（active/archived）与 updated_at
 

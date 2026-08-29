@@ -1,7 +1,7 @@
 """题库路由（docs/contracts/problems.md /problems* 端点，统一前缀 /api/v1）。
 
 验题提交端点 POST /problems/{id}/verify 在 judge 模块路由中注册
-（创建判题提交并派发；见 docs/decisions/2026-08-24-backend-module-packaging.md）。
+（创建判题提交并派发）。
 """
 from __future__ import annotations
 

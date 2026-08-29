@@ -1,6 +1,6 @@
 """Redis 客户端与短生命周期数据读写。
 
-Key 约定见 docs/architecture.md「Redis 使用点」：
+Key 约定见 docs/operations.md「Redis 约定」：
 - `email:code:<email>:<purpose>`  邮箱验证码 + 错误计数（不落库）
 - `email:resend:<email>:<purpose>` 验证码重发间隔
 - `session:<token_hash>`          会话热点缓存（token 哈希为 key，见 shared/security.py）
@@ -24,7 +24,7 @@ from app.settings.config import get_settings
 _client: aioredis.Redis | None = None
 _client_loop_id: int | None = None
 
-# Key 前缀约定（docs/architecture.md「Redis 使用点」）
+# Key 前缀约定（docs/operations.md「Redis 约定」）
 SANDBOX_NODE_KEY_PREFIX = "sandbox:node:"
 SESSION_KEY_PREFIX = "session:"
 EMAIL_CODE_KEY_PREFIX = "email:code:"

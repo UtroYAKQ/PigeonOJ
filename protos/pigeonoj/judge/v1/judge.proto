@@ -57,7 +57,7 @@ message SubmitJob {
   ResourceLimits limits = 4;
   string problem_id = 5;
   string data_version = 6;  // 数据指纹；缓存未命中时先调 FetchProblemData
-  bool spj = 7;             // [已废弃] SPJ 特判整体移除（docs/decisions/2026-08-24-team-first-problem-production.md）；字段号保留维持线格式兼容，发送端不再赋值，接收端忽略
+  bool spj = 7;             // [已废弃] SPJ 特判整体移除；字段号保留维持线格式兼容，发送端不再赋值，接收端忽略
   repeated TestCaseFile cases = 8; // 仅元数据 + 排序；正式测试点（is_sample=false）
 }
 

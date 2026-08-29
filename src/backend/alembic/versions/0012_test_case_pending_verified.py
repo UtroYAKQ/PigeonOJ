@@ -1,6 +1,5 @@
 """测试点「已验待生效」：暂存集通过验题后需显式应用才晋升
 
-docs/decisions/2026-08-26-test-case-staged-promotion.md 修订：
 验题通过与晋升解耦——complete_verification 只置 pending_verified 标记，
 管理角色调 POST /problems/{id}/test-cases/apply 显式生效；
 任何新的暂存写入都会清除该标记。

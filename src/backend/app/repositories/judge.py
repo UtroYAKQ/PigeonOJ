@@ -83,7 +83,7 @@ class TestCaseRepository:
     """测试点数据访问。
 
     行不可变版本化：集合成员资格由 problems.active_case_ids / pending_case_ids
-    引用列表定义（docs/decisions/2026-08-26-test-case-staged-promotion.md），
+    引用列表定义，
     行永不物理删除，被取代的旧行自然退役留档。
     """
 

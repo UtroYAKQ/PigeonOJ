@@ -35,7 +35,7 @@ class CaseStatus(StrEnum):
     """测试点集合状态（problems.case_status 缓存列）。
 
     由 active_case_ids / pending_case_ids / pending_verified 推导
-    （docs/decisions/2026-08-26-test-case-staged-promotion.md）。
+    。
     """
 
     EMPTY = "empty"

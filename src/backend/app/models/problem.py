@@ -1,7 +1,7 @@
 """题库模型：题目、标签、验题、测试点、代码草稿。表结构对应 docs/contracts/problems.md。
 
 原位于 judge/models.py；按「每张表只有一个归属模块」原则迁入题库模块
-（docs/decisions/2026-08-24-backend-module-packaging.md）。
+。
 提交 / 判题结果模型在 judge 模块。
 """
 from __future__ import annotations
@@ -84,7 +84,7 @@ class Problem(Base):
 class ProblemTag(Base):
     """标签定义（docs/contracts/problems.md problem_tags；admin 维护，归档不删除）。
 
-    分类体系替代原 difficulty 三档枚举（docs/decisions/2026-08-24-remove-difficulty-use-tags.md）。
+    分类体系替代原 difficulty 三档枚举。
     """
 
     __tablename__ = "problem_tags"

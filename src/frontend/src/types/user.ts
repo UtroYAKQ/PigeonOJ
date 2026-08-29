@@ -4,7 +4,7 @@
 
 export type UserStatus = 'active' | 'frozen' | 'banned' | 'deleted'
 
-/** 全局角色 code（docs/architecture.md 权限设计） */
+/** 全局角色 code（docs/security.md） */
 export type GlobalRoleCode = 'admin' | 'tutor' | 'user'
 
 export interface RoleInfo {

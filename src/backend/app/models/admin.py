@@ -1,7 +1,4 @@
 """管理模块数据模型：举报处理。
-
-system_configs / request_logs / login_logs / exception_logs 已下沉到 shared/infra
-（平台表，见 docs/decisions/2026-08-24-backend-module-packaging.md）；
 reports 结构见 docs/contracts/community.md
 """
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """用户模块数据模型：users / user_sessions / roles / user_roles。
 
-表结构与 docs/contracts/users.md、docs/architecture.md 权限设计对齐；
+表结构与 docs/contracts/users.md、docs/security.md 权限设计对齐；
 唯一来源是 alembic/versions/ 下的迁移 SQL。
 
 """

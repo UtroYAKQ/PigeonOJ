@@ -18,7 +18,7 @@ const loading = ref(false)
 const problems = ref<ProblemSummary[]>([])
 const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
 const keyword = ref('')
-/** 标签筛选（单选；docs/decisions/2026-08-24-remove-difficulty-use-tags.md） */
+/** 标签筛选（单选） */
 const tag = ref<string | null>(null)
 const tagOptions = ref<Array<{ label: string; value: string }>>([])
 

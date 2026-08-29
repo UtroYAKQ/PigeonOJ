@@ -15,13 +15,13 @@
 | input_description | TEXT | NULL | 输入说明（Markdown，**必填**：创建接口校验非空；存量列保留可空以兼容历史数据） |
 | output_description | TEXT | NULL | 输出说明（Markdown，必填，同上） |
 | solution | TEXT | NULL | 官方题解（Markdown） |
-| samples | JSONB | NOT NULL DEFAULT '[]' | 展示样例数组（`[{"input": "...", "output": "..."}]`，出题人字符串录入；仅用于详情页展示与自测，**不参与判题**，见 `docs/decisions/2026-08-15-sample-not-judged.md`）；≤10 组，单项 input / output 各 ≤64KB |
+| samples | JSONB | NOT NULL DEFAULT '[]' | 展示样例数组（`[{"input": "...", "output": "..."}]`，出题人字符串录入；仅用于详情页展示与自测，**不参与判题**）；≤10 组，单项 input / output 各 ≤64KB |
 | samples_updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | 样例最近一次变更时间（重验判定依据之一） |
-| active_case_ids | JSONB | NOT NULL DEFAULT '[]' | 生效测试点 id 列表（test_cases.id 引用；判题唯一数据来源，见 `docs/decisions/2026-08-26-test-case-staged-promotion.md`） |
+| active_case_ids | JSONB | NOT NULL DEFAULT '[]' | 生效测试点 id 列表（test_cases.id 引用；判题唯一数据来源） |
 | pending_case_ids | JSONB | NULL DEFAULT NULL | 暂存测试点 id 列表（编辑目标状态，验题判定对象）；**NULL = 无暂存改动**，数组（含 `'[]'`）= 有暂存改动 |
 | case_status | VARCHAR(16) | NOT NULL | 测试点集合状态缓存：`empty` / `to_verify` / `to_reverify` / `verified`（已验待生效） / `ok`，与两列表及 `pending_verified` 同事务维护；生效集非空后永不为空（不晋升空集、拒绝删除最后一个测试点） |
 | cases_revision | INT | NOT NULL DEFAULT 0 | 集合写操作自增计数（预留并发 CAS） |
-| pending_verified | BOOLEAN | NOT NULL DEFAULT false | 暂存集已通过验题、待显式应用（任何新的暂存写入即清除；见决策记录修订） |
+| pending_verified | BOOLEAN | NOT NULL DEFAULT false | 暂存集已通过验题、待显式应用（任何新的暂存写入即清除） |
 | time_limit_ms | INT | NOT NULL DEFAULT 1000 | 时间限制（**C++ 基准**；其他语言按 `sandbox_configs` 语言比例换算有效限制，见 `judge.md`「语言限制换算」） |
 | memory_limit_mb | INT | NOT NULL DEFAULT 256 | 内存限制（**C++ 基准**；其他语言按 `sandbox_configs` 语言比例换算，并受 `memory_min_mb` 下限约束） |
 | team_id | UUID | NULL, FK → teams.id | 归属团队；NULL=全站题目，非 NULL=团队题目（永久归属该团队，不进入公开题库） |
@@ -60,8 +60,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 ### `test_cases` — 测试点表
 
 测试点行**不可变版本化**：集合成员资格由 `problems.active_case_ids`（生效集，判题使用）与
-`problems.pending_case_ids`（暂存集，编辑与验题对象）定义，
-见 `docs/decisions/2026-08-26-test-case-staged-promotion.md`。
+`problems.pending_case_ids`（暂存集，编辑与验题对象）定义。
 
 | 字段 | 类型 | 约束/默认 | 说明 |
 | --- | --- | --- | --- |
@@ -80,7 +79,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 > - 保存 = 目标状态写入 pending 列表：未改动点沿用原 id（零拷贝），改动点为新行 id，
 >   删除点不出现；验题通过单事务 `active := pending` 并清空，失败保留继续编辑
 > - 被取代的旧行退役留档（不再属于任何列表），不做清理
-> - **展示样例不落本表**：样例以字符串数组存于 `problems.samples`，仅用于题目详情页展示与自测，不参与正式判题（见 `docs/decisions/2026-08-15-sample-not-judged.md` 与 `docs/decisions/2026-08-24-samples-jsonb-and-invite-cleanup.md`）。正式判题只使用 active 列表引用的测试点。
+> - **展示样例不落本表**：样例以字符串数组存于 `problems.samples`，仅用于题目详情页展示与自测，不参与正式判题。正式判题只使用 active 列表引用的测试点。
 
 ### 验题表
 
@@ -165,7 +164,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 ## 当前基础前端页面
 
-前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面题面 / 题目背景 / 输入输出说明 / 官方题解使用 Markdown 编辑器（md-editor-v3，编辑 + 按需分屏预览；存储仍为 Markdown 文本），题目背景为必填、渲染于题面之前。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端高度锁定为一屏、左右两栏独立滚动（题面过长时左栏内部滚动）、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题目背景 / 题面 / 输入输出说明 / 官方题解按 Markdown 渲染（markdown-it + DOMPurify，支持 KaTeX 公式 `$...$` / `$$...$$`，见 `docs/decisions/2026-08-23-problem-statement-markdown.md`），样例仍为等宽文本块并提供复制。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
+前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面题面 / 题目背景 / 输入输出说明 / 官方题解使用 Markdown 编辑器（md-editor-v3，编辑 + 按需分屏预览；存储仍为 Markdown 文本），题目背景为必填、渲染于题面之前。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端高度锁定为一屏、左右两栏独立滚动（题面过长时左栏内部滚动）、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题目背景 / 题面 / 输入输出说明 / 官方题解按 Markdown 渲染（markdown-it + DOMPurify，支持 KaTeX 公式 `$...$` / `$$...$$`），样例仍为等宽文本块并提供复制。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
 
 ## 关键流程 / 验收条件
 
@@ -181,4 +180,4 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 - 不引入子任务 / 分组加权计分（见 `docs/architecture.md` 明确不使用）
 - 测试点不向前端暴露下载 / 预签名 URL；提交结果不返回期望输出
 - 不建验题邀请链接表（Redis 承载）与用户代码草稿表；AI 出题相关字段（`is_ai_generated` / `ai_generation_task_id`）随 AI 能力迭代再引入，当前不落库
-- 不做 per-problem 语言级限制覆盖：题目限制为 C++ 基准，其他语言统一按 `sandbox_configs` 全局语言比例换算（见 `docs/decisions/2026-08-15-language-limit-ratio.md`）
+- 不做 per-problem 语言级限制覆盖：题目限制为 C++ 基准，其他语言统一按 `sandbox_configs` 全局语言比例换算

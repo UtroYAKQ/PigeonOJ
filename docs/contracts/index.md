@@ -43,7 +43,7 @@ contests ─┬─< contest_problems · contest_registrations · contest_ranking
 
 1. 改哪个模块的 API / 数据模型 / 错误码，先读该模块对应的契约文件
 2. 涉及信封、通用错误码、分页等跨模块约定，先读 `common.md`
-3. 改权限 / 角色 / 可见性时，对照 `docs/architecture.md` 的权限设计与权限矩阵
+3. 改权限 / 角色 / 可见性时，对照 `docs/security.md` 的权限设计与权限矩阵
 4. **新增契约文件时，必须在本表新增一行**（并同步 `docs/workflow.md` 的同步映射表）
 
 ## 数据模型唯一来源

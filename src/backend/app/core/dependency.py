@@ -1,9 +1,9 @@
-"""认证授权依赖与权限检查（RBAC 应用层分支判定，docs/architecture.md）。
+"""认证授权依赖与权限检查（RBAC 应用层分支判定，docs/security.md）。
 
 - 会话 Token 从 Authorization: Bearer <token> 提取，哈希后查 user_sessions（有效 / 未过期 / 未撤销）
 - 会话热点缓存：Redis `session:<token_hash>` → user_id，TTL 与会话过期时间一致
 - 账号状态：frozen / banned / deleted 拦截接口访问
-- 题目管理角色检查（docs/decisions/2026-08-15-rbac-simplification.md）
+- 题目管理角色检查
 """
 from __future__ import annotations
 

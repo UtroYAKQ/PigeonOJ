@@ -5,7 +5,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * 布局令牌（vue-fastapi-admin 风格，见 docs/frontend.md / docs/decisions/2026-08-24-naive-ui-nova-style.md）
+ * 布局令牌（vue-fastapi-admin 风格，见 docs/frontend.md）
  */
 :root {
   --app-primary: #f4511e;

@@ -37,7 +37,7 @@ export interface ProblemTestCase {
   sort_order: number
   input: string | null
   expected_output: string | null
-  /** true = 当前为暂存目标状态（改动未验题晋升；docs/decisions/2026-08-26-test-case-staged-promotion.md） */
+  /** true = 当前为暂存目标状态（改动未验题晋升） */
   staged?: boolean
 }
 

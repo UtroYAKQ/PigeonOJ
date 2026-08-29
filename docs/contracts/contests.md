@@ -125,7 +125,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 
 ## 明确不做
 
-- 比赛运行中题目不锁定（不禁止题目在比赛中被编辑）——见 `docs/decisions/2026-08-15-contest-no-lock.md`
+- 比赛运行中题目不锁定（不禁止题目在比赛中被编辑）
 - 不做 WebSocket / SSE 实时榜单推送（前端轮询刷新）
 - 不允许迟交和补交（但允许赛后补题）
 - 不引入 OI / 子任务赛制（当前仅 ACM / IOI）

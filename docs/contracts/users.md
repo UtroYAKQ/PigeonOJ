@@ -1,6 +1,6 @@
 # 认证 / 用户模块契约
 
-> 用户账号、注册登录、会话与账号生命周期。功能权限在 `user_roles` + `roles`（见 `docs/architecture.md` 权限设计）。
+> 用户账号、注册登录、会话与账号生命周期。功能权限见 `docs/security.md`。
 
 ## 数据模型
 
@@ -31,7 +31,7 @@
 
 - 验证码 key：`email:code:<email>:<purpose>`（存验证码与错误计数），TTL = 配置的 `email.code.expire_seconds`
 - 重发间隔计数：`email:resend:<email>:<purpose>`，TTL = 配置的 `email.code.resend_seconds`
-- 一次性使用：校验通过后删除 `email:code:*` key；错误超次删除并触发频控（Key 约定见 `docs/architecture.md` Redis 使用点）
+- 一次性使用：校验通过后删除 `email:code:*` key；错误超次删除并触发频控（Key 约定见 `docs/operations.md` Redis 约定）
 - 安全策略（有效期 / 重发间隔 / 最大尝试）配置见 `docs/contracts/admin.md` 的 `auth_email` 配置域
 
 ### `user_sessions` — 登录会话表

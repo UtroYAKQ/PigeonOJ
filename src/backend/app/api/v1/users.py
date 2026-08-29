@@ -1,6 +1,6 @@
 """用户模块路由：认证（/auth*）+ 用户中心（/users/me*），统一前缀 /api/v1。
 
-原 auth 模块已并入本模块（docs/decisions/2026-08-24-backend-module-packaging.md）；
+原 auth 模块已并入本模块；
 API 路径保持不变（docs/contracts/users.md 端点表）。
 """
 from __future__ import annotations

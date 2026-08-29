@@ -161,7 +161,7 @@ CHECK (
   令牌经 metadata `x-node-token` 携带。数据指纹 = sha256(测试点数量|最大 updated_at)，
   **按判定集统计**：练习 / 比赛 = 生效集（`problems.active_case_ids`），
   验题 = 暂存集（`pending_case_ids`，NULL 时退化生效集）；暂存编辑不影响生效集指纹，
-  晋升瞬间自然失效（见 `docs/decisions/2026-08-26-test-case-staged-promotion.md`），
+  晋升瞬间自然失效，
   节点按 `<problem_id>-<data_version>` 缓存于容器 `/cache`，跨提交复用。
 - 断线语义：连接断开即离线，其名下 in-flight 提交由服务端重置 pending 并重派，
   在途用户自测请求（pending Future）即时置错返回；判题写入幂等，重复执行安全。
@@ -180,7 +180,7 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 
 - 提交统一按 `submit_type` 区分场景：练习（默认）、比赛（`contest_id` 关联，含赛后补题）、验题（`verification_id` 关联，结果驱动 `problem_verifications.status`；验题通过同步回写 `problems.is_verified / verified_by / verified_at`）。
 - 任务派发由 gRPC 网关承担，`sandbox_configs` 提供语言级运行参数（含输出大小、磁盘配额、CPU 核数、网络开关）与判题限制比例；`problems` 提供 **C++ 基准**内存 / 时间限制，判题按提交语言解析有效限制。
-- 判题比对模式：统一默认比对（忽略行尾空白与末尾换行、行内严格）；不支持 SPJ 特判（见 `docs/decisions/2026-08-24-team-first-problem-production.md`）。
+- 判题比对模式：统一默认比对（忽略行尾空白与末尾换行、行内严格）；不支持 SPJ 特判。
 - 输出超限：程序输出超过沙箱输出上限时截断比对，判定 `output_limit_exceeded`，不再继续比对剩余输出。
 - 判题失败（沙箱异常、超时）自动重试，超过阈值转 `system_error`。
 - 判题结果仅返回用户程序输出与判定状态，不返回测试点期望输出。
@@ -194,7 +194,7 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 - 有效内存 = `max(problems.memory_limit_mb × memory_ratio, memory_min_mb)`
 - `cpp17` 比例固定 1.0（基准）；`java21` / `python3.12` 用平台默认比例，可在 `sandbox_configs` 调整
 - Java `-Xmx` 按有效内存换算（运行时参数），判据仍为 RSS 峰值
-- 比例是全局语言级配置，不做 per-problem 覆盖（见 `docs/decisions/2026-08-15-language-limit-ratio.md`）
+- 比例是全局语言级配置，不做 per-problem 覆盖
 - 题目详情页可展示各语言有效限制（前端按语言比例派生，不存库）
 
 ## 判题器执行规范
@@ -221,4 +221,4 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 - 沙箱默认禁止网络访问，不提供例外开关（SSRF 防护）；不提供用户可控 URL 执行接口，代码和测试点由判题节点从内部存储准备到本地临时目录
 - **后端进程不执行任何用户代码**（无内联执行端点；用户自测经网关派发到节点 nsjail 执行，见「用户自测」节）
 - 测试点对象不向前端暴露下载 / 预签名 URL（判题节点经网关认证后按 data_version 拉取）
-- 不做 per-problem 语言级限制覆盖（C++ 基准 + `sandbox_configs` 全局语言比例即可，见 `docs/decisions/2026-08-15-language-limit-ratio.md`）
+- 不做 per-problem 语言级限制覆盖（C++ 基准 + `sandbox_configs` 全局语言比例即可）

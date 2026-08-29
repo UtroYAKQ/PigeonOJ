@@ -1,4 +1,4 @@
-﻿<p align="center">
+﻿﻿<p align="center">
   <img alt="Docs First" src="https://img.shields.io/badge/Docs--First-blue?style=flat-square" />
   <img alt="OJ + AI" src="https://img.shields.io/badge/OJ%20%2B%20AI-teal?style=flat-square" />
   <img alt="Platform" src="https://img.shields.io/badge/Type-Platform-purple?style=flat-square" />
@@ -65,23 +65,22 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 
 | 文档 | 内容 | 何时读 |
 | --- | --- | --- |
-| [docs/architecture.md](docs/architecture.md) | 技术栈、分层、模块、编码规范、安全规则、权限矩阵 | 写代码前必读 |
+| [docs/architecture.md](docs/architecture.md) | 技术栈、分层架构、编码规范 | 写代码前必读 |
+| [docs/security.md](docs/security.md) | 安全规则、RBAC 权限矩阵、越权约束 | 改接口 / 涉及权限时 |
 | [docs/contracts/](docs/contracts/index.md) | 数据模型、API 契约、错误码（按模块拆分） | 改表结构 / API / 错误码时 |
-| [docs/operations.md](docs/operations.md) | 测试、部署、环境变量 | 改配置 / 环境 / 测试时 |
-| [docs/frontend.md](docs/frontend.md) | 前端设计系统、布局、i18n 与质量门禁约定 | 改前端时必读 |
-| [docs/decisions/](docs/decisions/) | 架构决策记录 | 做架构或选型决策前；重构后端先读分层重构两篇 |
-
+| [docs/operations.md](docs/operations.md) | 运行、测试、部署、Redis/调度/存储约定 | 改配置 / 环境 / 测试时 |
+| [docs/frontend.md](docs/frontend.md) | 前端设计系统、布局、i18n 与质量门禁 | 改前端时必读 |
 ## 仓库结构
 
 | 位置 | 内容 |
 | --- | --- |
-| `AGENTS.md` / `.claude/CLAUDE.md` | AI 入口文件（Codex / Claude Code 各一份） |
-| `docs/architecture.md` | 技术栈、分层、编码规范、安全规则 |
+| `AGENTS.md` | AI 统·一入口（必读顺序 + 任务→文档映射 + 工作规则） |
+| `docs/architecture.md` | 技术栈、分层架构、编码规范 |
+| `docs/security.md` | 安全规则、RBAC 权限矩阵、越权约束 |
 | `docs/contracts/` | 数据模型、API 契约、错误码（按模块拆分） |
-| `docs/operations.md` | 测试、部署、环境变量 |
-| `docs/frontend.md` | 前端设计系统与实现契约 |
-| `docs/workflow.md` | AI 如何读文档、同步文档、写报告 |
-| `docs/decisions/` | 架构决策记录 |
+| `docs/operations.md` | 运行、测试、部署、Redis/调度/存储约定 |
+| `docs/frontend.md` | 前端设计系统、布局、i18n 与质量门禁 |
+| `docs/workflow.md` | AI 协作工作流与文档同步映射 |
 | `docker/` | Docker Compose 编排（生产 `docker-compose.yml` 与判题节点 `docker-compose-node.yml`） |
 | `src/backend` / `src/frontend` / `src/judge` | 后端 / 前端 / 判题节点（含 nsjail 沙箱镜像与节点守护进程） |
 

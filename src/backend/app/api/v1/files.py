@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse
 
 from app.services.file import FileService
 from app.models.user import User
@@ -41,4 +41,4 @@ async def read_file(object_key: str):
         content, content_type = await get_storage().get_bytes(object_key)
     except (OSError, S3Error) as exc:
         raise APIError(RESOURCE_NOT_FOUND, "文件不存在", 404) from exc
-    return Response(content=content, media_type=content_type)
+    return FileResponse(content=content, media_type=content_type)

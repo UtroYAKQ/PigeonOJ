@@ -1,7 +1,7 @@
 """判题模块模型：沙箱配置、提交与逐测试点结果。
 
 表结构对应 docs/contracts/judge.md；题目 / 测试点表在 problems 模块
-（docs/decisions/2026-08-24-backend-module-packaging.md）。
+。
 """
 from __future__ import annotations
 

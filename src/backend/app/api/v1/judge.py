@@ -1,7 +1,7 @@
 """判题路由（docs/contracts/judge.md 端点，统一前缀 /api/v1）。
 
 POST /problems/{id}/verify（验题提交）在本模块注册：该端点创建判题提交并派发，
-属于判题链路；保持 judge → problems 单向依赖（docs/decisions/2026-08-24-backend-module-packaging.md）。
+属于判题链路；保持 judge → problems 单向依赖。
 POST /problems/{id}/run-code（用户自测）：经网关派发到节点一次性运行，不落库不计分。
 """
 from __future__ import annotations

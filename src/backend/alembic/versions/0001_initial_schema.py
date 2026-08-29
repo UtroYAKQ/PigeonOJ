@@ -22,7 +22,7 @@ def _uuid(value: str) -> str:
     return str(uuid.UUID(value))
 
 
-# 角色种子：docs/architecture.md 权限设计（scope 语义由 user_roles 承载）
+# 角色种子：docs/security.md（scope 语义由 user_roles 承载）
 ROLE_SEEDS = [
     (_uuid("11111111-1111-1111-1111-111111111111"), "admin", "系统管理员",
      "全部能力：用户管理、系统配置、运维、公开比赛、团队、AI 出题等"),

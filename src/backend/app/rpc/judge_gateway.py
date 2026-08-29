@@ -40,7 +40,7 @@ _NODE_TOKEN_METADATA_KEY = "x-node-token"
 # 心跳状态值（写 Redis 供管理后台沙箱页展示）
 _NODE_STATUS_ONLINE = "online"
 _CHANNEL_GATEWAY = "gateway"
-# 维护循环重派互斥锁键前缀（docs/architecture.md Redis 使用点）
+# 维护循环重派互斥锁键前缀（docs/operations.md Redis 约定）
 _REQUEUE_LOCK_PREFIX = "judge:requeue:"
 
 

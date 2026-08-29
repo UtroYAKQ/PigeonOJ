@@ -1,6 +1,6 @@
 # 团队模块契约
 
-> 团队、成员、加入申请与邀请链接。团队角色经 `user_roles`（`scope='team'`、`object_id=<team_id>`）统一授权，见 `docs/architecture.md` 权限设计。
+> 团队、成员、加入申请与邀请链接。团队角色经 `user_roles`（`scope='team'`、`object_id=<team_id>`）统一授权，见 `docs/security.md`。
 
 ## 数据模型
 

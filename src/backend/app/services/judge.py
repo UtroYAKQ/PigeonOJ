@@ -34,7 +34,7 @@ from app.services.problem import (
 )
 from app.services.system_config import ConfigService
 
-# 自测冷却 Redis Key 前缀（docs/architecture.md「Redis 使用点」；存在即冷却中）
+# 自测冷却 Redis Key 前缀（docs/operations.md Redis 约定；存在即冷却中）
 _SELFTEST_COOLDOWN_KEY_PREFIX = "judge:selftest:"
 
 

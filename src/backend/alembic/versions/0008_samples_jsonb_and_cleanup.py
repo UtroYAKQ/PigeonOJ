@@ -1,6 +1,5 @@
 """样例拆分至 problems.samples；删除验题邀请链接表与用户代码草稿表
 
-docs/decisions/2026-08-24-samples-jsonb-and-invite-cleanup.md：
 - problems 新增 samples JSONB 与 samples_updated_at；test_cases 删除
   is_sample / sample_input / sample_output 三列（存量样例行迁入 JSONB 后删除）
 - 验题邀请链接改存 Redis（verify_invite:{token}），drop problem_verification_invites

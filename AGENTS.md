@@ -1,38 +1,41 @@
-# Codex 项目指南
+# PigeonOJ 项目指南
 
-本文件是 Codex 专属的项目指南。Codex 应将 `docs/` 目录下的文档视为产品契约，保持代码、测试和文档同步。
+本仓库所有 AI 工具的统·一入口。`docs/` 下的文档是产品契约，代码、测试与文档保持同步。
 
 ## 必读顺序
 
-1. `README.md` — 项目目的和快速入门
-2. `docs/architecture.md` — 技术栈、分层、编码规范和安全规则
-3. `docs/contracts/` — 数据模型、API 契约和错误码
-4. `docs/operations.md` — 测试、部署和环境变量
-5. `docs/workflow.md` — 文档同步工作流
-6. 修改前端时加读 `docs/frontend.md`；重构后端模块时先读 `docs/decisions/2026-08-24-backend-layered-restructure.md` 与 `docs/decisions/2026-08-25-backend-service-repository-split.md`
+1. `README.md` — 项目定位与快速开始
+2. `docs/architecture.md` — 技术栈、分层架构、编码规范
+3. `docs/security.md` — 安全规则、权限设计、越权约束
+4. `docs/contracts/` — 数据模型、API 契约、错误码（按模块拆分）
+5. `docs/operations.md` — 运行、测试、部署、Redis/调度/存储约定
+6. `docs/workflow.md` — 文档同步工作流
+7. `docs/frontend.md` — 前端设计系统（改前端时必读）
+
+## 任务 → 文档
+
+| 任务 | 先读 |
+| --- | --- |
+| 改后端代码 | `architecture.md` + `contracts/` |
+| 改前端代码 | `frontend.md`（涉及 API/权限时加读 `architecture.md` + `contracts/`） |
+| 改表结构 / API / 错误码 | `contracts/`（先读 `contracts/index.md` 定位） |
+| 改配置 / 环境 / 测试 | `operations.md` |
 
 ## 工作规则
 
 - 优先小步变更，避免大范围重写
-- 行为、API、环境变量、数据表结构或命令变更时，同步更新文档（见 `docs/workflow.md` 同步映射表）
-- 除非任务明确要求，否则不引入新框架
-- 不在代码中硬编码密钥、token、密码或环境相关 URL
-- 保持示例代码可运行，或明确标注为模板示例
-- API 使用统一响应信封 `{ code, message, data }`，`code=0` 表示成功（见 `docs/contracts/common.md`）
-- 越权规则：所有用户数据查询必须带 `WHERE user_id = ?`；测试点期望输出、沙箱内部路径不返回前端
+- 行为、API、环境变量、数据表结构或命令变更时同步更新文档（映射表见 `docs/workflow.md`）
+- 除非明确要求，不引入 `docs/architecture.md`「明确不使用」之外的技术
+- 不在代码中硬编码密钥、token、密码或环境 URL
+- API 统一信封 `{ code, message, data }`，`code=0` 表示成功（见 `docs/contracts/common.md`）
+- 越权规则、沙箱规则、凭证规则见 `docs/security.md`
 - 代码执行仅在 nsjail 沙箱进行；AI 修改代码必须用户确认后应用
-
-## 决策记录
-
-在做影响架构的修改之前，先阅读 `docs/decisions/` 目录下相关的决策记录。理解已有决策的原因；若新方案与已有决策冲突，先与用户讨论。
 
 ## 验证
 
-- 仅文档变更时，检查链接、路径和示例的一致性
-- 后端变更时：`python src/backend/scripts/check_import_rules.py`（仓库根目录可直接运行）+ 在 `src/backend/` 下运行最相关的 pytest（见 `docs/operations.md`）
-- 前端变更时，依次运行 `npm run lint:check` / `npm test` / `npm run build`
-- 如果验证命令不可用，在最终回复中说明
+- 后端变更：`python src/backend/scripts/check_import_rules.py` + 最相关 pytest（见 `docs/operations.md`）
+- 前端变更：`npm run lint:check` / `npm test` / `npm run build`
 
 ## 领域约定
 
-PigeonOJ 是 OJ 平台，技术栈 FastAPI / SQLAlchemy / Alembic / gRPC（判题节点网关）/ PostgreSQL / Redis / MinIO / nsjail / Vue 3。判题采用「后端 gRPC 网关 + 判题节点容器内 nsjail 执行」架构，后端进程不执行用户代码；首批支持 Python 3.12、C++17、Java 21。AI 能力（聊天 / 出题等）暂缓实现，相关契约与依赖已摘除，立项时再凭决策记录恢复。
+PigeonOJ 是 OJ 平台，判题采用「后端 gRPC 网关 + 判题节点容器内 nsjail 执行」架构，后端进程不执行用户代码；首批支持 Python 3.12、C++17、Java 21；AI 能力暂缓实现。

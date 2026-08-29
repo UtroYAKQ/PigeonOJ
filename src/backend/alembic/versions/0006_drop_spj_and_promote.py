@@ -1,6 +1,5 @@
 """移除 SPJ、团队题升级通道与出题分值
 
-docs/decisions/2026-08-24-team-first-problem-production.md：
 判题统一标准比对，无 checker 机制；团队题为封闭空间；出题不设测试点
 分值，提交得分由服务端按通过比例派生（比赛计分随 contests 模块另行配置）。
 

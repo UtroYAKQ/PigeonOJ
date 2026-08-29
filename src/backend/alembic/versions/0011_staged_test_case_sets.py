@@ -1,6 +1,5 @@
 """测试点暂存/生效双集合：problems 引用列表 + 题级状态缓存
 
-docs/decisions/2026-08-26-test-case-staged-promotion.md：
 - problems 增加 active_case_ids / pending_case_ids / case_status / cases_revision
 - test_cases 增加 origin_id（不可变版本化：改版新行指回原行，行永不物理删除）
 - 存量回填：active 列表 = 该题现有全部测试点（按 sort_order），有点的题目 case_status='ok'

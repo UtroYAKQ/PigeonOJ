@@ -77,7 +77,7 @@ def _uuid_list(raw: list | None) -> list[uuid.UUID]:
 
 def derive_case_status(problem: Problem) -> str:
     """case_status 缓存值：由两集合与已验标记推导
-    （docs/decisions/2026-08-26-test-case-staged-promotion.md）。"""
+    。"""
     if problem.pending_case_ids is None:
         return CaseStatus.OK if problem.active_case_ids else CaseStatus.EMPTY
     if getattr(problem, "pending_verified", False):
@@ -360,11 +360,11 @@ class ProblemService:
 
         行不可变版本化：对既有点的任何有效变更生成新行（origin_id 指回原行），
         未改动点在目标状态中沿用原 id；delete_ids 表示目标状态中不含该点。
-        生效集在晋升前不受影响（docs/decisions/2026-08-26-test-case-staged-promotion.md）。
+        生效集在晋升前不受影响。
 
         - upserts 带 id：改名 / 调序 / 换内容。input / expected_output 缺省或 null = 保持
           不变；传字符串则整体替换该侧内容，空字符串 = 显式清空（写入空对象），
-          见 docs/decisions/2026-08-26-test-case-clear-content.md
+          
         - upserts 不带 id：新增（输入输出不能全空；两侧同时显式置空同样拒绝）
         - 至少保留一个测试点：目标状态不允许为空（生效集非空后永不为空的不变式）
         """
@@ -742,7 +742,7 @@ async def complete_verification(
         problem = await ProblemRepository(db).get_by_id(verification.problem_id)
         if problem is not None:
             # 验题与晋升解耦：通过仅打「已验待生效」标记，晋升由管理角色显式 apply
-            # （docs/decisions/2026-08-26-test-case-staged-promotion.md 修订）
+            
             problem.pending_verified = True
             problem.case_status = derive_case_status(problem)
             problem.verified_by = verifier_id

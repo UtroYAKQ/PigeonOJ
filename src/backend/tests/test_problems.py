@@ -895,7 +895,7 @@ async def test_list_scope_mine_shows_own_private_problems(client, admin_headers,
     assert "My Private" not in {item["title"] for item in resp.json()["data"]["items"]}
 
 
-# ---- 标签体系（docs/decisions/2026-08-24-remove-difficulty-use-tags.md） ----
+# ---- 标签体系 ----
 
 
 async def _create_tag(client, admin_headers, name: str, color: str | None = None) -> dict:
