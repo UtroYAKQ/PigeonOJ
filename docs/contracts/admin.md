@@ -110,7 +110,7 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | POST | /files/upload/image | auth | 公共图片上传（题面插图等 Markdown 引用场景，登录用户可用），存 MinIO `users/{uid}/images/` | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | oss_id / url |
 | GET | /files/{object_key} | public | 读取头像 / 公共图片等公开文件；不允许读取测试点 | object_key（仅 users/ 前缀） | binary |
 | GET | /admin/logs/{type} | admin | 日志查询 / 筛选 / 导出 | 时间范围/条件 | log[] |
-| GET | /admin/sandbox/status | admin | 沙箱状态展示（读 Redis） | - | nodes[] |
+| GET | /admin/sandbox/status | admin | 沙箱状态展示（读 Redis `sandbox:node:<id>`；指标由网关心跳写入） | - | nodes[{id, name, status, channel, load, cpu_usage, memory_usage, running_tasks, capacity, version, last_heartbeat_at}] |
 | GET | /admin/reports | admin | 举报列表 / 处理 | 分页/状态 | report[] |
 
 > **实现状态**：上表端点均已实现。

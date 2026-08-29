@@ -52,39 +52,25 @@ class PasswordConfirm(BaseModel):
     password: str
 
 
-class UserPage(BaseModel):
-    items: list[UserPublic]
-    total: int
-    page: int
-    page_size: int
-
-
 class SessionOut(BaseModel):
-    """登录会话输出。"""
+    """登录会话输出（current 由服务端比对当前请求 Token 后置位）。"""
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    device_info: str | None
+    id: uuid.UUID
+    device_info: str | None = None
     ip_address: str | None = None
-    user_agent: str | None
-    expires_at: str
-    revoked_at: str | None
-    last_active_at: str | None
-    created_at: str
-    current: bool
+    user_agent: str | None = None
+    expires_at: datetime
+    revoked_at: datetime | None = None
+    last_active_at: datetime | None = None
+    created_at: datetime
+    current: bool = False
 
     @field_validator("ip_address", mode="before")
     @classmethod
     def coerce_ip(cls, v):
         return str(v) if v is not None else None
-
-
-class LoginResponse(BaseModel):
-    """登录成功响应。"""
-
-    token: str
-    user: UserPublic
 
 
 # ---- 认证（原 auth 模块，docs/contracts/users.md /auth* 端点） ----

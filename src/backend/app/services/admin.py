@@ -16,15 +16,15 @@ from app.repositories.audit import LogRepository
 from app.repositories.system_config import ConfigRepository
 from app.schemas.admin import (
     ConfigItemOut,
+    ConfigUpdateItem,
     ExceptionLogOut,
     LoginLogOut,
     ReportOut,
     RequestLogOut,
     SandboxNodeOut,
 )
-from app.schemas.common import PaginatedData
+from app.utils.pagination import PaginatedResponse
 from app.core.exceptions import (
-    PARAM_FORMAT_INVALID,
     RESOURCE_NOT_FOUND,
     RESOURCE_STATE_CONFLICT,
     APIError,
@@ -69,15 +69,12 @@ class AdminConfigService:
             for r in rows
         ]
 
-    async def update_configs(self, admin: User, items: list[dict]) -> list[ConfigItemOut]:
+    async def update_configs(self, admin: User, items: list[ConfigUpdateItem]) -> list[ConfigItemOut]:
         for item in items:
-            config_id = item.get("id")
-            if not config_id:
-                raise APIError(PARAM_FORMAT_INVALID, "配置项缺少 id", 400)
-            row = await self.repo.get_by_id(uuid.UUID(str(config_id)))
+            row = await self.repo.get_by_id(item.id)
             if row is None:
-                raise APIError(RESOURCE_NOT_FOUND, f"配置不存在：{config_id}", 404)
-            value = item["config_value"]
+                raise APIError(RESOURCE_NOT_FOUND, f"配置不存在：{item.id}", 404)
+            value = item.config_value
             # 敏感键：提交掩码值视为「未修改」，避免把密文回写覆盖真实值
             if _is_secret_key(row.config_key) and value == _PASSWORD_MASK:
                 continue
@@ -92,7 +89,9 @@ class LogService:
         self.db = db
         self.repo = LogRepository(db)
 
-    async def list(self, log_type: str, page: int, page_size: int, keyword: str | None, start: str | None, end: str | None) -> PaginatedData:
+    async def list(
+        self, log_type: str, page: int, page_size: int, keyword: str | None, start: str | None, end: str | None,
+    ) -> PaginatedResponse[RequestLogOut] | PaginatedResponse[LoginLogOut] | PaginatedResponse[ExceptionLogOut]:
         if log_type == "request":
             rows, total = await self.repo.list_request_logs(page, page_size, keyword, start, end)
             items = [
@@ -105,7 +104,8 @@ class LogService:
                 )
                 for r in rows
             ]
-        elif log_type == "login":
+            return PaginatedResponse[RequestLogOut](items=items, total=total, page=page, page_size=page_size)
+        if log_type == "login":
             rows, total = await self.repo.list_login_logs(page, page_size, keyword, start, end)
             items = [
                 LoginLogOut(
@@ -115,7 +115,8 @@ class LogService:
                 )
                 for r in rows
             ]
-        elif log_type == "exception":
+            return PaginatedResponse[LoginLogOut](items=items, total=total, page=page, page_size=page_size)
+        if log_type == "exception":
             rows, total = await self.repo.list_exception_logs(page, page_size, keyword, start, end)
             items = [
                 ExceptionLogOut(
@@ -126,9 +127,8 @@ class LogService:
                 )
                 for r in rows
             ]
-        else:
-            raise APIError(RESOURCE_NOT_FOUND, "日志类型不存在", 404)
-        return PaginatedData(items=[i.model_dump(mode="json") for i in items], total=total, page=page, page_size=page_size)
+            return PaginatedResponse[ExceptionLogOut](items=items, total=total, page=page, page_size=page_size)
+        raise APIError(RESOURCE_NOT_FOUND, "日志类型不存在", 404)
 
 
 class SandboxService:
@@ -154,7 +154,7 @@ class ReportService:
         self.db = db
         self.repo = ReportRepository(db)
 
-    async def list(self, page: int, page_size: int, status: str | None) -> PaginatedData:
+    async def list(self, page: int, page_size: int, status: str | None) -> PaginatedResponse[ReportOut]:
         rows, total = await self.repo.list_page(page, page_size, status)
         reporter_ids = {r.reporter_id for r in rows}
         nicknames = await UserRepository(self.db).get_nicknames(list(reporter_ids))
@@ -173,7 +173,7 @@ class ReportService:
             )
             for r in rows
         ]
-        return PaginatedData(items=[i.model_dump(mode="json") for i in items], total=total, page=page, page_size=page_size)
+        return PaginatedResponse[ReportOut](items=items, total=total, page=page, page_size=page_size)
 
     async def handle(self, report_id: uuid.UUID, admin: User, action: str) -> None:
         """处理举报：handled（通过）/ ignored（驳回），见 docs/contracts/community.md。"""

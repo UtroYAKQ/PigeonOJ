@@ -31,6 +31,15 @@
   错误码 `code` 不受语言影响。前端 `api/http.ts` 每次请求自动携带界面语言作为
   `Accept-Language`
 
+### 实现约定
+
+- 信封与分页是泛型 Pydantic 契约：`ApiResponse[T]`（`app/utils/response.py`）、
+  `PaginatedResponse[T]`（`app/utils/pagination.py`），路由以
+  `response_model=ApiResponse[Xxx]` 声明响应类型
+- 路由返回 `ok(...)` 信封实例；Service 返回 Pydantic 响应模型；
+  不得手工拼装响应字典、不得在响应出口调用 `model_dump`
+- 错误信封仅由全局异常处理器（`app/core/exceptions.py`）经 `error(...)` 产生
+
 ## 通用错误码
 
 ### 参数校验 `10xx`

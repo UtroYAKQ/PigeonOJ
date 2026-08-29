@@ -72,6 +72,9 @@ class NodeConnection:
         self.inflight: set[str] = set()
         # 自测 pending：request_id → Future；节点断线时统一置错
         self.pending_runs: dict[str, asyncio.Future] = {}
+        # 节点宿主指标（心跳上报；未上报前为 0）
+        self.cpu_usage = 0
+        self.memory_usage = 0
 
     @property
     def task_count(self) -> int:
@@ -89,8 +92,8 @@ class NodeConnection:
             "status": _NODE_STATUS_ONLINE,
             "channel": _CHANNEL_GATEWAY,
             "load": self.load,
-            "cpu_usage": 0,
-            "memory_usage": 0,
+            "cpu_usage": self.cpu_usage,
+            "memory_usage": self.memory_usage,
             "running_tasks": self.task_count,
             "capacity": self.capacity,
             "version": self.version,
@@ -272,6 +275,8 @@ async def _pump_incoming(request_iterator, context: grpc.aio.ServicerContext, co
         async for msg in request_iterator:
             kind = msg.WhichOneof("payload")
             if kind == "heartbeat":
+                conn.cpu_usage = max(0, min(100, msg.heartbeat.cpu_usage))
+                conn.memory_usage = max(0, min(100, msg.heartbeat.memory_usage))
                 await REGISTRY.redis_heartbeat(conn)
             elif kind == "result":
                 await _handle_result(msg.result)

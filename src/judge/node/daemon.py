@@ -41,6 +41,52 @@ def aggregate_status(statuses: list[str]) -> str:
     return "accepted" if all(x == "accepted" for x in statuses) else "system_error"
 
 
+def read_cpu_times(path: str = "/proc/stat") -> tuple[int, int] | None:
+    """读 /proc/stat 首行，返回 (idle, total) 累加计数；非 Linux / 读取失败返回 None。"""
+    try:
+        with open(path, "r", encoding="ascii") as f:
+            line = f.readline()
+    except OSError:
+        return None
+    if not line.startswith("cpu "):
+        return None
+    try:
+        fields = [int(x) for x in line.split()[1:]]
+    except ValueError:
+        return None
+    if len(fields) < 4:
+        return None
+    idle = fields[3] + (fields[4] if len(fields) > 4 else 0)  # idle + iowait
+    return idle, sum(fields)
+
+
+def read_memory_usage(path: str = "/proc/meminfo") -> int | None:
+    """读 /proc/meminfo，返回内存使用率（0-100）；无 MemAvailable 时按 MemFree+Buffers+Cached 估算。"""
+    total = available = free = buffers = cached = None
+    try:
+        with open(path, "r", encoding="ascii") as f:
+            for raw in f:
+                if raw.startswith("MemTotal:"):
+                    total = int(raw.split()[1])
+                elif raw.startswith("MemAvailable:"):
+                    available = int(raw.split()[1])
+                elif raw.startswith("MemFree:"):
+                    free = int(raw.split()[1])
+                elif raw.startswith("Buffers:"):
+                    buffers = int(raw.split()[1])
+                elif raw.startswith("Cached:"):
+                    cached = int(raw.split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    if not total:
+        return None
+    if available is not None:
+        used = total - available
+    else:
+        used = total - (free or 0) - (buffers or 0) - (cached or 0)
+    return max(0, min(100, round(used * 100 / total)))
+
+
 class NodeDaemon:
     def __init__(self, cfg: JudgeNodeConfig) -> None:
         self.cfg = cfg
@@ -55,6 +101,7 @@ class NodeDaemon:
         self.semaphore: asyncio.Semaphore | None = None
         self.running_tasks = 0
         self.heartbeat_interval = 10
+        self.cpu_sample: tuple[int, int] | None = None  # (idle, total) 上次 /proc/stat 采样
 
     async def run(self) -> None:
         cfg = self.cfg
@@ -106,8 +153,30 @@ class NodeDaemon:
     async def _heartbeat_loop(self) -> None:
         interval = max(3, self.heartbeat_interval)
         while True:
-            await self.outbox.put(judge_pb2.NodeMessage(heartbeat=judge_pb2.Heartbeat(running_tasks=self.running_tasks)))
+            await self.outbox.put(judge_pb2.NodeMessage(heartbeat=judge_pb2.Heartbeat(
+                running_tasks=self.running_tasks,
+                cpu_usage=self._cpu_usage(),
+                memory_usage=self._memory_usage(),
+            )))
             await asyncio.sleep(interval)
+
+    def _cpu_usage(self) -> int:
+        """宿主 CPU 使用率（0-100）：按两次心跳间的 /proc/stat 增量计算；无基线/非 Linux 返回 0。"""
+        sample = read_cpu_times()
+        if sample is None:
+            return 0
+        idle, total = sample
+        prev = self.cpu_sample
+        self.cpu_sample = sample
+        if prev is None:
+            return 0
+        delta_total = total - prev[1]
+        if delta_total <= 0:
+            return 0
+        return max(0, min(100, round((delta_total - (idle - prev[0])) * 100 / delta_total)))
+
+    def _memory_usage(self) -> int:
+        return read_memory_usage() or 0
 
     async def _cache_gc_loop(self) -> None:
         """定时巡检缓存总量，超限则按 LRU 回收（max_mb<=0 表示不启用）。"""

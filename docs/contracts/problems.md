@@ -130,7 +130,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：创建者见自己全部题目，管理角色（admin/tutor/team_creator）见可管理范围全量，可叠加 `status` 过滤；mine 视图每项附 `needs_reverification`（存在待验证测试点，或样例晚于最近验题通过时间） | 分页/标签/关键字/scope/status | problem[] |
+| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：创建者见自己全部题目，管理角色（admin/tutor/team_creator）见可管理范围全量，可叠加 `status` 过滤；列表项恒带 `needs_reverification` 字段（存在待验证测试点，或样例晚于最近验题通过时间；仅 `scope=mine` 视图有意义，其他场景恒为 `false`） | 分页/标签/关键字/scope/status | problem[] |
 | GET | /problems/tags | public | 激活标签列表（打标选择器与列表筛选用，仅 `status='active'`） | - | tag[]（id/name/color） |
 | GET | /admin/tags | admin | 标签管理全量列表（含已归档） | - | tag[] |
 | POST | /admin/tags | admin | 新增标签（name 唯一，重复返回 1001） | name/color? | tag |

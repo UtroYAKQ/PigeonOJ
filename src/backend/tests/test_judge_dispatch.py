@@ -15,11 +15,13 @@ from sqlalchemy import select
 from app.rpc.judge_gateway import (
     REGISTRY,
     NodeConnection,
+    _pump_incoming,
     _reset_to_pending,
     _token_ok,
     maintenance_loop,
     send_job,
 )
+from app.rpc.gen import judge_pb2
 from app.models.judge import Submission
 from app.models.problem import Problem, TestCase
 from app.models.user import User
@@ -184,3 +186,50 @@ async def test_maintenance_rescans_stale_pending(client, admin_headers, fake_sto
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_updates_node_metrics():
+    """心跳携带宿主指标 → 连接对象与 Redis 热数据均应体现（不再写死 0）。"""
+    import json
+
+    from app.core.redis import SANDBOX_NODE_KEY_PREFIX, get_redis
+
+    conn = _add_node("metric-1", capacity=4)
+    msg = judge_pb2.NodeMessage(heartbeat=judge_pb2.Heartbeat(
+        running_tasks=1, cpu_usage=55, memory_usage=66,
+    ))
+
+    async def stream():
+        yield msg
+
+    await _pump_incoming(stream(), None, conn)
+
+    assert conn.cpu_usage == 55
+    assert conn.memory_usage == 66
+    payload = conn.to_payload()
+    assert payload["cpu_usage"] == 55 and payload["memory_usage"] == 66
+
+    raw = await get_redis().get(f"{SANDBOX_NODE_KEY_PREFIX}metric-1")
+    stored = json.loads(raw)
+    assert stored["cpu_usage"] == 55 and stored["memory_usage"] == 66
+    assert stored["status"] == "online"
+
+    await REGISTRY.remove_heartbeat("metric-1")
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_metrics_clamped_to_percent():
+    """节点上报越界值 → 网关写入前钳制到 0-100。"""
+    conn = _add_node("metric-2", capacity=1)
+    msg = judge_pb2.NodeMessage(heartbeat=judge_pb2.Heartbeat(
+        running_tasks=0, cpu_usage=150, memory_usage=-5,
+    ))
+
+    async def stream():
+        yield msg
+
+    await _pump_incoming(stream(), None, conn)
+    assert conn.cpu_usage == 100
+    assert conn.memory_usage == 0
+    await REGISTRY.remove_heartbeat("metric-2")

@@ -125,6 +125,7 @@ src/backend/
 - 模型字段、校验 Schema 遵循 `docs/contracts/` 数据模型（迁移 SQL 为唯一来源）
 - 枚举字段使用 `VARCHAR(n)` + CHECK 约束（SQLAlchemy 侧可用 `Enum`）；状态 / 可见性语义见对应契约文件
 - 空值用 `None` 表示「无」
+- 响应类型统一走泛型信封 `ApiResponse[T]` / `PaginatedResponse[T]`（`app/utils/`）：路由用 `response_model` 声明返回类型并返回 `ok(...)`；Service 返回 Pydantic 响应模型；禁止手工拼装响应字典或在响应出口 `model_dump`（见 `docs/contracts/common.md` 实现约定）
 - 每个 Service 方法单一职责；跨模块只 import 对方 service / repository 的公开类与函数（见分层架构与 `docs/decisions/2026-08-25-backend-service-repository-split.md`）
 
 ### 错误处理

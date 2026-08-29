@@ -15,6 +15,7 @@ from app.enums import LoginAction, Theme, UserStatus, UserRoleScope
 from app.models.user import User, UserRole
 from app.repositories.user import UserRepository, SessionRepository, RoleRepository
 from app.repositories.audit import write_login_log
+from app.utils.pagination import PaginatedResponse
 from app.schemas.user import (
     ChangeEmailRequest,
     ChangePasswordRequest,
@@ -25,7 +26,6 @@ from app.schemas.user import (
     RegisterRequest,
     ResetPasswordRequest,
     SessionOut,
-    UserPage,
     UserPublic,
 )
 from app.schemas.admin import SMTPConfig
@@ -178,20 +178,12 @@ class UserService:
 
     async def list_sessions(self, user: User, current_token_hash: str) -> list[SessionOut]:
         sessions = await self.sessions.list_active_by_user(user.id)
-        return [
-            SessionOut(
-                id=str(s.id),
-                device_info=s.device_info,
-                ip_address=s.ip_address,
-                user_agent=s.user_agent,
-                expires_at=s.expires_at.isoformat(),
-                revoked_at=s.revoked_at.isoformat() if s.revoked_at else None,
-                last_active_at=s.last_active_at.isoformat() if s.last_active_at else None,
-                created_at=s.created_at.isoformat(),
-                current=s.token == current_token_hash,
-            )
-            for s in sessions
-        ]
+        items: list[SessionOut] = []
+        for s in sessions:
+            item = SessionOut.model_validate(s)
+            item.current = s.token == current_token_hash
+            items.append(item)
+        return items
 
     async def revoke_session(self, user: User, session_id: uuid.UUID, current_token_hash: str) -> None:
         session = await self.sessions.get_by_id(session_id)
@@ -206,7 +198,7 @@ class UserService:
 
     async def admin_list_users(
         self, page: int, page_size: int, keyword: str | None, status: str | None
-    ) -> dict:
+    ) -> PaginatedResponse[UserPublic]:
         if status and status not in VALID_STATUS:
             raise APIError(PARAM_FORMAT_INVALID, "状态取值不合法", 400)
         items, total = await self.users.list_page(page, page_size, keyword, status)
@@ -220,7 +212,7 @@ class UserService:
                 roles=roles_map.get(u.id, []),
             )
             user_list.append(public)
-        return UserPage(items=user_list, total=total, page=page, page_size=page_size).model_dump(mode="json")
+        return PaginatedResponse[UserPublic](items=user_list, total=total, page=page, page_size=page_size)
 
     async def admin_set_roles(self, user_id: uuid.UUID, role_codes: list[str]) -> None:
         """全局角色授权：写 user_roles（scope='global'、object_id=NULL），见 docs/contracts/admin.md。"""
@@ -354,7 +346,7 @@ class AuthService:
 
     # ---------------- 登录 / 登出 ----------------
 
-    async def login(self, req: LoginRequest, ip: str | None, user_agent: str | None) -> dict:
+    async def login(self, req: LoginRequest, ip: str | None, user_agent: str | None) -> LoginResult:
         user = await self.users.get_by_email(req.email)
         fail_key = f"login:fail:{req.email}"
 
@@ -413,7 +405,8 @@ class AuthService:
             token_hash = hash_token(raw_token)
             session = await self.sessions.get_valid_by_token(token_hash, datetime.now())
             if session is not None and session.user_id == user.id:
-                await self.sessions.revoke(session, datetime.now())
+                # 退出登录：物理删除该会话记录，不留存（区别于管理端/注销的软撤销）
+                await self.sessions.delete(session)
                 await redis_delete(f"{SESSION_KEY_PREFIX}{token_hash}")
         await write_login_log(self.db, LoginAction.LOGOUT, True, user_id=user.id, email=user.email,
                               ip_address=ip, user_agent=user_agent)

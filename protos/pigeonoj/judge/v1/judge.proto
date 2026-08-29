@@ -103,6 +103,8 @@ message Register {
 
 message Heartbeat {
   int32 running_tasks = 1; // load 由服务端按 capacity 计算
+  int32 cpu_usage = 2;     // 节点宿主 CPU 使用率（0-100），采集自 /proc/stat；无数据时为 0
+  int32 memory_usage = 3;  // 节点宿主内存使用率（0-100），采集自 /proc/meminfo；无数据时为 0
 }
 
 message CaseResult {

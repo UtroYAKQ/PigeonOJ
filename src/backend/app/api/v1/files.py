@@ -6,31 +6,30 @@ from fastapi.responses import Response
 
 from app.services.file import FileService
 from app.models.user import User
+from app.schemas.file import AvatarUploadResult, ImageUploadResult
 from app.core.dependency import get_current_user
 from app.core.exceptions import APIError, RESOURCE_NOT_FOUND
-from app.utils.response import ok
+from app.utils.response import ApiResponse, ok
 from app.core.storage import S3Error, get_storage
 
 router = APIRouter(prefix="/files", tags=["files"])
 
 
-@router.post("/upload/avatar")
+@router.post("/upload/avatar", response_model=ApiResponse[AvatarUploadResult])
 async def upload_avatar(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
-):
-    result = await FileService().upload_avatar(current_user.id, file)
-    return ok(result)
+) -> ApiResponse[AvatarUploadResult]:
+    return ok(await FileService().upload_avatar(current_user.id, file))
 
 
-@router.post("/upload/image")
+@router.post("/upload/image", response_model=ApiResponse[ImageUploadResult])
 async def upload_image(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
-):
+) -> ApiResponse[ImageUploadResult]:
     """公共图片上传（登录用户可用）：题面插图等 Markdown 引用场景。"""
-    result = await FileService().upload_image(current_user.id, file)
-    return ok(result)
+    return ok(await FileService().upload_image(current_user.id, file))
 
 
 @router.get("/{object_key:path}")

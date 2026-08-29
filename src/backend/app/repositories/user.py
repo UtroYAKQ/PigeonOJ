@@ -104,13 +104,22 @@ class SessionRepository:
     async def list_active_by_user(self, user_id: uuid.UUID) -> list[UserSession]:
         stmt = (
             select(UserSession)
-            .where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
+            .where(
+                UserSession.user_id == user_id,
+                UserSession.revoked_at.is_(None),
+                UserSession.expires_at > datetime.now(),
+            )
             .order_by(UserSession.created_at.desc())
         )
         return list((await self.db.execute(stmt)).scalars().all())
 
     async def revoke(self, session: UserSession, now: datetime) -> None:
         session.revoked_at = now
+        await self.db.flush()
+
+    async def delete(self, session: UserSession) -> None:
+        """物理删除会话记录（退出登录时调用，不留存记录）。"""
+        await self.db.delete(session)
         await self.db.flush()
 
     async def revoke_all_by_user(self, user_id: uuid.UUID, now: datetime) -> None:

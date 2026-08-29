@@ -60,6 +60,7 @@ from app.schemas.problem import (
     TestCasesPatch,
     TestCasesUpdate,
     VerificationInitOut,
+    VerificationInviteLink,
     VerificationInviteOut,
 )
 
@@ -551,7 +552,7 @@ class ProblemService:
         await self.db.flush()
         return problem
 
-    async def _load_invite(self, problem_id: uuid.UUID) -> dict | None:
+    async def _load_invite(self, problem_id: uuid.UUID) -> VerificationInviteLink | None:
         """返回题目当前有效的验题邀请链接（基于 Redis 反向索引）；无或已失效返回 None。"""
         token = await redis_get(f"{VERIFY_INVITE_PROBLEM_PREFIX}{problem_id}")
         if not token:
@@ -562,10 +563,9 @@ class ProblemService:
         remaining = await get_redis().ttl(f"{VERIFY_INVITE_KEY_PREFIX}{token}")
         if not isinstance(remaining, int) or remaining <= 0:
             return None
-        expires_at = (datetime.now() + timedelta(seconds=remaining)).isoformat()
-        return {"token": token, "expires_at": expires_at}
+        return VerificationInviteLink(token=token, expires_at=datetime.now() + timedelta(seconds=remaining))
 
-    async def get_verification_invite(self, user: object, problem_id: uuid.UUID) -> dict | None:
+    async def get_verification_invite(self, user: object, problem_id: uuid.UUID) -> VerificationInviteLink | None:
         """查询题目当前有效的验题邀请链接（含权限校验）；无或已失效返回 None。"""
         problem = await self.problems.get_by_id(problem_id)
         if problem is None:
@@ -609,8 +609,7 @@ class ProblemService:
         )
         if pending is None:
             pending = await self.verifications.create(ProblemVerification(problem_id=problem_id))
-        expires_at = (datetime.now() + timedelta(seconds=ttl_seconds)).isoformat()
-        invite = {"token": token, "expires_at": expires_at}
+        invite = VerificationInviteLink(token=token, expires_at=datetime.now() + timedelta(seconds=ttl_seconds))
         return VerificationInitOut(verification_id=str(pending.id), invite=invite)
 
     async def resolve_invite(self, token: str) -> VerificationInviteOut:
@@ -631,7 +630,7 @@ class ProblemService:
         return VerificationInviteOut(
             problem_id=str(problem.id),
             problem_title=problem.title,
-            expires_at=(datetime.now() + timedelta(seconds=remaining)).isoformat()
+            expires_at=datetime.now() + timedelta(seconds=remaining)
             if isinstance(remaining, int) and remaining > 0
             else None,
             background=problem.background,

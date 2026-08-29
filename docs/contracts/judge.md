@@ -78,7 +78,7 @@ CHECK (
 | is_enabled | BOOLEAN | NOT NULL DEFAULT true | |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
-> `problems.memory_limit_mb` / `time_limit_ms` 为 **C++ 基准**限制；判题时按本语言的 `time_ratio` / `memory_ratio` / `memory_min_mb` 换算出有效限制（见下方「语言限制换算」），沙箱按有效限制执行，本表不直接存题目限制绝对值。沙箱节点实例运行时状态（在线 / 离线 / 负载 / 健康检查）为热数据存 Redis（`sandbox:node:<id>`），不落库。
+> `problems.memory_limit_mb` / `time_limit_ms` 为 **C++ 基准**限制；判题时按本语言的 `time_ratio` / `memory_ratio` / `memory_min_mb` 换算出有效限制（见下方「语言限制换算」），沙箱按有效限制执行，本表不直接存题目限制绝对值。沙箱节点实例运行时状态（在线 / 离线 / 负载 / CPU / 内存 / 健康检查）为热数据存 Redis（`sandbox:node:<id>`），不落库。
 
 ## 数据所有权
 
@@ -110,7 +110,7 @@ CHECK (
 | GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细 case_name + 状态/耗时/内存/得分/程序输出；不返回期望输出） | - | submission（含 restricted 标志） |
 | GET | /submissions | auth | 提交历史（本人，`WHERE user_id=?`） | problem_id/contest_id/status/分页 | submission[]（含 restricted 标志） |
 | POST | /problems/{id}/run-code | auth | 用户自测（单次运行，不落库不计分；见「用户自测」节） | language, code, input? | status, output(stdout), error_message?, time_used_ms, memory_used_kb? |
-| GET | /sandbox/health | admin | 沙箱节点健康 | - | nodes[{id, status, load}] |
+| GET | /sandbox/health | admin | 沙箱节点健康 | - | nodes[{id, name, status, channel, load, cpu_usage, memory_usage, running_tasks, capacity, version, last_heartbeat_at}] |
 
 > **得分可见性（ACM 赛制限分）**：`submit_type=contest` 且关联比赛 `rule_type=ACM` 且 `end_time` 未到时，详情与列表接口的 `restricted=true`、`score=null`、`cases=[]`（服务端扣数据，前端仅做条件渲染）；IOI 赛制 / 练习 / 验题 / 比赛结束（含赛后补题）恒为完整可见。contests 模块落地前无比赛数据，恒为 `restricted=false`。策略实现在 `SubmissionService.is_score_restricted`。
 
@@ -154,6 +154,8 @@ CHECK (
 - `Connect(stream NodeMessage) returns (stream ServerMessage)`：节点生命周期主通道。
   首条 Register 携带令牌（后端 `JUDGE_GATEWAY_TOKENS` 其一），不符即 UNAUTHENTICATED；
   上行 Heartbeat / JudgeResult / RunCodeResult，下行 SubmitJob / RunCodeJob / CancelJob(预留)。
+  Heartbeat 携带 `running_tasks`（`load` 由服务端按 `capacity` 计算）与宿主指标
+  `cpu_usage` / `memory_usage`（0-100，节点采集自 `/proc/stat` / `/proc/meminfo`；非 Linux 或无数据为 0）。
 - `FetchProblemData(ProblemDataRequest) returns (stream FileChunk)`：
   按 `data_version` 流式传输 manifest / cases/<id>.in|.out；
   令牌经 metadata `x-node-token` 携带。数据指纹 = sha256(测试点数量|最大 updated_at)，

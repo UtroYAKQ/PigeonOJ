@@ -189,7 +189,10 @@ class SampleOut(BaseModel):
 
 
 class ProblemSummary(BaseModel):
-    """题目列表项摘要（不含详情字段）。"""
+    """题目列表项摘要（不含详情字段）。
+
+    needs_reverification 仅 scope=mine 视图有意义（其他场景恒为 False）。
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -201,6 +204,7 @@ class ProblemSummary(BaseModel):
     visibility: ProblemVisibility
     is_verified: bool
     created_at: datetime
+    needs_reverification: bool = False
 
 
 class TestCaseOut(BaseModel):
@@ -216,6 +220,12 @@ class TestCaseOut(BaseModel):
     input: str | None
     expected_output: str | None
     staged: bool = False
+
+
+class TestCasesOut(BaseModel):
+    """增量更新测试点响应：目标状态合并视图（PATCH /problems/{id}/test-cases）。"""
+
+    cases: list[TestCaseOut]
 
 
 class ProblemDetail(BaseModel):
@@ -254,12 +264,19 @@ class ProblemDetail(BaseModel):
 # ---- 验题相关 Response Schemas ----
 
 
+class VerificationInviteLink(BaseModel):
+    """验题邀请链接（token + 由 Redis TTL 推算的过期时间）。"""
+
+    token: str
+    expires_at: datetime
+
+
 class VerificationInviteOut(BaseModel):
     """验题邀请详情。"""
 
     problem_id: str
     problem_title: str
-    expires_at: str | None
+    expires_at: datetime | None
     background: str
     description: str
     input_description: str | None
@@ -271,10 +288,8 @@ class VerificationInviteOut(BaseModel):
 
 
 class VerificationInitOut(BaseModel):
-    """发起验题响应。"""
-
-    model_config = ConfigDict(exclude_none=True)
+    """发起验题响应（邀请模式下附邀请链接；无邀请时 invite 为 None）。"""
 
     verification_id: str
-    invite: dict | None = None
+    invite: VerificationInviteLink | None = None
 

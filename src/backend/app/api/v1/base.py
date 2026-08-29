@@ -6,8 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.system_config import get_site_public_configs
 from app.core.database import get_db
+from app.schemas.admin import SitePublicConfig
 from app.schemas.common import HealthStatus
-from app.utils.response import ok
+from app.utils.response import ApiResponse, ok
 
 router = APIRouter(tags=["system"])
 """根级端点（无前缀）：健康检查。"""
@@ -16,13 +17,13 @@ v1_router = APIRouter(prefix="/api/v1", tags=["system"])
 """v1 级端点：公开站点配置。"""
 
 
-@router.get("/health")
-async def health() -> dict:
+@router.get("/health", response_model=ApiResponse[HealthStatus])
+async def health() -> ApiResponse[HealthStatus]:
     """健康检查：返回统一信封 {code: 0, message: "ok", data: {...}}。"""
-    return ok(HealthStatus(status="ok").model_dump(mode="json"))
+    return ok(HealthStatus(status="ok"))
 
 
-@v1_router.get("/site-config")
-async def site_config(db: AsyncSession = Depends(get_db)) -> dict:
+@v1_router.get("/site-config", response_model=ApiResponse[SitePublicConfig])
+async def site_config(db: AsyncSession = Depends(get_db)) -> ApiResponse[SitePublicConfig]:
     """公开站点配置（未登录可读）：站点名 / Logo / ICP / 默认主题 / 注册开关。"""
     return ok(await get_site_public_configs(db))

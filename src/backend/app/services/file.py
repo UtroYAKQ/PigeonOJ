@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import TypeVar
 
 from fastapi import UploadFile
 
@@ -12,6 +13,8 @@ from app.schemas.file import AvatarUploadResult, ImageUploadResult
 _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 _MAX_AVATAR_BYTES = 2 * 1024 * 1024
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+R = TypeVar("R", AvatarUploadResult, ImageUploadResult)
 
 
 class FileService:
@@ -25,7 +28,7 @@ class FileService:
         )
 
         object_key = f"users/{user_id}/avatar/{uuid.uuid4().hex}"
-        return await _store_image(object_key, content_type, content)
+        return await _store_image(object_key, content_type, content, AvatarUploadResult)
 
     async def upload_image(self, user_id: uuid.UUID, file: UploadFile) -> ImageUploadResult:
         """公共图片上传：登录用户可用，供题面插图等 Markdown 场景引用。"""
@@ -38,7 +41,7 @@ class FileService:
         )
 
         object_key = f"users/{user_id}/images/{uuid.uuid4().hex}"
-        return await _store_image(object_key, content_type, content)
+        return await _store_image(object_key, content_type, content, ImageUploadResult)
 
 
 async def _validate_image(
@@ -60,12 +63,12 @@ async def _validate_image(
     return content_type, content
 
 
-async def _store_image(object_key: str, content_type: str, content: bytes) -> ImageUploadResult:
+async def _store_image(object_key: str, content_type: str, content: bytes, result_cls: type[R]) -> R:
     try:
         stored = await get_storage().put_bytes(object_key, content, content_type)
     except (OSError, S3Error) as exc:
         raise APIError(SYSTEM_UPSTREAM_FAILURE, "文件存储失败，请稍后重试", 503) from exc
-    return ImageUploadResult(
+    return result_cls(
         oss_id=stored.object_key,
         url=f"/api/v1/files/{stored.object_key}",
         content_type=stored.content_type,

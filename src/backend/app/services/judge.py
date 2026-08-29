@@ -23,9 +23,9 @@ from app.repositories.problem import ProblemRepository
 from app.schemas.judge import (
     SelfTestRequest,
     SubmissionCreate,
-    SubmissionDetail,
     SubmissionDetailOut,
     SubmissionQuery,
+    SubmissionSummary,
     TestCaseResult,
 )
 from app.services.problem import (
@@ -125,6 +125,18 @@ class SubmissionService:
             user.id, query.problem_id, query.status, query.page, query.page_size,
         )
 
+    async def list_summaries(self, user: object, query: SubmissionQuery) -> tuple[list[SubmissionSummary], int]:
+        """本人提交历史摘要（含 ACM 限分策略：进行中的 ACM 比赛隐藏得分）。"""
+        rows, total = await self.list_for_user(user, query)
+        items: list[SubmissionSummary] = []
+        for row in rows:
+            summary = SubmissionSummary.model_validate(row)
+            if await self.is_score_restricted(row):
+                summary.score = None
+                summary.restricted = True
+            items.append(summary)
+        return items, total
+
     async def is_score_restricted(self, submission: Submission) -> bool:
         """得分可见性策略：ACM 赛制比赛进行中的提交隐藏得分与测试点明细。
 
@@ -178,10 +190,12 @@ class SubmissionService:
                 score=r.score,
                 output=output,
             ))
-        detail = SubmissionDetail.model_validate(submission).model_dump()
+        detail = SubmissionDetailOut.model_validate(submission)
         if restricted:
-            detail["score"] = None
-        return SubmissionDetailOut(**detail, cases=cases, restricted=restricted)
+            detail.score = None
+        detail.cases = cases
+        detail.restricted = restricted
+        return detail
 
     async def create_verify_submission(self, user: object, problem_id: uuid.UUID, body: object) -> Submission:
         from app.services.problem import get_pending_verification, attach_verification_code

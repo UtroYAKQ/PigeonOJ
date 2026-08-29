@@ -97,10 +97,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(APIError)
     async def _handle_api_error(request: Request, exc: APIError):
         locale = resolve_locale(request.headers.get("accept-language"))
-        return JSONResponse(
-            status_code=exc.http_status,
-            content=error(exc.code, translate_message(exc.message, locale)),
-        )
+        envelope = error(exc.code, translate_message(exc.message, locale))
+        return JSONResponse(status_code=exc.http_status, content=envelope.model_dump())
 
     @app.exception_handler(RequestValidationError)
     async def _handle_validation_error(request: Request, exc: RequestValidationError):
@@ -115,15 +113,11 @@ def register_exception_handlers(app: FastAPI) -> None:
             message = f"{loc}: {detail}" if loc else detail
         else:
             message = "Invalid parameter" if locale == EN_US else "参数不合法"
-        return JSONResponse(
-            status_code=400,
-            content=error(PARAM_FORMAT_INVALID, message),
-        )
+        envelope = error(PARAM_FORMAT_INVALID, message)
+        return JSONResponse(status_code=400, content=envelope.model_dump())
 
     @app.exception_handler(HTTPException)
     async def _handle_http_error(request: Request, exc: HTTPException):
         locale = resolve_locale(request.headers.get("accept-language"))
-        return JSONResponse(
-            status_code=exc.status_code,
-            content=error(exc.status_code, translate_message(str(exc.detail), locale)),
-        )
+        envelope = error(exc.status_code, translate_message(str(exc.detail), locale))
+        return JSONResponse(status_code=exc.status_code, content=envelope.model_dump())
