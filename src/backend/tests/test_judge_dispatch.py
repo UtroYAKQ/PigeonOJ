@@ -15,9 +15,11 @@ from sqlalchemy import select
 from app.rpc.judge_gateway import (
     REGISTRY,
     NodeConnection,
+    _attach_pump_watchdog,
     _pump_incoming,
     _reset_to_pending,
     _token_ok,
+    dispatch_submission,
     maintenance_loop,
     send_job,
 )
@@ -233,3 +235,63 @@ async def test_heartbeat_metrics_clamped_to_percent():
     assert conn.cpu_usage == 100
     assert conn.memory_usage == 0
     await REGISTRY.remove_heartbeat("metric-2")
+
+
+@pytest.mark.asyncio
+async def test_pump_survives_message_handler_error(monkeypatch):
+    """单条上行消息处理失败（Redis/DB 瞬断）不得终止泵：后续消息仍被处理。
+
+    回归背景：旧实现整个循环一个 try/except pass，一次 Redis 抖动就杀掉上行泵，
+    心跳停写、结果回不来，而下行派发仍在继续（僵尸连接）。
+    """
+    conn = _add_node("pump-resilient", capacity=2)
+    calls = {"n": 0}
+
+    async def flaky_redis_heartbeat(target: NodeConnection) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("redis blip")
+
+    monkeypatch.setattr(REGISTRY, "redis_heartbeat", flaky_redis_heartbeat)
+
+    hb = judge_pb2.NodeMessage(heartbeat=judge_pb2.Heartbeat(running_tasks=0, cpu_usage=42, memory_usage=42))
+
+    async def stream():
+        yield hb
+        yield hb
+
+    await asyncio.wait_for(_pump_incoming(stream(), None, conn), timeout=5)
+    assert calls["n"] == 2
+    assert conn.cpu_usage == 42  # 第二条心跳仍被处理
+    await REGISTRY.remove_heartbeat("pump-resilient")
+
+
+@pytest.mark.asyncio
+async def test_pump_exit_pushes_offline_sentinel():
+    """上行泵任何原因退出 → 下行队列收到 None 哨兵 → Connect 主循环退出并清理连接。"""
+    conn = NodeConnection(node_id="pump-sentinel", name="pump-sentinel", capacity=1, version="test")
+
+    async def broken_stream():
+        raise RuntimeError("stream broken")
+        yield  # noqa: unreachable - 使其成为异步生成器
+
+    task = asyncio.create_task(_pump_incoming(broken_stream(), None, conn))
+    _attach_pump_watchdog(task, conn)
+    sentinel = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+    assert sentinel is None
+
+
+@pytest.mark.asyncio
+async def test_stale_node_excluded_from_dispatch():
+    """超过判活阈值无上行消息的节点不参与派发与并发统计（僵尸连接防护）。"""
+    from app.rpc.judge_gateway import GatewayUnavailableError, active_judge_count, dispatch_run_code
+
+    _add_node("stale-1", inflight=2, capacity=4)
+    conn = REGISTRY.get("stale-1")
+    conn.last_seen -= 10_000  # 强制判定为僵死（monotonic 秒）
+
+    assert await active_judge_count() == 0
+    assert await dispatch_submission(uuid_mod.uuid4()) is None
+    with pytest.raises(GatewayUnavailableError):
+        await dispatch_run_code(problem=None, sandbox_config=None, language="python3",
+                                code=b"print(1)", stdin_data=b"", max_concurrent=4)

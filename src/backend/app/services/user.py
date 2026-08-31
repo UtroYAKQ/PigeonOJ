@@ -46,6 +46,7 @@ from app.core.redis import (
     EMAIL_RESEND_KEY_PREFIX,
     SESSION_KEY_PREFIX,
     redis_delete,
+    redis_get,
     redis_get_json,
     redis_incr,
     redis_set,
@@ -63,7 +64,8 @@ VALID_STATUS = {s.value for s in UserStatus}
 
 SESSION_TTL_DAYS = 30  # 会话有效期（天）
 LOGIN_FAIL_WINDOW_SECONDS = 900  # 登录失败计数窗口（15 分钟）
-LOGIN_FAIL_MAX = 5  # 触发冻结的失败次数
+LOGIN_FAIL_MAX = 5  # 触发临时锁定的失败次数
+LOGIN_LOCK_SECONDS = 900  # 临时锁定时长（15 分钟，到期自动恢复）
 
 
 def _smtp_send(cfg: SMTPConfig, message: EmailMessage) -> None:
@@ -349,18 +351,33 @@ class AuthService:
     async def login(self, req: LoginRequest, ip: str | None, user_agent: str | None) -> LoginResult:
         user = await self.users.get_by_email(req.email)
         fail_key = f"login:fail:{req.email}"
+        lock_key = f"login:lock:{req.email}"
+
+        # 临时锁定期内拒绝所有登录尝试（先于密码校验，到期由 Redis TTL 自动恢复）
+        if await redis_get(lock_key) is not None:
+            await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id if user else None,
+                                  email=req.email, ip_address=ip, user_agent=user_agent,
+                                  reason="登录临时锁定期内拒绝")
+            # 失败路径显式提交：审计日志必须持久化（随后抛业务错误，get_db 会回滚）
+            await self.db.commit()
+            raise APIError(RATE_LIMITED, "登录失败次数过多，请稍后再试", 429)
 
         if user is None or not verify_password(req.password, user.password):
             fails = await redis_incr(fail_key, LOGIN_FAIL_WINDOW_SECONDS)
-            reason = None
-            if user is not None and fails >= LOGIN_FAIL_MAX:
-                # 安全策略：登录失败超次 → frozen（可人工解冻，users.md 账号状态语义）
-                user.status = UserStatus.FROZEN
-                reason = "登录失败超次，触发冻结"
+            if fails >= LOGIN_FAIL_MAX:
+                # 安全策略：失败超次 → 临时锁定（不改动账号状态；管理员冻结仍走 admin 接口，
+                # users.md「账号状态语义」）。锁定 key 带 TTL，到期自动恢复登录。
+                await redis_set(lock_key, "1", LOGIN_LOCK_SECONDS)
+                await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id if user else None,
+                                      email=req.email, ip_address=ip, user_agent=user_agent,
+                                      reason="登录失败超次，触发临时锁定")
+                # 失败路径显式提交：审计日志必须持久化（随后抛业务错误，get_db 会回滚）
+                await self.db.commit()
+                raise APIError(RATE_LIMITED, "登录失败次数过多，请稍后再试", 429)
             await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id if user else None,
                                   email=req.email, ip_address=ip, user_agent=user_agent,
-                                  reason=reason or "密码错误")
-            # 失败路径显式提交：冻结状态与审计日志必须持久化（随后抛业务错误，get_db 会回滚）
+                                  reason="密码错误")
+            # 失败路径显式提交：审计日志必须持久化（随后抛业务错误，get_db 会回滚）
             await self.db.commit()
             raise APIError(AUTH_INVALID_CREDENTIAL, "邮箱或密码错误", 401)
 

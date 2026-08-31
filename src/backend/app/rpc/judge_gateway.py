@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -51,7 +52,16 @@ _REQUEUE_LOCK_PREFIX = "judge:requeue:"
 
 async def active_judge_count() -> int:
     """全平台正在执行的任务数（提交判题 + 用户自测；提交并发上限 4002 依据）。"""
-    return sum(len(conn.inflight) + len(conn.pending_runs) for conn in REGISTRY.list_nodes())
+    return sum(len(conn.inflight) + len(conn.pending_runs) for conn in _live_nodes())
+
+
+def _live_nodes() -> list[NodeConnection]:
+    """参与派发与并发统计的节点：注册表中有连接且上行流近期有消息。
+
+    防僵尸连接：上行泵死亡或节点 hang 死时心跳停流，若仅凭注册表派发，
+    任务会派给永远回不来结果的节点；判活阈值与心跳 Redis TTL（管理页可见性）对齐。
+    """
+    return [conn for conn in REGISTRY.list_nodes() if not conn.is_stale()]
 
 
 class GatewayUnavailableError(RuntimeError):
@@ -80,6 +90,19 @@ class NodeConnection:
         # 节点宿主指标（心跳上报；未上报前为 0）
         self.cpu_usage = 0
         self.memory_usage = 0
+        # 最近一次收到上行消息的时刻（monotonic 秒 + UTC 墙钟）：判活与管理页 last_heartbeat_at 依据
+        self.last_seen = time.monotonic()
+        self.last_seen_at = datetime.now(timezone.utc)
+
+    def touch(self) -> None:
+        """收到任一上行消息（心跳 / 判题结果 / 自测结果）时刷新活跃时刻。"""
+        self.last_seen = time.monotonic()
+        self.last_seen_at = datetime.now(timezone.utc)
+
+    def is_stale(self) -> bool:
+        """连续 max(2×心跳间隔, 心跳 TTL) 未收到上行消息 → 判为僵死，不参与派发。"""
+        interval = max(1, get_settings().judge_heartbeat_interval_seconds)
+        return (time.monotonic() - self.last_seen) > max(_HEARTBEAT_TTL_SECONDS, 2 * interval)
 
     @property
     def task_count(self) -> int:
@@ -103,8 +126,9 @@ class NodeConnection:
             running_tasks=self.task_count,
             capacity=self.capacity,
             version=self.version,
-            # 显式 UTC（aware），序列化带 +00:00 偏移；前端 formatDateTime 直接解析
-            last_heartbeat_at=datetime.now(timezone.utc).isoformat(),
+            # 显式 UTC（aware），序列化带 +00:00 偏移；前端 formatDateTime 直接解析。
+            # 取真实最近活跃时刻，而非写入瞬间的 now（否则管理页永远显示"刚刚"）
+            last_heartbeat_at=self.last_seen_at.isoformat(),
         )
 
 
@@ -246,6 +270,7 @@ class JudgeGatewayService(judge_pb2_grpc.JudgeGatewayServicer):
         )
 
         incoming = asyncio.create_task(_pump_incoming(request_iterator, context, conn))
+        _attach_pump_watchdog(incoming, conn)
         try:
             while True:
                 msg = await conn.outbox.get()
@@ -277,20 +302,51 @@ class JudgeGatewayService(judge_pb2_grpc.JudgeGatewayServicer):
                 yield judge_pb2.FileChunk(path=path, content=content)
 
 
+def _attach_pump_watchdog(incoming: asyncio.Task, conn: NodeConnection) -> None:
+    """上行泵退出（流断开/异常）→ 向下行队列塞 None 哨兵，令 Connect 主循环退出
+    并走 finally 清理（注销、自测置错、删心跳 key、重派 in-flight）。
+
+    若没有这道联动，上行泵死亡后下行派发泵仍在空转：任务照常派给节点、
+    结果却永远回不来，连接变成只有离线日志都没有的「僵尸连接」。
+    """
+
+    def _on_pump_done(task: asyncio.Task) -> None:
+        if not task.cancelled():
+            task.exception()  # 取出异常，避免 "Task exception was never retrieved" 告警
+        try:
+            conn.outbox.put_nowait(None)
+        except Exception:  # noqa: BLE001 - 队列极端异常时放弃（连接随后由对端清理兜底）
+            pass
+
+    incoming.add_done_callback(_on_pump_done)
+
+
 async def _pump_incoming(request_iterator, context: grpc.aio.ServicerContext, conn: NodeConnection) -> None:
+    """上行消息泵：心跳桥接 Redis / 判题结果落库 / 自测结果唤醒等待方。
+
+    单条消息处理失败（Redis、DB 瞬断等基础设施抖动）只记日志并跳过，不终止泵——
+    否则一次抖动就杀掉上行流，心跳停写、结果丢失，而下行派发仍在继续。
+    仅当流本身断开（EOF / 传输层错误）才退出，退出后由 watchdog 触发连接清理。
+    """
     try:
         async for msg in request_iterator:
+            conn.touch()
             kind = msg.WhichOneof("payload")
-            if kind == "heartbeat":
-                conn.cpu_usage = max(_METRIC_PERCENT_MIN, min(_METRIC_PERCENT_MAX, msg.heartbeat.cpu_usage))
-                conn.memory_usage = max(_METRIC_PERCENT_MIN, min(_METRIC_PERCENT_MAX, msg.heartbeat.memory_usage))
-                await REGISTRY.redis_heartbeat(conn)
-            elif kind == "result":
-                await _handle_result(msg.result)
-            elif kind == "run_code_result":
-                await _handle_run_code_result(msg.run_code_result)
-    except Exception:  # noqa: BLE001 - 流断开属正常退出路径
-        pass
+            try:
+                if kind == "heartbeat":
+                    conn.cpu_usage = max(_METRIC_PERCENT_MIN, min(_METRIC_PERCENT_MAX, msg.heartbeat.cpu_usage))
+                    conn.memory_usage = max(_METRIC_PERCENT_MIN, min(_METRIC_PERCENT_MAX, msg.heartbeat.memory_usage))
+                    await REGISTRY.redis_heartbeat(conn)
+                elif kind == "result":
+                    await _handle_result(msg.result)
+                elif kind == "run_code_result":
+                    await _handle_run_code_result(msg.run_code_result)
+            except Exception:  # noqa: BLE001 - 单条消息失败不终止流，保住连接活性
+                logger.exception("节点 %s 上行消息处理失败（kind=%s），跳过该消息", conn.node_id, kind)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - 上行流断开（正常断线路径），记日志后退出
+        logger.warning("节点 %s 上行流断开，触发连接清理", conn.node_id, exc_info=True)
 
 
 async def send_job(node_id: str, submission_id: uuid.UUID) -> bool:
@@ -383,8 +439,8 @@ async def maintenance_loop(interval: int | None = None) -> None:
 
 
 async def dispatch_submission(submission_id: uuid.UUID) -> str | None:
-    """负载均衡派发：任务数（判题 + 自测）最少者优先。无在线节点返回 False（留待巡检）。"""
-    nodes = REGISTRY.list_nodes()
+    """负载均衡派发：任务数（判题 + 自测）最少者优先。无在线节点返回 None（留待巡检）。"""
+    nodes = _live_nodes()
     if not nodes:
         return None
     best = min(nodes, key=lambda n: (n.task_count, n.node_id))
@@ -419,7 +475,7 @@ async def dispatch_run_code(
     运行限制按语言比例换算（基准取题目 time_limit_ms / memory_limit_mb），
     编译预算由节点侧按运行限制独立推导（与正式判题一致）。
     """
-    nodes = REGISTRY.list_nodes()
+    nodes = _live_nodes()
     if not nodes:
         raise GatewayUnavailableError("no judge node online")
     if await active_judge_count() >= max_concurrent:

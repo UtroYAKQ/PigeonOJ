@@ -79,6 +79,7 @@ _MESSAGES: dict[str, str] = {
     "账号已冻结，请联系管理员": "Account is frozen, please contact the administrator",
     "账号已封禁，请联系管理员": "Account is banned, please contact the administrator",
     "账号已注销，请联系管理员": "Account is deleted, please contact the administrator",
+    "登录失败次数过多，请稍后再试": "Too many failed login attempts, please try again later",
     "已注销账号不可封禁": "Deleted accounts cannot be banned",
     "已注销账号不可解封": "Deleted accounts cannot be unbanned",
     "已注销账号不可冻结": "Deleted accounts cannot be frozen",

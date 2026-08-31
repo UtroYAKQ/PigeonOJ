@@ -1,8 +1,7 @@
 """通用文件上传路由（统一前缀 /api/v1）。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Response, UploadFile
 
 from app.services.file import FileService
 from app.models.user import User
@@ -41,4 +40,7 @@ async def read_file(object_key: str):
         content, content_type = await get_storage().get_bytes(object_key)
     except (OSError, S3Error) as exc:
         raise APIError(RESOURCE_NOT_FOUND, "文件不存在", 404) from exc
-    return FileResponse(content=content, media_type=content_type)
+    # 内容已在内存（MinIO get_bytes），用 Response 而非 FileResponse：
+    # starlette 1.0 的 FileResponse 仅接受 path（0.38~0.4x 的 content= 参数已移除），
+    # Response 全版本兼容且语义正确
+    return Response(content=content, media_type=content_type)

@@ -164,8 +164,12 @@ CHECK (
   验题 = 暂存集（`pending_case_ids`，NULL 时退化生效集）；暂存编辑不影响生效集指纹，
   晋升瞬间自然失效，
   节点按 `<problem_id>-<data_version>` 缓存于容器 `/cache`，跨提交复用。
-- 断线语义：连接断开即离线，其名下 in-flight 提交由服务端重置 pending 并重派，
+- 断线语义：连接断开即离线（上行泵退出经 watchdog 向下行队列送哨兵，必经 finally 清理并打离线日志），
+  其名下 in-flight 提交由服务端重置 pending 并重派，
   在途用户自测请求（pending Future）即时置错返回；判题写入幂等，重复执行安全。
+- 僵尸连接防护：上行泵对单条消息处理失败（Redis / DB 瞬断）只记日志并跳过该消息，不终止流；
+  派发与并发统计（负载均衡、全局上限）跳过超过 max(2×心跳间隔, 心跳 TTL) 未收到任何上行消息的节点，
+  避免「心跳已断流但任务仍派向该节点、结果永远回不来」的脑裂状态。
 
 **RunCodeJob / RunCodeResult（用户自测）**：网关 `dispatch_run_code` 按负载最低节点派发
 单次运行作业（request_id 关联、代码内联、自定义 stdin 内联、限制已换算），在节点队列推入

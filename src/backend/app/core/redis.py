@@ -4,7 +4,8 @@ Key 约定见 docs/operations.md「Redis 约定」：
 - `email:code:<email>:<purpose>`  邮箱验证码 + 错误计数（不落库）
 - `email:resend:<email>:<purpose>` 验证码重发间隔
 - `session:<token_hash>`          会话热点缓存（token 哈希为 key，见 shared/security.py）
-- `login:fail:<email>`            登录失败计数（超次触发 frozen）
+- `login:fail:<email>`            登录失败计数（超次触发临时锁定）
+- `login:lock:<email>`            登录临时锁定标记（TTL 到期自动恢复，不改动账号状态）
 - `sandbox:node:<id>`             沙箱节点运行时状态
 
 客户端按事件循环隔离：API 进程单循环、Judge Worker 每个任务 asyncio.run 独立循环、

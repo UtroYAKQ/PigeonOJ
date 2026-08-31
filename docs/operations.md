@@ -100,6 +100,8 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 | `email:code:<email>:<purpose>` | 邮箱验证码 + 错误计数 | 验证码有效期 |
 | `email:resend:<email>:<purpose>` | 验证码重发间隔计数 | 重发间隔 |
 | `rank:contest:<id>` | 榜单读缓存（权威在 `contest_rankings`） | 比赛期 |
+| `login:fail:<email>` | 登录失败计数（窗口内超次触发临时锁定） | 15 分钟 |
+| `login:lock:<email>` | 登录临时锁定标记（到期自动恢复，不改动账号状态） | 15 分钟 |
 | `sandbox:node:<id>` | 判题节点运行时状态 | 心跳周期（过期视为离线） |
 | `judge:cooldown:<user_id>:<problem_id>` | 提交冷却 | 冷却时长 |
 | `judge:selftest:<user_id>:<problem_id>` | 用户自测冷却 | 复用冷却配置 |
@@ -117,9 +119,10 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 
 | 机制 | 说明 | 现状 |
 | --- | --- | --- |
-| gRPC 网关派发 | 按任务数最少优先选节点，原子认领后沿双向流推送；无在线节点保持 pending | 已实现 |
+| gRPC 网关派发 | 按任务数最少优先选节点（跳过上行消息超时的僵死节点），原子认领后沿双向流推送；无在线节点保持 pending | 已实现 |
 | 网关维护循环 | 每 30s 扫描超时提交（复位 pending 重派、断线节点 in-flight 回收） | 已实现 |
-| 节点心跳桥接 | 上行 Heartbeat → 写 Redis `sandbox:node:<id>` | 已实现 |
+| 节点心跳桥接 | 上行 Heartbeat → 写 Redis `sandbox:node:<id>`；单条消息处理失败（Redis/DB 瞬断）只记日志不终止流 | 已实现 |
+| 节点判活护栏 | 派发与并发统计跳过超过 max(2×心跳间隔, 心跳 TTL) 未收到上行消息的节点；上行泵退出经 watchdog 触发连接清理（注销 / 置错 / 删心跳 / 离线日志） | 已实现 |
 | 比赛状态推进 | 封榜 / 解封 / 结束重算（`contest_transition`） | 随 contests 模块实现 |
 
 ## MinIO 存储规范

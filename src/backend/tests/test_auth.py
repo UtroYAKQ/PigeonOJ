@@ -5,8 +5,11 @@
 from __future__ import annotations
 
 import httpx
+from sqlalchemy import select
 
-from app.core.redis import redis_set_json
+from app.core.database import SessionLocal
+from app.core.redis import redis_delete, redis_set_json
+from app.models.user import User
 
 from .conftest import api_login, register_user
 
@@ -56,13 +59,29 @@ async def test_login_success_and_wrong_password(client: httpx.AsyncClient) -> No
     assert resp.json()["code"] == 2004
 
 
-async def test_login_failures_trigger_frozen(client: httpx.AsyncClient) -> None:
-    """连续 5 次密码错误 → status='frozen'，后续登录被拦截（3002）。"""
-    await register_user(client, "frozen-victim@pigeonoj.dev")
-    for _ in range(5):
-        await client.post("/api/v1/auth/login", json={"email": "frozen-victim@pigeonoj.dev", "password": "bad-pass"})
-    resp = await client.post("/api/v1/auth/login", json={"email": "frozen-victim@pigeonoj.dev", "password": PASSWORD})
-    assert resp.json()["code"] == 3002
+async def test_login_failures_trigger_temporary_lock(client: httpx.AsyncClient) -> None:
+    """连续 5 次密码错误 → 临时锁定（4002）：期内正确密码也拒绝、账号状态不变，到期自动恢复。"""
+    email = "lock-victim@pigeonoj.dev"
+    await register_user(client, email)
+    for _ in range(4):
+        resp = await client.post("/api/v1/auth/login", json={"email": email, "password": "bad-pass"})
+        assert resp.json()["code"] == 2004
+
+    # 第 5 次失败触发临时锁定（429 / 4002）
+    resp = await client.post("/api/v1/auth/login", json={"email": email, "password": "bad-pass"})
+    assert resp.json()["code"] == 4002
+
+    # 锁定期内正确密码同样被拒，账号状态保持 active（不再置 frozen）
+    resp = await client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
+    assert resp.json()["code"] == 4002
+    async with SessionLocal() as db:
+        row = (await db.execute(select(User).where(User.email == email))).scalar_one()
+        assert row.status == "active"
+
+    # 模拟锁定 TTL 到期（删除锁 key）→ 登录恢复
+    await redis_delete(f"login:lock:{email}")
+    resp = await client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
+    assert resp.json()["code"] == 0
 
 
 async def test_logout_revokes_session(client: httpx.AsyncClient) -> None:

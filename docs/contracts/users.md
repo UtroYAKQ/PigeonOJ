@@ -63,7 +63,7 @@
 | 状态 | 触发 | 恢复 | 登录 |
 | --- | --- | --- | --- |
 | `active` | 正常 | — | 允许 |
-| `frozen` 冻结 | 安全策略自动触发（如登录失败 / 验证码错误超次），或管理员手动冻结 | 可到期自动解冻，或人工解冻 | 拦截 |
+| `frozen` 冻结 | 管理员手动冻结（登录失败超次不冻结，改为 Redis 临时锁定） | 人工解冻 | 拦截 |
 | `banned` 封禁 | 管理员对违规 / 异常账号主动封禁 | 仅可人工解封 | 拦截 |
 | `deleted` 注销 | 用户主动注销 | 不可恢复 | 拒绝 |
 
@@ -102,12 +102,12 @@
 | 2005 `REGISTER_DISABLED` | 403 | 站点未开放注册（`site.register_enabled=false`；校验先于验证码消费） |
 | 3002 | 409 | 邮箱已注册 / 账号已冻结或封禁 |
 | 4001 | 429 | 验证码发送过频（重发间隔内） |
-| 4002 | 429 | 登录失败超次触发限流（触发 `frozen`） |
+| 4002 | 429 | 登录失败超次触发临时锁定（不改动账号状态，锁定到期自动恢复） |
 
 ## 关键流程 / 验收条件
 
 1. **注册**：`POST /auth/email-code`（purpose=register）→ 用户收码 → `POST /auth/register` 校验通过后创建 `users`（`email_verified=true`），验证码从 Redis 删除（一次性）。站点关闭注册（`site.register_enabled=false`）时返回 `2005` 且不消耗验证码；关闭邮箱验证（`email.verify_enabled=false`）时无需验证码直接注册。
-2. **登录**：校验密码 + 会话写入 `user_sessions` + Redis 热点缓存；登录失败超次触发 `status='frozen'`。
+2. **登录**：校验密码 + 会话写入 `user_sessions` + Redis 热点缓存；登录失败超次触发临时锁定（Redis `login:lock:*`，15 分钟内拒绝全部登录尝试，到期自动恢复；不改动账号状态，管理员手动冻结仍走 admin 接口）。
 3. **找回密码**：`email-code`（purpose=reset_password）→ `reset-password` 重置。
 4. **换绑邮箱**：`email-code`（purpose=change_email）→ `change-email`。
 5. **会话管理**：登出 / 注销指定会话时 `revoked_at` 置位，同步清 Redis 缓存。

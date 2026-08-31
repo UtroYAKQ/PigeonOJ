@@ -117,7 +117,7 @@ ORDER BY r.created_at DESC, r.id DESC
 | PUT | /admin/users/{id}/roles | admin | 全局角色授权（写 `user_roles` scope='global'） | role_ids | - |
 | POST | /admin/users/{id}/ban | admin | 封禁（违规 / 异常，仅可人工解封） | reason | - |
 | POST | /admin/users/{id}/unban | admin | 解封 | - | - |
-| POST | /admin/users/{id}/freeze | admin | 冻结（与安全策略同款，立即拦截登录；可人工解冻） | reason | - |
+| POST | /admin/users/{id}/freeze | admin | 冻结（立即拦截登录；人工解冻） | reason | - |
 | POST | /admin/users/{id}/unfreeze | admin | 解冻 | - | - |
 | GET/PUT | /admin/configs | admin | 系统配置（分域） | - | - |
 | GET | /site-config | public | 公开站点配置（白名单字段：name / logo / icp / default_theme / register_enabled / email_verify_enabled；前端壳层与注册页消费） | - | siteConfig |
@@ -130,7 +130,7 @@ ORDER BY r.created_at DESC, r.id DESC
 
 > **实现状态**：上表端点均已实现。
 
-> **账号状态语义**：`frozen`（冻结：安全策略自动触发或管理员手动冻结，可到期自动解冻或人工解冻）与 `banned`（封禁：管理员主动封禁，仅可人工解封）均拦截登录；区分见 `users.md`「账号状态语义」。
+> **账号状态语义**：`frozen`（冻结：管理员手动冻结，人工解冻）与 `banned`（封禁：管理员主动封禁，仅可人工解封）均拦截登录；登录失败超次为 Redis 临时锁定（到期自动恢复），不涉及账号状态。区分见 `users.md`「账号状态语义」。
 
 ## 错误码
 
