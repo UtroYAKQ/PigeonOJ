@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NButton, NTag } from 'naive-ui'
@@ -9,6 +9,7 @@ import type { ProblemTagItem } from '@/types'
 import { formatDateTime } from '@/utils/format'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import ModalFooter from '@/components/ModalFooter.vue'
+import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
@@ -159,8 +160,7 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
 </script>
 
 <template>
-  <div class="page-fill">
-    <n-card :title="t('admin.tags.title')" :bordered="false">
+  <WorkbenchShell :title="t('admin.tags.title')">
       <SearchFilterBar :show-search="false">
         <template #actions>
           <n-button type="primary" size="small" @click="openCreate">
@@ -206,8 +206,7 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
           <ModalFooter :loading="submitting" @cancel="cancelEditor" @confirm="submitEditor" />
         </template>
       </n-modal>
-    </n-card>
-  </div>
+  </WorkbenchShell>
 </template>
 
 <style scoped>

@@ -8,6 +8,7 @@ from app.models.audit import ExceptionLog, LoginLog, RequestLog  # noqa: F401
 from app.models.judge import SandboxConfig, Submission, SubmissionTestCaseResult  # noqa: F401
 from app.models.problem import (  # noqa: F401
     Problem,
+    ProblemCounter,
     ProblemTag,
     ProblemTagRelation,
     ProblemVerification,
@@ -25,6 +26,7 @@ __all__ = [
     "Submission",
     "SubmissionTestCaseResult",
     "Problem",
+    "ProblemCounter",
     "ProblemTag",
     "ProblemTagRelation",
     "ProblemVerification",

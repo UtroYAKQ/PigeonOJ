@@ -53,7 +53,7 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | extra | JSONB | NULL | 扩展字段（沙箱执行子记录：语言 / 判定 / 耗时 / 内存等，按 request_id 归入本行） |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
-索引：INDEX(`user_id`, `created_at`)、INDEX(`path`, `created_at`)、INDEX(`created_at`)
+索引：INDEX(`user_id`, `created_at`)、INDEX(`path`, `created_at`)、INDEX(`created_at`, `id`)
 
 > 沙箱执行日志（判题 / 编译 / 运行）作为请求链路的子记录写入 `extra`，以 `request_id` 关联归入同一请求行，不单独建沙箱日志表。本表以 `created_at` 为前导列，按时间分页 / 保留清理。
 
@@ -71,7 +71,7 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | reason | VARCHAR(255) | NULL | 失败原因 |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
-索引：INDEX(`user_id`, `created_at`)、INDEX(`created_at`)
+索引：INDEX(`user_id`, `created_at`)、INDEX(`created_at`, `id`)
 
 ### `exception_logs` — 异常日志表
 
@@ -85,7 +85,22 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | user_id | UUID | NULL, FK → users.id | |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
-索引：INDEX(`created_at`)、INDEX(`level`, `created_at`)
+索引：INDEX(`created_at`, `id`)、INDEX(`level`, `created_at`)
+
+### 深分页查询约定
+
+三张日志表的分页查询统一采用**延迟关联 + id 决胜列**（`LogRepository._page`）：
+
+```sql
+SELECT r.* FROM <log_table> r
+JOIN (SELECT id FROM <log_table> [WHERE ...]
+      ORDER BY created_at DESC, id DESC LIMIT :n OFFSET :m) p ON p.id = r.id
+ORDER BY r.created_at DESC, r.id DESC
+```
+
+- 子查询按 `(created_at, id)` 覆盖索引仅取主键（Index Only Scan），OFFSET 丢弃的行不回表，深页代价只随索引深度增长；外层仅回表页内行
+- `id` 为决胜列：同 `created_at` 行的全序固定，翻页不重复 / 不漏行
+- API 契约不变：仍为 page / page_size + 精确 total
 
 ## 数据所有权
 

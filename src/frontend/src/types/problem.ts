@@ -24,6 +24,11 @@ export interface ProblemSummary {
   /** scope=mine 管理视图返回：未验题或案例晚于最近验题通过时间变更 */
   needs_reverification?: boolean
   created_at?: string
+  /** 难度分（手动填写，类似 Codeforces；null/缺省 = 未评分） */
+  difficulty?: number | null
+  /** 通过率统计计数（problem_counters；排除 verify / system_error） */
+  submission_count?: number
+  accepted_count?: number
 }
 
 export interface ProblemSample {
@@ -95,6 +100,9 @@ export interface ProblemListQuery {
   /** mine = 我的题目管理视图（创建者看全部自己的题目；管理角色看可管理范围） */
   scope?: 'all' | 'mine'
   status?: 'draft' | 'published' | 'archived'
+  /** 难度分闭区间筛选（未评分题目不落入任何区间） */
+  difficulty_min?: number
+  difficulty_max?: number
 }
 
 export interface ProblemEditPayload {
@@ -109,6 +117,8 @@ export interface ProblemEditPayload {
   visibility?: string
   time_limit_ms?: number
   memory_limit_mb?: number
+  /** 难度分（≥0；undefined = 不改动，沿用后端 ProblemUpdate 约定） */
+  difficulty?: number | null
 }
 
 export interface ProblemCreatePayload extends ProblemEditPayload {

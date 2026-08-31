@@ -1,13 +1,14 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Refresh } from '@element-plus/icons-vue'
 
 import * as adminApi from '@/api/admin'
 import type { SandboxNode } from '@/types'
 import { SANDBOX_STATUS, toNaiveTagType } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
+import RefreshButton from '@/components/RefreshButton.vue'
 import { message } from '@/utils/feedback'
+import WorkbenchShell from '@/components/WorkbenchShell.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
@@ -37,9 +38,8 @@ function loadColor(load: number): string {
 </script>
 
 <template>
-  <div class="page-stack">
-    <n-card :bordered="false">
-      <template #header>
+  <WorkbenchShell>
+    <template #header>
         <div class="sandbox-head">
           <span>{{ t('admin.sandbox.title') }}</span>
           <div class="sandbox-summary">
@@ -53,15 +53,10 @@ function loadColor(load: number): string {
         </div>
       </template>
       <template #header-extra>
-        <n-button size="small" secondary :loading="loading" @click="load">
-          <template #icon>
-            <n-icon :component="Refresh" />
-          </template>
-          {{ t('action.refresh') }}
-        </n-button>
+        <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
       </template>
 
-      <n-spin :show="loading">
+      <n-spin :show="loading" class="sandbox-spin">
         <div v-if="nodes.length" class="node-grid">
           <n-card
             v-for="node in nodes"
@@ -103,8 +98,7 @@ function loadColor(load: number): string {
         </div>
         <n-empty v-else-if="!loading" :description="t('admin.sandbox.empty')" />
       </n-spin>
-    </n-card>
-  </div>
+  </WorkbenchShell>
 </template>
 
 <style scoped>

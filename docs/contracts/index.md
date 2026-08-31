@@ -29,6 +29,7 @@ users ─┬─< user_sessions
 problems ─┬─< problem_tag_relations >─ problem_tags
           ├─< test_cases
           ├─< problem_verifications
+          ├─1 problem_counters
           ├─< problem_set_items >─ problem_sets
           ├─< contest_problems >─ contests
           └─< submissions ─< submission_test_case_results

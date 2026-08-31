@@ -56,6 +56,8 @@ class Problem(Base):
     time_limit_ms: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1000")
     memory_limit_mb: Mapped[int] = mapped_column(Integer, nullable=False, server_default="256")
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    # 难度分（手动填写，类似 Codeforces；NULL=未评分；仅约束非负，不设上限）
+    difficulty: Mapped[int | None] = mapped_column(Integer)
     # 全站题目：private / public（团队题目 admin_visible / team_visible / public 随 teams 模块扩展）
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemVisibility.PUBLIC)
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemStatus.DRAFT)
@@ -73,12 +75,31 @@ class Problem(Base):
             "visibility IN ('private','public')", name="ck_problems_site_visibility"
         ),
         CheckConstraint("(status <> 'published' OR verified_at IS NOT NULL)", name="ck_problems_published_verified"),
+        CheckConstraint("difficulty IS NULL OR difficulty >= 0", name="ck_problems_difficulty_nonneg"),
     )
 
     @property
     def is_verified(self) -> bool:
         """已验题通过 ≡ verified_at 非空（列移除后的派生兼容字段，API 输出不变）。"""
         return self.verified_at is not None
+
+
+class ProblemCounter(Base):
+    """题目统计计数（docs/contracts/problems.md problem_counters）。
+
+    与 problems 1:1；判题完成时以 upsert 原子累加，避免 problems 热行频繁 UPDATE。
+    统计口径：排除 verify 提交与 pending/judging/system_error（见 docs/contracts/judge.md）。
+    """
+
+    __tablename__ = "problem_counters"
+    problem_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("problems.id", ondelete="CASCADE"), primary_key=True
+    )
+    submission_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    accepted_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class ProblemTag(Base):

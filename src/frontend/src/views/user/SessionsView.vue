@@ -1,9 +1,10 @@
-<script setup lang="ts">
-import { Monitor, Refresh } from '@element-plus/icons-vue'
+﻿<script setup lang="ts">
+import { Monitor } from '@element-plus/icons-vue'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import * as usersApi from '@/api/users'
+import RefreshButton from '@/components/RefreshButton.vue'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import type { UserSession } from '@/types'
 import { formatDateTime } from '@/utils/format'
@@ -42,12 +43,7 @@ function onRevoke(session: UserSession) {
       <template #header>
         <div class="sessions-head">
           <span>{{ t('sessions.title') }}</span>
-          <n-button size="small" secondary :loading="loading" @click="load">
-            <template #icon>
-              <n-icon :component="Refresh" />
-            </template>
-            {{ t('action.refresh') }}
-          </n-button>
+        <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
         </div>
       </template>
 

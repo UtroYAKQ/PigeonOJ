@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NButton, NTag } from 'naive-ui'
@@ -12,12 +12,14 @@ import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import ModalFooter from '@/components/ModalFooter.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
+import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
 const list = ref<Report[]>([])
-const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
+const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
+  usePagination()
 const query = reactive({ status: '' as ReportStatus | '' })
 const handleDialog = ref(false)
 const handleTarget = ref<Report | null>(null)
@@ -25,6 +27,7 @@ const handleAction = ref<'handled' | 'ignored'>('handled')
 const handling = ref(false)
 
 async function load() {
+  const seq = beginLoad()
   loading.value = true
   try {
     const res = await adminApi.adminListReports({
@@ -32,12 +35,14 @@ async function load() {
       page_size: pageSize.value,
       status: query.status,
     })
+    if (!isCurrent(seq)) return
     list.value = res.items
     total.value = res.total
   } catch (e) {
+    if (!isCurrent(seq)) return
     message.error(e instanceof Error ? e.message : t('common.loadFailed'))
   } finally {
-    loading.value = false
+    if (isCurrent(seq)) loading.value = false
   }
 }
 onMounted(load)
@@ -160,8 +165,7 @@ const columns = computed<DataTableColumns<Report>>(() => [
 </script>
 
 <template>
-  <div class="page-fill">
-    <n-card :title="t('admin.reports.title')" :bordered="false">
+  <WorkbenchShell :title="t('admin.reports.title')">
     <SearchFilterBar :show-search="false">
       <n-select
         v-model:value="query.status"
@@ -202,8 +206,7 @@ const columns = computed<DataTableColumns<Report>>(() => [
         <ModalFooter :loading="handling" @cancel="cancelHandle" @confirm="submitHandle" />
       </template>
     </n-modal>
-    </n-card>
-  </div>
+  </WorkbenchShell>
 </template>
 
 <style scoped>

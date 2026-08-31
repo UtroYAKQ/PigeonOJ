@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta
 
 import httpx
 from sqlalchemy import select
@@ -168,6 +169,46 @@ async def test_admin_logs(client: httpx.AsyncClient, admin_headers: dict[str, st
         assert isinstance(resp.json()["data"]["items"], list)
     resp = await client.get("/api/v1/admin/logs/unknown", headers=admin_headers)
     assert resp.json()["code"] == 3001
+
+
+async def test_admin_logs_deep_pagination(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:
+    """深分页延迟关联：跨页无重叠、总数正确、同 created_at 行全序稳定（不重复 / 不漏行）。"""
+    from uuid import uuid4
+
+    from app.models.audit import RequestLog
+
+    # 种子行 path 携带唯一标记，keyword 过滤掉中间件自身写入的请求日志
+    run_id = uuid4().hex[:12]
+
+    async with SessionLocal() as db:
+        base = datetime(2026, 8, 30, 12, 0, 0)
+        # 25 条、其中 3 条时间戳完全相同（决胜列正确性）
+        for i in range(25):
+            db.add(RequestLog(
+                request_id=f"req-{i:03d}", method="GET", path=f"/seed-{run_id}/x/{i}",
+                status_code=200, created_at=base if i < 3 else base - timedelta(seconds=i),
+            ))
+        await db.commit()
+
+    ids_per_page: list[set[str]] = []
+    totals: list[int] = []
+    for page in (1, 2, 3):
+        resp = await client.get(
+            f"/api/v1/admin/logs/request?page={page}&page_size=10&keyword={run_id}",
+            headers=admin_headers,
+        )
+        body = resp.json()
+        assert body["code"] == 0
+        totals.append(body["data"]["total"])
+        items = body["data"]["items"]
+        assert len(items) == (10 if page < 3 else 5)
+        created = [i["created_at"] for i in items]
+        assert created == sorted(created, reverse=True)  # 页内时间倒序
+        ids_per_page.append({i["id"] for i in items})
+
+    assert totals == [25, 25, 25]
+    all_ids = [i for s in ids_per_page for i in s]
+    assert len(all_ids) == 25 and len(set(all_ids)) == 25  # 跨页无重叠、无遗漏
 
 
 async def test_admin_sandbox_status(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:

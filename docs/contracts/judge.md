@@ -142,7 +142,8 @@ CHECK (
   → 数据缓存未命中时 FetchProblemData 拉取测试点（data_version 缓存于容器 /cache）
   → 按 sandbox_configs 比例换算有效限制（时间 ×time_ratio；内存 max(×memory_ratio, memory_min_mb)）
   → nsjail 原生编译一次、逐测试点独立运行，写 submission_test_case_results（输出落 MinIO）
-  → 回传 JudgeResult；汇总写 submissions；验题提交回写 verification 与 problems.is_verified
+  → 回传 JudgeResult；汇总写 submissions；练习/比赛终态回写 problem_counters 通过率计数
+    （口径见下方要点）；验题提交回写 verification 与 problems.is_verified
 维护循环兜底：pending>60s / judging>5min 重置重派（Redis SETNX 防并发重复投递）
 ```
 
@@ -185,6 +186,7 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 - 判题失败（沙箱异常、超时）自动重试，超过阈值转 `system_error`。
 - 判题结果仅返回用户程序输出与判定状态，不返回测试点期望输出。
 - 后端进程不执行用户代码；用户自测经网关派发到节点一次性运行（见「用户自测」节）。
+- **通过率统计口径**：练习 / 比赛提交到达终态且 `status <> 'system_error'` 时，对 `problem_counters`（1:1，见 `problems.md`）upsert 原子累加——`submission_count + 1`，AC 再 `accepted_count + 1`；验题（`submit_type='verify'`，非真实作答）与 `system_error`（平台故障）不计入；计数与判题落库同事务，漂移以 `submissions` 按同口径 GROUP BY 的对账 SQL 兜底校正。
 
 ## 语言限制换算
 

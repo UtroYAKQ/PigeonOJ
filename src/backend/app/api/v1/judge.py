@@ -30,7 +30,6 @@ from app.schemas.judge import (
     SubmissionSummary,
     VerifyRequest,
 )
-from app.schemas.admin import SandboxNodeOut
 from app.schemas.problem import VerificationInitOut, VerificationInviteLink
 from app.services.judge import SelfTestService, SubmissionService
 from app.services.problem import ProblemService
@@ -172,5 +171,5 @@ async def run_problem_code(
 @router.get("/sandbox/health", response_model=ApiResponse[SandboxHealthOut])
 async def sandbox_health(admin: User = Depends(get_current_admin)) -> ApiResponse[SandboxHealthOut]:
     """沙箱节点健康（admin；docs/contracts/judge.md）：在线节点来自网关注册表。"""
-    nodes = [SandboxNodeOut(**conn.to_payload()) for conn in REGISTRY.list_nodes()]
+    nodes = [conn.to_payload() for conn in REGISTRY.list_nodes()]
     return ok(SandboxHealthOut(nodes=nodes))

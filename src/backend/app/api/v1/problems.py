@@ -57,6 +57,9 @@ def _to_detail(detail: ProblemDetailData) -> ProblemDetail:
         published_at=problem.published_at,
         created_at=problem.created_at,
         updated_at=problem.updated_at,
+        difficulty=problem.difficulty,
+        submission_count=detail.submission_count,
+        accepted_count=detail.accepted_count,
         samples=detail.samples,
         tags=detail.tags,
         can_manage=detail.can_manage,
@@ -76,11 +79,16 @@ async def list_problems(
     tag: str | None = Query(default=None, max_length=64),
     scope: str = Query(default="all"),
     status: str | None = Query(default=None),
+    difficulty_min: int | None = Query(default=None, ge=0),
+    difficulty_max: int | None = Query(default=None, ge=0),
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[PaginatedResponse[ProblemSummary]]:
     try:
-        query = ProblemQuery(page=page, page_size=page_size, keyword=keyword, tag=tag, scope=scope, status=status)
+        query = ProblemQuery(
+            page=page, page_size=page_size, keyword=keyword, tag=tag, scope=scope, status=status,
+            difficulty_min=difficulty_min, difficulty_max=difficulty_max,
+        )
     except Exception as exc:  # pydantic 校验失败转 1001 信封
         raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
     if query.scope == "mine" and user is None:
@@ -95,6 +103,7 @@ async def list_problems(
         item = ProblemSummary.model_validate(row)
         item.needs_reverification = flags.get(row.id, False)
         items.append(item)
+    await service.attach_counters(items)
     return ok(PaginatedResponse(items=items, total=total, page=query.page, page_size=query.page_size))
 
 
@@ -102,9 +111,12 @@ async def list_problems(
 async def create_problem(
     body: ProblemCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ProblemSummary]:
-    problem = await ProblemService(db).create(user, body)
+    service = ProblemService(db)
+    problem = await service.create(user, body)
     await db.commit()  # 显式提交：确保数据持久化后再返回（get_db 会再次 commit，但无害）
-    return ok(ProblemSummary.model_validate(problem))
+    summary = ProblemSummary.model_validate(problem)
+    await service.attach_counters([summary])
+    return ok(summary)
 
 
 @router.get("/problems/tags", response_model=ApiResponse[list[TagPublic]])
@@ -132,9 +144,12 @@ async def update_problem(
     problem_id: uuid.UUID, body: ProblemUpdate,
     user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ProblemSummary]:
-    problem = await ProblemService(db).update(user, problem_id, body)
+    service = ProblemService(db)
+    problem = await service.update(user, problem_id, body)
     await db.commit()  # 显式提交：确保数据持久化
-    return ok(ProblemSummary.model_validate(problem))
+    summary = ProblemSummary.model_validate(problem)
+    await service.attach_counters([summary])
+    return ok(summary)
 
 
 @router.put("/problems/{problem_id}/test-cases", response_model=ApiResponse[None])
@@ -167,9 +182,12 @@ async def apply_test_cases(
     problem_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ProblemSummary]:
     """显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦）。"""
-    problem = await ProblemService(db).apply_pending_cases(user, problem_id)
+    service = ProblemService(db)
+    problem = await service.apply_pending_cases(user, problem_id)
     await db.commit()
-    return ok(ProblemSummary.model_validate(problem))
+    summary = ProblemSummary.model_validate(problem)
+    await service.attach_counters([summary])
+    return ok(summary)
 
 
 @router.put("/problems/{problem_id}/samples", response_model=ApiResponse[None])
@@ -186,18 +204,24 @@ async def update_samples(
 async def publish_problem(
     problem_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ProblemSummary]:
-    problem = await ProblemService(db).publish(user, problem_id)
+    service = ProblemService(db)
+    problem = await service.publish(user, problem_id)
     await db.commit()  # 显式提交：确保数据持久化
-    return ok(ProblemSummary.model_validate(problem))
+    summary = ProblemSummary.model_validate(problem)
+    await service.attach_counters([summary])
+    return ok(summary)
 
 
 @router.post("/problems/{problem_id}/archive", response_model=ApiResponse[ProblemSummary])
 async def archive_problem(
     problem_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ProblemSummary]:
-    problem = await ProblemService(db).archive(user, problem_id)
+    service = ProblemService(db)
+    problem = await service.archive(user, problem_id)
     await db.commit()  # 显式提交：确保数据持久化
-    return ok(ProblemSummary.model_validate(problem))
+    summary = ProblemSummary.model_validate(problem)
+    await service.attach_counters([summary])
+    return ok(summary)
 
 
 @router.get("/verify-invites/{token}", response_model=ApiResponse[VerificationInviteOut])

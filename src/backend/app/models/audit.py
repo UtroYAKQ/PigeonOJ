@@ -36,7 +36,9 @@ class RequestLog(Base):
     __table_args__ = (
         Index("ix_request_logs_user_created", "user_id", "created_at"),
         Index("ix_request_logs_path_created", "path", "created_at"),
-        Index("ix_request_logs_created", "created_at"),
+        # (created_at, id)：深分页延迟关联的覆盖索引（id 决胜列，页边界稳定）；
+        # 0017 起替换原单列 ix_request_logs_created
+        Index("ix_request_logs_created_id", "created_at", "id"),
     )
 
 
@@ -58,7 +60,7 @@ class LoginLog(Base):
 
     __table_args__ = (
         Index("ix_login_logs_user_created", "user_id", "created_at"),
-        Index("ix_login_logs_created", "created_at"),
+        Index("ix_login_logs_created_id", "created_at", "id"),
     )
 
 
@@ -77,6 +79,6 @@ class ExceptionLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
-        Index("ix_exception_logs_created", "created_at"),
+        Index("ix_exception_logs_created_id", "created_at", "id"),
         Index("ix_exception_logs_level_created", "level", "created_at"),
     )

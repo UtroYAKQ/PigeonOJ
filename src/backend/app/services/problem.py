@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from sqlalchemy import func, outerjoin, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
@@ -42,6 +43,7 @@ from app.core.storage import get_storage
 from app.core.dependency import is_manager
 from app.models.problem import (
     Problem,
+    ProblemCounter,
     ProblemTag,
     ProblemTagRelation,
     ProblemVerification,
@@ -121,6 +123,29 @@ def needs_reverification(problem: Problem) -> bool:
     )
 
 
+async def bump_counters(db: AsyncSession, problem_id: uuid.UUID, *, accepted: bool) -> None:
+    """判题终态回写通过率计数（problem_counters upsert 原子累加，docs/contracts/judge.md）。
+
+    统计口径由调用方保证：verify 提交与 system_error 不进入本函数。
+    单条 INSERT ... ON CONFLICT 并发安全，计数行不存在时自动创建。
+    """
+    step_accepted = 1 if accepted else 0
+    stmt = (
+        pg_insert(ProblemCounter)
+        .values(problem_id=problem_id, submission_count=1, accepted_count=step_accepted)
+        .on_conflict_do_update(
+            index_elements=[ProblemCounter.problem_id],
+            set_={
+                # 键用 Column 对象（= 目标表列）；值中同名列引用的是已存在行（DO UPDATE SET col = col + 1 语义）
+                ProblemCounter.submission_count: ProblemCounter.submission_count + 1,
+                ProblemCounter.accepted_count: ProblemCounter.accepted_count + step_accepted,
+                ProblemCounter.updated_at: func.now(),
+            },
+        )
+    )
+    await db.execute(stmt)
+
+
 @dataclass(frozen=True)
 class ProblemDetailData:
     """题目详情装配结果：get_detail → 路由 _detail 的进程内传输结构。"""
@@ -132,6 +157,9 @@ class ProblemDetailData:
     needs_reverification: bool
     test_cases: list[TestCaseOut] | None
     cases_updated_at: datetime | None
+    # 通过率计数（problem_counters，无记录按 0）
+    submission_count: int = 0
+    accepted_count: int = 0
 
 
 def schedule_object_cleanup(stale_keys: list[str]) -> None:
@@ -194,6 +222,21 @@ class ProblemService:
             flags[row.id] = needs_reverification(snapshot)
         return flags
 
+    async def attach_counters(self, summaries: list) -> None:
+        """按 id 批量回填通过率计数到 ProblemSummary（无计数行保持 0；API 层调用）。"""
+        ids = {item.id for item in summaries}
+        if not ids:
+            return
+        rows = (
+            await self.db.execute(select(ProblemCounter).where(ProblemCounter.problem_id.in_(ids)))
+        ).scalars()
+        counters = {row.problem_id: row for row in rows}
+        for item in summaries:
+            counter = counters.get(item.id)
+            if counter is not None:
+                item.submission_count = counter.submission_count
+                item.accepted_count = counter.accepted_count
+
     async def create(self, user: object, body: ProblemCreate) -> Problem:
         if not await is_manager(self.db, user):
             raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
@@ -207,6 +250,7 @@ class ProblemService:
             visibility=body.visibility,
             time_limit_ms=body.time_limit_ms,
             memory_limit_mb=body.memory_limit_mb,
+            difficulty=body.difficulty,
             owner_id=user.id,
         )
         problem = await self.problems.create(problem)
@@ -231,6 +275,7 @@ class ProblemService:
         test_cases = None
         if can_manage:
             test_cases = await self.list_cases_view(problem)
+        counter = await self.db.get(ProblemCounter, problem_id)
         return ProblemDetailData(
             problem=problem,
             samples=samples,
@@ -241,6 +286,8 @@ class ProblemService:
             ),
             test_cases=test_cases,
             cases_updated_at=cases_updated_at,
+            submission_count=counter.submission_count if counter else 0,
+            accepted_count=counter.accepted_count if counter else 0,
         )
 
     @staticmethod
@@ -274,6 +321,8 @@ class ProblemService:
             problem.time_limit_ms = body.time_limit_ms
         if body.memory_limit_mb is not None:
             problem.memory_limit_mb = body.memory_limit_mb
+        if body.difficulty is not None:
+            problem.difficulty = body.difficulty
         if body.tags is not None:
             await self._sync_tags(problem.id, body.tags)
         problem.updated_at = datetime.now()

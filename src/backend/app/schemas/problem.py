@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.enums import ProblemScope, ProblemStatus, ProblemVisibility, TagStatus
 
@@ -35,6 +35,8 @@ class ProblemCreate(BaseModel):
     visibility: ProblemVisibility = ProblemVisibility.PUBLIC
     time_limit_ms: int = Field(default=1000, ge=1, le=60000)
     memory_limit_mb: int = Field(default=256, ge=16, le=4096)
+    # 难度分（手动填写；NULL=未评分；仅约束非负，不设上限）
+    difficulty: int | None = Field(default=None, ge=0)
 
     @field_validator("tags")
     @classmethod
@@ -56,6 +58,8 @@ class ProblemUpdate(BaseModel):
     visibility: ProblemVisibility | None = None
     time_limit_ms: int | None = Field(default=None, ge=1, le=60000)
     memory_limit_mb: int | None = Field(default=None, ge=16, le=4096)
+    # None = 不改动（沿用本 Schema 既有约定，暂不支持清空为未评分）
+    difficulty: int | None = Field(default=None, ge=0)
 
     @field_validator("tags")
     @classmethod
@@ -77,6 +81,18 @@ class ProblemQuery(BaseModel):
     tag: str | None = Field(default=None, max_length=64)
     scope: ProblemScope = ProblemScope.ALL
     status: ProblemStatus | None = None
+    # 难度分闭区间筛选（未评分题目不落在任何区间内）
+    difficulty_min: int | None = Field(default=None, ge=0)
+    difficulty_max: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def check_difficulty_range(self) -> ProblemQuery:
+        if (
+            self.difficulty_min is not None and self.difficulty_max is not None
+            and self.difficulty_min > self.difficulty_max
+        ):
+            raise ValueError("difficulty_min 不能大于 difficulty_max")
+        return self
 
 
 class TestCaseItem(BaseModel):
@@ -205,6 +221,10 @@ class ProblemSummary(BaseModel):
     is_verified: bool
     created_at: datetime
     needs_reverification: bool = False
+    # 难度分（NULL=未评分）；计数来自 problem_counters（API 层回填，无记录按 0）
+    difficulty: int | None = None
+    submission_count: int = 0
+    accepted_count: int = 0
 
 
 class TestCaseOut(BaseModel):
@@ -251,6 +271,9 @@ class ProblemDetail(BaseModel):
     published_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+    difficulty: int | None = None
+    submission_count: int = 0
+    accepted_count: int = 0
     samples: list[SampleOut] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     can_manage: bool = False

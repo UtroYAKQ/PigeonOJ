@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NButton } from 'naive-ui'
@@ -10,6 +10,7 @@ import { configCategories } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 import { message } from '@/utils/feedback'
 import ModalFooter from '@/components/ModalFooter.vue'
+import WorkbenchShell from '@/components/WorkbenchShell.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
@@ -169,12 +170,17 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
 </script>
 
 <template>
-  <div class="page-stack">
-    <n-card :bordered="false">
+  <WorkbenchShell>
       <n-tabs v-model:value="activeCategory" type="line" animated>
         <n-tab-pane v-for="c in categories" :key="c.value" :name="c.value" :tab="c.label">
           <n-spin :show="loading">
-            <n-data-table :columns="columns" :data="items" :bordered="false" />
+            <!-- 表格内部滚动：max-height = 视口 - 顶栏60 - 内容区padding - tab行与卡片内距余量 -->
+            <n-data-table
+              :columns="columns"
+              :data="items"
+              :bordered="false"
+              max-height="calc(100dvh - 300px)"
+            />
             <n-empty
               v-if="!loading && !items.length"
               class="configs-empty"
@@ -183,10 +189,9 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
           </n-spin>
         </n-tab-pane>
       </n-tabs>
-    </n-card>
 
-    <!-- 编辑配置 -->
-    <n-modal
+      <!-- 编辑配置 -->
+      <n-modal
       v-model:show="editDialog"
       preset="card"
       style="width: min(1000px, 96vw)"
@@ -241,8 +246,8 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
       <template #footer>
         <ModalFooter :loading="saving" :confirm-text="t('action.save')" @cancel="editDialog = false" @confirm="saveEdit" />
       </template>
-    </n-modal>
-  </div>
+      </n-modal>
+  </WorkbenchShell>
 </template>
 
 <style scoped>

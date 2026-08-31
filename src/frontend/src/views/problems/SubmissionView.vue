@@ -1,14 +1,14 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NButton } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
-import { Refresh } from '@element-plus/icons-vue'
 import { useTimeoutFn } from '@vueuse/core'
 import { getSubmission } from '@/api/judge'
 import { message } from '@/utils/feedback'
+import RefreshButton from '@/components/RefreshButton.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import type { Submission, SubmissionCaseResult } from '@/types'
 
@@ -125,12 +125,7 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
             <span v-if="submission.submit_type === 'verify'" class="result-verify">{{
               t('problems.submission.verifyType')
             }}</span>
-            <n-button v-if="isRunning" size="small" secondary @click="refreshNow">
-              <template #icon>
-                <n-icon :component="Refresh" />
-              </template>
-              {{ t('action.refresh') }}
-            </n-button>
+            <RefreshButton v-if="isRunning" :loading="loading" :aria-label="t('action.refresh')" @click="refreshNow" />
             <n-button text type="primary" class="result-back" @click="back">
               {{ backLabel }}
             </n-button>

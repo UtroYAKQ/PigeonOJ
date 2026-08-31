@@ -1,5 +1,5 @@
-<script setup lang="ts">
-import { CirclePlus, EditPen, Refresh, TurnOff, View } from '@element-plus/icons-vue'
+﻿<script setup lang="ts">
+import { CirclePlus, EditPen, TurnOff, View } from '@element-plus/icons-vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -9,9 +9,11 @@ import type { DataTableColumns } from 'naive-ui'
 import { archiveProblem, listProblems } from '@/api/problems'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
+import RefreshButton from '@/components/RefreshButton.vue'
 import { problemStatusTagType, problemStatusLabelKey } from '@/constants/problemStatus'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
+import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import type { PageResult, ProblemSummary } from '@/types'
 
 type ProblemStatus = 'draft' | 'published' | 'archived'
@@ -196,8 +198,7 @@ function rowProps(row: ProblemSummary) {
 </script>
 
 <template>
-  <div class="page-fill">
-    <n-card :bordered="false">
+  <WorkbenchShell>
       <SearchFilterBar
         :keyword="query.keyword"
         :placeholder="t('problems.mine.search')"
@@ -207,9 +208,7 @@ function rowProps(row: ProblemSummary) {
         @reset="onSearch"
       >
         <template #actions>
-          <n-button quaternary circle :loading="loading" :aria-label="t('action.refresh')" @click="load">
-            <n-icon :component="Refresh" />
-          </n-button>
+          <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
           <n-button type="primary" @click="router.push('/admin/problems/new')">
             <template #icon>
               <n-icon :component="CirclePlus" />
@@ -243,8 +242,7 @@ function rowProps(row: ProblemSummary) {
           <span class="pager__total">{{ t('problems.list.totalCount', { count: total }) }}</span>
         </template>
       </PaginatedDataTable>
-    </n-card>
-  </div>
+  </WorkbenchShell>
 </template>
 
 <style scoped>

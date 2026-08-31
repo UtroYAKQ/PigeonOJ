@@ -49,6 +49,11 @@ class ProblemRepository:
                     .where(ProblemTag.name == query.tag)
                 )
             )
+        # 难度分闭区间筛选（未评分题目不落在任何区间内）
+        if query.difficulty_min is not None:
+            conditions.append(Problem.difficulty >= query.difficulty_min)
+        if query.difficulty_max is not None:
+            conditions.append(Problem.difficulty <= query.difficulty_max)
         total = (
             await self.db.scalar(select(func.count()).select_from(Problem).where(*conditions))
         ) or 0

@@ -226,6 +226,18 @@ async def _complete_verification_if_needed(db, submission: Submission) -> None:
     )
 
 
+async def _bump_problem_counters_if_needed(db, submission: Submission, status: str) -> None:
+    """练习/比赛提交终态回写题目通过率计数（docs/contracts/judge.md 统计口径）。
+
+    verify（验题非真实作答）与 system_error（平台故障）不计入。
+    """
+    if submission.submit_type == SubmitType.VERIFY or status == SubmissionStatus.SYSTEM_ERROR:
+        return
+    await problems.bump_counters(
+        db, submission.problem_id, accepted=status == SubmissionStatus.ACCEPTED
+    )
+
+
 async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
     """节点回传结果落库；返回是否成功应用（提交不存在/非 judging 返回 False）。"""
     repository = JudgeRepository()
@@ -269,6 +281,8 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
         memory_used_kb=max_memory,
         error_message=outcome.error_message,
     )
+    # 练习/比赛提交终态：回写题目通过率计数（verify/system_error 不计入）
+    await _bump_problem_counters_if_needed(db, submission, outcome.status or SubmissionStatus.SYSTEM_ERROR)
     # 验题提交：回写 problem_verifications 与 problems.is_verified
     await _complete_verification_if_needed(db, submission)
     await db.commit()

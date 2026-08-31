@@ -1,28 +1,34 @@
-<script setup lang="ts">
-import { Refresh } from '@element-plus/icons-vue'
+﻿<script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { DataTableColumns } from 'naive-ui'
 
+import RefreshButton from '@/components/RefreshButton.vue'
 import { listActiveTags, listProblems } from '@/api/problems'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
+import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import type { PageResult, ProblemSummary, ProblemTagItem } from '@/types'
 
 const router = useRouter()
 const { t } = useI18n()
 const loading = ref(false)
 const problems = ref<ProblemSummary[]>([])
-const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
+const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
+  usePagination()
 const keyword = ref('')
 /** 标签筛选（单选） */
 const tag = ref<string | null>(null)
 const tagOptions = ref<Array<{ label: string; value: string }>>([])
+/** 难度分闭区间筛选（null = 不限） */
+const difficultyMin = ref<number | null>(null)
+const difficultyMax = ref<number | null>(null)
 
 async function load() {
+  const seq = beginLoad()
   loading.value = true
   try {
     const result: PageResult<ProblemSummary> = await listProblems({
@@ -30,13 +36,17 @@ async function load() {
       page_size: pageSize.value,
       keyword: keyword.value || undefined,
       tag: tag.value || undefined,
+      difficulty_min: difficultyMin.value ?? undefined,
+      difficulty_max: difficultyMax.value ?? undefined,
     })
+    if (!isCurrent(seq)) return
     problems.value = result.items
     total.value = result.total
   } catch (error) {
+    if (!isCurrent(seq)) return
     message.error(error instanceof Error ? error.message : t('problems.list.loadFailed'))
   } finally {
-    loading.value = false
+    if (isCurrent(seq)) loading.value = false
   }
 }
 
@@ -49,7 +59,7 @@ async function loadTagOptions() {
   }
 }
 
-/** 搜索 / 清空筛选：SearchFilterBar 内部已做输入防抖，这里立即查询 */
+/** 查询（手动模式：点击「查询」按钮 / 回车 / 清空关键字触发） */
 function onSearch() {
   resetPage()
   load()
@@ -58,6 +68,13 @@ function onSearch() {
 function changeTag() {
   resetPage()
   load()
+}
+
+/** 通过率展示：accepted/submission 百分比；无提交显示 -- */
+function passRate(row: ProblemSummary): string {
+  const total = row.submission_count ?? 0
+  if (!total) return '--'
+  return `${Math.round(((row.accepted_count ?? 0) / total) * 100)}%`
 }
 
 onMounted(() => {
@@ -83,6 +100,18 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
     width: 220,
     render: (row) => `${row.time_limit_ms} ms / ${row.memory_limit_mb} MB`,
   },
+  {
+    title: t('problems.list.difficulty'),
+    key: 'difficulty',
+    width: 90,
+    render: (row) => (row.difficulty ?? null) === null ? '--' : String(row.difficulty),
+  },
+  {
+    title: t('problems.list.passRate'),
+    key: 'pass_rate',
+    width: 100,
+    render: (row) => passRate(row),
+  },
 ])
 
 function rowProps(row: ProblemSummary) {
@@ -94,52 +123,68 @@ function rowProps(row: ProblemSummary) {
 </script>
 
 <template>
-  <!-- 题库中心：内容自适应高度，不做视口填充（其余列表工作台仍用 page-fill） -->
-  <div class="page-stack">
-    <n-card :bordered="false">
-      <SearchFilterBar
-        :keyword="keyword"
-        :placeholder="t('problems.list.search')"
-        search-width="300px"
-        @update:keyword="(v: string) => { keyword = v }"
-        @search="onSearch"
-        @reset="onSearch"
-      >
-        <n-select
-          v-model:value="tag"
-          style="width: 150px"
+  <!-- 题库中心与其他列表工作台统一：page-fill 视口锁定，表格区内部滚动 -->
+  <WorkbenchShell>
+    <SearchFilterBar
+      :keyword="keyword"
+      :placeholder="t('problems.list.search')"
+      search-width="300px"
+      manual
+      @update:keyword="(v: string) => { keyword = v }"
+      @search="onSearch"
+      @reset="onSearch"
+    >
+      <n-select
+        v-model:value="tag"
+        style="width: 150px"
+        clearable
+        :options="tagOptions"
+        :placeholder="t('problems.list.tag')"
+        @update:value="changeTag"
+      />
+      <div class="difficulty-filter">
+        <n-input-number
+          v-model:value="difficultyMin"
+          :min="0"
+          :show-button="false"
           clearable
-          :options="tagOptions"
-          :placeholder="t('problems.list.tag')"
-          @update:value="changeTag"
+          :placeholder="t('problems.list.difficultyMin')"
+          class="difficulty-filter__input"
         />
-        <template #actions>
-          <n-button quaternary circle :loading="loading" :aria-label="t('action.refresh')" @click="load">
-            <n-icon :component="Refresh" />
-          </n-button>
-        </template>
-      </SearchFilterBar>
+        <span class="difficulty-filter__sep" aria-hidden="true">—</span>
+        <n-input-number
+          v-model:value="difficultyMax"
+          :min="0"
+          :show-button="false"
+          clearable
+          :placeholder="t('problems.list.difficultyMax')"
+          class="difficulty-filter__input"
+        />
+      </div>
+      <template #actions>
+        <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
+      </template>
+    </SearchFilterBar>
 
-      <!-- 表格区撑满卡片剩余高度；无数据时空态垂直居中 -->
-      <PaginatedDataTable
-        :columns="columns"
-        :data="problems"
-        :loading="loading"
-        :total="total"
-        v-model:page="page"
-        v-model:page-size="pageSize"
-        :page-sizes="[20, 50, 100]"
-        :empty-text="t('problems.list.empty')"
-        :table-props="{ rowProps }"
-        @update:page="(p: number) => { changePage(p); load() }"
-        @update:page-size="(s: number) => { changeSize(s); load() }"
-      >
-        <template #pager-left>
-          <span class="pager__total">{{ t('problems.list.totalCount', { count: total }) }}</span>
-        </template>
-      </PaginatedDataTable>
-    </n-card>
-  </div>
+    <!-- 表格区撑满卡片剩余高度；无数据时空态垂直居中 -->
+    <PaginatedDataTable
+      :columns="columns"
+      :data="problems"
+      :loading="loading"
+      :total="total"
+      v-model:page="page"
+      v-model:page-size="pageSize"
+      :page-sizes="[20, 50, 100]"
+      :empty-text="t('problems.list.empty')"
+      :table-props="{ rowProps }"
+      @update:page="(p: number) => { changePage(p); load() }"
+      @update:page-size="(s: number) => { changeSize(s); load() }"
+    >
+      <template #pager-left>
+        <span class="pager__total">{{ t('problems.list.totalCount', { count: total }) }}</span>
+      </template>
+    </PaginatedDataTable>
+  </WorkbenchShell>
 </template>
 
 <style scoped>
@@ -154,4 +199,17 @@ function rowProps(row: ProblemSummary) {
   color: var(--app-text-secondary);
   font-size: 12px;
 }
+.difficulty-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 96px：容纳「最低难度」占位符不截断；与工具栏其余控件统一默认高度 */
+.difficulty-filter__input {
+  width: 96px;
+}
+.difficulty-filter__sep {
+  color: var(--app-text-secondary);
+}
+
 </style>

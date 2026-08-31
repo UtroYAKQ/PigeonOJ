@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 /**
  * 题目元信息条：标题 + 时间/内存限制 + 状态/可见性/待重验标签 + 标签。
  * 题目详情页、管理预览页、验题面板三处共用，避免各自维护一套 meta 排版。
@@ -19,6 +19,9 @@ const props = defineProps<{
     | 'visibility'
     | 'needs_reverification'
     | 'tags'
+    | 'difficulty'
+    | 'submission_count'
+    | 'accepted_count'
   >
   /** 是否展示标题（卡片头 / 面板首行场景开启） */
   showTitle?: boolean
@@ -32,6 +35,13 @@ const { t } = useI18n()
 const statusVisible = computed(
   () => !props.hidePublishedStatus || props.problem.status !== 'published',
 )
+
+/** 通过率展示：accepted/submission 百分比；无提交不展示 */
+const passRate = computed(() => {
+  const total = props.problem.submission_count ?? 0
+  if (!total) return null
+  return `${Math.round(((props.problem.accepted_count ?? 0) / total) * 100)}%`
+})
 </script>
 
 <template>
@@ -40,6 +50,12 @@ const statusVisible = computed(
     <div class="problem-meta-bar__tags">
       <span>{{ problem.time_limit_ms }} ms</span>
       <span>{{ problem.memory_limit_mb }} MB</span>
+      <span v-if="problem.difficulty !== null && problem.difficulty !== undefined">
+        {{ t('problems.list.difficulty') }} {{ problem.difficulty }}
+      </span>
+      <span v-if="passRate">
+        {{ t('problems.list.passRate') }} {{ passRate }}
+      </span>
       <n-tag
         v-if="statusVisible"
         size="small"

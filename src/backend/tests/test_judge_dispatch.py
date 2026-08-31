@@ -208,7 +208,7 @@ async def test_heartbeat_updates_node_metrics():
     assert conn.cpu_usage == 55
     assert conn.memory_usage == 66
     payload = conn.to_payload()
-    assert payload["cpu_usage"] == 55 and payload["memory_usage"] == 66
+    assert payload.cpu_usage == 55 and payload.memory_usage == 66
 
     raw = await get_redis().get(f"{SANDBOX_NODE_KEY_PREFIX}metric-1")
     stored = json.loads(raw)

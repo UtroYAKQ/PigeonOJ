@@ -34,6 +34,8 @@ const form = reactive({
   visibility: 'public',
   time_limit_ms: 1000,
   memory_limit_mb: 256,
+  /** 难度分（手动填写；null = 未评分） */
+  difficulty: null as number | null,
 })
 const tagOptions = ref<Array<{ label: string; value: string }>>([])
 /** 官方题解编辑器懒挂载：首次展开折叠面板时才创建编辑器实例 */
@@ -70,6 +72,7 @@ async function loadExisting() {
       visibility: loaded.visibility ?? 'public',
       time_limit_ms: loaded.time_limit_ms,
       memory_limit_mb: loaded.memory_limit_mb,
+      difficulty: loaded.difficulty ?? null,
     })
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
@@ -112,6 +115,7 @@ async function goNext() {
       visibility: form.visibility,
       time_limit_ms: form.time_limit_ms,
       memory_limit_mb: form.memory_limit_mb,
+      difficulty: form.difficulty,
     })
     let targetId: string
     if (isEdit.value) {
@@ -189,6 +193,15 @@ const visibilityOptions = computed(() => [
             </n-form-item>
             <n-form-item :label="t('problems.create.memoryLimit')">
               <n-input-number v-model:value="form.memory_limit_mb" :min="16" class="w-full" />
+            </n-form-item>
+            <n-form-item :label="t('problems.create.difficulty')">
+              <n-input-number
+                v-model:value="form.difficulty"
+                :min="0"
+                clearable
+                :placeholder="t('problems.create.difficultyPlaceholder')"
+                class="w-full"
+              />
             </n-form-item>
           </div>
 

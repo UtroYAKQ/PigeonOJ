@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NButton, NTag } from 'naive-ui'
@@ -12,18 +12,21 @@ import { formatDateTime } from '@/utils/format'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
+import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
 const type = ref<LogType>('request')
 const rows = ref<unknown[]>([])
-const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
+const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
+  usePagination()
 const query = reactive({
   keyword: '',
   range: null as [number, number] | null,
 })
 async function load() {
+  const seq = beginLoad()
   loading.value = true
   try {
     const res = await adminApi.adminListLogs(type.value, {
@@ -33,12 +36,14 @@ async function load() {
       start: query.range ? new Date(query.range[0]).toISOString() : undefined,
       end: query.range ? new Date(query.range[1]).toISOString() : undefined,
     })
+    if (!isCurrent(seq)) return
     rows.value = res.items
     total.value = res.total
   } catch (e) {
+    if (!isCurrent(seq)) return
     message.error(e instanceof Error ? e.message : t('common.loadFailed'))
   } finally {
-    loading.value = false
+    if (isCurrent(seq)) loading.value = false
   }
 }
 watch(type, () => {
@@ -225,9 +230,8 @@ const activeColumns = computed(() =>
 </script>
 
 <template>
-  <div class="page-fill">
-    <n-card :title="t('admin.logs.title')" :bordered="false">
-      <template #header-extra>
+  <WorkbenchShell :title="t('admin.logs.title')">
+    <template #header-extra>
         <n-button size="small" secondary :loading="loading" @click="exportCsv">{{
           t('action.export')
         }}</n-button>
@@ -275,7 +279,6 @@ const activeColumns = computed(() =>
         @update:page="(p: number) => { changePage(p); load() }"
         @update:page-size="(s: number) => { changeSize(s); load() }"
       />
-    </n-card>
-  </div>
+  </WorkbenchShell>
 </template>
 

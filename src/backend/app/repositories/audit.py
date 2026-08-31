@@ -128,9 +128,21 @@ class LogRepository:
     async def _page(self, model, order_col, page: int, page_size: int, conditions: list) -> tuple[list, int]:
         count_stmt = select(func.count()).select_from(model).where(*conditions) if conditions else select(func.count()).select_from(model)
         total = (await self.db.execute(count_stmt)).scalar_one()
-        stmt = select(model)
-        if conditions:
-            stmt = stmt.where(*conditions)
-        stmt = stmt.order_by(order_col.desc()).offset((page - 1) * page_size).limit(page_size)
+        # 深分页延迟关联（late row lookup）：子查询按 (created_at, id) 覆盖索引仅取主键，
+        # OFFSET 丢弃的行不回表，代价只随索引深度增长；外层仅对页内行回表取整行。
+        # id 为决胜列：同 created_at 行的全序固定，页边界稳定（不重复 / 不漏行）。
+        page_ids = (
+            select(model.id)
+            .where(*conditions)
+            .order_by(order_col.desc(), model.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .subquery()
+        )
+        stmt = (
+            select(model)
+            .join(page_ids, model.id == page_ids.c.id)
+            .order_by(order_col.desc(), model.id.desc())
+        )
         rows = list((await self.db.execute(stmt)).scalars().all())
         return rows, int(total)

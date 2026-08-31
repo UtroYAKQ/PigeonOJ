@@ -30,12 +30,13 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 - 危险操作（删除、封禁、注销、提交）先确认再执行；确认弹窗用 `utils/feedback.ts` 的 `$dialog.warning`；需输入的（封禁原因、注销密码）用内联 `n-modal`
 - 命令式反馈统一走 `utils/feedback.ts`（message / dialog，createDiscreteApi），组件内不再包 MessageProvider
 - 配置多分类页面用横向 `n-tabs type="line"`
+- **刷新按钮统一复用 `components/RefreshButton.vue`**（icon-only 圆形幽灵按钮，`loading` 传入加载态）：加载中图标自旋表达状态，禁止绑 naive `:loading`（图标被整体替换为转圈组件，产生尺寸跳变与视觉突兀）；查询进度由页面表格 / 内容区的 loading 遮罩承担；aria-label 与 @click 经 attrs 透传
 
 ### 表格工作台
 
 - 筛选 / 搜索 / 导出放工具栏（允许换行）；表格 `n-data-table`（columns 数组 + render，列文案随 locale 翻译）；行内操作 `text` 按钮；分页底部分页器
 - 复用 `components/PaginatedDataTable.vue` + `composables/usePagination.ts`（含空态垂直居中 + 底部分页条，页面不得手写同构样板）
-- 列表撑满内容画布：根节点 `page-fill`（视口 - 顶栏 - 内边距），表格区 `table-fill`，空态经 `table-fill-empty` 居中
+- 外壳复用 `components/WorkbenchShell.vue`（page-fill 视口锁定 + 无边框卡片；支持 `title` / `header` / `header-extra` 插槽），页面不得手写 `.page-fill` + `n-card` 样板；表格区 `table-fill`，空态经 `table-fill-empty` 居中
 - 字典层标签类型（`TagType`）渲染到 `n-tag` 时须经 `toNaiveTagType()` 映射（danger → error）
 
 ### 按钮与表单
@@ -80,6 +81,8 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 | `components/StatusTag.vue` | 状态 → 标签颜色/文案 | 提交历史 / 结果页 |
 | `components/EmailCodeInput.vue` | 验证码输入 + 60s 倒计时 | 注册 / 安全设置 |
 | `components/PaginatedDataTable.vue` + `composables/usePagination.ts` | 分页列表 | 所有管理列表 |
+| `components/WorkbenchShell.vue` | 视口锁定工作台外壳（page-fill 卡片 + 头部插槽） | 所有管理列表 |
+| `components/RefreshButton.vue` | 刷新按钮（icon-only 圆形幽灵按钮，加载中图标自旋） | 列表 / 状态页 |
 | `constants/languages.ts` | 判题语言选项 | 所有语言选择器 |
 
 ## 代码组织

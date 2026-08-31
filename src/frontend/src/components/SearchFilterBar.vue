@@ -2,10 +2,11 @@
 import { Search as SearchIcon } from '@element-plus/icons-vue'
 import { useDebounceFn } from '@vueuse/core'
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 // showSearch 必须显式给默认值 true：Boolean prop 缺省时会被 Vue 强转为 false（而非 undefined），
 // 「未传 = 显示」的语义必须经 withDefaults 落实，否则搜索输入框永远不渲染
-withDefaults(
+const props = withDefaults(
   defineProps<{
     /** 搜索关键词 v-model */
     keyword?: string
@@ -15,8 +16,10 @@ withDefaults(
     searchWidth?: string
     /** 是否显示搜索框（默认 true） */
     showSearch?: boolean
+    /** true = 手动模式：输入不触发查询，展示「查询」按钮（点击 / 回车 → search） */
+    manual?: boolean
   }>(),
-  { searchWidth: '240px', showSearch: true },
+  { searchWidth: '240px', showSearch: true, manual: false },
 )
 
 const emit = defineEmits<{
@@ -24,6 +27,8 @@ const emit = defineEmits<{
   search: []
   reset: []
 }>()
+
+const { t } = useI18n()
 
 // 中文输入法组词过程不触发搜索（compositionend 后再统一触发）
 const composing = ref(false)
@@ -34,11 +39,11 @@ function onCompositionStart() {
 }
 function onCompositionEnd() {
   composing.value = false
-  scheduleSearch()
+  if (!props.manual) scheduleSearch()
 }
 function onInput(value: string) {
   emit('update:keyword', value)
-  if (!composing.value) scheduleSearch()
+  if (!composing.value && !props.manual) scheduleSearch()
 }
 </script>
 
@@ -61,7 +66,11 @@ function onInput(value: string) {
         <n-icon size="15"><SearchIcon /></n-icon>
       </template>
     </n-input>
+    <!-- 手动模式：查询作用于全部条件，按钮置于筛选组末尾收尾（而非插在关键词后） -->
     <slot />
+    <n-button v-if="manual && showSearch" type="primary" @click="$emit('search')">
+      {{ t('action.search') }}
+    </n-button>
     <div class="search-filter-bar__spacer" />
     <slot name="actions" />
   </div>

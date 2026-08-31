@@ -14,12 +14,12 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta
-from typing import Any
+from datetime import datetime, timedelta, timezone
 
 import grpc
 
 from app.enums import SubmissionStatus
+from app.schemas.admin import SandboxNodeOut
 from app.settings.config import get_settings
 from app.rpc import judge_jobs as jobs
 from app.rpc.gen import judge_pb2, judge_pb2_grpc
@@ -35,6 +35,11 @@ _JUDGING_STALE_SECONDS = 5 * 60
 # 用户自测整链路兜底超时（> 节点侧编译+运行最大预算；到期未回传视为节点故障）
 _RUN_TIMEOUT_SECONDS = 120
 
+# 心跳指标钳制边界（节点上报 0-100 百分比，越界值写 Redis 前收敛）
+_METRIC_PERCENT_MIN = 0
+_METRIC_PERCENT_MAX = 100
+# 巡检滞留判定倍数：连续 N 个扫描周期无更新才纳入巡检候选（避免误判在途提交）
+_STALE_SCAN_MULTIPLIER = 2
 # FetchProblemData 的认证 metadata 键（与判题节点 daemon 约定一致）
 _NODE_TOKEN_METADATA_KEY = "x-node-token"
 # 心跳状态值（写 Redis 供管理后台沙箱页展示）
@@ -85,20 +90,22 @@ class NodeConnection:
     def load(self) -> float:
         return round(min(1.0, self.task_count / self.capacity), 3)
 
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "id": self.node_id,
-            "name": self.name,
-            "status": _NODE_STATUS_ONLINE,
-            "channel": _CHANNEL_GATEWAY,
-            "load": self.load,
-            "cpu_usage": self.cpu_usage,
-            "memory_usage": self.memory_usage,
-            "running_tasks": self.task_count,
-            "capacity": self.capacity,
-            "version": self.version,
-            "last_heartbeat_at": datetime.now().astimezone().isoformat(),
-        }
+    def to_payload(self) -> SandboxNodeOut:
+        """节点热状态 → 管理端契约模型（键以 SandboxNodeOut 为唯一来源）。"""
+        return SandboxNodeOut(
+            id=self.node_id,
+            name=self.name,
+            status=_NODE_STATUS_ONLINE,
+            channel=_CHANNEL_GATEWAY,
+            load=self.load,
+            cpu_usage=self.cpu_usage,
+            memory_usage=self.memory_usage,
+            running_tasks=self.task_count,
+            capacity=self.capacity,
+            version=self.version,
+            # 显式 UTC（aware），序列化带 +00:00 偏移；前端 formatDateTime 直接解析
+            last_heartbeat_at=datetime.now(timezone.utc).isoformat(),
+        )
 
 
 class GatewayRegistry:
@@ -133,7 +140,7 @@ class GatewayRegistry:
     async def redis_heartbeat(self, conn: NodeConnection) -> None:
         await get_redis().set(
             f"{SANDBOX_NODE_KEY_PREFIX}{conn.node_id}",
-            json.dumps(conn.to_payload(), ensure_ascii=False),
+            json.dumps(conn.to_payload().model_dump(mode="json"), ensure_ascii=False),
             ex=_HEARTBEAT_TTL_SECONDS,
         )
 
@@ -275,8 +282,8 @@ async def _pump_incoming(request_iterator, context: grpc.aio.ServicerContext, co
         async for msg in request_iterator:
             kind = msg.WhichOneof("payload")
             if kind == "heartbeat":
-                conn.cpu_usage = max(0, min(100, msg.heartbeat.cpu_usage))
-                conn.memory_usage = max(0, min(100, msg.heartbeat.memory_usage))
+                conn.cpu_usage = max(_METRIC_PERCENT_MIN, min(_METRIC_PERCENT_MAX, msg.heartbeat.cpu_usage))
+                conn.memory_usage = max(_METRIC_PERCENT_MIN, min(_METRIC_PERCENT_MAX, msg.heartbeat.memory_usage))
                 await REGISTRY.redis_heartbeat(conn)
             elif kind == "result":
                 await _handle_result(msg.result)
@@ -343,7 +350,7 @@ async def maintenance_loop(interval: int | None = None) -> None:
     from app.models.judge import Submission
 
     scan_interval = _PENDING_RESCAN_SECONDS if interval is None else max(0, interval)
-    stale_after = timedelta(seconds=scan_interval * 2)
+    stale_after = timedelta(seconds=scan_interval * _STALE_SCAN_MULTIPLIER)
     r = get_redis()
     while True:
         try:

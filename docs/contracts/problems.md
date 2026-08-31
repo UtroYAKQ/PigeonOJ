@@ -24,6 +24,7 @@
 | pending_verified | BOOLEAN | NOT NULL DEFAULT false | 暂存集已通过验题、待显式应用（任何新的暂存写入即清除） |
 | time_limit_ms | INT | NOT NULL DEFAULT 1000 | 时间限制（**C++ 基准**；其他语言按 `sandbox_configs` 语言比例换算有效限制，见 `judge.md`「语言限制换算」） |
 | memory_limit_mb | INT | NOT NULL DEFAULT 256 | 内存限制（**C++ 基准**；其他语言按 `sandbox_configs` 语言比例换算，并受 `memory_min_mb` 下限约束） |
+| difficulty | INT | NULL, CHECK (NULL OR >= 0) | 难度分（出题人 / 管理角色手动填写，类似 Codeforces；NULL=未评分；只约束非负，不设上限） |
 | team_id | UUID | NULL, FK → teams.id | 归属团队；NULL=全站题目，非 NULL=团队题目（永久归属该团队，不进入公开题库） |
 | owner_id | UUID | NOT NULL, FK → users.id | 创建者 |
 | visibility | VARCHAR(16) | NOT NULL DEFAULT 'public' | 全站题目：`private` / `public`；团队题目：`admin_visible` / `team_visible` |
@@ -49,6 +50,22 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 ```
 
 索引：INDEX(`owner_id`)、INDEX(`team_id`, `visibility`, `status`)、INDEX(`visibility`, `status`)、GIN(`title` gin_trgm_ops)
+
+### `problem_counters` — 题目统计计数表
+
+与 `problems` 1:1（PK 即 FK，`ON DELETE CASCADE`）；判题终态时 upsert 原子累加，
+避免判题高频写打在 `problems` 热行上。存量数据由迁移一次性回填。
+
+| 字段 | 类型 | 约束/默认 | 说明 |
+| --- | --- | --- | --- |
+| problem_id | UUID | PK, FK → problems.id (CASCADE) | |
+| submission_count | INT | NOT NULL DEFAULT 0 | 终态提交数（统计口径见 `judge.md`：排除 verify 与 pending/judging/system_error） |
+| accepted_count | INT | NOT NULL DEFAULT 0 | AC 提交数（同口径） |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | 最近累加时间 |
+
+- 写入：判题落库时单条 `INSERT ... ON CONFLICT (problem_id) DO UPDATE ... + 1`（并发安全，计数行自动创建）
+- 读取：题目列表 / 详情返回 `submission_count` / `accepted_count` 原始计数，无计数行按 0；通过率由前端按 `accepted_count / submission_count` 现算（无提交显示 `--`）
+- 漂移对账：`submissions` 按口径 GROUP BY 重算可随时全量校正（暂无自动调度）
 
 ### `problem_tags` / `problem_tag_relations` — 标签
 
@@ -129,15 +146,15 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：创建者见自己全部题目，管理角色（admin/tutor/team_creator）见可管理范围全量，可叠加 `status` 过滤；列表项恒带 `needs_reverification` 字段（存在待验证测试点，或样例晚于最近验题通过时间；仅 `scope=mine` 视图有意义，其他场景恒为 `false`） | 分页/标签/关键字/scope/status | problem[] |
+| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：创建者见自己全部题目，管理角色（admin/tutor/team_creator）见可管理范围全量，可叠加 `status` 过滤；列表项恒带 `needs_reverification` 字段（存在待验证测试点，或样例晚于最近验题通过时间；仅 `scope=mine` 视图有意义，其他场景恒为 `false`）；支持难度分闭区间筛选（未评分题目不落入任何区间，min>max 返回 1001）；列表项带 `difficulty` 与 `submission_count` / `accepted_count` | 分页/标签/关键字/scope/status/difficulty_min/difficulty_max | problem[] |
 | GET | /problems/tags | public | 激活标签列表（打标选择器与列表筛选用，仅 `status='active'`） | - | tag[]（id/name/color） |
 | GET | /admin/tags | admin | 标签管理全量列表（含已归档） | - | tag[] |
 | POST | /admin/tags | admin | 新增标签（name 唯一，重复返回 1001） | name/color? | tag |
 | PUT | /admin/tags/{id} | admin | 修改标签名称 / 颜色 | name?/color? | tag |
 | POST | /admin/tags/{id}/archive | admin | 归档标签（关联保留、不再可选） | - | tag |
-| GET | /problems/{id} | public/owner | 题目详情（按可见性过滤） | - | problem |
-| POST | /problems | admin/tutor/team_creator/team_admin | 创建题目（公开/团队） | team_id?/title/.../tags?/visibility/limits | problem |
-| PUT | /problems/{id} | admin/tutor/team_creator/team_admin | 编辑题目 | ...（`tags` 全量替换标签关联） | problem |
+| GET | /problems/{id} | public/owner | 题目详情（按可见性过滤）；带 `difficulty` 与 `submission_count` / `accepted_count` | - | problem |
+| POST | /problems | admin/tutor/team_creator/team_admin | 创建题目（公开/团队） | team_id?/title/.../tags?/visibility/limits/difficulty? | problem |
+| PUT | /problems/{id} | admin/tutor/team_creator/team_admin | 编辑题目 | ...（`tags` 全量替换标签关联；`difficulty` 非负整数，缺省不改动） | problem |
 | PUT | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 全量替换**暂存集**测试点（出题不设分值；提交得分由判题服务端按通过比例派生，比赛计分随 contests 模块配置）；被替换内容的 MinIO 旧对象异步清理；生效集不动，验题通过后晋升 | cases[]（name?、input、expected_output、sort_order） | - |
 | PATCH | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 增量更新**暂存集**（前端编辑器按行 diff 只提交变化的行）：upserts 带 id 为修改（input/expected_output 缺省或 null = 内容不变，可仅改名 / 调序；传字符串则整体替换该侧内容，空字符串 = 显式清空——写入空对象、ossId 保持非空，两侧同时置空返回 1001；改动生成新行、origin_id 指回原行）、无 id 为新增（输入输出不能全空）；delete_ids 表示目标状态中不含该点；同一 id 不得同时出现在 upserts 与 delete_ids（1001），未知 id 返回 3001；被替换内容的 MinIO 旧对象异步清理。生效集在晋升前不受影响 | upserts[]（id?、name?、input?、expected_output?、sort_order?）/ delete_ids[] | cases[]（目标状态合并视图：未改动点沿用原 id，含内容与 staged 标记，供前端重置基线） |
 | POST | /problems/{id}/test-cases/apply | admin/tutor/team_creator/team_admin | 显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦，点「保存」才生效）；无暂存改动返回 3002，未通过验题（`pending_verified=false`）返回 3002；任何新的暂存写入都会清除已验标记 | - | problem |
@@ -172,6 +189,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 2. **验题时效**：题目内容（题面等）变更不影响验题有效性；**测试点存在暂存集（pending 非空，精确判定）或样例在最近一次验题通过后变更（`problems.samples_updated_at > verified_at`），则须重新走验题流程才能发布**——发布接口违反时返回 3002；`scope=mine` 列表与详情分别以 `needs_reverification` 字段透出。测试点编辑只落暂存集，生效集（active）在晋升前不受影响，比赛中判题始终使用已验证的 active 集。
 3. **验题**：发起 `POST /problems/{id}/verify`（生成邀请链接存 Redis，或不带参数创建空白记录）→ 任意登录用户提交代码（凭邀请链接或直接提交，身份不限）→ 系统按题目**暂存集（pending 为空时退化为生效集）**判题（复用 `submissions`，`submit_type='verify'`）→ 全部通过 → 仅打「已验待生效」标记（`pending_verified=true`，`case_status='verified'`）并回写 `problem_verifications.status='passed'`、判题链路回写 `verified_by / verified_at`（`verifier_id` 回写实际提交人）；**晋升与验题解耦**——管理角色调 `POST /problems/{id}/test-cases/apply` 显式生效后，单事务 `active_case_ids := pending_case_ids`、清空 pending（被取代旧行退役留档）。任何新的暂存写入都会清除已验标记。
 4. **样例自测**：题目详情页展示样例字符串（`problems.samples` 数组）并提供复制；在线试运行能力规划由判题节点侧专用端点承担（当前后端不执行用户代码）。
+5. **难度分与通过率**：难度分为出题人手动填写（`problems.difficulty`，非负整数，NULL=未评分），列表支持闭区间筛选；通过率统计由 `problem_counters` 承载，判题终态原子累加（口径见 `docs/contracts/judge.md`），API 返回原始计数、前端现算百分比。
 
 ## 明确不做
 
@@ -181,3 +199,4 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 - 测试点不向前端暴露下载 / 预签名 URL；提交结果不返回期望输出
 - 不建验题邀请链接表（Redis 承载）与用户代码草稿表；AI 出题相关字段（`is_ai_generated` / `ai_generation_task_id`）随 AI 能力迭代再引入，当前不落库
 - 不做 per-problem 语言级限制覆盖：题目限制为 C++ 基准，其他语言统一按 `sandbox_configs` 全局语言比例换算
+- 难度分不做自动校准（不按通过率 / 用户 rating 自动折算）；通过率不落库为比率字段（由计数现算）；计数不做 Redis 缓存（单行 upsert 开销可忽略，漂移以 SQL 对账兜底）
