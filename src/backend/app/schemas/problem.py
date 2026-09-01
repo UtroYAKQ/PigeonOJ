@@ -99,15 +99,15 @@ class TestCaseItem(BaseModel):
     id: uuid.UUID | None = None
     name: str | None = Field(default=None, max_length=64)
     # PATCH 增量语义：None（字段缺省或显式 null）= 内容不变；字符串（含 ""）= 设置为该内容
-    input: str | None = Field(default=None, max_length=2 * 1024 * 1024)
-    expected_output: str | None = Field(default=None, max_length=2 * 1024 * 1024)
+    input: str | None = Field(default=None, max_length=5 * 1024 * 1024)
+    expected_output: str | None = Field(default=None, max_length=5 * 1024 * 1024)
     sort_order: int = Field(default=0, ge=0)
 
     @field_validator("input", "expected_output")
     @classmethod
     def content_bytes_limit(cls, value: str | None) -> str | None:
-        if value is not None and len(value.encode("utf-8")) > 2 * 1024 * 1024:
-            raise ValueError("测试点内容不能超过 2MB")
+        if value is not None and len(value.encode("utf-8")) > 5 * 1024 * 1024:
+            raise ValueError("测试点内容不能超过 5MB")
         return value
 
 

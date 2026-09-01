@@ -204,7 +204,7 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 - 提交统一按 `submit_type` 区分场景：练习（默认）、比赛（`contest_id` 关联，含赛后补题）、验题（`verification_id` 关联，结果驱动 `problem_verifications.status`；验题通过同步回写 `problems.is_verified / verified_by / verified_at`）。
 - 任务派发由 gRPC 网关承担，`sandbox_configs` 提供语言级运行参数（含输出大小、磁盘配额、CPU 核数、网络开关）与判题限制比例；`problems` 提供 **C++ 基准**内存 / 时间限制，判题按提交语言解析有效限制。
 - 判题比对模式：统一默认比对（忽略行尾空白与末尾换行、行内严格）；不支持 SPJ 特判。
-- 输出超限：程序输出超过沙箱输出上限时截断比对，判定 `output_limit_exceeded`，不再继续比对剩余输出。
+- 输出超限：程序输出超过沙箱输出上限时截断比对，判定 `output_limit_exceeded`，不再继续比对剩余输出。默认上限 5MB（`sandbox_configs.output_limit_kb = 5120`，0021 迁移；对齐主流 OJ 行业水平），节点以 job 下发的 `limits.output_limit_kb` 为准。
 - 判题失败（沙箱异常、超时）自动重试，超过阈值转 `system_error`。
 - 判题结果仅返回用户程序输出与判定状态，不返回测试点期望输出。
 - 后端进程不执行用户代码；用户自测经网关派发到节点一次性运行（见「用户自测」节）。

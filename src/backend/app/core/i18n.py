@@ -155,7 +155,7 @@ _MESSAGES: dict[str, str] = {
     "邀请链接已失效": "Invite link has expired",
     "代码不能超过 64KB": "Code must be smaller than 64KB",
     "提交验题代码时必须指定语言": "Language is required when submitting verification code",
-    "测试点内容不能超过 2MB": "Test case content must be smaller than 2MB",
+    "测试点内容不能超过 5MB": "Test case content must be smaller than 5MB",
     "样例内容不能超过 64KB": "Sample content must be smaller than 64KB",
     # ---- 标签 ----
     "标签不存在": "Tag not found",

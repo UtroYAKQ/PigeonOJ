@@ -167,7 +167,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 | POST | /files/upload/avatar | auth（头像） | 头像上传（multipart → ossId） | file | ossId |
 | POST | /files/upload/image | auth（公共图片，登录用户可用） | 题面插图上传（multipart → url），Markdown 编辑器以 `![](url)` 引用；详见 admin.md files 表 | file（≤5MB，JPG/PNG/WEBP/GIF） | ossId |
 
-> 测试点与样例均不走独立上传接口：`PUT /problems/{id}/test-cases` 接收 UTF-8 的 `input` / `expected_output` 内容（每项 ≤2MB），由后端生成对象 key 并分别上传 `problems/{problem_id}/cases/{case_id}/input` 与 `/output`，回填双 ossId，**写入暂存集（验题通过后晋升生效）**；样例经 `PUT /problems/{id}/samples` 直接存库（≤10 组、单项各 ≤64KB），不上传 MinIO。不生成测试点归档 ZIP，前端 ZIP 只在浏览器内解压为内容。
+> 测试点与样例均不走独立上传接口：`PUT /problems/{id}/test-cases` 接收 UTF-8 的 `input` / `expected_output` 内容（每项 ≤5MB），由后端生成对象 key 并分别上传 `problems/{problem_id}/cases/{case_id}/input` 与 `/output`，回填双 ossId，**写入暂存集（验题通过后晋升生效）**；样例经 `PUT /problems/{id}/samples` 直接存库（≤10 组、单项各 ≤64KB），不上传 MinIO。不生成测试点归档 ZIP，前端 ZIP 只在浏览器内解压为内容。
 
 ## 错误码
 

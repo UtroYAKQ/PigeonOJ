@@ -15,11 +15,12 @@ branch_labels = None
 depends_on = None
 
 # docs/contracts/judge.md 语言限制换算：cpp17 为基准；python/java 按平台默认比例
+# output_limit_kb=5120（5MB）：0021 迁移对齐行业水平后的默认值，新装环境与存量一致
 _DEFAULT_CONFIGS = [
     # language, time_ratio, memory_ratio, memory_min_mb, output_limit_kb, cpu_cores, process_limit
-    ("python3.12", 3.0, 2.0, 128, 1024, 1, 16),
-    ("cpp17", 1.0, 1.0, 0, 1024, 1, 32),
-    ("java21", 2.0, 2.0, 256, 1024, 1, 48),
+    ("python3.12", 3.0, 2.0, 128, 5120, 1, 16),
+    ("cpp17", 1.0, 1.0, 0, 5120, 1, 32),
+    ("java21", 2.0, 2.0, 256, 5120, 1, 48),
 ]
 
 
