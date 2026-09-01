@@ -32,6 +32,7 @@ def upgrade() -> None:
         sa.Column("title", sa.String(128), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("logo", sa.String(512), nullable=True),
+        sa.Column("contest_type", sa.String(16), nullable=False, server_default="public"),
         # FK → teams.id 随 teams 模块迁移补齐
         sa.Column("team_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("owner_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
