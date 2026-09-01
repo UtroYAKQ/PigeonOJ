@@ -44,28 +44,162 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
+          // 面包屑：题库 / 题目详情 / 评测结果（父级动态解析到当前题目详情页）
+          breadcrumbParent: {
+            titleKey: 'problems.detail.title',
+            path: (route) => `/problems/${String(route.params.problemId)}`,
+          },
+        },
+      },
+    ],
+  },
+  {
+    path: 'problem-sets',
+    redirect: '/problem-sets/list',
+    meta: { title: '题单', titleKey: 'nav.problemSets', icon: 'Document' },
+    children: [
+      {
+        path: 'list',
+        name: 'problem-sets',
+        component: () => import('@/views/problemsets/ProblemSetListView.vue'),
+        meta: { title: '题单', titleKey: 'nav.problemSets', icon: 'Document' },
+      },
+      {
+        path: ':id',
+        name: 'problem-set-detail',
+        component: () => import('@/views/problemsets/ProblemSetDetailView.vue'),
+        meta: {
+          title: '题单详情',
+          titleKey: 'problemSets.detail.title',
+          hidden: true,
+          contextPage: true,
+        },
+      },
+      {
+        // 题单上下文内的写题页：复用题库详情组件，交题 / 评测结果均不跳出题单。
+        // 面包屑：题单 / 题单详情 / 题目详情（父级动态解析到当前题单详情页）
+        path: ':setId/problems/:problemId',
+        name: 'problem-set-problem',
+        component: () => import('@/views/problems/ProblemDetailView.vue'),
+        meta: {
+          title: '题目详情',
+          titleKey: 'problems.detail.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'problemSets.detail.title',
+            path: (route) => `/problem-sets/${String(route.params.setId)}`,
+          },
+        },
+      },
+      {
+        path: ':setId/problems/:problemId/submissions/:id',
+        name: 'problem-set-submission',
+        component: () => import('@/views/problems/SubmissionView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: [
+            {
+              titleKey: 'problemSets.detail.title',
+              path: (route) => `/problem-sets/${String(route.params.setId)}`,
+            },
+            {
+              titleKey: 'problems.detail.title',
+              path: (route) =>
+                `/problem-sets/${String(route.params.setId)}/problems/${String(route.params.problemId)}`,
+            },
+          ],
         },
       },
     ],
   },
   {
     path: 'contests',
-    name: 'contests',
-    component: () => import('@/views/PlaceholderView.vue'),
-    meta: {
-      title: '比赛',
-      titleKey: 'nav.contests',
-      icon: 'Trophy',
-      placeholder: {
-        titleKey: 'nav.contests',
-        descriptionKey: 'placeholder.contestsDescription',
-        endpoints: [
-          'GET /api/v1/contests',
-          'POST /api/v1/contests/{id}/register',
-          'GET /api/v1/contests/{id}/rankings',
-        ],
+    redirect: '/contests/list',
+    meta: { title: '比赛', titleKey: 'nav.contests', icon: 'Trophy' },
+    children: [
+      {
+        path: 'list',
+        name: 'contests',
+        component: () => import('@/views/contests/ContestListView.vue'),
+        meta: { title: '比赛', titleKey: 'nav.contests', icon: 'Trophy' },
       },
-    },
+      {
+        path: ':id',
+        name: 'contest-detail',
+        component: () => import('@/views/contests/ContestDetailView.vue'),
+        meta: {
+          title: '比赛详情',
+          titleKey: 'contests.detail.title',
+          hidden: true,
+          contextPage: true,
+        },
+      },
+      {
+        // 比赛上下文内的写题页：复用题库详情组件，交题 / 评测结果均不跳出比赛
+        // 面包屑：比赛 / 比赛详情 / 题目详情（父级动态解析到当前比赛详情页）
+        path: ':cid/problems/:problemId',
+        name: 'contest-problem',
+        component: () => import('@/views/problems/ProblemDetailView.vue'),
+        meta: {
+          title: '题目详情',
+          titleKey: 'problems.detail.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'contests.detail.title',
+            path: (route) => `/contests/${String(route.params.cid)}`,
+          },
+        },
+      },
+      {
+        path: ':cid/problems/:problemId/submissions/:id',
+        name: 'contest-submission',
+        component: () => import('@/views/problems/SubmissionView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: [
+            {
+              titleKey: 'contests.detail.title',
+              path: (route) => `/contests/${String(route.params.cid)}`,
+            },
+            {
+              titleKey: 'problems.detail.title',
+              path: (route) =>
+                `/contests/${String(route.params.cid)}/problems/${String(route.params.problemId)}`,
+            },
+          ],
+        },
+      },
+      {
+        // 比赛提交记录的评测结果：经比赛统一入口端点（赛后开放），
+        // 不跳出比赛上下文；面包屑回比赛详情页
+        path: ':cid/submissions/:sid',
+        name: 'contest-submission-detail',
+        component: () => import('@/views/contests/ContestSubmissionView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'contests.detail.title',
+            path: (route) => `/contests/${String(route.params.cid)}`,
+          },
+        },
+      },
+    ],
   },
   {
     path: 'teams',

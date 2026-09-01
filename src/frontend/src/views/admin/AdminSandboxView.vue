@@ -41,7 +41,6 @@ function loadColor(load: number): string {
   <WorkbenchShell>
     <template #header>
         <div class="sandbox-head">
-          <span>{{ t('admin.sandbox.title') }}</span>
           <div class="sandbox-summary">
             <n-tag type="success" :bordered="false" round>
               {{ t('admin.sandbox.online', { online: onlineCount, total: nodes.length }) }}

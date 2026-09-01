@@ -1,4 +1,4 @@
-export default {
+﻿export default {
   app: {
     name: 'PigeonOJ',
     tagline: 'Online programming platform',
@@ -11,6 +11,9 @@ export default {
   nav: {
     home: 'Home',
     problems: 'Problems',
+    problemSets: 'Problem sets',
+    problemSetsManage: 'Manage problem sets',
+    contestsManage: 'Manage contests',
     problemsManage: 'Manage problems',
     contests: 'Contests',
     teams: 'Teams',

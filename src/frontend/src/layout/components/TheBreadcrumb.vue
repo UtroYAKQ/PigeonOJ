@@ -30,13 +30,18 @@ const crumbs = computed<Crumb[]>(() => {
     items.push({ label, to: isLast ? undefined : (target ?? (record.path || '/')) })
   })
 
-  // 上下文页归属工作台：在末项前插入面包屑父级（如 题库/题目管理/编辑题目）
+  // 上下文页归属工作台：在末项前插入面包屑父级（如 题库/题目管理/编辑题目；
+  // 题单上下文写题页挂到具体题单详情 —— path 支持按当前路由参数解析动态路径；
+  // 数组形式声明多级父链，按序插入：题单/题单详情/题目详情/评测结果）
   const leafMeta = route.matched[route.matched.length - 1]?.meta
-  const parent = leafMeta?.breadcrumbParent
-  if (parent && items.length >= 1) {
-    const parentLabel = t(String(parent.titleKey))
-    if (!items.some((c) => c.label === parentLabel)) {
-      items.splice(Math.max(items.length - 1, 0), 0, { label: parentLabel, to: parent.path })
+  const parentConfig = leafMeta?.breadcrumbParent
+  const parents = parentConfig ? (Array.isArray(parentConfig) ? parentConfig : [parentConfig]) : []
+  if (parents.length && items.length >= 1) {
+    for (const parent of parents) {
+      const parentLabel = t(String(parent.titleKey))
+      if (items.some((c) => c.label === parentLabel)) continue
+      const parentPath = typeof parent.path === 'function' ? parent.path(route) : parent.path
+      items.splice(Math.max(items.length - 1, 0), 0, { label: parentLabel, to: parentPath })
     }
   }
 

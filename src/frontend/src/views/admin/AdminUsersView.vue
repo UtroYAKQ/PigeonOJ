@@ -258,7 +258,7 @@ const columns = computed<DataTableColumns<User>>(() => [
 </script>
 
 <template>
-  <WorkbenchShell :title="t('admin.users.title')">
+  <WorkbenchShell>
     <SearchFilterBar
       :keyword="query.keyword"
       :placeholder="t('admin.users.search')"
@@ -299,7 +299,7 @@ const columns = computed<DataTableColumns<User>>(() => [
       v-model:show="roleModal"
       preset="card"
       style="width: min(420px, 92vw)"
-      :title="t('admin.users.roleTitle', { name: roleTarget?.nickname ?? '' })"
+     
     >
       <n-checkbox-group v-model:value="roleIds">
         <div class="role-options">

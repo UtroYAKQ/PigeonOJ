@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1dpigeonoj/judge/v1/judge.proto\x12\x11pigeonoj.judge.v1\"\xd9\x01\n\rServerMessage\x12-\n\x03\x61\x63k\x18\x01 \x01(\x0b\x32\x1e.pigeonoj.judge.v1.RegisterAckH\x00\x12+\n\x03job\x18\x02 \x01(\x0b\x32\x1c.pigeonoj.judge.v1.SubmitJobH\x00\x12.\n\x06\x63\x61ncel\x18\x03 \x01(\x0b\x32\x1c.pigeonoj.judge.v1.CancelJobH\x00\x12\x31\n\x08run_code\x18\x04 \x01(\x0b\x32\x1d.pigeonoj.judge.v1.RunCodeJobH\x00\x42\t\n\x07payload\"B\n\x0bRegisterAck\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\"\n\x1aheartbeat_interval_seconds\x18\x02 \x01(\x05\"\x83\x01\n\x0eResourceLimits\x12\x15\n\rtime_limit_ms\x18\x01 \x01(\x05\x12\x17\n\x0fmemory_limit_mb\x18\x02 \x01(\x05\x12\x17\n\x0foutput_limit_kb\x18\x03 \x01(\x05\x12\x15\n\rprocess_limit\x18\x04 \x01(\x05\x12\x11\n\tcpu_cores\x18\x05 \x01(\x05\"A\n\x0cTestCaseFile\x12\x14\n\x0ctest_case_id\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\r\n\x05score\x18\x03 \x01(\x05\"\xdc\x01\n\tSubmitJob\x12\x15\n\rsubmission_id\x18\x01 \x01(\t\x12\x10\n\x08language\x18\x02 \x01(\t\x12\x0c\n\x04\x63ode\x18\x03 \x01(\x0c\x12\x31\n\x06limits\x18\x04 \x01(\x0b\x32!.pigeonoj.judge.v1.ResourceLimits\x12\x12\n\nproblem_id\x18\x05 \x01(\t\x12\x14\n\x0c\x64\x61ta_version\x18\x06 \x01(\t\x12\x0b\n\x03spj\x18\x07 \x01(\x08\x12.\n\x05\x63\x61ses\x18\x08 \x03(\x0b\x32\x1f.pigeonoj.judge.v1.TestCaseFile\"\"\n\tCancelJob\x12\x15\n\rsubmission_id\x18\x01 \x01(\t\"\x82\x01\n\nRunCodeJob\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x10\n\x08language\x18\x02 \x01(\t\x12\x0c\n\x04\x63ode\x18\x03 \x01(\x0c\x12\r\n\x05input\x18\x04 \x01(\x0c\x12\x31\n\x06limits\x18\x05 \x01(\x0b\x32!.pigeonoj.judge.v1.ResourceLimits\"\x88\x01\n\rRunCodeResult\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x0e\n\x06output\x18\x03 \x01(\x0c\x12\x15\n\rerror_message\x18\x04 \x01(\t\x12\x14\n\x0ctime_used_ms\x18\x05 \x01(\x05\x12\x16\n\x0ememory_used_kb\x18\x06 \x01(\x05\"\xeb\x01\n\x0bNodeMessage\x12/\n\x08register\x18\x01 \x01(\x0b\x32\x1b.pigeonoj.judge.v1.RegisterH\x00\x12\x31\n\theartbeat\x18\x02 \x01(\x0b\x32\x1c.pigeonoj.judge.v1.HeartbeatH\x00\x12\x30\n\x06result\x18\x03 \x01(\x0b\x32\x1e.pigeonoj.judge.v1.JudgeResultH\x00\x12;\n\x0frun_code_result\x18\x04 \x01(\x0b\x32 .pigeonoj.judge.v1.RunCodeResultH\x00\x42\t\n\x07payload\"[\n\x08Register\x12\r\n\x05token\x18\x01 \x01(\t\x12\x0f\n\x07node_id\x18\x02 \x01(\t\x12\x0c\n\x04name\x18\x03 \x01(\t\x12\x10\n\x08\x63\x61pacity\x18\x04 \x01(\x05\x12\x0f\n\x07version\x18\x05 \x01(\t\"K\n\tHeartbeat\x12\x15\n\rrunning_tasks\x18\x01 \x01(\x05\x12\x11\n\tcpu_usage\x18\x02 \x01(\x05\x12\x14\n\x0cmemory_usage\x18\x03 \x01(\x05\"\x7f\n\nCaseResult\x12\x14\n\x0ctest_case_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x14\n\x0ctime_used_ms\x18\x03 \x01(\x05\x12\x16\n\x0ememory_used_kb\x18\x04 \x01(\x05\x12\r\n\x05score\x18\x05 \x01(\x05\x12\x0e\n\x06output\x18\x06 \x01(\x0c\"\xb6\x01\n\x0bJudgeResult\x12\x15\n\rsubmission_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\r\n\x05score\x18\x03 \x01(\x05\x12\x14\n\x0ctime_used_ms\x18\x04 \x01(\x05\x12\x16\n\x0ememory_used_kb\x18\x05 \x01(\x05\x12\x15\n\rerror_message\x18\x06 \x01(\t\x12,\n\x05\x63\x61ses\x18\x07 \x03(\x0b\x32\x1d.pigeonoj.judge.v1.CaseResult\">\n\x12ProblemDataRequest\x12\x12\n\nproblem_id\x18\x01 \x01(\t\x12\x14\n\x0c\x64\x61ta_version\x18\x02 \x01(\t\"*\n\tFileChunk\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\x0c\x32\xba\x01\n\x0cJudgeGateway\x12O\n\x07\x43onnect\x12\x1e.pigeonoj.judge.v1.NodeMessage\x1a .pigeonoj.judge.v1.ServerMessage(\x01\x30\x01\x12Y\n\x10\x46\x65tchProblemData\x12%.pigeonoj.judge.v1.ProblemDataRequest\x1a\x1c.pigeonoj.judge.v1.FileChunk0\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1dpigeonoj/judge/v1/judge.proto\x12\x11pigeonoj.judge.v1\"\xd9\x01\n\rServerMessage\x12-\n\x03\x61\x63k\x18\x01 \x01(\x0b\x32\x1e.pigeonoj.judge.v1.RegisterAckH\x00\x12+\n\x03job\x18\x02 \x01(\x0b\x32\x1c.pigeonoj.judge.v1.SubmitJobH\x00\x12.\n\x06\x63\x61ncel\x18\x03 \x01(\x0b\x32\x1c.pigeonoj.judge.v1.CancelJobH\x00\x12\x31\n\x08run_code\x18\x04 \x01(\x0b\x32\x1d.pigeonoj.judge.v1.RunCodeJobH\x00\x42\t\n\x07payload\"B\n\x0bRegisterAck\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\"\n\x1aheartbeat_interval_seconds\x18\x02 \x01(\x05\"\x83\x01\n\x0eResourceLimits\x12\x15\n\rtime_limit_ms\x18\x01 \x01(\x05\x12\x17\n\x0fmemory_limit_mb\x18\x02 \x01(\x05\x12\x17\n\x0foutput_limit_kb\x18\x03 \x01(\x05\x12\x15\n\rprocess_limit\x18\x04 \x01(\x05\x12\x11\n\tcpu_cores\x18\x05 \x01(\x05\"A\n\x0cTestCaseFile\x12\x14\n\x0ctest_case_id\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\r\n\x05score\x18\x03 \x01(\x05\"\xf5\x01\n\tSubmitJob\x12\x15\n\rsubmission_id\x18\x01 \x01(\t\x12\x10\n\x08language\x18\x02 \x01(\t\x12\x0c\n\x04\x63ode\x18\x03 \x01(\x0c\x12\x31\n\x06limits\x18\x04 \x01(\x0b\x32!.pigeonoj.judge.v1.ResourceLimits\x12\x12\n\nproblem_id\x18\x05 \x01(\t\x12\x14\n\x0c\x64\x61ta_version\x18\x06 \x01(\t\x12\x0b\n\x03spj\x18\x07 \x01(\x08\x12.\n\x05\x63\x61ses\x18\x08 \x03(\x0b\x32\x1f.pigeonoj.judge.v1.TestCaseFile\x12\x17\n\x0fstop_on_failure\x18\t \x01(\x08\"\"\n\tCancelJob\x12\x15\n\rsubmission_id\x18\x01 \x01(\t\"\x82\x01\n\nRunCodeJob\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x10\n\x08language\x18\x02 \x01(\t\x12\x0c\n\x04\x63ode\x18\x03 \x01(\x0c\x12\r\n\x05input\x18\x04 \x01(\x0c\x12\x31\n\x06limits\x18\x05 \x01(\x0b\x32!.pigeonoj.judge.v1.ResourceLimits\"\x88\x01\n\rRunCodeResult\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x0e\n\x06output\x18\x03 \x01(\x0c\x12\x15\n\rerror_message\x18\x04 \x01(\t\x12\x14\n\x0ctime_used_ms\x18\x05 \x01(\x05\x12\x16\n\x0ememory_used_kb\x18\x06 \x01(\x05\"\xeb\x01\n\x0bNodeMessage\x12/\n\x08register\x18\x01 \x01(\x0b\x32\x1b.pigeonoj.judge.v1.RegisterH\x00\x12\x31\n\theartbeat\x18\x02 \x01(\x0b\x32\x1c.pigeonoj.judge.v1.HeartbeatH\x00\x12\x30\n\x06result\x18\x03 \x01(\x0b\x32\x1e.pigeonoj.judge.v1.JudgeResultH\x00\x12;\n\x0frun_code_result\x18\x04 \x01(\x0b\x32 .pigeonoj.judge.v1.RunCodeResultH\x00\x42\t\n\x07payload\"[\n\x08Register\x12\r\n\x05token\x18\x01 \x01(\t\x12\x0f\n\x07node_id\x18\x02 \x01(\t\x12\x0c\n\x04name\x18\x03 \x01(\t\x12\x10\n\x08\x63\x61pacity\x18\x04 \x01(\x05\x12\x0f\n\x07version\x18\x05 \x01(\t\"K\n\tHeartbeat\x12\x15\n\rrunning_tasks\x18\x01 \x01(\x05\x12\x11\n\tcpu_usage\x18\x02 \x01(\x05\x12\x14\n\x0cmemory_usage\x18\x03 \x01(\x05\"\x7f\n\nCaseResult\x12\x14\n\x0ctest_case_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\x14\n\x0ctime_used_ms\x18\x03 \x01(\x05\x12\x16\n\x0ememory_used_kb\x18\x04 \x01(\x05\x12\r\n\x05score\x18\x05 \x01(\x05\x12\x0e\n\x06output\x18\x06 \x01(\x0c\"\xb6\x01\n\x0bJudgeResult\x12\x15\n\rsubmission_id\x18\x01 \x01(\t\x12\x0e\n\x06status\x18\x02 \x01(\t\x12\r\n\x05score\x18\x03 \x01(\x05\x12\x14\n\x0ctime_used_ms\x18\x04 \x01(\x05\x12\x16\n\x0ememory_used_kb\x18\x05 \x01(\x05\x12\x15\n\rerror_message\x18\x06 \x01(\t\x12,\n\x05\x63\x61ses\x18\x07 \x03(\x0b\x32\x1d.pigeonoj.judge.v1.CaseResult\">\n\x12ProblemDataRequest\x12\x12\n\nproblem_id\x18\x01 \x01(\t\x12\x14\n\x0c\x64\x61ta_version\x18\x02 \x01(\t\"*\n\tFileChunk\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\x0c\x32\xba\x01\n\x0cJudgeGateway\x12O\n\x07\x43onnect\x12\x1e.pigeonoj.judge.v1.NodeMessage\x1a .pigeonoj.judge.v1.ServerMessage(\x01\x30\x01\x12Y\n\x10\x46\x65tchProblemData\x12%.pigeonoj.judge.v1.ProblemDataRequest\x1a\x1c.pigeonoj.judge.v1.FileChunk0\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -40,27 +40,27 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_TESTCASEFILE']._serialized_start=474
   _globals['_TESTCASEFILE']._serialized_end=539
   _globals['_SUBMITJOB']._serialized_start=542
-  _globals['_SUBMITJOB']._serialized_end=762
-  _globals['_CANCELJOB']._serialized_start=764
-  _globals['_CANCELJOB']._serialized_end=798
-  _globals['_RUNCODEJOB']._serialized_start=801
-  _globals['_RUNCODEJOB']._serialized_end=931
-  _globals['_RUNCODERESULT']._serialized_start=934
-  _globals['_RUNCODERESULT']._serialized_end=1070
-  _globals['_NODEMESSAGE']._serialized_start=1073
-  _globals['_NODEMESSAGE']._serialized_end=1308
-  _globals['_REGISTER']._serialized_start=1310
-  _globals['_REGISTER']._serialized_end=1401
-  _globals['_HEARTBEAT']._serialized_start=1403
-  _globals['_HEARTBEAT']._serialized_end=1478
-  _globals['_CASERESULT']._serialized_start=1480
-  _globals['_CASERESULT']._serialized_end=1607
-  _globals['_JUDGERESULT']._serialized_start=1610
-  _globals['_JUDGERESULT']._serialized_end=1792
-  _globals['_PROBLEMDATAREQUEST']._serialized_start=1794
-  _globals['_PROBLEMDATAREQUEST']._serialized_end=1856
-  _globals['_FILECHUNK']._serialized_start=1858
-  _globals['_FILECHUNK']._serialized_end=1900
-  _globals['_JUDGEGATEWAY']._serialized_start=1903
-  _globals['_JUDGEGATEWAY']._serialized_end=2089
+  _globals['_SUBMITJOB']._serialized_end=787
+  _globals['_CANCELJOB']._serialized_start=789
+  _globals['_CANCELJOB']._serialized_end=823
+  _globals['_RUNCODEJOB']._serialized_start=826
+  _globals['_RUNCODEJOB']._serialized_end=956
+  _globals['_RUNCODERESULT']._serialized_start=959
+  _globals['_RUNCODERESULT']._serialized_end=1095
+  _globals['_NODEMESSAGE']._serialized_start=1098
+  _globals['_NODEMESSAGE']._serialized_end=1333
+  _globals['_REGISTER']._serialized_start=1335
+  _globals['_REGISTER']._serialized_end=1426
+  _globals['_HEARTBEAT']._serialized_start=1428
+  _globals['_HEARTBEAT']._serialized_end=1503
+  _globals['_CASERESULT']._serialized_start=1505
+  _globals['_CASERESULT']._serialized_end=1632
+  _globals['_JUDGERESULT']._serialized_start=1635
+  _globals['_JUDGERESULT']._serialized_end=1817
+  _globals['_PROBLEMDATAREQUEST']._serialized_start=1819
+  _globals['_PROBLEMDATAREQUEST']._serialized_end=1881
+  _globals['_FILECHUNK']._serialized_start=1883
+  _globals['_FILECHUNK']._serialized_end=1925
+  _globals['_JUDGEGATEWAY']._serialized_start=1928
+  _globals['_JUDGEGATEWAY']._serialized_end=2114
 # @@protoc_insertion_point(module_scope)

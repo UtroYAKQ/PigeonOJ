@@ -24,6 +24,7 @@ import pytest_asyncio
 from sqlalchemy import select
 
 import app.models.admin  # noqa: F401  (注册到 Base.metadata)
+import app.models.contest  # noqa: F401
 import app.models.judge  # noqa: F401
 import app.models.problem  # noqa: F401
 import app.models.user  # noqa: F401

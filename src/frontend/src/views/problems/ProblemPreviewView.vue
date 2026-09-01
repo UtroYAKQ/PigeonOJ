@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
@@ -16,15 +16,24 @@ const { t } = useI18n()
 const problem = ref<ProblemDetailEx | null>(null)
 const loading = ref(false)
 
-/** 返回题目管理：来源优先（如从列表筛选态进入），直达打开时兜底固定路径 */
+/** 题目 id：题库管理取 params.id；题单管理上下文取 params.problemId（params.id 为题单 id） */
+const problemId = computed(() => String(route.params.problemId ?? route.params.id))
+/** 题单管理上下文标志（返回文案与兜底路径随之切换） */
+const inSetContext = computed(() => Boolean(route.params.setId))
+
+/** 返回来源工作台：题单管理上下文回题单详情，其余回题目管理；直达打开兜底固定路径 */
 function backToManage() {
+  if (inSetContext.value) {
+    goBackOrFallback(router, `/admin/problem-sets/${String(route.params.setId)}`)
+    return
+  }
   goBackOrFallback(router, '/admin/problems')
 }
 
 async function load() {
   loading.value = true
   try {
-    problem.value = await getProblem(String(route.params.id))
+    problem.value = await getProblem(problemId.value)
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
   } finally {
@@ -45,7 +54,7 @@ onMounted(load)
         </template>
         <template #header-extra>
           <n-button secondary @click="backToManage">
-            {{ t('problems.preview.backToList') }}
+            {{ inSetContext ? t('problemSets.detail.backToSet') : t('problems.preview.backToList') }}
           </n-button>
         </template>
 

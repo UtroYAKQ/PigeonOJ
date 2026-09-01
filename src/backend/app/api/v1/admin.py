@@ -23,11 +23,14 @@ from app.schemas.admin import (
     StatusReasonRequest,
 )
 from app.schemas.problem import TagCreate, TagOut, TagUpdate
+from app.schemas.problem_set import ProblemSetSummary
 from app.schemas.user import UserPublic
 from app.services.admin import AdminConfigService, LogService, ReportService, SandboxService
+from app.services.problem_set import ProblemSetService
 from app.services.tag import TagService
 from app.models.user import User
-from app.core.dependency import get_current_admin
+from app.core.dependency import get_current_admin, get_current_user
+from app.enums import ProblemSetStatus
 from app.services.user import UserService
 from app.utils.pagination import PaginatedResponse
 from app.utils.response import ApiResponse, ok
@@ -167,8 +170,6 @@ async def handle_report(
 
 
 # ---- 标签管理（docs/contracts/problems.md 端点表 /admin/tags*） ----
-
-
 @router.get("/tags", response_model=ApiResponse[list[TagOut]])
 async def list_tags(admin: User = _admin, db: AsyncSession = Depends(get_db)) -> ApiResponse[list[TagOut]]:
     """标签管理全量列表（含已归档；激活在前）。"""
@@ -200,3 +201,24 @@ async def archive_tag(tag_id: uuid.UUID, admin: User = _admin, db: AsyncSession 
     tag = await TagService(db).archive(tag_id)
     await db.commit()
     return ok(TagOut.model_validate(tag))
+
+
+# ---- 题单管理（docs/contracts/problem-sets.md；管理角色 admin/tutor，非 admin 专属） ----
+
+
+@router.get("/problem-sets", response_model=ApiResponse[PaginatedResponse[ProblemSetSummary]])
+async def admin_list_problem_sets(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=128),
+    status: ProblemSetStatus | None = Query(default=None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[PaginatedResponse[ProblemSetSummary]]:
+    """题单管理视图：全量题单（含私有与已下线），供管理后台编排维护。"""
+    service = ProblemSetService(db)
+    await service.require_manager(user)
+    rows, total = await service.list_manage(
+        page=page, page_size=page_size, keyword=keyword, status=status
+    )
+    return ok(PaginatedResponse(items=rows, total=total, page=page, page_size=page_size))

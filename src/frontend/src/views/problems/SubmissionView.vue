@@ -67,14 +67,24 @@ const backLabel = computed(() => {
     : t('problems.submission.back')
 })
 
-/** 返回：有来路时原路返回（验题工作台 / 提交列表等）；直接进入则回题目详情 */
+/** 返回：有来路时原路返回（验题工作台 / 提交列表等）；直接进入则回题目详情
+ * （题单 / 比赛上下文路由时回上下文内写题页，不跳出） */
 function back() {
   if (canGoBack.value) {
     router.back()
     return
   }
-  if (submission.value?.problem_id) router.push(`/problems/${submission.value.problem_id}`)
-  else router.push('/problems/list')
+  if (route.params.setId && route.params.problemId) {
+    router.push(
+      `/problem-sets/${String(route.params.setId)}/problems/${String(route.params.problemId)}`,
+    )
+  } else if (route.params.cid && route.params.problemId) {
+    router.push(`/contests/${String(route.params.cid)}/problems/${String(route.params.problemId)}`)
+  } else if (submission.value?.problem_id) {
+    router.push(`/problems/${submission.value.problem_id}`)
+  } else {
+    router.push('/problems/list')
+  }
 }
 
 onMounted(() => {
@@ -125,17 +135,21 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
             <span v-if="submission.submit_type === 'verify'" class="result-verify">{{
               t('problems.submission.verifyType')
             }}</span>
-            <RefreshButton v-if="isRunning" :loading="loading" :aria-label="t('action.refresh')" @click="refreshNow" />
+            <RefreshButton
+              v-if="isRunning"
+              :loading="loading"
+              :aria-label="t('action.refresh')"
+              @click="refreshNow"
+            />
             <n-button text type="primary" class="result-back" @click="back">
               {{ backLabel }}
             </n-button>
           </div>
 
-          <n-alert v-if="submission.restricted" type="warning" class="restricted-notice">
-            {{ t('problems.submission.restrictedNotice') }}
-          </n-alert>
-
-          <div class="submission-stats" :class="{ 'submission-stats--two': submission.score === null }">
+          <div
+            class="submission-stats"
+            :class="{ 'submission-stats--two': submission.score === null }"
+          >
             <div v-if="submission.score !== null" class="stat-box">
               <span>{{ t('problems.submission.score') }}</span>
               <strong>{{ submission.score }}</strong>
@@ -226,9 +240,6 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
   margin-left: auto;
 }
 .poll-stopped {
-  margin-bottom: 14px;
-}
-.restricted-notice {
   margin-bottom: 14px;
 }
 .submission-stats {

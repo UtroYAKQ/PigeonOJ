@@ -16,6 +16,7 @@ from app.core.exceptions import (
 )
 from app.core.redis import get_redis
 from app.core.storage import get_storage
+from app.models.contest import Contest
 from app.models.judge import SandboxConfig, Submission, SubmissionTestCaseResult
 from app.models.problem import TestCase
 from app.repositories.judge import JudgeRepository, SubmissionRepository, TestCaseRepository
@@ -120,34 +121,49 @@ class SubmissionService:
         )
         return await self.submissions.create(submission)
 
+    async def create_contest_submission(
+        self,
+        user: object,
+        *,
+        contest_id: uuid.UUID,
+        problem_id: uuid.UUID,
+        language: str,
+        code: str,
+        after_contest: bool,
+    ) -> Submission:
+        """比赛提交（docs/contracts/contests.md 统一入口）：窗口与报名校验由比赛服务完成。
+
+        赛制在创建时快照进提交行（submissions.rule_type），判题计分按快照派生，
+        不再依赖比赛上下文与时间窗判断（docs/contracts/judge.md「赛制计分」）。
+        """
+        problem = await get_problem(self.db, problem_id)
+        if problem.status != ProblemStatus.PUBLISHED:
+            raise APIError(AUTH_FORBIDDEN, "题目未发布，不可提交", 403)
+        contest = await self.db.get(Contest, contest_id)
+        if contest is None:
+            raise APIError(RESOURCE_NOT_FOUND, "比赛不存在", 404)
+        submission = Submission(
+            user_id=user.id,
+            problem_id=problem_id,
+            language=language,
+            code=code,
+            submit_type=SubmitType.CONTEST,
+            contest_id=contest_id,
+            rule_type=contest.rule_type,
+            is_after_contest=after_contest,
+            status=SubmissionStatus.PENDING,
+        )
+        return await self.submissions.create(submission)
+
     async def list_for_user(self, user: object, query: SubmissionQuery) -> tuple[list[Submission], int]:
         return await self.submissions.list_for_user(
             user.id, query.problem_id, query.status, query.page, query.page_size,
         )
 
     async def list_summaries(self, user: object, query: SubmissionQuery) -> tuple[list[SubmissionSummary], int]:
-        """本人提交历史摘要（含 ACM 限分策略：进行中的 ACM 比赛隐藏得分）。"""
+        """本人提交历史摘要。"""
         rows, total = await self.list_for_user(user, query)
-        items: list[SubmissionSummary] = []
-        for row in rows:
-            summary = SubmissionSummary.model_validate(row)
-            if await self.is_score_restricted(row):
-                summary.score = None
-                summary.restricted = True
-            items.append(summary)
-        return items, total
-
-    async def is_score_restricted(self, submission: Submission) -> bool:
-        """得分可见性策略：ACM 赛制比赛进行中的提交隐藏得分与测试点明细。
-
-        IOI 赛制 / 练习 / 验题 / 赛后（含补题）恒为完整可见。
-        contests 模块接入点：submit_type=contest 且关联比赛 rule_type=ACM
-        且 end_time 未到时返回 True；contests 模块落地前无比赛数据，恒为 False。
-        """
-        if submission.submit_type != SubmitType.CONTEST or not submission.contest_id:
-            return False
-        # TODO(contests): 查 contests 表 —— rule_type == 'ACM' and now() < end_time 时返回 True
-        return False
+        return [SubmissionSummary.model_validate(row) for row in rows], total
 
     async def get_detail(self, user: object, submission_id: uuid.UUID) -> SubmissionDetailOut:
         submission = await self.submissions.get_by_id(submission_id)
@@ -155,13 +171,16 @@ class SubmissionService:
             raise APIError(RESOURCE_NOT_FOUND, "提交不存在", 404)
         if submission.user_id != user.id:
             raise APIError(RESOURCE_NOT_FOUND, "提交不存在", 404)
-        restricted = await self.is_score_restricted(submission)
+        return await self.build_detail(submission)
+
+    async def build_detail(self, submission: Submission) -> SubmissionDetailOut:
+        """装配提交详情（含代码、逐测试点明细；访问控制由调用方完成）。"""
         storage = get_storage()
-        results = [] if restricted else list(
+        results = list(
             (
                 await self.db.execute(
                     select(SubmissionTestCaseResult)
-                    .where(SubmissionTestCaseResult.submission_id == submission_id)
+                    .where(SubmissionTestCaseResult.submission_id == submission.id)
                     .order_by(SubmissionTestCaseResult.id)
                 )
             ).scalars()
@@ -191,10 +210,7 @@ class SubmissionService:
                 output=output,
             ))
         detail = SubmissionDetailOut.model_validate(submission)
-        if restricted:
-            detail.score = None
         detail.cases = cases
-        detail.restricted = restricted
         return detail
 
     async def create_verify_submission(self, user: object, problem_id: uuid.UUID, body: object) -> Submission:

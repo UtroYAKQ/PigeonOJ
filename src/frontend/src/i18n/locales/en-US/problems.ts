@@ -131,7 +131,8 @@ export default {
       selfTestInputTab: 'Custom input',
       selfTestInputPlaceholder: 'Custom stdin; leave empty for no input',
       selfTestRunning: 'Running in sandbox…',
-      selfTestEmptyHint: 'Click "Self-test run" to see the program output here (unscored, not a submission)',
+      selfTestEmptyHint:
+        'Click "Self-test run" to see the program output here (unscored, not a submission)',
       selfTestFailed: 'Self-test failed',
       selfTestExpand: 'Expand self-test panel',
       selfTestCollapse: 'Collapse self-test panel',
@@ -152,8 +153,6 @@ export default {
       hideCode: 'Hide code',
       stillJudging:
         'Judging is taking longer than expected. Auto-refresh has stopped — click "Refresh" to check again.',
-      restrictedNotice:
-        'ACM contest in progress: score and test-case details will be revealed after the contest ends.',
     },
     manage: {
       applyStaged: 'Apply staged cases',
@@ -164,7 +163,8 @@ export default {
       existingInvite: 'This problem already has a valid verification link. Copy it or regenerate:',
       regenerate: 'Regenerate link',
       expiry: 'Link expiry',
-      expiryHint: 'Choose an expiry for the invite link, then generate it. Once created you can copy and send it to the verifier:',
+      expiryHint:
+        'Choose an expiry for the invite link, then generate it. Once created you can copy and send it to the verifier:',
       expiry24: '24 hours',
       expiry72: '72 hours',
       expiry168: '7 days',

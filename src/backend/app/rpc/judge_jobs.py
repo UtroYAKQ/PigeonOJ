@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import select, update
 
-from app.enums import SubmissionStatus, SubmitType
+from app.enums import RuleType, SubmissionStatus, SubmitType
 from app.models.judge import SandboxConfig, Submission
 from app.repositories.judge import JudgeRepository
 from app.services import problem as problems
@@ -66,6 +66,8 @@ class JobBundle:
     problem_id: str
     data_version: str
     cases: tuple[TestCaseFile, ...]
+    # ACM 赛制短路：节点在首个非 accepted 测试点后停止执行（docs/contracts/judge.md 赛制计分）
+    stop_on_failure: bool = False
 
 
 @dataclass(frozen=True)
@@ -180,6 +182,12 @@ async def build_job_bundle(db, submission_id: uuid.UUID, *, storage) -> JobBundl
 
     limits, compile_limits = resolve_limits(problem, config)
     code = submission.code.encode("utf-8")
+    # ACM 赛制短路标记：首个非 accepted 测试点后节点停止执行后续测试点
+    stop_on_failure = (
+        submission.submit_type == SubmitType.CONTEST
+        and submission.contest_id is not None
+        and submission.rule_type == RuleType.ACM
+    )
     case_files: list[TestCaseFile] = []
     for case in cases:
         input_bytes, _ = await storage.get_bytes(case.input_oss_id)
@@ -203,6 +211,7 @@ async def build_job_bundle(db, submission_id: uuid.UUID, *, storage) -> JobBundl
         problem_id=str(submission.problem_id),
         data_version=data_version,
         cases=tuple(case_files),
+        stop_on_failure=stop_on_failure,
     )
 
 
@@ -246,10 +255,28 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
     if submission is None or submission.status != SubmissionStatus.JUDGING:
         return False
 
-    # 分数在服务端派生：测试点分值一致（docs/architecture.md），单题得分 = 通过比例折算 0-100
+    # 分数在服务端按赛制派生（docs/contracts/judge.md「赛制计分」）：
+    # - ACM（二值）：全部测试点通过 = 单题满分，否则 0；测试点不设分值。
+    #   短路执行（stop_on_failure）下节点仅回传已执行测试点，无部分分可泄露。
+    # - IOI / 练习 / 验题（部分计分）：测试点分值一致，单点 = 满分 ÷ 测试点数，
+    #   仅通过计分；比赛提交以比赛配置的单题分值为满分基准。
+    # 节点可能回传少于全部测试点的结果（ACM 短路），未执行测试点不落结果行。
     cases = outcome.cases
     case_count = len(cases)
-    base, extra = divmod(_FULL_SCORE, case_count) if case_count else (0, 0)
+    full = _FULL_SCORE
+    if submission.submit_type == SubmitType.CONTEST and submission.contest_id is not None:
+        from app.models.contest import ContestProblem
+
+        contest_problem = await db.scalar(
+            select(ContestProblem).where(
+                ContestProblem.contest_id == submission.contest_id,
+                ContestProblem.problem_id == submission.problem_id,
+            )
+        )
+        if contest_problem is not None and contest_problem.score > 0:
+            full = contest_problem.score
+    acm = submission.rule_type == RuleType.ACM
+    base, extra = divmod(full, case_count) if case_count else (0, 0)
 
     total_score = 0
     max_time = 0
@@ -259,8 +286,10 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
         if test_case is None:
             continue
         accepted = case.status == SubmissionStatus.ACCEPTED
-        score = base + (1 if index < extra else 0) if accepted and case_count else 0
-        if accepted:
+        if acm:
+            score = 0
+        else:
+            score = base + (1 if index < extra else 0) if accepted and case_count else 0
             total_score += score
         max_time = max(max_time, case.time_used_ms)
         if case.memory_used_kb:
@@ -273,6 +302,8 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
             memory_used_kb=case.memory_used_kb, score=score,
             output=output_key,
         )
+    if acm:
+        total_score = full if outcome.status == SubmissionStatus.ACCEPTED else 0
     await repository.finish_submission(
         db, submission,
         status=outcome.status or SubmissionStatus.SYSTEM_ERROR,
@@ -283,6 +314,13 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
     )
     # 练习/比赛提交终态：回写题目通过率计数（verify/system_error 不计入）
     await _bump_problem_counters_if_needed(db, submission, outcome.status or SubmissionStatus.SYSTEM_ERROR)
+    # 比赛提交：条件更新榜单行（封榜期 / 补题 / system_error 不计）
+    if submission.submit_type == SubmitType.CONTEST and submission.contest_id is not None:
+        from app.services.contest import ContestService
+
+        await ContestService(db).update_ranking_on_result(
+            submission, outcome.status or SubmissionStatus.SYSTEM_ERROR
+        )
     # 验题提交：回写 problem_verifications 与 problems.is_verified
     await _complete_verification_if_needed(db, submission)
     await db.commit()

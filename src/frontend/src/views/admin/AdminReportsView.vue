@@ -165,7 +165,7 @@ const columns = computed<DataTableColumns<Report>>(() => [
 </script>
 
 <template>
-  <WorkbenchShell :title="t('admin.reports.title')">
+  <WorkbenchShell>
     <SearchFilterBar :show-search="false">
       <n-select
         v-model:value="query.status"
@@ -196,7 +196,7 @@ const columns = computed<DataTableColumns<Report>>(() => [
       v-model:show="handleDialog"
       preset="card"
       style="width: min(440px, 92vw)"
-      :title="t('admin.reports.handleTitle', { target: handleTarget ? targetText(handleTarget) : '' })"
+     
     >
       <n-radio-group v-model:value="handleAction" class="handle-actions">
         <n-radio value="handled">{{ t('admin.reports.approve') }}</n-radio>

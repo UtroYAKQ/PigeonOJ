@@ -375,6 +375,7 @@ async def send_job(node_id: str, submission_id: uuid.UUID) -> bool:
             ),
             problem_id=bundle.problem_id,
             data_version=bundle.data_version,
+            stop_on_failure=bundle.stop_on_failure,
             cases=[
                 judge_pb2.TestCaseFile(test_case_id=c.test_case_id, name=c.name)
                 for c in bundle.cases

@@ -63,6 +63,8 @@ class Submission(Base):
     language: Mapped[str] = mapped_column(String(32), nullable=False)
     code: Mapped[str] = mapped_column(Text, nullable=False)
     submit_type: Mapped[str] = mapped_column(String(16), nullable=False, server_default=SubmitType.PRACTICE)
+    # 赛制快照：比赛提交创建时从所属比赛快照；练习 / 验题为 NULL（按 IOI 部分计分）
+    rule_type: Mapped[str | None] = mapped_column(String(8))
     status: Mapped[str] = mapped_column(String(24), nullable=False, server_default=SubmissionStatus.PENDING)
     score: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     time_used_ms: Mapped[int | None] = mapped_column(Integer)

@@ -14,10 +14,11 @@
 | contest_id | UUID | NULL, FK → contests.id | 比赛提交时关联（submit_type='contest'） |
 | verification_id | UUID | NULL, FK → problem_verifications.id | 验题提交时关联（submit_type='verify'） |
 | submit_type | VARCHAR(16) | NOT NULL DEFAULT 'practice' | `practice` 练习 / `contest` 比赛 / `verify` 验题 |
+| rule_type | VARCHAR(8) | NULL, CHECK IN ('ACM','IOI') | 赛制快照：比赛提交创建时从所属比赛写入（原生计分依据）；练习 / 验题为 NULL（按部分计分） |
 | language | VARCHAR(32) | NOT NULL | `python3.12` / `cpp17` / `java21` |
 | code | TEXT | NOT NULL | 提交代码（应用层按 UTF-8 字节校验 ≤ 64KB，超出拒绝） |
 | status | VARCHAR(24) | NOT NULL DEFAULT 'pending' | `pending` / `judging` / `accepted` / `wrong_answer` / `time_limit_exceeded` / `memory_limit_exceeded` / `output_limit_exceeded` / `runtime_error` / `compile_error` / `system_error` |
-| score | INT | NOT NULL DEFAULT 0 | 总得分（服务端派生：练习 / 验题按满分 100 均分到各测试点、仅通过计分；OI 比赛中以比赛配置的单题分值平摊到测试点，随 contests 模块实现） |
+| score | INT | NOT NULL DEFAULT 0 | 总得分（服务端按赛制派生，见「赛制计分」：ACM 二值——AC = 单题满分否则 0；IOI / 练习 / 验题 = 通过测试点比例部分计分，比赛满分取单题配置分值） |
 | time_used_ms | INT | NULL | 最大用时 |
 | memory_used_kb | INT | NULL | 最大内存 |
 | error_message | TEXT | NULL | 编译错误 / 运行错误信息 |
@@ -80,6 +81,20 @@ CHECK (
 
 > `problems.memory_limit_mb` / `time_limit_ms` 为 **C++ 基准**限制；判题时按本语言的 `time_ratio` / `memory_ratio` / `memory_min_mb` 换算出有效限制（见下方「语言限制换算」），沙箱按有效限制执行，本表不直接存题目限制绝对值。沙箱节点实例运行时状态（在线 / 离线 / 负载 / CPU / 内存 / 健康检查）为热数据存 Redis（`sandbox:node:<id>`），不落库。
 
+## 赛制计分（ACM / IOI 原生支持）
+
+评测记录在提交行上原生携带赛制快照（`submissions.rule_type`），服务端派题与计分按快照执行，
+**不依赖比赛上下文与比赛时间判断**：
+
+- **ACM（二值计分）**：全部测试点通过 = 单题满分（比赛配置 `contest_problems.score`，未配置取 100），
+  否则 0；测试点行不携带分值。派题携带 `stop_on_failure=true`——节点在**首个非 accepted 测试点后
+  停止执行**，仅回传已执行测试点（后续测试点不运行、不落结果行），判题资源随失败即刻止损；
+  分数二值化后无部分分可泄露，得分与明细恒按访问规则可见（无限分 / 无时间条件隐藏）。
+- **IOI / 练习 / 验题（部分计分）**：测试点分值一致（单点 = 满分 ÷ 测试点数，仅通过计分），
+  节点逐点全量执行；比赛满分取单题配置分值，练习 / 验题满分 100。
+- 榜单回写（ACM 罚时 / IOI 取最高）见 contests.md 第 3、4 条，同样只依赖提交行快照，
+  不再查询比赛时间窗。
+
 ## 数据所有权
 
 - 用户只能读自己的提交历史（`WHERE user_id = ?`）；提交详情 `owner` 可见
@@ -107,12 +122,14 @@ CHECK (
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | POST | /submissions | auth | 提交判题 | problem_id, language, code, submit_type, contest_id?/verification_id? | submission_id |
-| GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细 case_name + 状态/耗时/内存/得分/程序输出；不返回期望输出） | - | submission（含 restricted 标志） |
-| GET | /submissions | auth | 提交历史（本人，`WHERE user_id=?`） | problem_id/contest_id/status/分页 | submission[]（含 restricted 标志） |
+| GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细 case_name + 状态/耗时/内存/得分/程序输出；不返回期望输出） | - | submission |
+| GET | /submissions | auth | 提交历史（本人，`WHERE user_id=?`） | problem_id/contest_id/status/分页 | submission[] |
 | POST | /problems/{id}/run-code | auth | 用户自测（单次运行，不落库不计分；见「用户自测」节） | language, code, input? | status, output(stdout), error_message?, time_used_ms, memory_used_kb? |
 | GET | /sandbox/health | admin | 沙箱节点健康 | - | nodes[{id, name, status, channel, load, cpu_usage, memory_usage, running_tasks, capacity, version, last_heartbeat_at}] |
 
-> **得分可见性（ACM 赛制限分）**：`submit_type=contest` 且关联比赛 `rule_type=ACM` 且 `end_time` 未到时，详情与列表接口的 `restricted=true`、`score=null`、`cases=[]`（服务端扣数据，前端仅做条件渲染）；IOI 赛制 / 练习 / 验题 / 比赛结束（含赛后补题）恒为完整可见。contests 模块落地前无比赛数据，恒为 `restricted=false`。策略实现在 `SubmissionService.is_score_restricted`。
+> **得分可见性**：得分与测试点明细按赛制原生派生（见「赛制计分」），接口层无受限概念
+> （原「ACM 进行中限分 `restricted`」机制已随时间判断移除）；可见性仅由访问控制决定
+> （详情 owner / 比赛上下文窗口）。
 
 > **提交校验**：语言须在 `sandbox_configs` 白名单且启用；代码大小上限 64KB（UTF-8 字节）；按 user+problem 提交冷却 + 全局并发上限做 Redis 频控。
 > **提交越权校验**：`submit_type=contest` 时 `contest_id` 由服务端从当前请求上下文推导（已报名 + 比赛进行中 + 本人），不信任客户端传入；`submit_type=verify` 须校验 `verification` 记录的 `verifier_id` 与当前用户一致。
@@ -141,7 +158,8 @@ CHECK (
 节点（pigeonoj/judge-node 容器，privileged，出站连接后端 :50051）
   → 数据缓存未命中时 FetchProblemData 拉取测试点（data_version 缓存于容器 /cache）
   → 按 sandbox_configs 比例换算有效限制（时间 ×time_ratio；内存 max(×memory_ratio, memory_min_mb)）
-  → nsjail 原生编译一次、逐测试点独立运行，写 submission_test_case_results（输出落 MinIO）
+  → nsjail 原生编译一次、逐测试点独立运行（ACM 携带 stop_on_failure，首个失败点后短路），
+    写 submission_test_case_results（输出落 MinIO）
   → 回传 JudgeResult；汇总写 submissions；练习/比赛终态回写 problem_counters 通过率计数
     （口径见下方要点）；验题提交回写 verification 与 problems.is_verified
 维护循环兜底：pending>60s / judging>5min 重置重派（Redis SETNX 防并发重复投递）

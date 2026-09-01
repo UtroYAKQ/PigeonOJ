@@ -9,11 +9,13 @@ import { computed } from 'vue'
 const props = defineProps<{
   /** 当前步骤（1 起），用于卡片头步骤序号 */
   step: 1 | 2 | 3
+  /** 步骤总数（出题向导 3 步；两步向导传 2） */
+  total?: 2 | 3
   /** 卡片头标题 */
   title: string
 }>()
 
-const stepLabel = computed(() => `${props.step} / 3`)
+const stepLabel = computed(() => `${props.step} / ${props.total ?? 3}`)
 </script>
 
 <template>

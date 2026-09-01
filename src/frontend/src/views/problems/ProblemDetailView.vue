@@ -6,6 +6,8 @@ import type { DataTableColumns } from 'naive-ui'
 
 import { createSubmission, listSubmissions } from '@/api/judge'
 import { getProblem } from '@/api/problems'
+import { createProblemSetSubmission, getProblemSetProblem } from '@/api/problemSets'
+import { createContestSubmission, getContestProblem } from '@/api/contests'
 import { useCodeDraft } from '@/composables/useCodeDraft'
 import { useSelfTest } from '@/composables/useSelfTest'
 import { dialog, message } from '@/utils/feedback'
@@ -26,23 +28,53 @@ const subsVisible = ref(false)
 const language = ref<ProblemLanguage>('cpp17')
 const mySubmissions = ref<Submission[]>([])
 
+/** 题目 id：题库路由取 params.id；题单 / 比赛上下文路由取 params.problemId */
+const problemId = computed(() => String(route.params.problemId ?? route.params.id))
+/** 上下文标识（同一组件复用于 题库 / 题单 / 比赛 三种上下文，取参与链接随上下文切换） */
+const context = computed<'problems' | 'problem-sets' | 'contests'>(() =>
+  route.params.cid ? 'contests' : route.params.setId ? 'problem-sets' : 'problems',
+)
+const contextId = computed(() =>
+  context.value === 'contests'
+    ? String(route.params.cid)
+    : context.value === 'problem-sets'
+      ? String(route.params.setId)
+      : '',
+)
+/** 评测结果路由基路径：上下文内保持不跳出（评测结果页同构复用） */
+const submissionsBase = computed(() => {
+  if (context.value === 'contests') {
+    return `/contests/${contextId.value}/problems/${problemId.value}`
+  }
+  if (context.value === 'problem-sets') {
+    return `/problem-sets/${contextId.value}/problems/${problemId.value}`
+  }
+  return `/problems/${problemId.value}`
+})
+
 const code = ref('')
 
 // 代码本地草稿：进入恢复、编辑防抖保存、切换语言分语言存档（提交/切页返回不丢）
 const { restore: restoreDraft } = useCodeDraft({
-  problemId: () => String(route.params.id),
+  problemId: () => problemId.value,
   code,
   language,
 })
 
 // 用户自测：控制台状态在 composable 内（docs/contracts/judge.md「用户自测」）
 const { selfTestInput, selfTesting, selfTestResult, runSelfTest: doSelfTest } = useSelfTest(
-  () => String(route.params.id),
+  () => problemId.value,
 )
 
 async function load() {
   try {
-    problem.value = await getProblem(String(route.params.id))
+    // 统一入口：各上下文走本模块详情端点（归属 / 窗口校验），题库走题库端点
+    problem.value =
+      context.value === 'contests'
+        ? await getContestProblem(contextId.value, problemId.value)
+        : context.value === 'problem-sets'
+          ? await getProblemSetProblem(contextId.value, problemId.value)
+          : await getProblem(problemId.value)
     await loadMySubmissions()
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
@@ -50,7 +82,7 @@ async function load() {
 }
 async function loadMySubmissions() {
   try {
-    const result = await listSubmissions({ problem_id: String(route.params.id), page_size: 5 })
+    const result = await listSubmissions({ problem_id: problemId.value, page_size: 5 })
     mySubmissions.value = result.items
   } catch {
     /* 未登录等场景静默 */
@@ -59,7 +91,7 @@ async function loadMySubmissions() {
 
 function openSubmission(row: Submission) {
   subsVisible.value = false
-  router.push(`/problems/${route.params.id}/submissions/${row.id}`)
+  router.push(`${submissionsBase.value}/submissions/${row.id}`)
 }
 
 async function submit() {
@@ -74,14 +106,30 @@ async function submit() {
     positiveText: t('problems.detail.submit'),
     negativeText: t('action.cancel'),
     onPositiveClick: async () => {
+      const current = problem.value
+      if (!current) return
       submitting.value = true
       try {
-        const result = await createSubmission({
-          problem_id: problem.value!.id,
-          language: language.value,
-          code: code.value,
-        })
-        router.push(`/problems/${problem.value!.id}/submissions/${result.submission_id}`)
+        // 统一入口：各上下文走本模块交题端点（题单：归属校验；比赛：窗口校验，赛后自动补题）
+        let result: { submission_id: string; status: string }
+        if (context.value === 'contests') {
+          result = await createContestSubmission(contextId.value, current.id, {
+            language: language.value,
+            code: code.value,
+          })
+        } else if (context.value === 'problem-sets') {
+          result = await createProblemSetSubmission(contextId.value, current.id, {
+            language: language.value,
+            code: code.value,
+          })
+        } else {
+          result = await createSubmission({
+            problem_id: current.id,
+            language: language.value,
+            code: code.value,
+          })
+        }
+        router.push(`${submissionsBase.value}/submissions/${result.submission_id}`)
       } catch (error) {
         message.error(error instanceof Error ? error.message : t('problems.detail.submitFailed'))
       } finally {

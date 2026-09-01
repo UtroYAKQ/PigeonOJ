@@ -1,3 +1,5 @@
+import type { RouteLocationNormalizedLoaded } from 'vue-router'
+
 import 'vue-router'
 
 declare module 'vue-router' {
@@ -28,8 +30,19 @@ declare module 'vue-router' {
     contextPage?: boolean
     /**
      * 面包屑父级工作台：上下文页在面包屑中挂到所属工作台下，
-     * 如 管理后台/题目管理/编辑题目（{ titleKey: 'nav.problemsManage', path: '/admin/problems' }）
+     * 如 管理后台/题目管理/编辑题目（{ titleKey: 'nav.problemsManage', path: '/admin/problems' }）。
+     * path 支持按当前路由解析的动态路径（如题单上下文写题页挂到具体题单详情：
+     * path: (route) => `/problem-sets/${route.params.setId}`）；
+     * 数组形式声明多级父链（按序插入，如 题单/题单详情/题目详情/评测结果）
      */
-    breadcrumbParent?: { titleKey: string; path: string }
+    breadcrumbParent?:
+      | {
+          titleKey: string
+          path: string | ((route: RouteLocationNormalizedLoaded) => string)
+        }
+      | Array<{
+          titleKey: string
+          path: string | ((route: RouteLocationNormalizedLoaded) => string)
+        }>
   }
 }

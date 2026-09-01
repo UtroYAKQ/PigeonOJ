@@ -249,7 +249,9 @@ class NodeDaemon:
             stdin = (data_dir / "cases" / f"{tc.test_case_id}.in").read_bytes()
             expected = (data_dir / "cases" / f"{tc.test_case_id}.out").read_bytes()
             cases.append(JudgeCase(job.language, job.code, stdin, expected, limits))
-        results = self.executor.execute_cases(cases, compile_limits=compile_limits)
+        results = self.executor.execute_cases(
+            cases, compile_limits=compile_limits, stop_on_failure=job.stop_on_failure
+        )
 
         max_time = 0
         case_results = []

@@ -59,6 +59,9 @@ message SubmitJob {
   string data_version = 6;  // 数据指纹；缓存未命中时先调 FetchProblemData
   bool spj = 7;             // [已废弃] SPJ 特判整体移除；字段号保留维持线格式兼容，发送端不再赋值，接收端忽略
   repeated TestCaseFile cases = 8; // 仅元数据 + 排序；正式测试点（is_sample=false）
+  // ACM 赛制短路标记：true 时节点在首个非 accepted 测试点后停止执行，
+  // 仅回传已执行测试点的结果（docs/contracts/judge.md「赛制计分」）
+  bool stop_on_failure = 9;
 }
 
 message CancelJob { string submission_id = 1; }

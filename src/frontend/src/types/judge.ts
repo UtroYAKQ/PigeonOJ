@@ -22,15 +22,13 @@ export interface Submission {
   submit_type?: string
   code?: string
   status: SubmissionStatus
-  /** ACM 赛制比赛进行中为 null（restricted=true），赛后恢复数值 */
+  /** 赛制计分：ACM 二值（AC=满分否则 0）；IOI / 练习 = 通过测试点比例部分计分 */
   score: number | null
   time_used_ms: number | null
   memory_used_kb: number | null
   error_message?: string | null
   created_at?: string
   cases?: SubmissionCaseResult[]
-  /** ACM 赛制进行中：得分与测试点详情赛后公开 */
-  restricted?: boolean
 }
 
 export interface SubmissionCaseResult {

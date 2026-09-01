@@ -342,7 +342,19 @@ class JudgeWorker:
         _validate_limits(limits)
         return PreparedSubmission(self, language, source, limits)
 
-    def execute_cases(self, cases: list[JudgeCase], compile_limits: ResourceLimits | None = None) -> list[ExecutionResult]:
+    def execute_cases(
+        self,
+        cases: list[JudgeCase],
+        compile_limits: ResourceLimits | None = None,
+        *,
+        stop_on_failure: bool = False,
+    ) -> list[ExecutionResult]:
+        """编译一次后逐测试点运行。
+
+        stop_on_failure（ACM 赛制短路）：首个非 accepted 测试点后停止执行，
+        仅返回已执行测试点的结果（docs/contracts/judge.md「赛制计分」）。
+        compile_error / system_error 属平台级故障，无论赛制均终止后续测试点。
+        """
         if not cases:
             return []
         language = cases[0].language
@@ -355,6 +367,8 @@ class JudgeWorker:
                 _validate_case(case)
                 results.append(submission.run_case(case.stdin, case.expected_stdout, case.limits))
                 if results[-1].status in {"compile_error", "system_error"}:
+                    break
+                if stop_on_failure and results[-1].status != "accepted":
                     break
             return results
 

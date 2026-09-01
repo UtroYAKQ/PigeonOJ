@@ -457,21 +457,19 @@ async def test_submission_history_and_detail(client, admin_headers, user_headers
     assert resp.json()["code"] == 0, resp.text
     submission_id = resp.json()["data"]["submission_id"]
 
-    # 提交历史（本人）：练习提交不受 ACM 限分策略影响
+    # 提交历史（本人）
     resp = await client.get(f"/api/v1/submissions?problem_id={data['id']}", headers=admin_headers)
     history = resp.json()["data"]
     assert history["total"] == 1
     assert history["items"][0]["status"] in {"pending", "judging"}
-    assert history["items"][0]["restricted"] is False
     assert history["items"][0]["score"] is not None
 
-    # 详情含代码与测试点明细骨架；练习提交 restricted=False、得分完整可见
+    # 详情含代码与测试点明细骨架
     resp = await client.get(f"/api/v1/submissions/{submission_id}", headers=admin_headers)
     detail = resp.json()["data"]
     assert detail["code"] == "int main(){}"
     assert detail["language"] == "cpp17"
     assert isinstance(detail["cases"], list)
-    assert detail["restricted"] is False
     assert detail["score"] is not None
 
     # 他人不可读

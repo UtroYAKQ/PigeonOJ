@@ -230,7 +230,7 @@ const activeColumns = computed(() =>
 </script>
 
 <template>
-  <WorkbenchShell :title="t('admin.logs.title')">
+  <WorkbenchShell>
     <template #header-extra>
         <n-button size="small" secondary :loading="loading" @click="exportCsv">{{
           t('action.export')

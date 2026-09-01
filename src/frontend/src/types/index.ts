@@ -4,9 +4,11 @@
  */
 
 export * from './common'
+export * from './contest'
 export * from './files'
 export * from './judge'
 export * from './problem'
+export * from './problem-set'
 export * from './site'
 export * from './user'
 export * from './admin'

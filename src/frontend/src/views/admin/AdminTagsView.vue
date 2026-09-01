@@ -160,7 +160,7 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
 </script>
 
 <template>
-  <WorkbenchShell :title="t('admin.tags.title')">
+  <WorkbenchShell>
       <SearchFilterBar :show-search="false">
         <template #actions>
           <n-button type="primary" size="small" @click="openCreate">

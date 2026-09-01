@@ -23,7 +23,7 @@ from app.schemas.problem import (
     TestCasesUpdate,
     VerificationInviteOut,
 )
-from app.services.problem import ProblemDetailData, ProblemService
+from app.services.problem import ProblemService, to_problem_detail
 from app.services.tag import TagService
 from app.models.user import User
 from app.core.dependency import get_current_user, get_optional_user
@@ -33,42 +33,6 @@ from app.utils.response import ApiResponse, ok
 from app.core.database import get_db
 
 router = APIRouter(tags=["problems"])
-
-
-def _to_detail(detail: ProblemDetailData) -> ProblemDetail:
-    """将题目详情装配结果转换为响应契约（测试点 / 题解仅管理角色可见）。"""
-    problem = detail.problem
-    return ProblemDetail(
-        id=problem.id,
-        title=problem.title,
-        background=problem.background,
-        description=problem.description,
-        input_description=problem.input_description,
-        output_description=problem.output_description,
-        solution=problem.solution if detail.can_manage else None,
-        time_limit_ms=problem.time_limit_ms,
-        memory_limit_mb=problem.memory_limit_mb,
-        status=problem.status,
-        visibility=problem.visibility,
-        is_verified=problem.is_verified,
-        verified_by=problem.verified_by,
-        verified_at=problem.verified_at,
-        owner_id=problem.owner_id,
-        published_at=problem.published_at,
-        created_at=problem.created_at,
-        updated_at=problem.updated_at,
-        difficulty=problem.difficulty,
-        submission_count=detail.submission_count,
-        accepted_count=detail.accepted_count,
-        samples=detail.samples,
-        tags=detail.tags,
-        can_manage=detail.can_manage,
-        needs_reverification=bool(detail.needs_reverification),
-        case_status=problem.case_status,
-        test_cases=detail.test_cases if detail.can_manage and detail.test_cases else None,
-        cases_updated_at=detail.cases_updated_at,
-        samples_updated_at=problem.samples_updated_at,
-    )
 
 
 @router.get("/problems", response_model=ApiResponse[PaginatedResponse[ProblemSummary]])
@@ -136,7 +100,7 @@ async def get_problem(
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ProblemDetail]:
     detail = await ProblemService(db).get_detail(problem_id, user)
-    return ok(_to_detail(detail))
+    return ok(to_problem_detail(detail))
 
 
 @router.put("/problems/{problem_id}", response_model=ApiResponse[ProblemSummary])

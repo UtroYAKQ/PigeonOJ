@@ -54,6 +54,7 @@ from app.repositories.problem import ProblemRepository, TagRepository, Verificat
 from app.repositories.judge import TestCaseRepository
 from app.schemas.problem import (
     ProblemCreate,
+    ProblemDetail,
     ProblemQuery,
     ProblemUpdate,
     SampleOut,
@@ -713,6 +714,46 @@ async def _can_manage(db: AsyncSession, user: object, problem: Problem) -> bool:
     if await is_manager(db, user):
         return True
     return problem.owner_id == user.id
+
+
+def to_problem_detail(detail: ProblemDetailData) -> ProblemDetail:
+    """题目详情装配：ProblemDetailData → 响应契约（测试点 / 题解仅管理角色可见）。
+
+    题库路由（GET /problems/{id}）与题单路由（GET /problem-sets/{id}/problems/{pid}）共用，
+    保证两个入口的详情结构与可见性门控完全一致（docs/contracts/problem-sets.md 统一入口）。
+    """
+    problem = detail.problem
+    return ProblemDetail(
+        id=problem.id,
+        title=problem.title,
+        background=problem.background,
+        description=problem.description,
+        input_description=problem.input_description,
+        output_description=problem.output_description,
+        solution=problem.solution if detail.can_manage else None,
+        time_limit_ms=problem.time_limit_ms,
+        memory_limit_mb=problem.memory_limit_mb,
+        status=problem.status,
+        visibility=problem.visibility,
+        is_verified=problem.is_verified,
+        verified_by=problem.verified_by,
+        verified_at=problem.verified_at,
+        owner_id=problem.owner_id,
+        published_at=problem.published_at,
+        created_at=problem.created_at,
+        updated_at=problem.updated_at,
+        difficulty=problem.difficulty,
+        submission_count=detail.submission_count,
+        accepted_count=detail.accepted_count,
+        samples=detail.samples,
+        tags=detail.tags,
+        can_manage=detail.can_manage,
+        needs_reverification=bool(detail.needs_reverification),
+        case_status=problem.case_status,
+        test_cases=detail.test_cases if detail.can_manage and detail.test_cases else None,
+        cases_updated_at=detail.cases_updated_at,
+        samples_updated_at=problem.samples_updated_at,
+    )
 
 
 async def get_problem(db: AsyncSession, problem_id: uuid.UUID) -> Problem:

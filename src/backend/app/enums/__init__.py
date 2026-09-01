@@ -7,10 +7,13 @@ from __future__ import annotations
 
 from app.enums.admin import ReportAction, ReportStatus, ReportTargetType
 from app.enums.audit import LogLevel, LoginAction
+from app.enums.contest import ContestStatus, ContestType, RegistrationStatus, RuleType
 from app.enums.judge import SubmissionStatus, SubmitType
 from app.enums.problem import (
     CaseStatus,
     ProblemScope,
+    ProblemSetStatus,
+    ProblemSetVisibility,
     ProblemStatus,
     ProblemVisibility,
     TagStatus,
@@ -31,9 +34,16 @@ __all__ = [
     "TagStatus",
     "VerificationStatus",
     "CaseStatus",
+    "ProblemSetStatus",
+    "ProblemSetVisibility",
     # 判题域
     "SubmitType",
     "SubmissionStatus",
+    # 比赛域
+    "ContestType",
+    "RuleType",
+    "ContestStatus",
+    "RegistrationStatus",
     # 管理域
     "ReportStatus",
     "ReportAction",

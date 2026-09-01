@@ -152,7 +152,6 @@ export default {
       showCode: '查看代码',
       hideCode: '收起代码',
       stillJudging: '评测时间较长，已停止自动刷新；可点击「刷新」继续查询结果。',
-      restrictedNotice: 'ACM 赛制比赛进行中：得分与测试点明细将在比赛结束后公开。',
     },
     manage: {
       applyStaged: '使测试点生效',

@@ -115,6 +115,116 @@ export const adminRoutes: RouteRecordRaw[] = [
         ],
       },
       {
+        path: 'problem-sets',
+        name: 'admin-problem-sets-section',
+        meta: {
+          title: '题单管理',
+          titleKey: 'nav.problemSetsManage',
+          icon: 'Document',
+          roles: ['admin', 'tutor'],
+        },
+        children: [
+          {
+            path: '',
+            name: 'admin-problem-sets',
+            component: () => import('@/views/admin/AdminProblemSetsView.vue'),
+            meta: {
+              title: '题单管理',
+              titleKey: 'nav.problemSetsManage',
+              icon: 'Document',
+              roles: ['admin', 'tutor'],
+              requiresAuth: true,
+            },
+          },
+          {
+            path: ':id',
+            name: 'admin-problem-set-detail',
+            component: () => import('@/views/admin/AdminProblemSetDetailView.vue'),
+            meta: {
+              title: '题单详情',
+              titleKey: 'problemSets.detail.title',
+              roles: ['admin', 'tutor'],
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+            },
+          },
+          {
+            // 题单管理内的题目预览（只读题面，不进入写题页 / 不跳题库）
+            // 面包屑：管理后台 / 题单管理 / 题单详情 / 题目预览（父级动态解析到当前题单详情）
+            // 参数命名与前台题单上下文一致：:setId=题单 :problemId=题目（预览组件按上下文取参）
+            path: ':setId/problems/:problemId/preview',
+            name: 'admin-problem-set-problem-preview',
+            component: () => import('@/views/problems/ProblemPreviewView.vue'),
+            meta: {
+              title: '题目预览',
+              titleKey: 'problems.preview.title',
+              roles: ['admin', 'tutor'],
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: {
+                titleKey: 'problemSets.detail.title',
+                path: (route) => `/admin/problem-sets/${String(route.params.setId)}`,
+              },
+            },
+          },
+        ],
+      },
+      {
+        path: 'contests',
+        name: 'admin-contests',
+        component: () => import('@/views/admin/AdminContestsView.vue'),
+        meta: {
+          title: '比赛管理',
+          titleKey: 'nav.contestsManage',
+          icon: 'Trophy',
+          roles: ['admin', 'tutor'],
+        },
+      },
+      {
+        path: 'contests/create',
+        name: 'admin-contest-create',
+        component: () => import('@/views/admin/AdminContestBasicView.vue'),
+        meta: {
+          title: '创建比赛',
+          titleKey: 'contests.list.createTitle',
+          roles: ['admin', 'tutor'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: { titleKey: 'nav.contestsManage', path: '/admin/contests' },
+        },
+      },
+      {
+        path: 'contests/:cid/edit/basic',
+        name: 'admin-contest-edit-basic',
+        component: () => import('@/views/admin/AdminContestBasicView.vue'),
+        meta: {
+          title: '编辑比赛',
+          titleKey: 'contests.list.editTitle',
+          roles: ['admin', 'tutor'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: { titleKey: 'nav.contestsManage', path: '/admin/contests' },
+        },
+      },
+      {
+        path: 'contests/:cid/edit/problems',
+        name: 'admin-contest-edit-problems',
+        component: () => import('@/views/admin/AdminContestArrangeView.vue'),
+        meta: {
+          title: '编排题目',
+          titleKey: 'contests.wizard.arrange',
+          roles: ['admin', 'tutor'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: { titleKey: 'nav.contestsManage', path: '/admin/contests' },
+        },
+      },
+      {
         path: 'users',
         name: 'admin-users',
         component: () => import('@/views/admin/AdminUsersView.vue'),
