@@ -25,7 +25,13 @@ const contestTitle = ref('')
 const draftProblems = ref<ContestProblemItem[]>([])
 const poolKeyword = ref('')
 const poolLoading = ref(false)
-const poolOptions = ref<Array<{ label: string; value: string; problem: { id: string; title: string; difficulty: number | null } }>>([])
+const poolOptions = ref<
+  Array<{
+    label: string
+    value: string
+    problem: { id: string; title: string; difficulty: number | null }
+  }>
+>([])
 /** IOI 赛制才需要逐题分值（ACM 全部测试点通过才有分，无单题分值概念） */
 const isIOI = ref(false)
 
@@ -122,7 +128,9 @@ function goPrev() {
     <n-spin :show="loading" class="wizard-spin">
       <WizardShell :step="2" :total="2" :title="t('contests.wizard.arrange')">
         <template #actions>
-          <n-button size="small" quaternary @click="goPrev">{{ t('contests.wizard.prev') }}</n-button>
+          <n-button size="small" quaternary @click="goPrev">{{
+            t('contests.wizard.prev')
+          }}</n-button>
           <n-button type="primary" size="small" :loading="saving" @click="save">
             {{ t('action.save') }}
           </n-button>
@@ -135,7 +143,11 @@ function goPrev() {
           <div class="arrange-page__panel">
             <div class="arrange-page__panel-title">{{ t('contests.list.problems') }}</div>
             <div class="arrange-page__list">
-              <div v-for="(item, index) in draftProblems" :key="item.problem_id" class="arrange__row">
+              <div
+                v-for="(item, index) in draftProblems"
+                :key="item.problem_id"
+                class="arrange__row"
+              >
                 <span class="arrange__order">{{ String.fromCharCode(65 + index) }}</span>
                 <n-input-number
                   v-if="isIOI"
@@ -144,18 +156,29 @@ function goPrev() {
                   :min="0"
                   style="width: 90px"
                   :show-button="false"
-                  @update:value="(v: number | null) => { item.score = v ?? 0 }"
+                  @update:value="
+                    (v: number | null) => {
+                      item.score = v ?? 0
+                    }
+                  "
                 />
                 <span class="arrange__title">{{ item.title }}</span>
                 <span class="arrange__ops">
-                  <n-button text size="tiny" aria-label="up" @click="moveDraft(index, -1)">↑</n-button>
-                  <n-button text size="tiny" aria-label="down" @click="moveDraft(index, 1)">↓</n-button>
+                  <n-button text size="tiny" aria-label="up" @click="moveDraft(index, -1)"
+                    >↑</n-button
+                  >
+                  <n-button text size="tiny" aria-label="down" @click="moveDraft(index, 1)"
+                    >↓</n-button
+                  >
                   <n-button text size="tiny" type="error" @click="removeDraft(item)">
                     {{ t('contests.list.removeProblem') }}
                   </n-button>
                 </span>
               </div>
-              <n-empty v-if="!draftProblems.length" :description="t('contests.list.problemsEmpty')" />
+              <n-empty
+                v-if="!draftProblems.length"
+                :description="t('contests.list.problemsEmpty')"
+              />
             </div>
           </div>
           <div class="arrange-page__panel">

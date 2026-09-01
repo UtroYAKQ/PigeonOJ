@@ -100,6 +100,8 @@ class NodeDaemon:
         )
         self.semaphore: asyncio.Semaphore | None = None
         self.running_tasks = 0
+        # 持有判题任务引用，防止 fire-and-forget 任务被 GC 中途回收
+        self._pending: set[asyncio.Task] = set()
         self.heartbeat_interval = 10
         self.cpu_sample: tuple[int, int] | None = None  # (idle, total) 上次 /proc/stat 采样
 
@@ -141,14 +143,20 @@ class NodeDaemon:
                     continue
                 kind = sm.WhichOneof("payload")
                 if kind == "job":
-                    asyncio.create_task(self._execute_job(stub, sm.job))
+                    self._spawn(self._execute_job(stub, sm.job))
                 elif kind == "run_code":
-                    asyncio.create_task(self._execute_run_code(sm.run_code))
+                    self._spawn(self._execute_run_code(sm.run_code))
         finally:
             heartbeat_task.cancel()
             cache_gc_task.cancel()
-            channel.close()
+            await channel.close()
             log.info("连接关闭")
+
+    def _spawn(self, coro) -> None:
+        """创建判题任务并保存引用（done 后自动清除，docs/architecture.md 异步规范）。"""
+        task = asyncio.create_task(coro)
+        self._pending.add(task)
+        task.add_done_callback(self._pending.discard)
 
     async def _heartbeat_loop(self) -> None:
         interval = max(3, self.heartbeat_interval)
@@ -244,13 +252,15 @@ class NodeDaemon:
             cpu_cores=limits.cpu_cores,
             process_limit=limits.process_limit,
         )
-        cases = []
-        for tc in job.cases:
-            stdin = (data_dir / "cases" / f"{tc.test_case_id}.in").read_bytes()
-            expected = (data_dir / "cases" / f"{tc.test_case_id}.out").read_bytes()
-            cases.append(JudgeCase(job.language, job.code, stdin, expected, limits))
-        results = self.executor.execute_cases(
-            cases, compile_limits=compile_limits, stop_on_failure=job.stop_on_failure
+        cases = await asyncio.to_thread(
+            self._load_cases_sync, job, data_dir, limits
+        )
+        # 判题为阻塞进程等待（单次数秒），必须移出事件循环线程，否则心跳/其他任务全部停摆
+        results = await asyncio.to_thread(
+            self.executor.execute_cases,
+            cases,
+            compile_limits=compile_limits,
+            stop_on_failure=job.stop_on_failure,
         )
 
         max_time = 0
@@ -270,6 +280,15 @@ class NodeDaemon:
         return {"submission_id": job.submission_id, "status": status,
                 "time_used_ms": max_time, "memory_used_kb": None,
                 "error_message": error_message, "cases": case_results}
+
+    def _load_cases_sync(self, job: judge_pb2.SubmitJob, data_dir: Path, limits: ResourceLimits) -> list[JudgeCase]:
+        """同步加载测试点文件（在 to_thread 工作线程中执行）。"""
+        cases = []
+        for tc in job.cases:
+            stdin = (data_dir / "cases" / f"{tc.test_case_id}.in").read_bytes()
+            expected = (data_dir / "cases" / f"{tc.test_case_id}.out").read_bytes()
+            cases.append(JudgeCase(job.language, job.code, stdin, expected, limits))
+        return cases
 
     async def _execute_run_code(self, job: judge_pb2.RunCodeJob) -> None:
         """用户自测：单次独立运行，无测试点、无比对、不落库（docs/contracts/judge.md「用户自测」）。"""
@@ -312,8 +331,12 @@ class NodeDaemon:
             cpu_cores=limits.cpu_cores,
             process_limit=limits.process_limit,
         )
-        with self.executor.prepare_submission(job.language, job.code, compile_limits) as submission:
-            res = submission.run_case(job.input, None, limits)
+        def _run_case_sync():
+            with self.executor.prepare_submission(job.language, job.code, compile_limits) as submission:
+                return submission.run_case(job.input, None, limits)
+
+        # 编译 + 运行为阻塞等待，移出事件循环线程
+        res = await asyncio.to_thread(_run_case_sync)
         error_message = ""
         if res.status in ("compile_error", "runtime_error", "system_error"):
             error_message = res.stderr.decode("utf-8", errors="replace")[:8000]

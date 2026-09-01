@@ -33,8 +33,10 @@ RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin runner \
     && mkdir -p /workspace /runner \
     && chown -R runner:runner /workspace /runner
 
-# gRPC 守护进程依赖
-RUN pip3 install --no-cache-dir --break-system-packages grpcio protobuf
+# gRPC 守护进程依赖：直接用 node/requirements.txt（钉版）安装；
+# 生成的 judge_pb2*.py 带 runtime_version 校验，两端 protobuf 大版本漂移会导致节点启动失败
+COPY node/requirements.txt /tmp/node-requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/node-requirements.txt
 
 # 沙箱配置与调试包装脚本（判题链路不经过 run-in-nsjail，仅人工调试用）
 COPY sandbox/nsjail.cfg /etc/pigeonoj/nsjail.cfg

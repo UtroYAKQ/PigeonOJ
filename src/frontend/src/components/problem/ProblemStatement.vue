@@ -14,7 +14,12 @@ withDefaults(
   defineProps<{
     problem: Pick<
       ProblemDetail,
-      'background' | 'description' | 'input_description' | 'output_description' | 'samples' | 'solution'
+      | 'background'
+      | 'description'
+      | 'input_description'
+      | 'output_description'
+      | 'samples'
+      | 'solution'
     >
     /** 是否渲染官方题解分区（solution 为空时始终不渲染） */
     showSolution?: boolean
@@ -48,10 +53,7 @@ const { t } = useI18n()
     <h3 class="problem-statement__subtitle">{{ t('problems.detail.outputDescription') }}</h3>
     <MarkdownView :source="problem.output_description || ''" />
 
-    <h3
-      v-if="problem.samples?.length"
-      class="problem-statement__subtitle"
-    >
+    <h3 v-if="problem.samples?.length" class="problem-statement__subtitle">
       {{ t('problems.detail.samples') }}
     </h3>
     <ProblemSamples v-if="problem.samples?.length" :samples="problem.samples" />

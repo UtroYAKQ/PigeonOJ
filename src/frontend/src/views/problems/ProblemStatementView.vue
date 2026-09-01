@@ -3,12 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
-import {
-  createProblem,
-  getProblem,
-  listActiveTags,
-  updateProblem,
-} from '@/api/problems'
+import { createProblem, getProblem, listActiveTags, updateProblem } from '@/api/problems'
 import { message } from '@/utils/feedback'
 import WizardShell from '@/components/WizardShell.vue'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
@@ -226,7 +221,9 @@ const visibilityOptions = computed(() => [
           <div class="solution-head">
             <span class="section-title">{{ t('problems.create.solution') }}</span>
             <n-button text size="small" type="primary" @click="toggleSolution">
-              {{ showSolution ? t('problems.create.solutionHide') : t('problems.create.solutionAdd') }}
+              {{
+                showSolution ? t('problems.create.solutionHide') : t('problems.create.solutionAdd')
+              }}
             </n-button>
           </div>
           <n-collapse-transition :show="showSolution">

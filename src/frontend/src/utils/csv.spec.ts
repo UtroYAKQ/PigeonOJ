@@ -60,9 +60,7 @@ describe('downloadCsv', () => {
 
   it('包含逗号 / 引号 / 换行的字段按 RFC 4180 转义', () => {
     downloadCsv('logs.csv', ['path'], [['/api/v1/a,b'], ['say "hi"'], ['line1\nline2']])
-    expect(captured.text()).toBe(
-      '\uFEFFpath\n"/api/v1/a,b"\n"say ""hi"""\n"line1\nline2"',
-    )
+    expect(captured.text()).toBe('\uFEFFpath\n"/api/v1/a,b"\n"say ""hi"""\n"line1\nline2"')
   })
 
   it('null / undefined 字段输出空串', () => {

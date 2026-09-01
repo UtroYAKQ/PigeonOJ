@@ -52,7 +52,7 @@ const columns = computed<DataTableColumns<ProblemSetItem>>(() => [
     title: t('problemSets.detail.difficulty'),
     key: 'difficulty',
     width: 100,
-    render: (row) => (row.difficulty ?? null) === null ? '--' : String(row.difficulty),
+    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
   },
 ])
 
@@ -73,7 +73,9 @@ function rowProps(row: ProblemSetItem) {
   <WorkbenchShell>
     <template #header>
       <div class="detail-head">
-        <strong class="detail-head__title">{{ detail?.title ?? t('problemSets.detail.title') }}</strong>
+        <strong class="detail-head__title">{{
+          detail?.title ?? t('problemSets.detail.title')
+        }}</strong>
         <n-tag v-if="detail?.status === 'archived'" type="warning" size="small">
           {{ t('problemSets.detail.archived') }}
         </n-tag>

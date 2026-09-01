@@ -210,7 +210,11 @@ watch(
           <button
             type="button"
             class="console__toggle"
-            :aria-label="collapsed ? t('problems.detail.selfTestExpand') : t('problems.detail.selfTestCollapse')"
+            :aria-label="
+              collapsed
+                ? t('problems.detail.selfTestExpand')
+                : t('problems.detail.selfTestCollapse')
+            "
             @click="collapsed = !collapsed"
           >
             <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
@@ -279,20 +283,32 @@ watch(
               />
             </template>
             <template v-else>
-              <div v-if="selfTesting" class="console__hint">{{ t('problems.detail.selfTestRunning') }}</div>
+              <div v-if="selfTesting" class="console__hint">
+                {{ t('problems.detail.selfTestRunning') }}
+              </div>
               <div v-else-if="!selfTestResult" class="console__hint">
                 {{ t('problems.detail.selfTestEmptyHint') }}
               </div>
               <div v-else class="console__result">
                 <div class="console__meta">
                   <StatusTag :status="selfTestResult.status" />
-                  <span class="console__stat">{{ t('problems.submission.time') }}：{{ timeText(selfTestResult.time_used_ms) }}</span>
-                  <span class="console__stat">{{ t('problems.submission.memory') }}：{{ memoryText(selfTestResult.memory_used_kb) }}</span>
+                  <span class="console__stat"
+                    >{{ t('problems.submission.time') }}：{{
+                      timeText(selfTestResult.time_used_ms)
+                    }}</span
+                  >
+                  <span class="console__stat"
+                    >{{ t('problems.submission.memory') }}：{{
+                      memoryText(selfTestResult.memory_used_kb)
+                    }}</span
+                  >
                 </div>
                 <pre v-if="selfTestResult.error_message" class="console__stderr">{{
                   selfTestResult.error_message
                 }}</pre>
-                <pre class="console__stdout">{{ selfTestResult.output || t('problems.detail.noOutput') }}</pre>
+                <pre class="console__stdout">{{
+                  selfTestResult.output || t('problems.detail.noOutput')
+                }}</pre>
               </div>
             </template>
           </div>
@@ -450,7 +466,9 @@ watch(
   font-size: 13px;
   color: var(--app-text-secondary);
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 .console__tab.active {
   background: color-mix(in srgb, var(--app-primary, #18a058) 12%, transparent);

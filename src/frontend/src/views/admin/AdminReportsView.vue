@@ -153,7 +153,8 @@ const columns = computed<DataTableColumns<Report>>(() => [
     width: 100,
     fixed: 'right',
     render(row) {
-      if (row.status !== 'pending') return h('span', { class: 'cell-muted' }, t('admin.reports.handled'))
+      if (row.status !== 'pending')
+        return h('span', { class: 'cell-muted' }, t('admin.reports.handled'))
       return h(
         NButton,
         { text: true, type: 'primary', onClick: () => openHandle(row) },
@@ -187,17 +188,22 @@ const columns = computed<DataTableColumns<Report>>(() => [
       :page-sizes="[10, 20, 50]"
       :empty-text="t('admin.reports.empty')"
       :table-props="{ scrollX: 1000 }"
-      @update:page="(p: number) => { changePage(p); load() }"
-      @update:page-size="(s: number) => { changeSize(s); load() }"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
+      @update:page-size="
+        (s: number) => {
+          changeSize(s)
+          load()
+        }
+      "
     />
 
     <!-- 处理举报 -->
-    <n-modal
-      v-model:show="handleDialog"
-      preset="card"
-      style="width: min(440px, 92vw)"
-     
-    >
+    <n-modal v-model:show="handleDialog" preset="card" style="width: min(440px, 92vw)">
       <n-radio-group v-model:value="handleAction" class="handle-actions">
         <n-radio value="handled">{{ t('admin.reports.approve') }}</n-radio>
         <n-radio value="ignored">{{ t('admin.reports.ignore') }}</n-radio>

@@ -53,10 +53,7 @@ export function archiveProblemSet(id: string): Promise<ProblemSetSummary> {
 }
 
 /** 题单内题目详情（统一入口）：归属校验后返回与 GET /problems/{id} 一致的详情装配 */
-export function getProblemSetProblem(
-  setId: string,
-  problemId: string,
-): Promise<ProblemDetailEx> {
+export function getProblemSetProblem(setId: string, problemId: string): Promise<ProblemDetailEx> {
   return apiRequest('GET', `/problem-sets/${setId}/problems/${problemId}`)
 }
 

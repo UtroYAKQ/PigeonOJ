@@ -147,6 +147,7 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 
 ```bash
 npm run lint:check       # 前端 ESLint
+pip install -r requirements-dev.txt   # 测试依赖（pytest / pytest-asyncio / httpx，均在 src/backend 下执行）
 pytest                   # 后端单元 + 集成测试
 npm test                 # 前端 Vitest
 ```

@@ -121,7 +121,9 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
       return h(
         NTag,
         { size: 'small', type: row.status === 'archived' ? 'default' : 'success', bordered: false },
-        { default: () => t(row.status === 'archived' ? 'admin.tags.archived' : 'admin.tags.active') },
+        {
+          default: () => t(row.status === 'archived' ? 'admin.tags.archived' : 'admin.tags.active'),
+        },
       )
     },
   },
@@ -161,51 +163,51 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
 
 <template>
   <WorkbenchShell>
-      <SearchFilterBar :show-search="false">
-        <template #actions>
-          <n-button type="primary" size="small" @click="openCreate">
-            {{ t('admin.tags.create') }}
-          </n-button>
-        </template>
-      </SearchFilterBar>
+    <SearchFilterBar :show-search="false">
+      <template #actions>
+        <n-button type="primary" size="small" @click="openCreate">
+          {{ t('admin.tags.create') }}
+        </n-button>
+      </template>
+    </SearchFilterBar>
 
-      <n-data-table
-        v-if="loading || list.length"
-        class="table-fill"
-        :columns="columns"
-        :data="list"
-        :loading="loading"
-        :bordered="false"
-      />
-      <div v-else class="table-fill-empty">
-        <n-empty size="large" :description="t('admin.tags.empty')" />
-      </div>
+    <n-data-table
+      v-if="loading || list.length"
+      class="table-fill"
+      :columns="columns"
+      :data="list"
+      :loading="loading"
+      :bordered="false"
+    />
+    <div v-else class="table-fill-empty">
+      <n-empty size="large" :description="t('admin.tags.empty')" />
+    </div>
 
-      <!-- 新建 / 编辑标签 -->
-      <n-modal
-        v-model:show="editorDialog"
-        preset="card"
-        style="width: min(420px, 92vw)"
-        :title="editing ? t('admin.tags.edit') : t('admin.tags.create')"
-      >
-        <n-form label-placement="top">
-          <n-form-item :label="t('admin.tags.name')">
-            <n-input
-              v-model:value="formName"
-              maxlength="32"
-              show-count
-              :placeholder="t('admin.tags.namePlaceholder')"
-              @keyup.enter="submitEditor"
-            />
-          </n-form-item>
-          <n-form-item :label="t('admin.tags.color')">
-            <n-color-picker v-model:value="formColor" :show-alpha="false" :modes="['hex']" />
-          </n-form-item>
-        </n-form>
-        <template #footer>
-          <ModalFooter :loading="submitting" @cancel="cancelEditor" @confirm="submitEditor" />
-        </template>
-      </n-modal>
+    <!-- 新建 / 编辑标签 -->
+    <n-modal
+      v-model:show="editorDialog"
+      preset="card"
+      style="width: min(420px, 92vw)"
+      :title="editing ? t('admin.tags.edit') : t('admin.tags.create')"
+    >
+      <n-form label-placement="top">
+        <n-form-item :label="t('admin.tags.name')">
+          <n-input
+            v-model:value="formName"
+            maxlength="32"
+            show-count
+            :placeholder="t('admin.tags.namePlaceholder')"
+            @keyup.enter="submitEditor"
+          />
+        </n-form-item>
+        <n-form-item :label="t('admin.tags.color')">
+          <n-color-picker v-model:value="formColor" :show-alpha="false" :modes="['hex']" />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <ModalFooter :loading="submitting" @cancel="cancelEditor" @confirm="submitEditor" />
+      </template>
+    </n-modal>
   </WorkbenchShell>
 </template>
 

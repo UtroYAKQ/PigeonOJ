@@ -9,8 +9,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-from sqlalchemy import func, outerjoin, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
@@ -128,23 +126,9 @@ async def bump_counters(db: AsyncSession, problem_id: uuid.UUID, *, accepted: bo
     """判题终态回写通过率计数（problem_counters upsert 原子累加，docs/contracts/judge.md）。
 
     统计口径由调用方保证：verify 提交与 system_error 不进入本函数。
-    单条 INSERT ... ON CONFLICT 并发安全，计数行不存在时自动创建。
+    SQL 细节见 ProblemRepository.bump_counters。
     """
-    step_accepted = 1 if accepted else 0
-    stmt = (
-        pg_insert(ProblemCounter)
-        .values(problem_id=problem_id, submission_count=1, accepted_count=step_accepted)
-        .on_conflict_do_update(
-            index_elements=[ProblemCounter.problem_id],
-            set_={
-                # 键用 Column 对象（= 目标表列）；值中同名列引用的是已存在行（DO UPDATE SET col = col + 1 语义）
-                ProblemCounter.submission_count: ProblemCounter.submission_count + 1,
-                ProblemCounter.accepted_count: ProblemCounter.accepted_count + step_accepted,
-                ProblemCounter.updated_at: func.now(),
-            },
-        )
-    )
-    await db.execute(stmt)
+    await ProblemRepository(db).bump_counters(problem_id, accepted=accepted)
 
 
 @dataclass(frozen=True)
@@ -163,6 +147,10 @@ class ProblemDetailData:
     accepted_count: int = 0
 
 
+# 持有清理任务引用，防止 fire-and-forget 任务被 GC 中途回收
+_cleanup_tasks: set[asyncio.Task] = set()
+
+
 def schedule_object_cleanup(stale_keys: list[str]) -> None:
     """事务提交后异步清理 MinIO 旧对象（fire-and-forget，docs/contracts/problems.md）。"""
     if not stale_keys:
@@ -176,8 +164,13 @@ def schedule_object_cleanup(stale_keys: list[str]) -> None:
             except Exception:
                 logger.exception("MinIO object cleanup failed: key=%s", key)
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(_cleanup(stale_keys))
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    task = loop.create_task(_cleanup(stale_keys))
+    _cleanup_tasks.add(task)
+    task.add_done_callback(_cleanup_tasks.discard)
 
 
 class ProblemService:
@@ -202,17 +195,7 @@ class ProblemService:
         """
         if not problem_ids:
             return {}
-        rows = (
-            await self.db.execute(
-                select(
-                    Problem.id,
-                    Problem.verified_at,
-                    Problem.samples_updated_at,
-                    Problem.pending_case_ids,
-                )
-                .where(Problem.id.in_(problem_ids))
-            )
-        ).all()
+        rows = await self.problems.verification_snapshot_fields(problem_ids)
         flags: dict[uuid.UUID, bool] = {}
         for row in rows:
             snapshot = SimpleNamespace(
@@ -228,10 +211,7 @@ class ProblemService:
         ids = {item.id for item in summaries}
         if not ids:
             return
-        rows = (
-            await self.db.execute(select(ProblemCounter).where(ProblemCounter.problem_id.in_(ids)))
-        ).scalars()
-        counters = {row.problem_id: row for row in rows}
+        counters = await self.problems.counters_for(list(ids))
         for item in summaries:
             counter = counters.get(item.id)
             if counter is not None:

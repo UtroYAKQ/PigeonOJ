@@ -124,9 +124,7 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
         { size: 'small', bordered: false, type: row.is_verified ? 'success' : 'default' },
         {
           default: () =>
-            row.is_verified
-              ? t('problems.manage.verifiedTag')
-              : t('problems.manage.unverifiedTag'),
+            row.is_verified ? t('problems.manage.verifiedTag') : t('problems.manage.unverifiedTag'),
         },
       )
     },
@@ -146,7 +144,12 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
       const buttons: ReturnType<typeof h>[] = []
       // 行内操作：text 按钮 + 语义图标（docs/frontend.md 按钮规范）；归档为唯一危险操作。
       // 点击必须 stopPropagation，否则冒泡到行 onClick 会把路由覆盖成行的目标（如预览页）
-      function actionButton(icon: typeof View, label: string, onClick: () => void, type?: 'primary' | 'error') {
+      function actionButton(
+        icon: typeof View,
+        label: string,
+        onClick: () => void,
+        type?: 'primary' | 'error',
+      ) {
         return h(
           NButton,
           {
@@ -176,9 +179,7 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
           actionButton(TurnOff, t('problems.detail.archive'), () => doArchive(row), 'error'),
         )
       } else {
-        buttons.push(
-          actionButton(View, t('action.view'), () => goDetail(row)),
-        )
+        buttons.push(actionButton(View, t('action.view'), () => goDetail(row)))
       }
       return h('div', { class: 'cell-actions' }, buttons)
     },
@@ -189,7 +190,9 @@ function rowProps(row: ProblemSummary) {
   // 归档题只读：行点击不跳转（避免被带出管理后台），查看走操作列「详情」
   if (row.status === 'archived') return { style: 'cursor: default;' }
   const target =
-    row.status === 'draft' ? `/admin/problems/${row.id}/edit/statement` : `/admin/problems/${row.id}/preview`
+    row.status === 'draft'
+      ? `/admin/problems/${row.id}/edit/statement`
+      : `/admin/problems/${row.id}/preview`
   return {
     style: 'cursor: pointer;',
     onClick: () => router.push(target),
@@ -199,49 +202,69 @@ function rowProps(row: ProblemSummary) {
 
 <template>
   <WorkbenchShell>
-      <SearchFilterBar
-        :keyword="query.keyword"
-        :placeholder="t('problems.mine.search')"
-        search-width="280px"
-        @update:keyword="(v: string) => { query.keyword = v }"
-        @search="onSearch"
-        @reset="onSearch"
-      >
-        <template #actions>
-          <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
-          <n-button type="primary" @click="router.push('/admin/problems/new')">
-            <template #icon>
-              <n-icon :component="CirclePlus" />
-            </template>
-            {{ t('problems.list.create') }}
-          </n-button>
-        </template>
-      </SearchFilterBar>
+    <SearchFilterBar
+      :keyword="query.keyword"
+      :placeholder="t('problems.mine.search')"
+      search-width="280px"
+      @update:keyword="
+        (v: string) => {
+          query.keyword = v
+        }
+      "
+      @search="onSearch"
+      @reset="onSearch"
+    >
+      <template #actions>
+        <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
+        <n-button type="primary" @click="router.push('/admin/problems/new')">
+          <template #icon>
+            <n-icon :component="CirclePlus" />
+          </template>
+          {{ t('problems.list.create') }}
+        </n-button>
+      </template>
+    </SearchFilterBar>
 
-      <n-tabs type="line" size="small" class="status-tabs" :value="query.status || 'all'" @update:value="switchStatus">
-        <n-tab-pane name="all" :tab="t('problems.mine.all')" />
-        <n-tab-pane name="draft" :tab="t('problems.list.statusDraft')" />
-        <n-tab-pane name="published" :tab="t('problems.list.statusPublished')" />
-        <n-tab-pane name="archived" :tab="t('problems.list.statusArchived')" />
-      </n-tabs>
+    <n-tabs
+      type="line"
+      size="small"
+      class="status-tabs"
+      :value="query.status || 'all'"
+      @update:value="switchStatus"
+    >
+      <n-tab-pane name="all" :tab="t('problems.mine.all')" />
+      <n-tab-pane name="draft" :tab="t('problems.list.statusDraft')" />
+      <n-tab-pane name="published" :tab="t('problems.list.statusPublished')" />
+      <n-tab-pane name="archived" :tab="t('problems.list.statusArchived')" />
+    </n-tabs>
 
-      <PaginatedDataTable
-        :columns="columns"
-        :data="list"
-        :loading="loading"
-        :total="total"
-        v-model:page="page"
-        v-model:page-size="pageSize"
-        :page-sizes="[20, 50, 100]"
-        :empty-text="t('problems.mine.empty')"
-        :table-props="{ scrollX: 980, rowProps }"
-        @update:page="(p: number) => { changePage(p); load() }"
-        @update:page-size="(s: number) => { changeSize(s); load() }"
-      >
-        <template #pager-left>
-          <span class="pager__total">{{ t('problems.list.totalCount', { count: total }) }}</span>
-        </template>
-      </PaginatedDataTable>
+    <PaginatedDataTable
+      :columns="columns"
+      :data="list"
+      :loading="loading"
+      :total="total"
+      v-model:page="page"
+      v-model:page-size="pageSize"
+      :page-sizes="[20, 50, 100]"
+      :empty-text="t('problems.mine.empty')"
+      :table-props="{ scrollX: 980, rowProps }"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
+      @update:page-size="
+        (s: number) => {
+          changeSize(s)
+          load()
+        }
+      "
+    >
+      <template #pager-left>
+        <span class="pager__total">{{ t('problems.list.totalCount', { count: total }) }}</span>
+      </template>
+    </PaginatedDataTable>
   </WorkbenchShell>
 </template>
 

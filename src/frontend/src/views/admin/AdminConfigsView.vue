@@ -63,15 +63,17 @@ const emailPreviewHtml = computed(() => {
     .replaceAll('{purpose}', t('config.previewPurpose'))
 })
 
-const editorKind = computed<'boolean' | 'number' | 'select' | 'text' | 'switches' | 'multiline'>(() => {
-  if (editTarget.value && MULTILINE_KEYS.has(editTarget.value.config_key)) return 'multiline'
-  if (typeof editValue.value === 'boolean') return 'boolean'
-  if (typeof editValue.value === 'number') return 'number'
-  if (editTarget.value && selectOptions.value[editTarget.value.config_key]) return 'select'
-  if (editValue.value && typeof editValue.value === 'object' && !Array.isArray(editValue.value))
-    return 'switches'
-  return 'text'
-})
+const editorKind = computed<'boolean' | 'number' | 'select' | 'text' | 'switches' | 'multiline'>(
+  () => {
+    if (editTarget.value && MULTILINE_KEYS.has(editTarget.value.config_key)) return 'multiline'
+    if (typeof editValue.value === 'boolean') return 'boolean'
+    if (typeof editValue.value === 'number') return 'number'
+    if (editTarget.value && selectOptions.value[editTarget.value.config_key]) return 'select'
+    if (editValue.value && typeof editValue.value === 'object' && !Array.isArray(editValue.value))
+      return 'switches'
+    return 'text'
+  },
+)
 
 // 敏感配置（*.password，服务端掩码为 ******）用密码框编辑
 const isSecretKey = computed(() => (editTarget.value?.config_key ?? '').endsWith('.password'))
@@ -121,9 +123,7 @@ async function saveEdit() {
   if (!editTarget.value) return
   saving.value = true
   try {
-    await adminApi.adminUpdateConfigs([
-      { id: editTarget.value.id, config_value: editValue.value },
-    ])
+    await adminApi.adminUpdateConfigs([{ id: editTarget.value.id, config_value: editValue.value }])
     message.success(t('config.saveSuccess'))
     editDialog.value = false
     await load()
@@ -171,37 +171,37 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
 
 <template>
   <WorkbenchShell>
-      <n-tabs v-model:value="activeCategory" type="line" animated>
-        <n-tab-pane v-for="c in categories" :key="c.value" :name="c.value" :tab="c.label">
-          <n-spin :show="loading">
-            <!-- 表格内部滚动：max-height = 视口 - 顶栏60 - 内容区padding - tab行与卡片内距余量 -->
-            <n-data-table
-              :columns="columns"
-              :data="items"
-              :bordered="false"
-              max-height="calc(100dvh - 300px)"
-            />
-            <n-empty
-              v-if="!loading && !items.length"
-              class="configs-empty"
-              :description="t('config.empty')"
-            />
-          </n-spin>
-        </n-tab-pane>
-      </n-tabs>
+    <n-tabs v-model:value="activeCategory" type="line" animated>
+      <n-tab-pane v-for="c in categories" :key="c.value" :name="c.value" :tab="c.label">
+        <n-spin :show="loading">
+          <!-- 表格内部滚动：max-height = 视口 - 顶栏60 - 内容区padding - tab行与卡片内距余量 -->
+          <n-data-table
+            :columns="columns"
+            :data="items"
+            :bordered="false"
+            max-height="calc(100dvh - 300px)"
+          />
+          <n-empty
+            v-if="!loading && !items.length"
+            class="configs-empty"
+            :description="t('config.empty')"
+          />
+        </n-spin>
+      </n-tab-pane>
+    </n-tabs>
 
-      <!-- 编辑配置 -->
-      <n-modal
+    <!-- 编辑配置 -->
+    <n-modal
       v-model:show="editDialog"
       preset="card"
       style="width: min(1000px, 96vw)"
       :title="t('config.editTitle', { key: editTarget?.config_key ?? '' })"
     >
       <p class="configs__desc">{{ editTarget?.description }}</p>
-      <n-switch v-if="editorKind === 'boolean'" v-model:value="(editValue as boolean)" />
+      <n-switch v-if="editorKind === 'boolean'" v-model:value="editValue as boolean" />
       <n-input-number
         v-else-if="editorKind === 'number'"
-        v-model:value="(editValue as number)"
+        v-model:value="editValue as number"
         :min="0"
         class="configs__number"
       />
@@ -209,7 +209,7 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
         <div class="configs__split">
           <div class="configs__editor">
             <n-input
-              v-model:value="(editValue as string)"
+              v-model:value="editValue as string"
               type="textarea"
               :autosize="{ minRows: 14, maxRows: 26 }"
               class="configs__control configs__textarea"
@@ -225,7 +225,7 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
       </template>
       <n-select
         v-else-if="editorKind === 'select'"
-        v-model:value="(editValue as string)"
+        v-model:value="editValue as string"
         class="configs__control"
         :options="selectOptions[editTarget?.config_key ?? '']"
       />
@@ -237,16 +237,21 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
       </div>
       <n-input
         v-else
-        v-model:value="(editValue as string)"
+        v-model:value="editValue as string"
         :type="isSecretKey ? 'password' : 'text'"
         :show-password-on="isSecretKey ? 'click' : undefined"
         clearable
         class="configs__control"
       />
       <template #footer>
-        <ModalFooter :loading="saving" :confirm-text="t('action.save')" @cancel="editDialog = false" @confirm="saveEdit" />
+        <ModalFooter
+          :loading="saving"
+          :confirm-text="t('action.save')"
+          @cancel="editDialog = false"
+          @confirm="saveEdit"
+        />
       </template>
-      </n-modal>
+    </n-modal>
   </WorkbenchShell>
 </template>
 

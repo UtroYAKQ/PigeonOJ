@@ -102,12 +102,18 @@ const columns = computed<DataTableColumns<ProblemSetSummary>>(() => [
     render: (row) =>
       h(
         NTag,
-        { size: 'small', bordered: false, type: row.visibility === 'public' ? 'success' : 'default' },
+        {
+          size: 'small',
+          bordered: false,
+          type: row.visibility === 'public' ? 'success' : 'default',
+        },
         {
           default: () =>
-            t(row.visibility === 'public'
-              ? 'problemSets.list.visibilityPublic'
-              : 'problemSets.list.visibilityPrivate'),
+            t(
+              row.visibility === 'public'
+                ? 'problemSets.list.visibilityPublic'
+                : 'problemSets.list.visibilityPrivate',
+            ),
         },
       ),
   },
@@ -146,7 +152,6 @@ const editorShow = ref(false)
 function openCreate() {
   editorShow.value = true
 }
-
 </script>
 
 <template>
@@ -156,7 +161,11 @@ function openCreate() {
       :placeholder="t('problemSets.list.search')"
       search-width="260px"
       manual
-      @update:keyword="(v: string) => { keyword = v }"
+      @update:keyword="
+        (v: string) => {
+          keyword = v
+        }
+      "
       @search="onSearch"
       @reset="onSearch"
     >
@@ -184,8 +193,18 @@ function openCreate() {
       :page-sizes="[20, 50, 100]"
       :empty-text="t('problemSets.list.empty')"
       :table-props="{ rowProps }"
-      @update:page="(p: number) => { changePage(p); load() }"
-      @update:page-size="(s: number) => { changeSize(s); load() }"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
+      @update:page-size="
+        (s: number) => {
+          changeSize(s)
+          load()
+        }
+      "
     >
       <template #pager-left>
         <span class="pager__total">{{ t('problemSets.list.totalCount', { count: total }) }}</span>

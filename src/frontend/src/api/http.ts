@@ -129,10 +129,6 @@ export function requestUpload<T = unknown>(path: string, data: FormData): Promis
 }
 
 /** 类型化 API 请求入口：对象 body 自动 JSON 序列化。 */
-export function apiRequest<T = unknown>(
-  method: string,
-  path: string,
-  data?: unknown,
-): Promise<T> {
+export function apiRequest<T = unknown>(method: string, path: string, data?: unknown): Promise<T> {
   return request<T>(path, { method, body: data })
 }

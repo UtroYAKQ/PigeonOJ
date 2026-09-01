@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 比赛详情：主页（hero + 数据瓦片 + 时间轴 + 说明）/ 题目 / 榜单 / 提交记录 四个 tab。
+ * 比赛详情：主页（hero + 倒计时条 + 数据瓦片 + 时间轴 + 说明）/ 题目 / 榜单 / 提交记录 四个 tab。
  * 题目进入比赛上下文写题页（统一入口交题）；榜单封榜展示冻结快照，
  * 解冻为 admin/tutor 手动操作（重算回填封榜期结果）；进行中榜单 15s 轮询。
  * 提交记录比赛期间对所有人隐藏，赛后开放（行点击进上下文内评测结果页）。
@@ -8,7 +8,6 @@
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import RefreshButton from '@/components/RefreshButton.vue'
@@ -155,6 +154,9 @@ function stopPolling() {
 
 onMounted(() => {
   void load()
+  clockTimer = window.setInterval(() => {
+    nowTick.value = Date.now()
+  }, 30_000)
   pollTimer = window.setInterval(() => {
     if (
       activeTab.value === 'board' &&
@@ -165,7 +167,13 @@ onMounted(() => {
     }
   }, 15000)
 })
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(() => {
+  stopPolling()
+  if (clockTimer !== null) {
+    window.clearInterval(clockTimer)
+    clockTimer = null
+  }
+})
 
 async function register() {
   if (!detail.value) return
@@ -208,6 +216,51 @@ const statusMeta = computed(() => {
 
 const initial = computed(() => (detail.value?.title || '?').trim().charAt(0).toUpperCase())
 
+// ---------------- 主页：时钟与倒计时 ----------------
+
+/** 每分钟自增的"当前时间"（仅驱动倒计时 / 时段计算，不重拉数据） */
+const nowTick = ref(Date.now())
+let clockTimer: number | null = null
+
+/** 毫秒 → d/h/m 拆解（只保留两个最大非零单位，如 1d 4h / 4h 32m） */
+function splitRemaining(ms: number): { value: number; unit: string }[] {
+  const totalMinutes = Math.max(0, Math.floor(ms / 60_000))
+  const days = Math.floor(totalMinutes / 1440)
+  const hours = Math.floor((totalMinutes % 1440) / 60)
+  const minutes = totalMinutes % 60
+  const parts = [
+    { value: days, unit: t('contests.detail.unitDay') },
+    { value: hours, unit: t('contests.detail.unitHour') },
+    { value: minutes, unit: t('contests.detail.unitMinute') },
+  ]
+  const firstIdx = parts.findIndex((p) => p.value > 0)
+  if (firstIdx < 0) return [parts[parts.length - 1]]
+  return parts.slice(firstIdx, firstIdx + 2)
+}
+
+/** hero 主行动条：未开始 → 报名/开赛倒计时；进行中 → 距结束；结束 → 恒定文案 */
+const countdown = computed(() => {
+  const d = detail.value
+  if (!d) return null
+  const now = nowTick.value
+  const start = new Date(d.start_time).getTime()
+  const end = new Date(d.end_time).getTime()
+  if (d.status === 'running') {
+    return { kind: 'running' as const, parts: splitRemaining(end - now) }
+  }
+  if (d.status === 'finished' || now >= end) {
+    return { kind: 'finished' as const, parts: [] }
+  }
+  return { kind: 'scheduled' as const, parts: splitRemaining(start - now) }
+})
+
+/** 比赛完整时间范围（hero 时间条展示） */
+const timeRangeText = computed(() => {
+  const d = detail.value
+  if (!d) return ''
+  return `${formatDateTime(d.start_time)} → ${formatDateTime(d.end_time)}`
+})
+
 // ---------------- 主页：时间轴 ----------------
 
 interface Milestone {
@@ -215,21 +268,44 @@ interface Milestone {
   time: string
   done: boolean
   current: boolean
+  hint: string
 }
 
 const schedule = computed<Milestone[]>(() => {
   const d = detail.value
   if (!d) return []
-  const now = Date.now()
+  const now = nowTick.value
   const items = [
     { label: t('contests.list.regStartTime'), time: d.register_start_time },
     { label: t('contests.list.regEndTime'), time: d.register_end_time },
     { label: t('contests.list.startTime'), time: d.start_time },
     { label: t('contests.list.endTime'), time: d.end_time },
   ]
-  return items.map((item) => {
-    const done = now >= new Date(item.time).getTime()
-    return { label: item.label, time: formatDateTime(item.time), done, current: false }
+  const times = items.map((item) => new Date(item.time).getTime())
+  // 当前阶段 = 下一个尚未到来的节点（全部结束则无）
+  const nextIdx = times.findIndex((ts) => now < ts)
+  return items.map((item, i) => {
+    const done = now >= times[i]
+    const remaining = times[i] - now
+    let hint = ''
+    if (i === nextIdx) {
+      if (remaining >= 86_400_000) {
+        hint = t('contests.detail.inDays', { count: Math.floor(remaining / 86_400_000) })
+      } else if (remaining >= 3_600_000) {
+        hint = t('contests.detail.inHours', { count: Math.floor(remaining / 3_600_000) })
+      } else {
+        hint = t('contests.detail.inMinutes', {
+          count: Math.max(1, Math.floor(remaining / 60_000)),
+        })
+      }
+    }
+    return {
+      label: item.label,
+      time: formatDateTime(item.time),
+      done,
+      current: i === nextIdx,
+      hint,
+    }
   })
 })
 
@@ -277,6 +353,30 @@ function problemRowProps(row: ContestProblemItem) {
 // ---------------- 榜单（重设计：固定前两列 + 双行题头 + 药丸格；赛后 AC 格可点看成功提交） ----------------
 
 const isAcM = computed(() => board.value?.rule_type === 'ACM')
+
+/** 每题全场首次 AC 的时间戳（一血判定；封榜格不参与，避免提前揭晓） */
+const firstAcceptedAt = computed<Record<string, number>>(() => {
+  const map: Record<string, number> = {}
+  if (!board.value) return map
+  for (const row of board.value.rows) {
+    for (const cell of row.cells) {
+      if (!cell.accepted || !cell.accepted_at || cell.is_frozen) continue
+      const ts = Date.parse(cell.accepted_at)
+      if (Number.isNaN(ts)) continue
+      const cur = map[cell.problem_id]
+      if (cur === undefined || ts < cur) map[cell.problem_id] = ts
+    }
+  }
+  return map
+})
+
+function isFirstSolve(cell: BoardCell): boolean {
+  if (!cell.accepted || !cell.accepted_at || cell.is_frozen) return false
+  const ts = Date.parse(cell.accepted_at)
+  if (Number.isNaN(ts)) return false
+  const first = firstAcceptedAt.value[cell.problem_id]
+  return first !== undefined && ts === first
+}
 
 interface Row {
   rank: number
@@ -379,10 +479,11 @@ const boardColumns = computed<DataTableColumns<Row>>(() => {
       const c = row.cells[index]
       if (!c) return h('span', { class: 'cell-pill cell-pill--idle' }, '·')
       if (c.is_frozen) {
+        // 封榜期间提交：灰色问号，保持结果悬念
         return h(
-          NTag,
-          { size: 'small', type: 'warning', bordered: false },
-          { default: () => t('contests.board.frozenBadge') },
+          'span',
+          { class: 'cell-pill cell-pill--frozen', title: t('contests.board.frozenCellHint') },
+          '?',
         )
       }
       const pill = (cls: string, label: string, onClick?: () => void) =>
@@ -399,14 +500,14 @@ const boardColumns = computed<DataTableColumns<Row>>(() => {
             )
           : h('span', { class: ['cell-pill', cls] }, label)
       const open = () => openCell(row, c)
+      const acCls = isFirstSolve(c) ? 'cell-pill--first' : 'cell-pill--ac'
       if (isAcM.value) {
         if (c.accepted)
-          return pill('cell-pill--ac', String(c.penalty), boardClickable.value ? open : undefined)
+          return pill(acCls, String(c.penalty), boardClickable.value ? open : undefined)
         if (c.attempts > 0) return pill('cell-pill--try', `-${c.attempts}`)
         return pill('cell-pill--idle', '·')
       }
-      if (c.accepted)
-        return pill('cell-pill--ac', String(c.score), boardClickable.value ? open : undefined)
+      if (c.accepted) return pill(acCls, String(c.score), boardClickable.value ? open : undefined)
       if (c.score > 0) return pill('cell-pill--part', String(c.score))
       if (c.attempts > 0) return pill('cell-pill--try', `-${c.attempts}`)
       return pill('cell-pill--idle', '·')
@@ -533,7 +634,7 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
         <n-tabs type="line" v-model:value="activeTab" class="detail-tabs">
           <!-- ======== 主页 ======== -->
           <n-tab-pane name="home" :tab="t('contests.detail.tabHome')">
-            <!-- Hero：主色渐变 + 玻璃拟态数据瓦片 -->
+            <!-- Hero：标题身份区 + 倒计时行动条 + 数据瓦片 -->
             <section class="hero">
               <div class="hero__head">
                 <div class="hero__logo">
@@ -543,7 +644,14 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
                 <div class="hero__main">
                   <h2 class="hero__title">{{ detail.title }}</h2>
                   <div class="hero__chips">
-                    <span class="hero__chip hero__chip--accent">{{ statusMeta.label }}</span>
+                    <span class="hero__chip" :class="`hero__chip--${statusMeta.type}`">
+                      <span
+                        v-if="detail.status === 'running'"
+                        class="hero__pulse"
+                        aria-hidden="true"
+                      ></span>
+                      {{ statusMeta.label }}
+                    </span>
                     <span class="hero__chip">{{ detail.rule_type }}</span>
                     <span
                       v-if="detail.my_registration === 'registered'"
@@ -554,22 +662,91 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
                   </div>
                 </div>
               </div>
-              <div class="hero__stats">
-                <div class="glass-tile">
-                  <span class="glass-tile__value">{{ detail.problem_count }}</span>
-                  <span class="glass-tile__label">{{ t('contests.detail.problems') }}</span>
-                </div>
-                <div class="glass-tile">
-                  <span class="glass-tile__value">{{ detail.registered_count }}</span>
-                  <span class="glass-tile__label">{{ t('contests.board.user') }}</span>
-                </div>
-                <div class="glass-tile">
-                  <span class="glass-tile__value">
-                    {{
-                      detail.freeze_offset_seconds > 0 ? `${detail.freeze_offset_seconds}s` : '--'
-                    }}
+
+              <!-- 倒计时行动条：未开始 → 开赛；进行中 → 距结束；结束 → 恒定态 -->
+              <div class="countdown" :class="`countdown--${detail.status}`">
+                <span class="countdown__label">
+                  {{
+                    countdown?.kind === 'running'
+                      ? t('contests.detail.endsIn')
+                      : countdown?.kind === 'scheduled'
+                        ? t('contests.detail.startsIn')
+                        : t('contests.detail.contestOver')
+                  }}
+                </span>
+                <template v-if="countdown && countdown.parts.length">
+                  <span class="countdown__nums">
+                    <span v-for="p in countdown.parts" :key="p.unit" class="countdown__seg">
+                      <span class="countdown__num">{{ p.value }}</span>
+                      <span class="countdown__unit">{{ p.unit }}</span>
+                    </span>
                   </span>
-                  <span class="glass-tile__label">{{ t('contests.list.freezeOffset') }}</span>
+                  <span class="countdown__range">{{ timeRangeText }}</span>
+                </template>
+                <span v-else class="countdown__range">{{ timeRangeText }}</span>
+              </div>
+
+              <!-- 数据瓦片：统一"图标 + 数值 + 标签"，语义与数据对齐 -->
+              <div class="hero__stats">
+                <div class="stat-tile">
+                  <span class="stat-tile__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                      <path
+                        fill="currentColor"
+                        d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm1 4v10h14V8H5Zm2 2h10v2H7v-2Zm0 4h6v2H7v-2Z"
+                      />
+                    </svg>
+                  </span>
+                  <span class="stat-tile__text">
+                    <span class="stat-tile__value">{{ detail.problem_count }}</span>
+                    <span class="stat-tile__label">{{ t('contests.detail.problems') }}</span>
+                  </span>
+                </div>
+                <div class="stat-tile">
+                  <span class="stat-tile__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                      <path
+                        fill="currentColor"
+                        d="M12 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0 2c4.42 0 8 2.24 8 5v3H4v-3c0-2.76 3.58-5 8-5Z"
+                      />
+                    </svg>
+                  </span>
+                  <span class="stat-tile__text">
+                    <span class="stat-tile__value">{{ detail.registered_count }}</span>
+                    <span class="stat-tile__label">{{ t('contests.detail.registeredCount') }}</span>
+                  </span>
+                </div>
+                <div class="stat-tile">
+                  <span class="stat-tile__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                      <path
+                        fill="currentColor"
+                        d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 5h-2v6l5 3 1-1.73-4-2.27V7Z"
+                      />
+                    </svg>
+                  </span>
+                  <span class="stat-tile__text">
+                    <span class="stat-tile__value">
+                      {{
+                        detail.freeze_offset_seconds > 0 ? `${detail.freeze_offset_seconds}s` : '--'
+                      }}
+                    </span>
+                    <span class="stat-tile__label">{{ t('contests.list.freezeOffset') }}</span>
+                  </span>
+                </div>
+                <div class="stat-tile">
+                  <span class="stat-tile__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                      <path
+                        fill="currentColor"
+                        d="M7 2h11a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5l2-3Zm1 2L7 5.6V20h10V4H8Zm1 5h6v2H9V9Zm0 4h6v2H9v-2Z"
+                      />
+                    </svg>
+                  </span>
+                  <span class="stat-tile__text">
+                    <span class="stat-tile__value">{{ detail.rule_type }}</span>
+                    <span class="stat-tile__label">{{ t('contests.list.ruleType') }}</span>
+                  </span>
                 </div>
               </div>
             </section>
@@ -583,11 +760,12 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
                     v-for="(m, i) in schedule"
                     :key="m.label"
                     class="timeline__item"
-                    :class="{ done: m.done, last: i === schedule.length - 1 }"
+                    :class="{ done: m.done, current: m.current, last: i === schedule.length - 1 }"
                   >
                     <span class="timeline__dot" aria-hidden="true"></span>
                     <div class="timeline__content">
                       <span class="timeline__label">{{ m.label }}</span>
+                      <span v-if="m.hint" class="timeline__hint">{{ m.hint }}</span>
                       <span class="timeline__time">{{ m.time }}</span>
                     </div>
                   </div>
@@ -652,6 +830,10 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
                 <span class="cell-pill cell-pill--ac">{{ isAcM ? '0' : '100' }}</span>
                 {{ t('contests.board.legendAccepted') }}
               </span>
+              <span class="legend-item">
+                <span class="cell-pill cell-pill--first">{{ isAcM ? '0' : '100' }}</span>
+                {{ t('contests.board.legendFirst') }}
+              </span>
               <span v-if="!isAcM" class="legend-item">
                 <span class="cell-pill cell-pill--part">40</span>
                 {{ t('contests.board.legendPartial') }}
@@ -663,6 +845,10 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
               <span class="legend-item">
                 <span class="cell-pill cell-pill--idle">·</span>
                 {{ t('contests.board.legendIdle') }}
+              </span>
+              <span class="legend-item">
+                <span class="cell-pill cell-pill--frozen">?</span>
+                {{ t('contests.board.legendFrozen') }}
               </span>
               <span v-if="boardClickable" class="legend-item legend-item--hint">
                 {{ t('contests.board.legendClickable') }}
@@ -804,13 +990,14 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
 .hero {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   padding: 22px 26px;
   border-radius: 16px;
   border: 1px solid var(--app-border);
   background:
     radial-gradient(120% 180% at 0% 0%, rgb(244 81 30 / 4%) 0%, transparent 52%),
     var(--app-muted-bg);
+  margin-bottom: 20px;
 }
 .hero__head {
   display: flex;
@@ -856,6 +1043,9 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   flex-wrap: wrap;
 }
 .hero__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 2px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -864,40 +1054,140 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   background: var(--app-card-bg, #fff);
   border: 1px solid var(--app-border);
 }
-.hero__chip--accent {
-  color: var(--app-primary);
-  border-color: var(--app-primary);
-  background: var(--app-card-bg, #fff);
+.hero__chip--success {
+  color: var(--app-success, #18a058);
+  border-color: color-mix(in srgb, var(--app-success, #18a058) 45%, transparent);
+  background: color-mix(in srgb, var(--app-success, #18a058) 8%, var(--app-card-bg, #fff));
+}
+.hero__chip--info {
+  color: var(--app-info, #2080f0);
+  border-color: color-mix(in srgb, var(--app-info, #2080f0) 45%, transparent);
+  background: color-mix(in srgb, var(--app-info, #2080f0) 8%, var(--app-card-bg, #fff));
+}
+.hero__chip--default {
+  color: var(--app-text-secondary);
 }
 .hero__chip--ok {
   color: var(--app-success, #18a058);
-  border-color: var(--app-success, #18a058);
+  border-color: color-mix(in srgb, var(--app-success, #18a058) 45%, transparent);
+  background: color-mix(in srgb, var(--app-success, #18a058) 8%, var(--app-card-bg, #fff));
+}
+.hero__pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: hero-pulse 1.6s ease-in-out infinite;
+}
+@keyframes hero-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+/* ---- 倒计时行动条：状态驱动的语义色窄条 ---- */
+.countdown {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--app-border);
   background: var(--app-card-bg, #fff);
 }
+.countdown__label {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--app-text-secondary);
+  text-transform: uppercase;
+}
+.countdown__nums {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.countdown__seg {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+.countdown__num {
+  font-size: 24px;
+  font-weight: 750;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--app-text);
+}
+.countdown__unit {
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--app-text-secondary);
+}
+.countdown__range {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.countdown--running .countdown__num {
+  color: var(--app-success, #18a058);
+}
+.countdown--scheduled .countdown__num {
+  color: var(--app-info, #2080f0);
+}
+.countdown--finished {
+  background: var(--app-muted-bg);
+}
+
+/* ---- 数据瓦片：图标 + 数值 + 标签 ---- */
 .hero__stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
-.glass-tile {
+.stat-tile {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 13px 16px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
   border-radius: 12px;
   background: var(--app-card-bg, #fff);
   border: 1px solid var(--app-border);
 }
-.glass-tile__value {
-  font-size: 22px;
+.stat-tile__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  color: var(--app-primary);
+  background: color-mix(in srgb, var(--app-primary) 8%, transparent);
+}
+.stat-tile__value {
+  font-size: 17px;
   font-weight: 750;
   font-variant-numeric: tabular-nums;
-  line-height: 1.15;
+  line-height: 1.2;
   color: var(--app-text);
 }
-.glass-tile__label {
+.stat-tile__label {
   font-size: 12px;
   color: var(--app-text-secondary);
+  white-space: nowrap;
+}
+.stat-tile__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
 /* ---- 双栏面板 ---- */
@@ -982,6 +1272,11 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   background: var(--app-primary);
   box-shadow: 0 0 0 3px rgb(244 81 30 / 15%);
 }
+.timeline__item.current .timeline__dot {
+  border-color: var(--app-primary);
+  box-shadow: 0 0 0 3px rgb(244 81 30 / 15%);
+  animation: hero-pulse 1.6s ease-in-out infinite;
+}
 .timeline__content {
   display: flex;
   gap: 12px;
@@ -993,6 +1288,14 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   font-size: 13px;
   font-weight: 550;
 }
+.timeline__hint {
+  flex: 1;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-primary);
+  font-variant-numeric: tabular-nums;
+}
 .timeline__time {
   font-size: 13px;
   color: var(--app-text-secondary);
@@ -1000,6 +1303,10 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
 }
 .timeline__item.done .timeline__time {
   color: var(--app-text);
+}
+.timeline__item.current .timeline__label {
+  color: var(--app-primary);
+  font-weight: 650;
 }
 
 .detail-empty {
@@ -1019,6 +1326,22 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
 }
 .frozen-hint {
   flex: 1;
+}
+
+/* ---- 窄屏 ---- */
+@media (max-width: 900px) {
+  .home-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 760px) {
+  .hero__stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .countdown__range {
+    margin-left: 0;
+    width: 100%;
+  }
 }
 
 /* ---- 榜单：双行题头 + 药丸格（色值均由设计令牌 color-mix 派生） ---- */
@@ -1057,14 +1380,27 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   background: color-mix(in srgb, var(--app-success, #18a058) 14%, transparent);
   color: var(--app-success, #18a058);
 }
+/* 全场首次通过（一血）：实心深绿 + 白字 */
+.cell-pill--first {
+  background: var(--app-success, #18a058);
+  color: #fff;
+}
 .cell-pill--part {
   background: color-mix(in srgb, var(--app-info, #2080f0) 12%, transparent);
   color: var(--app-info, #2080f0);
 }
 .cell-pill--try {
+  background: color-mix(in srgb, var(--app-error, #d03050) 12%, transparent);
+  color: var(--app-error, #d03050);
+  font-weight: 600;
+}
+/* 封榜期间提交：灰色虚线格，隐藏结果保持悬念 */
+.cell-pill--frozen {
   background: var(--app-muted-bg);
   color: var(--app-text-secondary);
-  font-weight: 550;
+  border: 1px dashed var(--app-border);
+  padding: 1px 9px;
+  font-weight: 650;
 }
 .cell-pill--idle {
   color: var(--app-text-secondary);
@@ -1109,10 +1445,5 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
 .legend-item--hint {
   color: var(--app-primary);
   font-weight: 550;
-}
-@media (max-width: 760px) {
-  .stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 </style>

@@ -13,11 +13,7 @@ import { useSelfTest } from '@/composables/useSelfTest'
 import { dialog, message } from '@/utils/feedback'
 import StatusTag from '@/components/StatusTag.vue'
 import ProblemWorkbench from '@/components/problem/ProblemWorkbench.vue'
-import type {
-  ProblemDetailEx,
-  ProblemLanguage,
-  Submission,
-} from '@/types'
+import type { ProblemDetailEx, ProblemLanguage, Submission } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -62,9 +58,12 @@ const { restore: restoreDraft } = useCodeDraft({
 })
 
 // 用户自测：控制台状态在 composable 内（docs/contracts/judge.md「用户自测」）
-const { selfTestInput, selfTesting, selfTestResult, runSelfTest: doSelfTest } = useSelfTest(
-  () => problemId.value,
-)
+const {
+  selfTestInput,
+  selfTesting,
+  selfTestResult,
+  runSelfTest: doSelfTest,
+} = useSelfTest(() => problemId.value)
 
 async function load() {
   try {
@@ -203,7 +202,9 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
         size="small"
         :columns="submissionColumns"
         :data="mySubmissions"
-        :row-props="(row: Submission) => ({ style: 'cursor: pointer;', onClick: () => openSubmission(row) })"
+        :row-props="
+          (row: Submission) => ({ style: 'cursor: pointer;', onClick: () => openSubmission(row) })
+        "
       />
       <n-empty v-else :description="t('problems.detail.noSubmissions')" />
     </n-modal>

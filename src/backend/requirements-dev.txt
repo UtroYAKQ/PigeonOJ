@@ -1,0 +1,5 @@
+# ============ 测试 / 开发依赖 ============
+# 版本策略：与生产依赖一致钉住小版本；安装：pip install -r requirements-dev.txt
+pytest==8.4.1
+pytest-asyncio==1.4.0
+httpx==0.28.1          # ASGI 集成测试客户端（tests/conftest.py）

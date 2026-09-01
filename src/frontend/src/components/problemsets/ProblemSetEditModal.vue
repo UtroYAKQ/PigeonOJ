@@ -40,7 +40,8 @@ watch(
       ? {
           title: props.problemSet.title,
           description: props.problemSet.description ?? '',
-          visibility: props.problemSet.visibility === 'team' ? 'public' : props.problemSet.visibility,
+          visibility:
+            props.problemSet.visibility === 'team' ? 'public' : props.problemSet.visibility,
         }
       : { title: '', description: '', visibility: 'public' }
   },

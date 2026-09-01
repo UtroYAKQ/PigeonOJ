@@ -8,8 +8,7 @@ import SearchFilterBar from './SearchFilterBar.vue'
 describe('SearchFilterBar', () => {
   it('renders the keyword n-input by default', () => {
     const host = defineComponent({
-      render: () =>
-        h(SearchFilterBar, { keyword: '', placeholder: '搜索题目名称' }),
+      render: () => h(SearchFilterBar, { keyword: '', placeholder: '搜索题目名称' }),
     })
     const root = document.createElement('div')
     document.body.appendChild(root)

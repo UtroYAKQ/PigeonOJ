@@ -40,63 +40,57 @@ function loadColor(load: number): string {
 <template>
   <WorkbenchShell>
     <template #header>
-        <div class="sandbox-head">
-          <div class="sandbox-summary">
-            <n-tag type="success" :bordered="false" round>
-              {{ t('admin.sandbox.online', { online: onlineCount, total: nodes.length }) }}
-            </n-tag>
-            <n-tag type="info" :bordered="false" round>
-              {{ t('admin.sandbox.avgLoad', { load: (totalLoad * 100).toFixed(0) }) }}
+      <div class="sandbox-head">
+        <div class="sandbox-summary">
+          <n-tag type="success" :bordered="false" round>
+            {{ t('admin.sandbox.online', { online: onlineCount, total: nodes.length }) }}
+          </n-tag>
+          <n-tag type="info" :bordered="false" round>
+            {{ t('admin.sandbox.avgLoad', { load: (totalLoad * 100).toFixed(0) }) }}
+          </n-tag>
+        </div>
+      </div>
+    </template>
+    <template #header-extra>
+      <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
+    </template>
+
+    <n-spin :show="loading" class="sandbox-spin">
+      <div v-if="nodes.length" class="node-grid">
+        <n-card v-for="node in nodes" :key="node.name" size="small" class="node-card" embedded>
+          <div class="node-head">
+            <code>{{ node.name }}</code>
+            <n-tag
+              size="small"
+              round
+              :type="toNaiveTagType(SANDBOX_STATUS[node.status]?.tag ?? 'info')"
+            >
+              {{ SANDBOX_STATUS[node.status]?.label ?? node.status }}
             </n-tag>
           </div>
-        </div>
-      </template>
-      <template #header-extra>
-        <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
-      </template>
-
-      <n-spin :show="loading" class="sandbox-spin">
-        <div v-if="nodes.length" class="node-grid">
-          <n-card
-            v-for="node in nodes"
-            :key="node.name"
-            size="small"
-            class="node-card"
-            embedded
-          >
-            <div class="node-head">
-              <code>{{ node.name }}</code>
-              <n-tag
-                size="small"
-                round
-                :type="toNaiveTagType(SANDBOX_STATUS[node.status]?.tag ?? 'info')"
-              >
-                {{ SANDBOX_STATUS[node.status]?.label ?? node.status }}
-              </n-tag>
-            </div>
-            <div class="node-metric">
-              <span>{{ t('admin.sandbox.load') }}</span>
-              <n-progress
-                type="line"
-                :percentage="Math.round(node.load * 100)"
-                :height="8"
-                :color="loadColor(node.load)"
-                :show-indicator="true"
-              />
-            </div>
-            <div class="node-stats">
-              <span>CPU {{ node.cpu_usage }}%</span>
-              <span>{{ t('admin.sandbox.memory') }} {{ node.memory_usage }}%</span>
-              <span>{{ t('admin.sandbox.tasks') }} {{ node.running_tasks }}</span>
-            </div>
-            <div class="node-foot">
-              <span class="node-version">{{ t('admin.sandbox.version') }}: {{ node.version }}</span>
-              <span class="node-heartbeat">{{ formatDateTime(node.last_heartbeat_at) }}</span>
-            </div>
-          </n-card>
-        </div>
-        <n-empty v-else-if="!loading" :description="t('admin.sandbox.empty')" />
-      </n-spin>
+          <div class="node-metric">
+            <span>{{ t('admin.sandbox.load') }}</span>
+            <n-progress
+              type="line"
+              :percentage="Math.round(node.load * 100)"
+              :height="8"
+              :color="loadColor(node.load)"
+              :show-indicator="true"
+            />
+          </div>
+          <div class="node-stats">
+            <span>CPU {{ node.cpu_usage }}%</span>
+            <span>{{ t('admin.sandbox.memory') }} {{ node.memory_usage }}%</span>
+            <span>{{ t('admin.sandbox.tasks') }} {{ node.running_tasks }}</span>
+          </div>
+          <div class="node-foot">
+            <span class="node-version">{{ t('admin.sandbox.version') }}: {{ node.version }}</span>
+            <span class="node-heartbeat">{{ formatDateTime(node.last_heartbeat_at) }}</span>
+          </div>
+        </n-card>
+      </div>
+      <n-empty v-else-if="!loading" :description="t('admin.sandbox.empty')" />
+    </n-spin>
   </WorkbenchShell>
 </template>
 

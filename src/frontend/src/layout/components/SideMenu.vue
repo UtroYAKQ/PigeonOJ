@@ -42,7 +42,9 @@ const frontMenus = computed<MenuItem[]>(() =>
     .filter((r) => !r.meta?.hidden && (r.meta?.titleKey || r.meta?.title))
     .filter(
       (r) =>
-        !r.meta?.roles || r.meta.roles.length === 0 || userStore.hasAnyRole(r.meta.roles as string[]),
+        !r.meta?.roles ||
+        r.meta.roles.length === 0 ||
+        userStore.hasAnyRole(r.meta.roles as string[]),
     )
     .map((r) => {
       const visibleChildren = (r.children ?? []).filter(
@@ -73,7 +75,9 @@ const adminMenus = computed<MenuItem[]>(() => {
     .filter((c) => c.meta?.titleKey && !c.meta?.hidden && !c.meta?.contextPage)
     .filter(
       (c) =>
-        !c.meta?.roles || c.meta.roles.length === 0 || userStore.hasAnyRole(c.meta.roles as string[]),
+        !c.meta?.roles ||
+        c.meta.roles.length === 0 ||
+        userStore.hasAnyRole(c.meta.roles as string[]),
     )
     .map((c) => ({
       path: `/admin/${c.path}`,

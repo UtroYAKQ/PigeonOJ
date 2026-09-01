@@ -10,12 +10,7 @@ import ModalFooter from '@/components/ModalFooter.vue'
 import { getProblemSet, replaceProblemSetItems } from '@/api/problemSets'
 import { listProblems } from '@/api/problems'
 import { message } from '@/utils/feedback'
-import type {
-  PageResult,
-  ProblemSetItem,
-  ProblemSetSummary,
-  ProblemSummary,
-} from '@/types'
+import type { PageResult, ProblemSetItem, ProblemSetSummary, ProblemSummary } from '@/types'
 
 const props = defineProps<{
   show: boolean
@@ -160,7 +155,11 @@ async function submitArrange() {
       </div>
     </div>
     <template #footer>
-      <ModalFooter :loading="saving" @cancel="emit('update:show', false)" @confirm="submitArrange" />
+      <ModalFooter
+        :loading="saving"
+        @cancel="emit('update:show', false)"
+        @confirm="submitArrange"
+      />
     </template>
   </n-modal>
 </template>

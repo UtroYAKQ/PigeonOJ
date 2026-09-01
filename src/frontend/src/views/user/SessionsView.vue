@@ -43,7 +43,7 @@ function onRevoke(session: UserSession) {
       <template #header>
         <div class="sessions-head">
           <span>{{ t('sessions.title') }}</span>
-        <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
+          <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
         </div>
       </template>
 
@@ -61,7 +61,9 @@ function onRevoke(session: UserSession) {
               </n-tag>
             </div>
             <div class="session-times">
-              <span>{{ t('sessions.lastActive') }}：{{ formatDateTime(session.last_active_at) }}</span>
+              <span
+                >{{ t('sessions.lastActive') }}：{{ formatDateTime(session.last_active_at) }}</span
+              >
               <span>{{ t('sessions.loginAt') }}：{{ formatDateTime(session.created_at) }}</span>
               <span>{{ t('sessions.expiresAt') }}：{{ formatDateTime(session.expires_at) }}</span>
             </div>

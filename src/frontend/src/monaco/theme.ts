@@ -67,7 +67,7 @@ const lightColors: Record<string, string> = {
   'editorHoverWidget.border': '#efeff5',
   'editorWidget.background': '#ffffff',
   'editorWidget.border': '#efeff5',
-  'focusBorder': '#f4511e',
+  focusBorder: '#f4511e',
 }
 
 const darkColors: Record<string, string> = {
@@ -90,7 +90,7 @@ const darkColors: Record<string, string> = {
   'editorHoverWidget.border': '#2c2c30',
   'editorWidget.background': '#18181c',
   'editorWidget.border': '#2c2c30',
-  'focusBorder': '#f4511e',
+  focusBorder: '#f4511e',
 }
 
 let defined = false

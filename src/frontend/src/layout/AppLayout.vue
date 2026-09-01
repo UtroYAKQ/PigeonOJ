@@ -41,10 +41,7 @@ watch(
     </n-layout-sider>
 
     <article class="app-body">
-      <header
-        class="app-header"
-        :style="{ height: `${LAYOUT.headerHeight}px` }"
-      >
+      <header class="app-header" :style="{ height: `${LAYOUT.headerHeight}px` }">
         <div class="app-header__left">
           <MenuCollapse />
           <TheBreadcrumb class="app-header__crumbs" />

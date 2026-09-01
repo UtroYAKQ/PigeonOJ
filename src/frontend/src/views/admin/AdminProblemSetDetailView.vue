@@ -65,7 +65,7 @@ const columns = computed<DataTableColumns<ProblemSetItem>>(() => [
     title: t('problemSets.detail.difficulty'),
     key: 'difficulty',
     width: 100,
-    render: (row) => (row.difficulty ?? null) === null ? '--' : String(row.difficulty),
+    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
   },
 ])
 
@@ -101,7 +101,9 @@ function doArchive() {
   <WorkbenchShell>
     <template #header>
       <div class="detail-head">
-        <strong class="detail-head__title">{{ detail?.title ?? t('problemSets.detail.title') }}</strong>
+        <strong class="detail-head__title">{{
+          detail?.title ?? t('problemSets.detail.title')
+        }}</strong>
         <n-tag v-if="detail?.status === 'archived'" type="warning" size="small">
           {{ t('problemSets.detail.archived') }}
         </n-tag>
@@ -132,15 +134,33 @@ function doArchive() {
       <div v-if="detail" class="detail-body">
         <n-descriptions :column="3" size="small" label-placement="left" bordered>
           <n-descriptions-item :label="t('problemSets.list.visibility')">
-            <n-tag size="small" :bordered="false" :type="detail.visibility === 'public' ? 'success' : 'default'">
-              {{ t(detail.visibility === 'public'
-                ? 'problemSets.list.visibilityPublic'
-                : 'problemSets.list.visibilityPrivate') }}
+            <n-tag
+              size="small"
+              :bordered="false"
+              :type="detail.visibility === 'public' ? 'success' : 'default'"
+            >
+              {{
+                t(
+                  detail.visibility === 'public'
+                    ? 'problemSets.list.visibilityPublic'
+                    : 'problemSets.list.visibilityPrivate',
+                )
+              }}
             </n-tag>
           </n-descriptions-item>
           <n-descriptions-item :label="t('problemSets.list.status')">
-            <n-tag size="small" :bordered="false" :type="detail.status === 'active' ? 'info' : 'warning'">
-              {{ t(detail.status === 'active' ? 'problemSets.list.active' : 'problemSets.detail.archived') }}
+            <n-tag
+              size="small"
+              :bordered="false"
+              :type="detail.status === 'active' ? 'info' : 'warning'"
+            >
+              {{
+                t(
+                  detail.status === 'active'
+                    ? 'problemSets.list.active'
+                    : 'problemSets.detail.archived',
+                )
+              }}
             </n-tag>
           </n-descriptions-item>
           <n-descriptions-item :label="t('problemSets.detail.problems')">

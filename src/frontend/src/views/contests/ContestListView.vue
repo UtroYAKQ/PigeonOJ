@@ -91,7 +91,11 @@ function openContest(row: ContestSummary) {
       :placeholder="t('contests.list.search')"
       search-width="300px"
       manual
-      @update:keyword="(v: string) => { keyword = v }"
+      @update:keyword="
+        (v: string) => {
+          keyword = v
+        }
+      "
       @search="onSearch"
       @reset="onSearch"
     >
@@ -123,21 +127,10 @@ function openContest(row: ContestSummary) {
               {{ initialOf(row) }}
             </div>
             <div class="contest-card__badges">
-              <NTag
-                size="small"
-                round
-                :bordered="false"
-                :type="statusMeta[row.status].type"
-              >
+              <NTag size="small" round :bordered="false" :type="statusMeta[row.status].type">
                 {{ statusMeta[row.status].label }}
               </NTag>
-              <NTag
-                v-if="row.board_frozen"
-                size="small"
-                round
-                type="warning"
-                :bordered="false"
-              >
+              <NTag v-if="row.board_frozen" size="small" round type="warning" :bordered="false">
                 {{ t('contests.boardFrozenTag') }}
               </NTag>
             </div>
@@ -175,8 +168,18 @@ function openContest(row: ContestSummary) {
         :item-count="total"
         :page-sizes="[12, 24, 48]"
         show-size-picker
-        @update:page="(p: number) => { changePage(p); load() }"
-        @update:page-size="(s: number) => { changeSize(s); load() }"
+        @update:page="
+          (p: number) => {
+            changePage(p)
+            load()
+          }
+        "
+        @update:page-size="
+          (s: number) => {
+            changeSize(s)
+            load()
+          }
+        "
       />
     </div>
   </WorkbenchShell>

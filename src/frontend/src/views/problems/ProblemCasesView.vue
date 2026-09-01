@@ -5,7 +5,12 @@ import { useI18n } from 'vue-i18n'
 
 import { getProblem, patchTestCases, replaceSamples } from '@/api/problems'
 import { message } from '@/utils/feedback'
-import type { ProblemDetailEx, ProblemTestCase, TestCaseDraft, TestCaseUpsertPayload } from '@/types'
+import type {
+  ProblemDetailEx,
+  ProblemTestCase,
+  TestCaseDraft,
+  TestCaseUpsertPayload,
+} from '@/types'
 import TestCaseImporter from '@/components/problem/TestCaseImporter.vue'
 import WizardShell from '@/components/WizardShell.vue'
 
@@ -63,7 +68,10 @@ async function loadExisting() {
         sort_order: item.sort_order,
         staged: item.staged ?? false,
       }))
-    samples.value = (loaded.samples ?? []).map((item) => ({ input: item.input, output: item.output }))
+    samples.value = (loaded.samples ?? []).map((item) => ({
+      input: item.input,
+      output: item.output,
+    }))
     // 记录服务器端基线快照，保存时按行 diff 只提交变化的测试点
     serverCases = loaded.test_cases ?? []
     serverSamples = samples.value.map((item) => ({ ...item }))

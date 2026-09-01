@@ -70,9 +70,7 @@ export function initVerification(
 }> {
   return apiRequest('POST', `/problems/${id}/verify`, body)
 }
-export function resolveVerifyInvite(
-  token: string,
-): Promise<{
+export function resolveVerifyInvite(token: string): Promise<{
   problem_id: string
   problem_title: string
   expires_at: string | null

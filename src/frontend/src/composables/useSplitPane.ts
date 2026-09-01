@@ -61,8 +61,14 @@ export function useSplitPane() {
     const padTop = parseFloat(styles.paddingTop) || 0
     const padBottom = parseFloat(styles.paddingBottom) || 0
     const topGap =
-      el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - padTop
-    const height = Math.max(420, Math.floor(scroller.clientHeight - padTop - padBottom - topGap) - 1)
+      el.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top +
+      scroller.scrollTop -
+      padTop
+    const height = Math.max(
+      420,
+      Math.floor(scroller.clientHeight - padTop - padBottom - topGap) - 1,
+    )
     splitHeight.value = `${height}px`
   }
 

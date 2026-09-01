@@ -154,10 +154,18 @@ function cancelWizard() {
           <n-button type="primary" size="small" :loading="saving" @click="goNext">
             {{ t('contests.wizard.next') }}
           </n-button>
-          <n-button size="small" quaternary @click="cancelWizard">{{ t('action.cancel') }}</n-button>
+          <n-button size="small" quaternary @click="cancelWizard">{{
+            t('action.cancel')
+          }}</n-button>
         </template>
 
-        <n-form ref="formRef" :model="form" :rules="rules" label-placement="top" class="wizard-body">
+        <n-form
+          ref="formRef"
+          :model="form"
+          :rules="rules"
+          label-placement="top"
+          class="wizard-body"
+        >
           <div class="form-hint">{{ t('contests.wizard.requiredHint') }}</div>
 
           <!-- 基础信息：标题通栏，头像 + 赛制 + 封榜一行 -->

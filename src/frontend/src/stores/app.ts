@@ -58,7 +58,10 @@ export const useAppStore = defineStore('app', {
         this.siteConfig = { ...DEFAULT_SITE_CONFIG, ...cfg }
         applyFavicon(this.siteConfig.logo)
         // 用户从未显式选过主题时，跟随站点默认主题；只应用不落盘，便于管理员后续切换默认值
-        if (readStoredTheme() === null && (cfg.default_theme === 'light' || cfg.default_theme === 'dark')) {
+        if (
+          readStoredTheme() === null &&
+          (cfg.default_theme === 'light' || cfg.default_theme === 'dark')
+        ) {
           this.setThemeWithoutPersist(cfg.default_theme)
         }
       } catch {

@@ -100,11 +100,7 @@ const columns = computed<DataTableColumns<ContestSummary>>(() => [
     key: 'actions',
     width: 90,
     render: () =>
-      h(
-        NTag,
-        { size: 'small', bordered: false },
-        { default: () => t('contests.detail.manage') },
-      ),
+      h(NTag, { size: 'small', bordered: false }, { default: () => t('contests.detail.manage') }),
   },
 ])
 
@@ -124,7 +120,11 @@ function rowProps(row: ContestSummary) {
       :placeholder="t('contests.list.search')"
       search-width="260px"
       manual
-      @update:keyword="(v: string) => { keyword = v }"
+      @update:keyword="
+        (v: string) => {
+          keyword = v
+        }
+      "
       @search="load"
       @reset="load"
     >
@@ -146,8 +146,18 @@ function rowProps(row: ContestSummary) {
       :page-sizes="[20, 50, 100]"
       :empty-text="t('contests.list.empty')"
       :table-props="{ rowProps }"
-      @update:page="(p: number) => { changePage(p); load() }"
-      @update:page-size="(s: number) => { changeSize(s); load() }"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
+      @update:page-size="
+        (s: number) => {
+          changeSize(s)
+          load()
+        }
+      "
     >
       <template #pager-left>
         <span class="pager__total">{{ t('contests.list.totalCount', { count: total }) }}</span>

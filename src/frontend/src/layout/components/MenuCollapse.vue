@@ -11,7 +11,12 @@ const { t } = useI18n()
 <template>
   <n-tooltip trigger="hover" placement="bottom">
     <template #trigger>
-      <n-button quaternary size="small" :aria-label="t(appStore.collapsed ? 'sidebar.expand' : 'sidebar.collapse')" @click="appStore.toggleCollapsed()">
+      <n-button
+        quaternary
+        size="small"
+        :aria-label="t(appStore.collapsed ? 'sidebar.expand' : 'sidebar.collapse')"
+        @click="appStore.toggleCollapsed()"
+      >
         <n-icon size="18" :component="appStore.collapsed ? Expand : Fold" />
       </n-button>
     </template>

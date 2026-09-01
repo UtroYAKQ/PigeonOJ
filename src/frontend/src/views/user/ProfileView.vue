@@ -107,9 +107,7 @@ async function onSave() {
               <n-tag v-if="userStore.user?.email_verified" size="small" type="success" round>
                 {{ t('profile.verified') }}
               </n-tag>
-              <n-tag v-else size="small" type="warning" round>{{
-                t('profile.unverified')
-              }}</n-tag>
+              <n-tag v-else size="small" type="warning" round>{{ t('profile.unverified') }}</n-tag>
             </dd>
           </div>
           <div>

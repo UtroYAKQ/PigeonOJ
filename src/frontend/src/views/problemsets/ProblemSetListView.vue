@@ -84,7 +84,11 @@ function rowProps(row: ProblemSetSummary) {
       :placeholder="t('problemSets.list.search')"
       search-width="300px"
       manual
-      @update:keyword="(v: string) => { keyword = v }"
+      @update:keyword="
+        (v: string) => {
+          keyword = v
+        }
+      "
       @search="onSearch"
       @reset="onSearch"
     >
@@ -103,8 +107,18 @@ function rowProps(row: ProblemSetSummary) {
       :page-sizes="[20, 50, 100]"
       :empty-text="t('problemSets.list.empty')"
       :table-props="{ rowProps }"
-      @update:page="(p: number) => { changePage(p); load() }"
-      @update:page-size="(s: number) => { changeSize(s); load() }"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
+      @update:page-size="
+        (s: number) => {
+          changeSize(s)
+          load()
+        }
+      "
     >
       <template #pager-left>
         <span class="pager__total">{{ t('problemSets.list.totalCount', { count: total }) }}</span>

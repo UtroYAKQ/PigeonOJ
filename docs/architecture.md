@@ -126,6 +126,7 @@ src/backend/
 
 - 错误码：`10xx` 参数 / `20xx` 认证 / `30xx` 资源 / `40xx` 频控 / `50xx` 系统（见 `docs/contracts/common.md`）+ 模块专属码
 - Repository 层将数据库错误转为业务错误；Service 层不抛驱动错误
+- 未捕获异常由 `core/exceptions.py` 兜底处理器统一转信封：`IntegrityError` → `3002`（409），未知异常 → `5000`（500，不回传内部细节）；禁止依赖 Starlette 默认纯文本 500
 - API 响应不暴露堆栈跟踪、敏感信息
 
 ### 数据访问与迁移

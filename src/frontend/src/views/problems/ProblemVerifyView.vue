@@ -42,9 +42,12 @@ const code = ref('')
 const language = ref<ProblemLanguage>('cpp17')
 
 // ---- 用户自测（控制台面板；验题人调试代码用，与做题页同款）----
-const { selfTestInput, selfTesting, selfTestResult, runSelfTest: doSelfTest } = useSelfTest(
-  () => problemId,
-)
+const {
+  selfTestInput,
+  selfTesting,
+  selfTestResult,
+  runSelfTest: doSelfTest,
+} = useSelfTest(() => problemId)
 
 // ---- 验题状态标签与发布门禁（卡片头展示，以后端 needs_reverification 为准）----
 type VerifyState = 'verified' | 'stale' | 'unverified'
@@ -312,7 +315,12 @@ onMounted(() => void loadExisting())
           {{ t('problems.manage.applyStaged') }}
         </n-button>
         <!-- 已发布题目无发布动作（重新发布场景走重新验题 → 门禁自动恢复按钮） -->
-        <n-tooltip v-if="detail?.status !== 'published'" trigger="hover" placement="top" :disabled="!publishBlocked">
+        <n-tooltip
+          v-if="detail?.status !== 'published'"
+          trigger="hover"
+          placement="top"
+          :disabled="!publishBlocked"
+        >
           <template #trigger>
             <n-button
               type="primary"
@@ -361,7 +369,9 @@ onMounted(() => void loadExisting())
         size="small"
         :columns="submissionColumns"
         :data="mySubmissions"
-        :row-props="(row: Submission) => ({ style: 'cursor: pointer;', onClick: () => openSubmission(row) })"
+        :row-props="
+          (row: Submission) => ({ style: 'cursor: pointer;', onClick: () => openSubmission(row) })
+        "
       />
       <n-empty v-else :description="t('problems.detail.noSubmissions')" />
     </n-modal>

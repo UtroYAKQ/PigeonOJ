@@ -11,7 +11,12 @@ const { t } = useI18n()
 <template>
   <n-tooltip trigger="hover" placement="bottom">
     <template #trigger>
-      <n-button quaternary size="small" :aria-label="t('profile.theme')" @click="appStore.toggleTheme()">
+      <n-button
+        quaternary
+        size="small"
+        :aria-label="t('profile.theme')"
+        @click="appStore.toggleTheme()"
+      >
         <n-icon size="16" :component="appStore.isDark ? Sunny : Moon" />
       </n-button>
     </template>

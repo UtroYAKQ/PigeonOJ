@@ -88,7 +88,8 @@
       edit: 'Edit tag',
       archive: 'Archive',
       namePlaceholder: 'Tag name',
-      archiveConfirm: 'Archived tags can no longer be selected; existing problem links are kept. Archive "{name}"?',
+      archiveConfirm:
+        'Archived tags can no longer be selected; existing problem links are kept. Archive "{name}"?',
       created: 'Tag created',
       updated: 'Tag updated',
       archivedSuccess: 'Tag archived',

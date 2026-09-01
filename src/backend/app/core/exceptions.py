@@ -4,12 +4,17 @@
 10xx 参数校验 · 20xx 认证 / 授权 · 30xx 资源 · 40xx 频控 · 50xx 系统。
 新增错误码必须先登记到 docs/contracts/common.md。
 """
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import HTTPException, RequestValidationError
+from sqlalchemy.exc import IntegrityError
 
 from app.core.i18n import EN_US, resolve_locale, translate_message
 from app.utils.response import error
+
+logger = logging.getLogger(__name__)
 
 # ---- 10xx 参数校验 ----
 PARAM_FORMAT_INVALID = 1001  # 参数格式错误
@@ -121,3 +126,22 @@ def register_exception_handlers(app: FastAPI) -> None:
         locale = resolve_locale(request.headers.get("accept-language"))
         envelope = error(exc.status_code, translate_message(str(exc.detail), locale))
         return JSONResponse(status_code=exc.status_code, content=envelope.model_dump())
+
+    @app.exception_handler(IntegrityError)
+    async def _handle_integrity_error(request: Request, exc: IntegrityError):
+        # 数据库约束冲突（唯一键 / 外键等）转业务错误：Repository 层未显式捕获时兜底为 3002 信封
+        logger.warning("数据库约束冲突 %s %s", request.method, request.url.path, exc_info=exc)
+        locale = resolve_locale(request.headers.get("accept-language"))
+        message = "Data conflict, please review your submission" if locale == EN_US else "数据冲突，请检查提交内容"
+        envelope = error(RESOURCE_STATE_CONFLICT, message)
+        return JSONResponse(status_code=409, content=envelope.model_dump())
+
+    @app.exception_handler(Exception)
+    async def _handle_unexpected_error(request: Request, exc: Exception):
+        # 兜底：任何未处理异常都转成统一信封（禁止 Starlette 默认纯文本 500 破坏 API 契约）。
+        # 注意：不回传 exc 内部细节，避免泄露实现信息。
+        logger.exception("未处理异常 %s %s", request.method, request.url.path)
+        locale = resolve_locale(request.headers.get("accept-language"))
+        message = "Internal server error, please try again later" if locale == EN_US else "系统内部错误，请稍后重试"
+        envelope = error(SYSTEM_INTERNAL_ERROR, message)
+        return JSONResponse(status_code=500, content=envelope.model_dump())

@@ -218,6 +218,43 @@ class ContestRepository:
         return rows, int(total)
 
 
+    # ---- 周期状态推进（ContestService.transition 调用）----
+
+    async def start_due_contests(self, now: datetime) -> None:
+        """开赛：scheduled 且到达开始时间的比赛置为 running。"""
+        await self.db.execute(
+            update(Contest)
+            .where(Contest.status == ContestStatus.SCHEDULED, Contest.start_time <= now)
+            .values(status=ContestStatus.RUNNING)
+        )
+
+    async def list_freeze_candidates(self, now: datetime) -> list[Contest]:
+        """封榜候选：running 且未冻结且开启封榜窗口（是否入窗由 Service 判定）。"""
+        rows = await self.db.execute(
+            select(Contest).where(
+                Contest.status == ContestStatus.RUNNING,
+                Contest.board_frozen == False,  # noqa: E712
+                Contest.freeze_offset_seconds > 0,
+                Contest.end_time > now,
+            )
+        )
+        return list(rows.scalars())
+
+    async def freeze_contests(self, contest_ids: list[uuid.UUID]) -> None:
+        """批量置为已冻结。"""
+        await self.db.execute(
+            update(Contest).where(Contest.id.in_(contest_ids)).values(board_frozen=True)
+        )
+
+    async def finish_due_contests(self, now: datetime) -> None:
+        """结束：running 且到达结束时间的比赛置为 finished（解冻始终人工触发）。"""
+        await self.db.execute(
+            update(Contest)
+            .where(Contest.status == ContestStatus.RUNNING, Contest.end_time <= now)
+            .values(status=ContestStatus.FINISHED)
+        )
+
+
 class ContestRankingRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db

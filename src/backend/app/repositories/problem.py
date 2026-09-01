@@ -4,11 +4,13 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import ProblemScope, ProblemStatus, ProblemVisibility, TagStatus, VerificationStatus
 from app.models.problem import (
     Problem,
+    ProblemCounter,
     ProblemTag,
     ProblemTagRelation,
     ProblemVerification,
@@ -28,6 +30,55 @@ class ProblemRepository:
         self.db.add(problem)
         await self.db.flush()
         return problem
+
+    async def bump_counters(self, problem_id: uuid.UUID, *, accepted: bool) -> None:
+        """通过率计数 upsert 原子累加（INSERT ... ON CONFLICT，并发安全；docs/contracts/judge.md）。
+
+        计数行不存在时自动创建；统计口径由调用方保证。
+        """
+        step_accepted = 1 if accepted else 0
+        stmt = (
+            pg_insert(ProblemCounter)
+            .values(problem_id=problem_id, submission_count=1, accepted_count=step_accepted)
+            .on_conflict_do_update(
+                index_elements=[ProblemCounter.problem_id],
+                set_={
+                    # 键用 Column 对象（= 目标表列）；值中同名列引用的是已存在行（DO UPDATE SET col = col + 1 语义）
+                    ProblemCounter.submission_count: ProblemCounter.submission_count + 1,
+                    ProblemCounter.accepted_count: ProblemCounter.accepted_count + step_accepted,
+                    ProblemCounter.updated_at: func.now(),
+                },
+            )
+        )
+        await self.db.execute(stmt)
+
+    async def counters_for(self, problem_ids: list[uuid.UUID]) -> dict[uuid.UUID, ProblemCounter]:
+        """按 id 批量取通过率计数行（无记录的 id 不在返回中）。"""
+        if not problem_ids:
+            return {}
+        rows = (
+            await self.db.execute(
+                select(ProblemCounter).where(ProblemCounter.problem_id.in_(problem_ids))
+            )
+        ).scalars()
+        return {row.problem_id: row for row in rows}
+
+    async def verification_snapshot_fields(self, problem_ids: list[uuid.UUID]) -> list:
+        """批量取重验判定所需字段（id / verified_at / samples_updated_at / pending_case_ids）。"""
+        if not problem_ids:
+            return []
+        return list(
+            (
+                await self.db.execute(
+                    select(
+                        Problem.id,
+                        Problem.verified_at,
+                        Problem.samples_updated_at,
+                        Problem.pending_case_ids,
+                    ).where(Problem.id.in_(problem_ids))
+                )
+            ).all()
+        )
 
     async def list_published(self, query: ProblemQuery, viewer_id: uuid.UUID | None, is_manager: bool) -> tuple[list[Problem], int]:
         """题库列表：scope=all 仅 published+public；scope=mine 为创建者/管理角色的管理视图。"""

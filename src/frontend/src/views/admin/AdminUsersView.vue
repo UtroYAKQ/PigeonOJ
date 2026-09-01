@@ -137,12 +137,12 @@ async function submitReason() {
 function confirmState(action: 'unban' | 'unfreeze', user: User) {
   confirmAsyncDialog({
     title: t(`admin.users.${action}`),
-    content: t(
-      action === 'unban' ? 'admin.users.confirmUnban' : 'admin.users.confirmUnfreeze',
-      { name: user.nickname },
-    ),
+    content: t(action === 'unban' ? 'admin.users.confirmUnban' : 'admin.users.confirmUnfreeze', {
+      name: user.nickname,
+    }),
     positiveText: t('action.confirm'),
-    action: () => action === 'unban' ? adminApi.adminUnbanUser(user.id) : adminApi.adminUnfreezeUser(user.id),
+    action: () =>
+      action === 'unban' ? adminApi.adminUnbanUser(user.id) : adminApi.adminUnfreezeUser(user.id),
     successMessage: t('common.success'),
     onAfterSuccess: () => load(),
   })
@@ -262,7 +262,11 @@ const columns = computed<DataTableColumns<User>>(() => [
     <SearchFilterBar
       :keyword="query.keyword"
       :placeholder="t('admin.users.search')"
-      @update:keyword="(v: string) => { query.keyword = v }"
+      @update:keyword="
+        (v: string) => {
+          query.keyword = v
+        }
+      "
       @search="onSearch"
       @reset="onReset"
     >
@@ -290,24 +294,39 @@ const columns = computed<DataTableColumns<User>>(() => [
       :page-sizes="[10, 20, 50]"
       :empty-text="t('admin.users.empty')"
       :table-props="{ scrollX: 1000 }"
-      @update:page="(p: number) => { changePage(p); load() }"
-      @update:page-size="(s: number) => { changeSize(s); load() }"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
+      @update:page-size="
+        (s: number) => {
+          changeSize(s)
+          load()
+        }
+      "
     />
 
     <!-- 角色设置 -->
-    <n-modal
-      v-model:show="roleModal"
-      preset="card"
-      style="width: min(420px, 92vw)"
-     
-    >
+    <n-modal v-model:show="roleModal" preset="card" style="width: min(420px, 92vw)">
       <n-checkbox-group v-model:value="roleIds">
         <div class="role-options">
-          <n-checkbox v-for="opt in roleOptions" :key="opt.value" :value="opt.value" :label="opt.label" />
+          <n-checkbox
+            v-for="opt in roleOptions"
+            :key="opt.value"
+            :value="opt.value"
+            :label="opt.label"
+          />
         </div>
       </n-checkbox-group>
       <template #footer>
-        <ModalFooter :loading="roleSaving" :confirm-text="t('action.save')" @cancel="roleModal = false" @confirm="saveRoles" />
+        <ModalFooter
+          :loading="roleSaving"
+          :confirm-text="t('action.save')"
+          @cancel="roleModal = false"
+          @confirm="saveRoles"
+        />
       </template>
     </n-modal>
 
@@ -323,13 +342,21 @@ const columns = computed<DataTableColumns<User>>(() => [
       @positive-click="submitReason"
       @negative-click="reasonVisible = false"
     >
-      <p>{{ t('admin.users.reasonPrompt', { action: reasonAction === 'ban' ? t('admin.users.ban') : t('admin.users.freeze') }) }}</p>
+      <p>
+        {{
+          t('admin.users.reasonPrompt', {
+            action: reasonAction === 'ban' ? t('admin.users.ban') : t('admin.users.freeze'),
+          })
+        }}
+      </p>
       <n-input
         v-model:value="reasonText"
         type="textarea"
         maxlength="255"
         show-count
-        :placeholder="reasonAction === 'ban' ? t('admin.users.banReason') : t('admin.users.freezeReason')"
+        :placeholder="
+          reasonAction === 'ban' ? t('admin.users.banReason') : t('admin.users.freezeReason')
+        "
       />
     </n-modal>
   </WorkbenchShell>

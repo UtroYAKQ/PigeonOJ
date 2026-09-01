@@ -43,9 +43,7 @@ describe('api/http（axios 统一响应信封处理）', () => {
     // 注入自定义 adapter：真实走完 axios 拦截器链（含自动携带 Token）
     httpClient.defaults.adapter = adapterMock as unknown as AxiosAdapter
     // 默认实现：200 + 成功信封
-    adapterMock.mockImplementation(async (config: InternalAxiosRequestConfig) =>
-      resolveOk(config),
-    )
+    adapterMock.mockImplementation(async (config: InternalAxiosRequestConfig) => resolveOk(config))
   })
 
   afterEach(() => {

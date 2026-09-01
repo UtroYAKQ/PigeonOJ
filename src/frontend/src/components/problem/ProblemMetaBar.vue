@@ -53,15 +53,8 @@ const passRate = computed(() => {
       <span v-if="problem.difficulty !== null && problem.difficulty !== undefined">
         {{ t('problems.list.difficulty') }} {{ problem.difficulty }}
       </span>
-      <span v-if="passRate">
-        {{ t('problems.list.passRate') }} {{ passRate }}
-      </span>
-      <n-tag
-        v-if="statusVisible"
-        size="small"
-        round
-        :type="problemStatusTagType(problem.status)"
-      >
+      <span v-if="passRate"> {{ t('problems.list.passRate') }} {{ passRate }} </span>
+      <n-tag v-if="statusVisible" size="small" round :type="problemStatusTagType(problem.status)">
         {{ t(problemStatusLabelKey[problem.status] ?? problem.status) }}
       </n-tag>
       <n-tag v-if="problem.visibility && problem.visibility !== 'public'" size="small" round>

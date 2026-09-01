@@ -671,43 +671,22 @@ class ContestService:
         """周期状态推进：开赛 → running；封榜（自动）；结束 → finished（不自动解冻）。
 
         解冻由 admin/tutor 手动触发（unfreeze），结束后榜单保持冻结快照直到人工解冻。
+        本方法运行在独立后台会话（init_app.contest_transition_loop），
+        请求级 get_db 不会为其提交，故由本方法显式 commit。
         """
-        from sqlalchemy import select, update
-
         now = _now()
         # 开赛
-        await self.db.execute(
-            update(Contest)
-            .where(Contest.status == ContestStatus.SCHEDULED, Contest.start_time <= now)
-            .values(status=ContestStatus.RUNNING)
-        )
-        # 封榜：running 且未冻结且进入封榜窗口（end_time - now <= freeze_offset）
+        await self.repo.start_due_contests(now)
+        # 封榜：进入封榜窗口（end_time - now <= freeze_offset）
         freezing = [
             contest
-            for contest in (
-                await self.db.execute(
-                    select(Contest).where(
-                        Contest.status == ContestStatus.RUNNING,
-                        Contest.board_frozen == False,  # noqa: E712
-                        Contest.freeze_offset_seconds > 0,
-                        Contest.end_time > now,
-                    )
-                )
-            ).scalars()
+            for contest in await self.repo.list_freeze_candidates(now)
             if contest.end_time <= now + timedelta(seconds=contest.freeze_offset_seconds)
         ]
         if freezing:
-            await self.db.execute(
-                update(Contest)
-                .where(Contest.id.in_([c.id for c in freezing]))
-                .values(board_frozen=True)
-            )
+            await self.repo.freeze_contests([c.id for c in freezing])
             for contest in freezing:
                 await self.rankings.freeze_rows(contest.id)
         # 结束（不自动解冻：真实榜单回填由人工解冻触发）
-        await self.db.execute(
-            update(Contest)
-            .where(Contest.status == ContestStatus.RUNNING, Contest.end_time <= now)
-            .values(status=ContestStatus.FINISHED)
-        )
+        await self.repo.finish_due_contests(now)
         await self.db.commit()

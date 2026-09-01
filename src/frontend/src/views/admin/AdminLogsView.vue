@@ -193,7 +193,11 @@ const exceptionColumns = computed<DataTableColumns<ExceptionLogRow>>(() => [
     render(row) {
       return h(
         NTag,
-        { size: 'small', type: toNaiveTagType(LOG_LEVEL[row.level]?.tag ?? 'info'), bordered: false },
+        {
+          size: 'small',
+          type: toNaiveTagType(LOG_LEVEL[row.level]?.tag ?? 'info'),
+          bordered: false,
+        },
         { default: () => LOG_LEVEL[row.level]?.label ?? row.level },
       )
     },
@@ -232,53 +236,66 @@ const activeColumns = computed(() =>
 <template>
   <WorkbenchShell>
     <template #header-extra>
-        <n-button size="small" secondary :loading="loading" @click="exportCsv">{{
-          t('action.export')
-        }}</n-button>
-      </template>
+      <n-button size="small" secondary :loading="loading" @click="exportCsv">{{
+        t('action.export')
+      }}</n-button>
+    </template>
 
-      <n-tabs v-model:value="type" type="line" animated>
-        <n-tab-pane name="request" :tab="t('admin.logs.request')" />
-        <n-tab-pane name="login" :tab="t('admin.logs.login')" />
-        <n-tab-pane name="exception" :tab="t('admin.logs.exception')" />
-      </n-tabs>
+    <n-tabs v-model:value="type" type="line" animated>
+      <n-tab-pane name="request" :tab="t('admin.logs.request')" />
+      <n-tab-pane name="login" :tab="t('admin.logs.login')" />
+      <n-tab-pane name="exception" :tab="t('admin.logs.exception')" />
+    </n-tabs>
 
-      <SearchFilterBar
-        :keyword="query.keyword"
-        :placeholder="searchPlaceholder"
-        search-width="200px"
-        @update:keyword="(v: string) => { query.keyword = v }"
-        @search="onSearch"
-        @reset="onReset"
-      >
-        <n-date-picker
-          v-model:value="query.range"
-          type="datetimerange"
-          clearable
-          style="width: 280px"
-          :start-placeholder="t('admin.logs.start')"
-          :end-placeholder="t('admin.logs.end')"
-          @update:value="onSearch"
-        />
-        <template #actions>
-          <n-button type="primary" @click="onSearch">{{ t('action.search') }}</n-button>
-          <n-button secondary @click="onReset">{{ t('action.reset') }}</n-button>
-        </template>
-      </SearchFilterBar>
-
-      <PaginatedDataTable
-        :columns="activeColumns"
-        :data="(rows as unknown[])"
-        :loading="loading"
-        :total="total"
-        v-model:page="page"
-        v-model:page-size="pageSize"
-        :page-sizes="[10, 20, 50]"
-        :empty-text="emptyText"
-        :table-props="type === 'request' ? { remote: true } : {}"
-        @update:page="(p: number) => { changePage(p); load() }"
-        @update:page-size="(s: number) => { changeSize(s); load() }"
+    <SearchFilterBar
+      :keyword="query.keyword"
+      :placeholder="searchPlaceholder"
+      search-width="200px"
+      @update:keyword="
+        (v: string) => {
+          query.keyword = v
+        }
+      "
+      @search="onSearch"
+      @reset="onReset"
+    >
+      <n-date-picker
+        v-model:value="query.range"
+        type="datetimerange"
+        clearable
+        style="width: 280px"
+        :start-placeholder="t('admin.logs.start')"
+        :end-placeholder="t('admin.logs.end')"
+        @update:value="onSearch"
       />
+      <template #actions>
+        <n-button type="primary" @click="onSearch">{{ t('action.search') }}</n-button>
+        <n-button secondary @click="onReset">{{ t('action.reset') }}</n-button>
+      </template>
+    </SearchFilterBar>
+
+    <PaginatedDataTable
+      :columns="activeColumns"
+      :data="rows as unknown[]"
+      :loading="loading"
+      :total="total"
+      v-model:page="page"
+      v-model:page-size="pageSize"
+      :page-sizes="[10, 20, 50]"
+      :empty-text="emptyText"
+      :table-props="type === 'request' ? { remote: true } : {}"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
+      @update:page-size="
+        (s: number) => {
+          changeSize(s)
+          load()
+        }
+      "
+    />
   </WorkbenchShell>
 </template>
-

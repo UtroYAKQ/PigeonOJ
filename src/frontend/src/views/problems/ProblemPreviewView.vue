@@ -54,7 +54,9 @@ onMounted(load)
         </template>
         <template #header-extra>
           <n-button secondary @click="backToManage">
-            {{ inSetContext ? t('problemSets.detail.backToSet') : t('problems.preview.backToList') }}
+            {{
+              inSetContext ? t('problemSets.detail.backToSet') : t('problems.preview.backToList')
+            }}
           </n-button>
         </template>
 

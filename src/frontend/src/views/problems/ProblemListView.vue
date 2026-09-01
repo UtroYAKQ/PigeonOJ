@@ -104,7 +104,7 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
     title: t('problems.list.difficulty'),
     key: 'difficulty',
     width: 90,
-    render: (row) => (row.difficulty ?? null) === null ? '--' : String(row.difficulty),
+    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
   },
   {
     title: t('problems.list.passRate'),
@@ -130,7 +130,11 @@ function rowProps(row: ProblemSummary) {
       :placeholder="t('problems.list.search')"
       search-width="300px"
       manual
-      @update:keyword="(v: string) => { keyword = v }"
+      @update:keyword="
+        (v: string) => {
+          keyword = v
+        }
+      "
       @search="onSearch"
       @reset="onSearch"
     >
@@ -177,8 +181,18 @@ function rowProps(row: ProblemSummary) {
       :page-sizes="[20, 50, 100]"
       :empty-text="t('problems.list.empty')"
       :table-props="{ rowProps }"
-      @update:page="(p: number) => { changePage(p); load() }"
-      @update:page-size="(s: number) => { changeSize(s); load() }"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
+      @update:page-size="
+        (s: number) => {
+          changeSize(s)
+          load()
+        }
+      "
     >
       <template #pager-left>
         <span class="pager__total">{{ t('problems.list.totalCount', { count: total }) }}</span>
@@ -211,5 +225,4 @@ function rowProps(row: ProblemSummary) {
 .difficulty-filter__sep {
   color: var(--app-text-secondary);
 }
-
 </style>
