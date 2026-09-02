@@ -229,21 +229,23 @@ class ContestRepository:
         )
 
     async def list_freeze_candidates(self, now: datetime) -> list[Contest]:
-        """封榜候选：running 且未冻结且开启封榜窗口（是否入窗由 Service 判定）。"""
+        """封榜候选：running 且未冻结且已到封榜时间（freeze_time 非空且 <= now）。"""
         rows = await self.db.execute(
             select(Contest).where(
                 Contest.status == ContestStatus.RUNNING,
                 Contest.board_frozen == False,  # noqa: E712
-                Contest.freeze_offset_seconds > 0,
-                Contest.end_time > now,
+                Contest.freeze_time.is_not(None),
+                Contest.freeze_time <= now,
             )
         )
         return list(rows.scalars())
 
-    async def freeze_contests(self, contest_ids: list[uuid.UUID]) -> None:
-        """批量置为已冻结。"""
+    async def freeze_contests(self, contest_ids: list[uuid.UUID], frozen_at: datetime) -> None:
+        """批量置为已冻结（frozen_at 记录进入封榜时刻，滚榜揭晓序列的边界）。"""
         await self.db.execute(
-            update(Contest).where(Contest.id.in_(contest_ids)).values(board_frozen=True)
+            update(Contest)
+            .where(Contest.id.in_(contest_ids))
+            .values(board_frozen=True, frozen_at=frozen_at)
         )
 
     async def finish_due_contests(self, now: datetime) -> None:
@@ -374,6 +376,20 @@ class ContestSubmissionQueryRepository:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def list_team_nicknames(self, contest_id: uuid.UUID) -> dict[uuid.UUID, str]:
+        """该比赛出现过提交的用户昵称映射（滚榜/榜单装配用，单查询无 N+1）。"""
+        rows = await self.db.execute(
+            select(Submission.user_id, User.nickname)
+            .join(User, User.id == Submission.user_id)
+            .where(
+                Submission.contest_id == contest_id,
+                Submission.submit_type == SubmitType.CONTEST,
+                Submission.is_after_contest == False,  # noqa: E712
+            )
+            .distinct()
+        )
+        return dict(rows.all())
 
     async def list_contest_submissions(
         self, contest_id: uuid.UUID

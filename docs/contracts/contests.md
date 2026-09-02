@@ -11,6 +11,8 @@
 | id | UUID | PK | |
 | title | VARCHAR(128) | NOT NULL | 比赛名称 |
 | description | TEXT | NULL | 比赛说明（Markdown 渲染） |
+| announcement | TEXT | NULL | 比赛公告（Markdown，赛时可改；主页 tab 顶部公告条展示，空 = 未发布） |
+| announcement_updated_at | TIMESTAMPTZ | NULL | 公告最近更新时间 |
 | logo | VARCHAR(512) | NULL | 比赛头像（经 `/files/upload/image` 上传的公开 URL；卡片 / 详情横幅展示） |
 | contest_type | VARCHAR(16) | NOT NULL | `public` 公开比赛 / `team` 团队比赛 |
 | team_id | UUID | NULL, FK → teams.id | 团队比赛所属团队 |
@@ -22,6 +24,7 @@
 | register_end_time | TIMESTAMPTZ | NOT NULL | 报名截止时间 |
 | freeze_offset_seconds | INT | NOT NULL DEFAULT 0 | 封榜时间 = 结束前 N 秒 |
 | board_frozen | BOOLEAN | NOT NULL DEFAULT false | 当前是否处于封榜中 |
+| frozen_at | TIMESTAMPTZ | NULL | 进入封榜时刻（滚榜揭晓序列的数据源边界：封榜期提交 = `created_at >= frozen_at`；由 `contest_transition` 周期任务触发封榜时写入） |
 | status | VARCHAR(16) | NOT NULL DEFAULT 'scheduled' | `scheduled` / `running` / `finished` |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
@@ -97,9 +100,11 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | POST | /contests | admin/tutor（公开）/ admin/tutor/team_creator/team_admin（团队） | 创建比赛 | contest_type, logo?, rule_type, time, register, freeze, problems[] | contest |
 | PUT | /contests/{id} | admin/tutor/team_creator/team_admin | 编辑比赛 | ... | contest |
 | POST | /contests/{id}/register | auth | 报名 | - | - |
+| PUT | /contests/{id}/announcement | admin/tutor/team_creator/team_admin | **更新比赛公告**（赛时唯一受控编辑出口；空字符串 = 清空；Markdown） | announcement | contest |
+| GET | /contests/{id}/scoreboard-show | admin/tutor/team_creator/team_admin | **滚榜数据包**（只读、不解冻）：`base_rows` 冻结快照榜 + `final_rows` submissions 现算最终榜 + `steps` 封榜期提交揭晓序列（按最终名次从差到好、同队按提交时间序，domjudge 式滚榜）；封榜期提交以 `frozen_at` 为界 | - | scoreboard-show |
 | GET | /contests/{id}/board | auth | 榜单（封榜时按冻结展示；BoardCell 含 problem_score 单题满分） | - | board |
 | GET | /contests/{id}/board/{user_id}/{problem_id}/accepted | auth（admin·tutor 随时 / **赛后**：已报名） | **榜单单格成功提交**：该 (选手, 题目) 比赛内 AC 提交（不含补题，时间正序）；窗口与角色门控随提交记录 | - | submission[] |
-| POST | /contests/{id}/unfreeze | admin/tutor | **手动解冻榜单**：从 submissions 权威重算并回填封榜期间结果（解冻必须人工触发，比赛结束后亦然） | - | contest |
+| POST | /contests/{id}/unfreeze | admin/tutor | **手动解冻榜单**（**仅赛后可用**，running 时返回 3002——封榜是赛时公平机制，赛中禁止解冻）：从 submissions 权威重算并回填封榜期间结果（解冻必须人工触发，比赛结束后亦然） | - | contest |
 | GET | /contests/{id}/problems/{pid} | auth（已报名 + 看题窗口） | **比赛内题目详情（统一入口）**：归属 / 窗口校验后与 `GET /problems/{id}` 装配一致 | - | problem |
 | POST | /contests/{id}/problems/{pid}/submissions | auth（已报名 + 时间窗口） | **比赛交题（统一入口）**：窗口校验后落 contest 提交并派发；赛后自动标记补题（不计榜单） | language/code | submission_id |
 | GET | /contests/{id}/submissions | auth（admin·tutor 随时 / **赛后**：已报名） | **比赛提交记录列表**：全员正式提交 + 补题，提交时间倒序；比赛期间仅管理角色可见，参赛者赛后开放 | 分页/keyword（昵称模糊）/language/status/problem_id（均精确） | submission[]（含 nickname / letter） |
@@ -117,6 +122,21 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | 3002 | 409 | 报名截止 / 比赛已开始或已结束（不允许补交） |
 | 4002 | 429 | 全局判题并发上限触发排队 / 拒绝 |
 
+## 状态守卫与赛时工具（修订）
+
+- **结构性编辑锁定**：`PUT /contests/{id}` 在 `status != 'scheduled'` 时拒绝任何字段变更
+  （title / description / logo / rule_type / 时间四元组 / freeze_offset / problems，返回 3002）——
+  「比赛开始不能改东西」由后端强制，不依赖前端隐藏入口
+- **赛时工具**（独立页面 `/admin/contests/{id}/tools`，入口在比赛管理列表行内按钮，
+  仅 `status != 'scheduled'` 显示；前台详情页不提供管理动作）：
+  - 公告：`PUT /contests/{id}/announcement`，赛时可改（带 Markdown 效果预览），主页 tab 顶部公告条对全部参赛者展示
+  - 解榜：`POST /contests/{id}/unfreeze` 仅赛后可用（见上表）
+  - 滚榜：`GET /contests/{id}/scoreboard-show`（只读不解冻），大屏回放页为独立静态页
+    `public/scrollboard.html`（新窗口打开，读同源 localStorage token 鉴权，不进应用路由）
+- 详情页展示口径：时间轴与 hero 瓦片呈现「封榜时间」绝对时刻（= end_time - freeze_offset_seconds，
+  业务对表用），不展示封榜倒计时秒数
+- 延时与封榜交互策略（extend / 自动解冻联动）为后续迭代项，当前未实现
+
 ## 关键流程 / 验收条件
 
 1. **报名**：`POST /contests/{id}/register`——公开比赛所有登录用户可报，团队比赛仅团队成员可报；`contest_registrations` 唯一约束防重复。
@@ -129,11 +149,12 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
    - 错误提交：`UPDATE ... SET attempts = attempts + 1 WHERE accepted = false AND is_frozen = false`
    - 首次通过：`UPDATE ... SET accepted = true, accepted_at = ..., penalty = ... WHERE accepted = false`（幂等，仅首次生效）
    - IOI：`UPDATE ... SET score = GREATEST(score, :new_score) WHERE is_frozen = false`
-5. **封榜 / 解冻 / 结束**（修订：解冻必须人工）：封榜由周期任务 `contest_transition` 按时间
-   自动触发（结束前 `freeze_offset_seconds` 秒置 `board_frozen=true`、榜单行冻结 `is_frozen`）；
-   **解冻只能由 admin/tutor 调 `POST /contests/{id}/unfreeze` 手动执行**——从 submissions
-   权威重算榜单并回填封榜期间结果；比赛结束（`status='finished'`）**不自动解冻**，榜单保持
-   冻结快照直到人工解冻。封榜期间新提交只落 `submissions` 与 `submission_test_case_results`，
+5. **封榜 / 解冻 / 结束**（修订：解冻必须人工、仅赛后）：封榜由周期任务 `contest_transition` 按时间
+   自动触发（结束前 `freeze_offset_seconds` 秒置 `board_frozen=true`、榜单行冻结 `is_frozen`、
+   记录 `frozen_at`）；
+   **解冻只能由 admin/tutor 调 `POST /contests/{id}/unfreeze` 手动执行且仅比赛结束后可用**——
+   从 submissions 权威重算榜单并回填封榜期间结果；比赛结束（`status='finished'`）**不自动解冻**，
+   榜单保持冻结快照直到人工解冻。封榜期间新提交只落 `submissions` 与 `submission_test_case_results`，
    不更新榜单行。
 6. **赛后补题**：允许补题（`submissions.is_after_contest=true`），不计入榜单。
 7. **提交记录可见性**（比赛上下文统一入口端点）：
@@ -161,6 +182,10 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 
 ## 实现状态
 
+- 已实现（迁移 0024）：赛时工具与滚榜——`announcement` 公告（赛时可改 + 主页公告条）、
+  `frozen_at` 封榜时刻记录、PUT 结构性编辑的赛时守卫、unfreeze 收紧为赛后、
+  `scoreboard-show` 滚榜数据端点（domjudge 式揭晓序列）与独立大屏页 `public/scrollboard.html`；
+  延时（extend）与封榜交互策略为后续迭代项
 - 已实现（迁移 0019 / 0020）：全站比赛端到端——建赛编排 / 报名 / 赛内题目与交题（统一入口）/
   ACM·IOI 计分与榜单条件更新 / 自动封榜 / **手动解冻重算** / 赛后补题；
   周期任务 `contest_transition`（开赛 / 自动封榜 / 结束，随应用 lifespan 启动）

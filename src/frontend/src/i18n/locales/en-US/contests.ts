@@ -3,7 +3,7 @@
     statusScheduled: 'Upcoming',
     statusRunning: 'Running',
     statusFinished: 'Finished',
-    boardFrozen: 'Scoreboard frozen',
+    boardFrozenTag: 'Frozen',
     frozenHint: 'The scoreboard is frozen. Final results will be shown after manual unfreeze.',
     list: {
       search: 'Search contests',
@@ -22,8 +22,9 @@
       endTime: 'End time',
       regStartTime: 'Registration opens',
       regEndTime: 'Registration ends',
-      freezeOffset: 'Freeze offset (seconds)',
-      freezeHint: '0 = no freeze; the scoreboard freezes N seconds before the end',
+      freezeAt: 'Freeze at',
+      freezeHint:
+        'Leave empty for no freeze; the scoreboard freezes at this moment and later submissions do not update ranks',
       problems: 'Contest problems',
       problemScore: 'IOI score',
       pickProblem: 'Search problems',
@@ -49,6 +50,7 @@
       timeRangeInvalid: 'End time must be after start time',
       regRangeInvalid: 'Registration start time cannot be after registration end time',
       regEndAfterEnd: 'Registration deadline cannot be after the contest ends',
+      freezeRangeInvalid: 'Freeze time must be after the start and no later than the end',
     },
     detail: {
       title: 'Contest detail',
@@ -84,6 +86,25 @@
       inDays: '{count}d left',
       inHours: '{count}h left',
       inMinutes: '{count}m left',
+      announcement: 'Announcement',
+      announcementUpdatedAt: 'Updated at',
+    },
+    tools: {
+      title: 'Contest tools',
+      titleOf: 'Contest tools · {title}',
+      preview: 'Preview',
+      announcement: 'Announcement',
+      announcementPlaceholder:
+        'Write the announcement (Markdown supported); save empty to clear it',
+      announcementHint:
+        'Shown to all participants at the top of the contest home; update anytime (clarifications, extensions, etc.)',
+      unfreeze: 'Unfreeze board',
+      unfreezeHint:
+        'Recomputes the scoreboard from submissions and fills in frozen-period results; available after the contest ends only',
+      scrollboard: 'Scoreboard reveal',
+      scrollboardHint:
+        'Big-screen replay for the award ceremony: reveals frozen-period submissions from the worst final rank upward, opens in a new window',
+      scrollboardOpen: 'Open reveal screen',
     },
     board: {
       title: 'Scoreboard',

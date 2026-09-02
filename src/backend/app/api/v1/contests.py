@@ -16,6 +16,7 @@ from app.enums import SubmissionStatus
 from app.models.user import User
 from app.rpc.judge_gateway import dispatch_submission
 from app.schemas.contest import (
+    AnnouncementUpdate,
     BoardOut,
     ContestCreate,
     ContestDetail,
@@ -23,6 +24,7 @@ from app.schemas.contest import (
     ContestSummary,
     ContestUpdate,
     MyContestItem,
+    ScoreboardShowOut,
 )
 from app.schemas.judge import SubmissionCreatedResponse, SubmissionDetailOut
 from app.schemas.problem import ProblemDetail
@@ -262,7 +264,31 @@ async def unfreeze_contest_board(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
-    """手动解冻榜单（admin/tutor）：从 submissions 权威重算并回填封榜期间结果。"""
+    """手动解冻榜单（admin/tutor）：从 submissions 权威重算并回填封榜期间结果（仅赛后）。"""
     summary = await service.unfreeze(user, contest_id)
     await db.commit()  # 显式提交：确保数据持久化
     return ok(summary)
+
+
+@router.put("/{contest_id}/announcement", response_model=ApiResponse[ContestSummary])
+async def update_contest_announcement(
+    contest_id: uuid.UUID,
+    body: AnnouncementUpdate,
+    service: ContestServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ContestSummary]:
+    """更新比赛公告（管理角色；赛时允许，空字符串 = 清空）。"""
+    summary = await service.update_announcement(user, contest_id, body)
+    await db.commit()  # 显式提交：确保数据持久化
+    return ok(summary)
+
+
+@router.get("/{contest_id}/scoreboard-show", response_model=ApiResponse[ScoreboardShowOut])
+async def get_scoreboard_show(
+    contest_id: uuid.UUID,
+    service: ContestServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ScoreboardShowOut]:
+    """滚榜数据（管理角色专用，只读不解冻）：快照榜 + 最终榜 + 封榜期揭晓序列。"""
+    return ok(await service.scoreboard_show(user, contest_id))

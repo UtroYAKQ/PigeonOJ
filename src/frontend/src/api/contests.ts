@@ -11,6 +11,7 @@ import type {
   ContestSummary,
   MyContestItem,
   PageResult,
+  ScoreboardShow,
   Submission,
 } from '@/types'
 
@@ -108,7 +109,17 @@ export function listContestCellAccepted(
   return apiRequest('GET', `/contests/${contestId}/board/${userId}/${problemId}/accepted`)
 }
 
-/** 手动解冻榜单（admin/tutor）：从 submissions 重算并回填封榜期结果 */
+/** 手动解冻榜单（admin/tutor）：从 submissions 重算并回填封榜期结果（仅赛后） */
 export function unfreezeContestBoard(id: string): Promise<ContestSummary> {
   return apiRequest('POST', `/contests/${id}/unfreeze`)
+}
+
+/** 更新比赛公告（管理角色，赛时可改；空字符串 = 清空） */
+export function updateContestAnnouncement(id: string, announcement: string): Promise<ContestSummary> {
+  return apiRequest('PUT', `/contests/${id}/announcement`, { announcement })
+}
+
+/** 滚榜数据（管理角色专用，只读不解冻）：快照榜 + 最终榜 + 封榜期揭晓序列 */
+export function getScoreboardShow(id: string): Promise<ScoreboardShow> {
+  return apiRequest('GET', `/contests/${id}/scoreboard-show`)
 }

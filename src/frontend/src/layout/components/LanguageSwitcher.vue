@@ -19,7 +19,6 @@ function change(key: string) {
 <template>
   <n-dropdown trigger="click" :options="options" @select="change">
     <n-button quaternary size="small" :aria-label="t('app.language')">
-      <span class="language-switcher__globe">🌐</span>
       {{ locale === 'zh-CN' ? t('app.localeZh') : 'EN' }}
     </n-button>
   </n-dropdown>

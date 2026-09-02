@@ -47,9 +47,14 @@ class Contest(Base):
     end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     register_start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     register_end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # 封榜时间 = 结束前 N 秒；0 表示不封榜
-    freeze_offset_seconds: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # 封榜时间（绝对时刻；NULL = 不封榜；须晚于 start_time 且不晚于 end_time）
+    freeze_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     board_frozen: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # 进入封榜时刻（滚榜揭晓序列的数据源边界：封榜期提交 = created_at >= frozen_at）
+    frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 比赛公告（Markdown，赛时可改；详情页主页 tab 公告条展示）
+    announcement: Mapped[str | None] = mapped_column(Text)
+    announcement_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=ContestStatus.SCHEDULED
     )
@@ -59,6 +64,10 @@ class Contest(Base):
     __table_args__ = (
         CheckConstraint("register_end_time <= end_time", name="ck_contests_register_end"),
         CheckConstraint("start_time < end_time", name="ck_contests_time_range"),
+        CheckConstraint(
+            "freeze_time IS NULL OR (freeze_time > start_time AND freeze_time <= end_time)",
+            name="ck_contests_freeze_time",
+        ),
         CheckConstraint("contest_type IN ('public','team')", name="ck_contests_type"),
         CheckConstraint("rule_type IN ('ACM','IOI')", name="ck_contests_rule"),
         Index("ix_contests_status_start", "status", "start_time"),

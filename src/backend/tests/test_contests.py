@@ -58,21 +58,28 @@ def _iso(dt: datetime) -> str:
 
 def _contest_payload(
     *, problems: list[dict], start_offset: int = -3600, end_offset: int = 3600,
-    reg_start_offset: int = -7200, reg_end_offset: int = -600, freeze: int = 0,
-    rule: str = "ACM",
+    reg_start_offset: int = -7200, reg_end_offset: int = -600,
+    freeze_before_end: int = 0, rule: str = "ACM",
 ) -> dict:
-    """时间窗口默认：已开赛 1h、1h 后结束、报名已截止（便于直接赛内提交）。"""
+    """时间窗口默认：已开赛 1h、1h 后结束、报名已截止（便于直接赛内提交）。
+
+    freeze_before_end：封榜提前秒数（换算为绝对 freeze_time 时刻；0 = 不封榜）。
+    """
     now = datetime.now(timezone.utc)
-    return {
+    start = now + timedelta(seconds=start_offset)
+    end = now + timedelta(seconds=end_offset)
+    payload = {
         "title": "测试比赛",
         "rule_type": rule,
-        "start_time": _iso(now + timedelta(seconds=start_offset)),
-        "end_time": _iso(now + timedelta(seconds=end_offset)),
+        "start_time": _iso(start),
+        "end_time": _iso(end),
         "register_start_time": _iso(now + timedelta(seconds=reg_start_offset)),
         "register_end_time": _iso(now + timedelta(seconds=reg_end_offset)),
-        "freeze_offset_seconds": freeze,
         "problems": problems,
     }
+    if freeze_before_end:
+        payload["freeze_time"] = _iso(end - timedelta(seconds=freeze_before_end))
+    return payload
 
 
 async def _get_contest_id(client: httpx.AsyncClient, tutor: dict) -> str:
@@ -359,7 +366,7 @@ async def test_acm_ranking_and_manual_unfreeze(client: httpx.AsyncClient, user_h
     payload = _contest_payload(
         problems=[{"problem_id": p1}],
         start_offset=-7200, end_offset=3600, reg_start_offset=-10800, reg_end_offset=-5400,
-        freeze=600, rule="ACM",
+        freeze_before_end=600, rule="ACM",
     )
     resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
     cid = uuid_mod.UUID(resp.json()["data"]["id"])
@@ -371,6 +378,7 @@ async def test_acm_ranking_and_manual_unfreeze(client: httpx.AsyncClient, user_h
     async with SessionLocal() as db:
         row = await db.get(Contest, cid)
         row.end_time = datetime.now(timezone.utc) + timedelta(seconds=300)
+        row.freeze_time = datetime.now(timezone.utc)  # 封榜时间同步（约束 + 立即入封榜窗口）
         await db.commit()
 
     service_headers = user_headers
@@ -430,7 +438,18 @@ async def test_acm_ranking_and_manual_unfreeze(client: httpx.AsyncClient, user_h
     resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
     assert resp.json()["data"]["rows"][0]["cells"][0]["attempts"] == 2  # 冻结未变
 
-    # 手动解冻：重算（2 错误 + 1 冻结期错误 → attempts=3）并解除冻结
+    # 赛中（running）禁止解冻（3002）：封榜是赛时公平机制
+    resp = await client.post(f"/api/v1/contests/{cid}/unfreeze", headers=tutor)
+    body = resp.json()
+    assert body["code"] == 3002, body
+
+    # 比赛结束后才可手动解冻：重算（2 错误 + 1 冻结期错误 → attempts=3）并解除冻结
+    async with SessionLocal() as db:
+        row = await db.get(Contest, cid)
+        row.end_time = datetime.now(timezone.utc) - timedelta(seconds=1)
+        row.freeze_time = row.end_time  # 约束：freeze_time <= end_time
+        row.status = "finished"
+        await db.commit()
     resp = await client.post(f"/api/v1/contests/{cid}/unfreeze", headers=tutor)
     assert resp.json()["code"] == 0, resp.text
     assert resp.json()["data"]["board_frozen"] is False
@@ -697,3 +716,146 @@ async def test_board_cell_accepted_submissions(client: httpx.AsyncClient, user_h
         f"/api/v1/contests/{cid}/board/{uid_str}/{other_p}/accepted", headers=user_headers
     )
     assert resp.json()["code"] == 3001
+
+async def test_status_guard_blocks_structural_update(client: httpx.AsyncClient, user_headers) -> None:
+    """赛时守卫：running 后 PUT 结构性字段一律 3002；description/logo 同被拒（非白名单语义）。"""
+    tutor = await _tutor_headers(client)
+    payload = _contest_payload(problems=[])
+    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    cid = resp.json()["data"]["id"]
+    # 赛前可编辑
+    resp = await client.put(f"/api/v1/contests/{cid}", json={"title": "赛前改名"}, headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    # 驱动周期任务：start_time 已过 → running
+    async with SessionLocal() as db:
+        from app.services.contest import ContestService
+
+        await ContestService(db).transition()
+        await db.commit()
+    # 比赛开始后 → 结构性字段拒绝
+    resp = await client.put(
+        f"/api/v1/contests/{cid}",
+        json={"problems": [], "title": "赛中改名"},
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 3002, resp.text
+    resp = await client.put(
+        f"/api/v1/contests/{cid}", json={"description": "赛中改说明"}, headers=tutor
+    )
+    assert resp.json()["code"] == 3002, resp.text
+
+
+async def test_announcement_roundtrip(client: httpx.AsyncClient, user_headers) -> None:
+    """公告：赛时可改、详情透出、置空清除；非管理角色 2003。"""
+    tutor = await _tutor_headers(client)
+    payload = _contest_payload(problems=[])
+    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    cid = resp.json()["data"]["id"]
+
+    resp = await client.put(
+        f"/api/v1/contests/{cid}/announcement",
+        json={"announcement": "注意：B 题数据已修正"},
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    detail = (await client.get(f"/api/v1/contests/{cid}")).json()["data"]
+    assert detail["announcement"] == "注意：B 题数据已修正"
+    assert detail["announcement_updated_at"] is not None
+
+    # 置空 = 清除
+    resp = await client.put(
+        f"/api/v1/contests/{cid}/announcement", json={"announcement": ""}, headers=tutor
+    )
+    assert resp.json()["code"] == 0
+    detail = (await client.get(f"/api/v1/contests/{cid}")).json()["data"]
+    assert detail["announcement"] is None
+
+    # 非管理角色 → 2003
+    resp = await client.put(
+        f"/api/v1/contests/{cid}/announcement", json={"announcement": "x"}, headers=user_headers
+    )
+    assert resp.json()["code"] == 2003
+
+
+async def test_scoreboard_show_reveal_order(client: httpx.AsyncClient, user_headers) -> None:
+    """滚榜：揭晓序列按「最终名次从差到好」生成，快照榜为起点、最终榜为终点。"""
+    p1 = await _seed_problem("滚榜题 A")
+    p2 = await _seed_problem("滚榜题 B")
+    tutor = await _tutor_headers(client)
+    now = datetime.now(timezone.utc)
+    payload = _contest_payload(
+        problems=[{"problem_id": p1}, {"problem_id": p2}],
+        start_offset=-7200, end_offset=600, reg_start_offset=-10800, reg_end_offset=-5400,
+        freeze_before_end=300, rule="ACM",
+    )
+    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    cid = uuid_mod.UUID(resp.json()["data"]["id"])
+    async with SessionLocal() as db:
+        uid = (await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))).scalar_one().id
+        db.add(ContestRegistration(contest_id=cid, user_id=uid))
+        await db.commit()
+
+    # 选手：封榜前对 A 提交一次错误（回写榜单 → 快照中可见 attempts=1）
+    async with SessionLocal() as db:
+        from app.services.contest import ContestService
+
+        sub = Submission(
+            user_id=uid, problem_id=p1, language="cpp17", code="x",
+            submit_type="contest", contest_id=cid, status="wrong_answer",
+        )
+        db.add(sub)
+        await db.commit()
+        await ContestService(db).update_ranking_on_result(sub, "wrong_answer")
+        await db.commit()
+    # 将封榜时间拉到当下以进入封榜窗口，触发 transition 记录 frozen_at
+    async with SessionLocal() as db:
+        row = await db.get(Contest, cid)
+        row.freeze_time = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await db.commit()
+    async with SessionLocal() as db:
+        from app.services.contest import ContestService
+
+        await ContestService(db).transition()
+        await db.commit()
+
+    # 冻结期间的提交：先错后对（时间戳必须晚于 frozen_at=transition 执行瞬间）
+    now2 = datetime.now(timezone.utc)
+    async with SessionLocal() as db:
+        db.add(Submission(
+            user_id=uid, problem_id=p1, language="cpp17", code="x",
+            submit_type="contest", contest_id=cid, status="wrong_answer",
+            created_at=now2 + timedelta(seconds=5),
+        ))
+        db.add(Submission(
+            user_id=uid, problem_id=p1, language="cpp17", code="AC",
+            submit_type="contest", contest_id=cid, status="accepted",
+            score=100, created_at=now2 + timedelta(seconds=15),
+        ))
+        await db.commit()
+
+    resp = await client.get(f"/api/v1/contests/{cid}/scoreboard-show", headers=tutor)
+    body = resp.json()
+    assert body["code"] == 0, body
+    data = body["data"]
+    assert data["board_frozen"] is True
+    assert data["frozen_at"] is not None
+
+    # 快照榜：A 格冻结、未 AC、封榜前 1 次错误；最终榜：A 通过（attempts=2，1 冻结期错误）
+    base_cell = data["base_rows"][0]["cells"][0]
+    final_cell = data["final_rows"][0]["cells"][0]
+    assert base_cell["accepted"] is False and base_cell["is_frozen"] is True
+    assert base_cell["attempts"] == 1
+    assert final_cell["accepted"] is True
+
+    # 揭晓序列：全部属于 user（唯一参赛者），AC 在最后一步
+    steps = data["steps"]
+    assert [s["problem_id"] for s in steps] == [p1, p1], f"steps={steps!r}"
+    assert [s["accepted"] for s in steps] == [False, True]
+    assert steps[-1]["penalty"] > 0
+    # 最终榜与序列终态一致：封榜前 1 错 + 冻结期 1 错
+    assert final_cell["attempts"] == 2
+
+    # 非管理角色 → 2003
+    resp = await client.get(f"/api/v1/contests/{cid}/scoreboard-show", headers=user_headers)
+    assert resp.json()["code"] == 2003

@@ -21,9 +21,8 @@ import {
   listContestCellAccepted,
   listContestSubmissions,
   registerContest,
-  unfreezeContestBoard,
 } from '@/api/contests'
-import { confirmAsyncDialog, message } from '@/utils/feedback'
+import { message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
 import { usePagination } from '@/composables/usePagination'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
@@ -253,21 +252,6 @@ async function register() {
   }
 }
 
-/** 手动解冻（admin/tutor）：重算榜单回填封榜期结果 */
-function doUnfreeze() {
-  confirmAsyncDialog({
-    title: t('contests.detail.unfreeze'),
-    content: t('contests.detail.unfreezeConfirm'),
-    positiveText: t('contests.detail.unfreeze'),
-    action: () => unfreezeContestBoard(String(route.params.id)),
-    successMessage: t('common.success'),
-    onAfterSuccess: async () => {
-      await load(true)
-      await loadBoard(true)
-    },
-  })
-}
-
 const statusMeta = computed(() => {
   const map = {
     running: { label: t('contests.statusRunning'), type: 'success' as const },
@@ -324,6 +308,13 @@ const timeRangeText = computed(() => {
   return `${formatDateTime(d.start_time)} → ${formatDateTime(d.end_time)}`
 })
 
+/** 封榜时间（后端直接给绝对时刻；不封榜显示 --） */
+const freezeAtText = computed(() => {
+  const d = detail.value
+  if (!d || !d.freeze_time) return '--'
+  return formatDateTime(d.freeze_time)
+})
+
 // ---------------- 主页：时间轴 ----------------
 
 interface Milestone {
@@ -342,8 +333,13 @@ const schedule = computed<Milestone[]>(() => {
     { label: t('contests.list.regStartTime'), time: d.register_start_time },
     { label: t('contests.list.regEndTime'), time: d.register_end_time },
     { label: t('contests.list.startTime'), time: d.start_time },
-    { label: t('contests.list.endTime'), time: d.end_time },
   ]
+  // 封榜时间点（freeze_time 绝对时刻；NULL = 不封榜，不入时间轴）
+  const freezeAt = d.freeze_time ? new Date(d.freeze_time).getTime() : null
+  if (freezeAt !== null) {
+    items.push({ label: t('contests.list.freezeAt'), time: d.freeze_time as string })
+  }
+  items.push({ label: t('contests.list.endTime'), time: d.end_time })
   const times = items.map((item) => new Date(item.time).getTime())
   // 当前阶段 = 下一个尚未到来的节点（全部结束则无）
   const nextIdx = times.findIndex((ts) => now < ts)
@@ -789,12 +785,11 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
                     </svg>
                   </span>
                   <span class="stat-tile__text">
-                    <span class="stat-tile__value">
-                      {{
-                        detail.freeze_offset_seconds > 0 ? `${detail.freeze_offset_seconds}s` : '--'
-                      }}
-                    </span>
-                    <span class="stat-tile__label">{{ t('contests.list.freezeOffset') }}</span>
+                    <!-- 封榜开始时间（业务口径：绝对时刻，便于对表） -->
+                    <span class="stat-tile__value stat-tile__value--time">{{
+                      freezeAtText
+                    }}</span>
+                    <span class="stat-tile__label">{{ t('contests.list.freezeAt') }}</span>
                   </span>
                 </div>
                 <div class="stat-tile">
@@ -816,6 +811,24 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
 
             <!-- 双栏：时间轴 / 比赛说明 -->
             <div class="home-grid">
+              <!-- 公告条：赛时可由管理角色更新（Markdown） -->
+              <n-alert
+                v-if="detail.announcement"
+                type="info"
+                :bordered="false"
+                class="announcement"
+              >
+                <template #header>
+                  <div class="announcement__head">
+                    <span>{{ t('contests.detail.announcement') }}</span>
+                    <span v-if="detail.announcement_updated_at" class="announcement__time">
+                      {{ t('contests.detail.announcementUpdatedAt') }}
+                      {{ formatDateTime(detail.announcement_updated_at) }}
+                    </span>
+                  </div>
+                </template>
+                <MarkdownView :source="detail.announcement" />
+              </n-alert>
               <section class="panel">
                 <h4 class="panel__title">{{ t('contests.detail.schedule') }}</h4>
                 <div class="timeline">
@@ -877,15 +890,6 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
               >
                 {{ t('contests.frozenHint') }}
               </n-alert>
-              <n-button
-                v-if="detail.can_manage && detail.board_frozen"
-                size="small"
-                type="warning"
-                secondary
-                @click="doUnfreeze"
-              >
-                {{ t('contests.detail.unfreeze') }}
-              </n-button>
             </div>
             <!-- 图例：药丸格语义 + 赛后可点提示 -->
             <div v-if="boardRows.length" class="board-legend">
@@ -1278,6 +1282,10 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   line-height: 1.2;
   color: var(--app-text);
 }
+/* 封榜时间等绝对时刻：缩小字号防溢出瓦片 */
+.stat-tile__value--time {
+  font-size: 14px;
+}
 .stat-tile__label {
   font-size: 12px;
   color: var(--app-text-secondary);
@@ -1297,6 +1305,22 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   gap: 16px;
   align-items: start;
 }
+/* 公告条：跨双栏整行展示（Markdown 正文） */
+.announcement {
+  grid-column: 1 / -1;
+}
+.announcement__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.announcement__time {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-secondary);
+}
+
 .panel {
   display: flex;
   flex-direction: column;

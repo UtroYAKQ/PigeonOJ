@@ -3,6 +3,8 @@
  * 比赛向导 · 步骤 1 基本信息（标题 / 头像 / 说明 / 赛制 / 时间 / 封榜）。
  * 新建：/admin/contests/create；编辑：/admin/contests/:cid/edit/basic。
  * 「保存并下一步」持久化后进入编排题目页（新建用 replace 防止后退重复建赛）。
+ * 赛时调整（公告 / 解榜 / 滚榜）在赛时工具页 /admin/contests/:cid/tools——
+ * 比赛开始后结构性字段被后端守卫锁定（docs/contracts/contests.md「状态守卫与赛时工具」）。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -36,7 +38,8 @@ const form = reactive({
   end: null as number | null,
   regStart: null as number | null,
   regEnd: null as number | null,
-  freeze: 0,
+  /** 封榜时间（绝对时刻；null = 不封榜） */
+  freezeAt: null as number | null,
 })
 
 const rules: FormRules = {
@@ -56,7 +59,7 @@ onMounted(async () => {
     form.end = new Date(detail.end_time).getTime()
     form.regStart = new Date(detail.register_start_time).getTime()
     form.regEnd = new Date(detail.register_end_time).getTime()
-    form.freeze = detail.freeze_offset_seconds
+    form.freezeAt = detail.freeze_time ? new Date(detail.freeze_time).getTime() : null
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.loadFailed'))
     router.push('/admin/contests')
@@ -99,6 +102,11 @@ function validateTimes(): boolean {
     message.error(t('contests.wizard.regEndAfterEnd'))
     return false
   }
+  // 封榜时间（选填）：须晚于开始、不晚于结束（后端 CHECK 同口径兜底）
+  if (form.freezeAt != null && (form.freezeAt <= form.start || form.freezeAt > form.end)) {
+    message.error(t('contests.wizard.freezeRangeInvalid'))
+    return false
+  }
   return true
 }
 
@@ -117,7 +125,8 @@ async function goNext() {
       end_time: new Date(form.end!).toISOString(),
       register_start_time: new Date(form.regStart!).toISOString(),
       register_end_time: new Date(form.regEnd!).toISOString(),
-      freeze_offset_seconds: form.freeze,
+      // 封榜时间：null = 不封榜（清空选择器即取消封榜）
+      freeze_time: form.freezeAt == null ? null : new Date(form.freezeAt).toISOString(),
     }
     let targetId: string
     if (editingId.value) {
@@ -197,9 +206,14 @@ function cancelWizard() {
                 <n-radio-button value="IOI">IOI</n-radio-button>
               </n-radio-group>
             </n-form-item>
-            <n-form-item :label="t('contests.list.freezeOffset')" path="freeze">
+            <n-form-item :label="t('contests.list.freezeAt')" path="freezeAt">
               <div class="freeze-row">
-                <n-input-number v-model:value="form.freeze" :min="0" style="width: 160px" />
+                <n-date-picker
+                  v-model:value="form.freezeAt"
+                  type="datetime"
+                  clearable
+                  style="width: 100%"
+                />
                 <n-tooltip trigger="hover" placement="top">
                   <template #trigger>
                     <n-icon size="15" class="freeze-tip"><InfoFilled /></n-icon>

@@ -234,6 +234,21 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        // 赛时工具页：公告 / 赛后解榜 / 滚榜大屏入口（管理动线，不进前台）
+        path: 'contests/:cid/tools',
+        name: 'admin-contest-tools',
+        component: () => import('@/views/admin/AdminContestToolsView.vue'),
+        meta: {
+          title: '赛时工具',
+          titleKey: 'contests.tools.title',
+          roles: ['admin', 'tutor'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: { titleKey: 'nav.contestsManage', path: '/admin/contests' },
+        },
+      },
+      {
         path: 'contests/:cid/edit/basic',
         name: 'admin-contest-edit-basic',
         component: () => import('@/views/admin/AdminContestBasicView.vue'),

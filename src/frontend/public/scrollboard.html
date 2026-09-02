@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>滚榜 · PigeonOJ</title>
+<style>
+  /* 滚榜大屏：赛后颁奖工具（管理角色），独立于应用壳——新窗口全屏展示。
+     数据源 GET /api/v1/contests/:id/scoreboard-show（require_manage），
+     token 读同源 localStorage（pigeonoj.token），与应用会话一致。 */
+  :root {
+    --bg: #0b1220;
+    --panel: #111a2e;
+    --border: #24314e;
+    --text: #e8edf7;
+    --muted: #8b97b0;
+    --gold: #f5b942;
+    --green: #34d399;
+    --red: #f87171;
+    --blue: #60a5fa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  header {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header h1 { font-size: 22px; font-weight: 700; }
+  header .rule {
+    padding: 2px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  header .spacer { flex: 1; }
+  header .status { color: var(--muted); font-size: 13px; }
+  main { flex: 1; min-height: 0; position: relative; }
+
+  /* 封面倒计时 */
+  .cover {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 24px; z-index: 10;
+    background: var(--bg);
+  }
+  .cover.hidden { display: none; }
+  .cover .count { font-size: 160px; font-weight: 800; color: var(--gold); line-height: 1; }
+  .cover .hint { color: var(--muted); font-size: 16px; }
+
+  /* 控制条 */
+  .controls {
+    flex: none;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 28px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .controls button {
+    padding: 8px 22px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #1a2540;
+    color: var(--text);
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .controls button:hover { border-color: var(--gold); color: var(--gold); }
+  .controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .controls button.primary { background: var(--gold); border-color: var(--gold); color: #201500; font-weight: 700; }
+  .controls .progress { flex: 1; color: var(--muted); font-size: 13px; text-align: center; }
+
+  /* 榜单表 */
+  .board-wrap { position: absolute; inset: 0; overflow: hidden; padding: 12px 28px; }
+  table.board { width: 100%; border-collapse: separate; border-spacing: 0 4px; }
+  table.board thead th {
+    color: var(--muted); font-size: 13px; font-weight: 600;
+    padding: 6px 10px; text-align: center; border-bottom: 1px solid var(--border);
+  }
+  table.board thead th.l { text-align: center; width: 64px; }
+  table.board tbody tr {
+    background: var(--panel);
+    transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.3s;
+  }
+  table.board tbody tr.hl { background: #24334f; outline: 2px solid var(--gold); outline-offset: -2px; }
+  table.board td {
+    padding: 8px 10px; text-align: center;
+    font-size: 15px; font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid var(--border);
+  }
+  td.rank { font-weight: 800; color: var(--gold); width: 70px; }
+  td.team { text-align: left; font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.solved { font-weight: 700; }
+  td.total { color: var(--muted); }
+  .cell {
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+    min-width: 64px; padding: 3px 8px;
+    border-radius: 8px; font-size: 13px; line-height: 1.35;
+    background: #1a2540; color: var(--muted);
+  }
+  .cell .sub { font-size: 11px; opacity: 0.85; }
+  .cell.ac { background: rgba(52, 211, 153, 0.16); color: var(--green); font-weight: 700; }
+  .cell.try { color: var(--red); }
+  .cell.part { color: var(--blue); }
+  .cell.flash { animation: pop 1.1s ease; }
+  @keyframes pop {
+    0% { transform: scale(0.6); }
+    40% { transform: scale(1.25); }
+    100% { transform: scale(1); }
+  }
+  /* 队伍行 FLIP：transform 由 JS 写入 inline style */
+  tr.row-anim { will-change: transform; }
+  .error { padding: 60px; text-align: center; color: var(--red); font-size: 16px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1 id="title">…</h1>
+    <span class="rule" id="rule"></span>
+    <span class="spacer"></span>
+    <span class="status" id="status"></span>
+  </header>
+  <main>
+    <div class="cover" id="cover">
+      <div class="count" id="count">3</div>
+      <div class="hint" id="coverHint">即将开始滚榜</div>
+    </div>
+    <div class="board-wrap" id="boardWrap"></div>
+  </main>
+  <div class="controls">
+    <button class="primary" id="playBtn">▶ 开始</button>
+    <button id="prevBtn" disabled>← 上一步</button>
+    <button id="nextBtn" disabled>下一步 →</button>
+    <button id="speedBtn" title="切换每步间隔">速度 ×1</button>
+    <span class="progress" id="progress">0 / 0</span>
+  </div>
+
+<script>
+(() => {
+  const API_BASE = '/api/v1'
+  const TOKEN_KEY = 'pigeonoj.token'
+  const SPEEDS = [1, 2, 4]
+  const params = new URLSearchParams(location.search)
+  const contestId = params.get('contest_id')
+
+  const $ = (id) => document.getElementById(id)
+  const state = {
+    data: null,          // { rule_type, base_rows, final_rows, steps, problems }
+    renderedRows: [],    // 当前展示的行（含 DOM 引用）
+    applied: 0,          // 已应用步数
+    playing: false,
+    timer: null,
+    speedIdx: 0,
+  }
+
+  async function api(path) {
+    const token = localStorage.getItem(TOKEN_KEY)
+    const resp = await fetch(`${API_BASE}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    const body = await resp.json()
+    if (body.code !== 0) throw new Error(body.message || `HTTP ${resp.status}`)
+    return body.data
+  }
+
+  function cellsOf(row, problemOrder) {
+    const map = new Map(row.cells.map((c) => [c.problem_id, c]))
+    return problemOrder.map((pid) => map.get(pid) || null)
+  }
+
+  function rowHtml(row, problemOrder, ruleType) {
+    const cells = cellsOf(row, problemOrder)
+      .map((c) => {
+        if (!c) return '<td><span class="cell">·</span></td>'
+        let cls = 'cell', main, sub
+        if (ruleType === 'ACM') {
+          if (c.accepted) { cls += ' ac'; main = '+'
+            sub = `${String(Math.floor(c.penalty / 60)).padStart(2, '0')}:${String(c.penalty % 60).padStart(2, '0')}`
+          } else if (c.attempts > 0) { cls += ' try'; main = `-${c.attempts}`; sub = '' }
+          else { main = '+'; sub = '' }
+        } else {
+          if (c.score >= c.problem_score && c.problem_score > 0) cls += ' ac'
+          else if (c.score > 0) cls += ' part'
+          main = c.score; sub = c.attempts > 0 ? `×${c.attempts}` : ''
+        }
+        return `<td><span class="${cls}">${main}${sub ? `<span class="sub">${sub}</span>` : ''}</span></td>`
+      })
+      .join('')
+    const total = ruleType === 'ACM' ? row.total_penalty : row.total_score
+    return `<tr class="row-anim" data-uid="${row.user_id}">
+      <td class="rank">${row.rank}</td>
+      <td class="team">${escapeHtml(row.nickname)}</td>
+      <td class="solved">${row.solved}</td>
+      <td class="total">${total}</td>
+      ${cells}
+    </tr>`
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[ch]))
+  }
+
+  function renderBoard(rows, problemOrder, ruleType) {
+    const head = problemOrder
+      .map((p) => `<th class="l">${escapeHtml(p.letter || '')}</th>`)
+      .join('')
+    $('boardWrap').innerHTML = `
+      <table class="board">
+        <thead><tr>
+          <th class="l">#</th><th style="text-align:left">队伍</th>
+          <th>${ruleType === 'ACM' ? '通过' : '通过'}</th>
+          <th>${ruleType === 'ACM' ? '罚时' : '总分'}</th>${head}
+        </tr></thead>
+        <tbody>${rows.map((r) => rowHtml(r, problemOrder, ruleType)).join('')}</tbody>
+      </table>`
+    state.renderedRows = [...document.querySelectorAll('#boardWrap tbody tr')]
+  }
+
+  /** 应用一步：捕获旧行位置 → 重放到 n+1 步整表重绘 → FLIP 过渡 + 新格高亮 */
+  function applyNext() {
+    const { data } = state
+    const step = data.steps[state.applied]
+    if (!step) return
+    const before = new Map(
+      state.renderedRows.map((el) => [el.dataset.uid, el.getBoundingClientRect().top])
+    )
+    rebuildTo(state.applied + 1)
+    for (const el of state.renderedRows) {
+      const oldTop = before.get(el.dataset.uid)
+      if (oldTop === undefined) continue
+      const delta = oldTop - el.getBoundingClientRect().top
+      if (delta === 0) continue
+      el.style.transform = `translateY(${delta}px)`
+      el.style.transition = 'none'
+      requestAnimationFrame(() => {
+        el.style.transition = ''
+        el.style.transform = ''
+      })
+    }
+    // 高亮被揭晓的队伍行 + 弹出格
+    const fresh = state.renderedRows.find((el) => el.dataset.uid === step.user_id)
+    if (fresh) {
+      fresh.classList.add('hl')
+      const cellIdx = data.problems.findIndex((p) => p.problem_id === step.problem_id)
+      const cellEl = fresh.querySelectorAll('.cell')[cellIdx]
+      if (cellEl) cellEl.classList.add('flash')
+      setTimeout(() => fresh.classList.remove('hl'), 900)
+    }
+  }
+
+  function updateProgress() {
+    $('progress').textContent = `${state.applied} / ${state.data.steps.length}`
+    $('prevBtn').disabled = state.applied === 0
+    $('nextBtn').disabled = state.applied >= state.data.steps.length
+  }
+
+  function next() {
+    const { data } = state
+    if (state.applied >= data.steps.length) { pause(); return }
+    applyNext()
+    updateProgress()
+    if (state.applied >= data.steps.length) pause()
+  }
+
+  function prev() {
+    pause()
+    rebuildTo(Math.max(0, state.applied - 1))
+    updateProgress()
+  }
+
+  function stepIntervalMs() { return 1800 / SPEEDS[state.speedIdx] }
+
+  /** 重建到指定步数（回退 / 前进共用）：从快照重放 n 步整表重绘 */
+  function rebuildTo(n) {
+    const { data } = state
+    const problemOrder = data.problems.map((p) => p.problem_id)
+    // 从快照重放 n 步
+    const teamState = new Map()
+    for (const row of data.base_rows) {
+      teamState.set(row.user_id, {
+        nickname: row.nickname,
+        cells: new Map(row.cells.map((c) => [c.problem_id, { ...c }])),
+      })
+    }
+    for (let i = 0; i < n; i++) {
+      const s = data.steps[i]
+      const t = teamState.get(s.user_id)
+      if (!t) continue
+      const c = t.cells.get(s.problem_id) || { problem_id: s.problem_id, accepted: false, attempts: 0, penalty: 0, score: 0, is_frozen: false }
+      if (s.accepted) { c.accepted = true; c.penalty = s.penalty }
+      else c.attempts = s.attempts
+      if (data.rule_type === 'IOI') c.score = Math.max(c.score, s.score)
+      t.cells.set(s.problem_id, c)
+    }
+    const rows = [...teamState.entries()].map(([uid, t]) => {
+      const cells = problemOrder.map((pid) => t.cells.get(pid) || { problem_id: pid, accepted: false, attempts: 0, penalty: 0, score: 0, is_frozen: false })
+      const r = {
+        user_id: uid, nickname: t.nickname,
+        solved: cells.filter((c) => c.accepted).length,
+        total_penalty: cells.reduce((a, c) => a + c.penalty, 0),
+        total_score: cells.reduce((a, c) => a + c.score, 0),
+        cells,
+      }
+      return r
+    })
+    rows.sort((a, b) =>
+      data.rule_type === 'ACM'
+        ? (b.solved - a.solved) || (a.total_penalty - b.total_penalty) || a.nickname.localeCompare(b.nickname)
+        : (b.total_score - a.total_score) || (b.solved - a.solved) || a.nickname.localeCompare(b.nickname)
+    )
+    rows.forEach((r, i) => { r.rank = i + 1 })
+    renderBoard(rows, data.problems, data.rule_type)
+    state.applied = n
+    state.renderedRows.forEach((el) => { el.style.transform = ''; el.style.transition = '' })
+  }
+
+  function updateProgress() {
+    $('progress').textContent = `${state.applied} / ${state.data.steps.length}`
+    $('prevBtn').disabled = state.applied === 0
+    $('nextBtn').disabled = state.applied >= state.data.steps.length
+  }
+
+  function play() {
+    if (state.applied >= state.data.steps.length) { rebuildTo(0) }
+    state.playing = true
+    $('playBtn').textContent = '⏸ 暂停'
+    state.timer = window.setInterval(() => { if (state.playing) next() }, stepIntervalMs())
+  }
+  function pause() {
+    state.playing = false
+    if (state.timer) { window.clearInterval(state.timer); state.timer = null }
+    $('playBtn').textContent = '▶ 继续'
+  }
+
+  async function countdown() {
+    const cover = $('cover')
+    cover.classList.remove('hidden')
+    for (const n of [3, 2, 1]) {
+      $('count').textContent = n
+      $('coverHint').textContent = '即将开始滚榜'
+      await new Promise((r) => setTimeout(r, 900))
+    }
+    cover.classList.add('hidden')
+  }
+
+  async function init() {
+    if (!contestId) {
+      document.body.innerHTML = '<div class="error">缺少 contest_id 参数</div>'
+      return
+    }
+    try {
+      const data = await api(`/contests/${contestId}/scoreboard-show`)
+      state.data = data
+      $('title').textContent = data.title
+      $('rule').textContent = data.rule_type
+      $('status').textContent = data.board_frozen ? '封榜快照 · 未解冻' : '已解冻'
+      renderBoard(data.base_rows, data.problems, data.rule_type)
+      state.applied = 0
+      updateProgress()
+      await countdown()
+    } catch (e) {
+      document.body.innerHTML = `<div class="error">加载失败：${escapeHtml(e.message)}<br/>请确认已登录管理账号并从比赛详情页打开</div>`
+    }
+  }
+
+  $('playBtn').addEventListener('click', () => (state.playing ? pause() : play()))
+  $('nextBtn').addEventListener('click', () => { pause(); next() })
+  $('prevBtn').addEventListener('click', prev)
+  $('speedBtn').addEventListener('click', () => {
+    state.speedIdx = (state.speedIdx + 1) % SPEEDS.length
+    $('speedBtn').textContent = `速度 ×${SPEEDS[state.speedIdx]}`
+    if (state.playing) { pause(); play() }
+  })
+  window.addEventListener('keydown', (e) => {
+    if (e.key === ' ') { e.preventDefault(); state.playing ? pause() : play() }
+    if (e.key === 'ArrowRight') { pause(); next() }
+    if (e.key === 'ArrowLeft') prev()
+  })
+
+  init()
+})()
+</script>
+</body>
+</html>

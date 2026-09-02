@@ -33,6 +33,7 @@ from app.repositories.contest import (
     ContestSubmissionQueryRepository,
 )
 from app.schemas.contest import (
+    AnnouncementUpdate,
     BoardCell,
     BoardOut,
     BoardRow,
@@ -43,6 +44,8 @@ from app.schemas.contest import (
     ContestSummary,
     ContestUpdate,
     MyContestItem,
+    RevealStep,
+    ScoreboardShowOut,
 )
 from app.schemas.problem import ProblemDetail
 from app.services.problem import ProblemService, to_problem_detail
@@ -50,6 +53,9 @@ from app.services.system_config import ConfigService
 
 # 全站比赛管理角色（docs/contracts/contests.md：公开比赛由 admin/tutor 创建管理）
 CONTEST_MANAGER_ROLES: set[str] = {"admin", "tutor"}
+# 赛时仍可编辑的字段（赛时工具端点承载；PUT 守卫 = ContestUpdate 全部字段 - 本集合）。
+# 从 ContestUpdate.model_fields 推导守卫清单，新增 schema 字段自动纳入锁定
+ANNOUNCEMENT_EDITABLE_FIELDS: set[str] = {"announcement"}
 # ACM 罚时系数默认值（分钟；system_configs contest.penalty_factor_minutes 可覆盖）
 DEFAULT_PENALTY_FACTOR_MINUTES = 20
 
@@ -66,6 +72,178 @@ def _now() -> datetime:
 def _letter(index: int) -> str:
     """比赛题号：A..Z，超出后 A1、B1…（letter VARCHAR(4)）。"""
     return chr(ord("A") + index % 26) + (str(index // 26) if index >= 26 else "")
+
+
+# ---------------- 滚榜纯函数（可单测；不触库） ----------------
+
+
+def _row_key(rule_type: str, row: BoardRow) -> tuple:
+    """榜单排序键（与 board() 口径一致）：ACM 通过数↓罚时↑；IOI 总分↓通过数↑。"""
+    if rule_type == RuleType.ACM:
+        return (-row.solved, row.total_penalty, row.nickname)
+    return (-row.total_score, -row.solved, row.nickname)
+
+
+def _aggregate_final_rows(
+    contest: Contest,
+    subs: list[Submission],
+    contest_problems: list,
+    factor: int,
+    nickname_of: dict[uuid.UUID, str],
+) -> tuple[list[BoardRow], dict]:
+    """以 submissions 现算最终榜（与 _recompute_rankings 同口径，纯函数不落库）。
+
+    返回 (rows, cell_state)：cell_state[(user_id, problem_id)] 为每格终局真值
+    {accepted, attempts, penalty, score}，供揭晓序列逐步演化。
+    """
+    start = _aware(contest.start_time)
+    grouped: dict[tuple[uuid.UUID, uuid.UUID], list[Submission]] = {}
+    for s in subs:
+        if s.status in (
+            SubmissionStatus.PENDING,
+            SubmissionStatus.JUDGING,
+            SubmissionStatus.SYSTEM_ERROR,
+        ):
+            continue
+        grouped.setdefault((s.user_id, s.problem_id), []).append(s)
+
+    cell_state: dict[tuple[uuid.UUID, uuid.UUID], dict] = {}
+    for (user_id, problem_id), group in grouped.items():
+        group.sort(key=lambda s: s.created_at)
+        accepted_subs = [s for s in group if s.status == SubmissionStatus.ACCEPTED]
+        accepted = bool(accepted_subs)
+        first_accepted = accepted_subs[0] if accepted else None
+        if first_accepted is not None:
+            attempts = sum(
+                1 for s in group
+                if s.status != SubmissionStatus.ACCEPTED and s.created_at < first_accepted.created_at
+            )
+            penalty = (
+                int((_aware(first_accepted.created_at) - start).total_seconds() // 60) + attempts * factor
+                if contest.rule_type == RuleType.ACM
+                else 0
+            )
+        else:
+            attempts = len(group)
+            penalty = 0
+        score = max((int(s.score or 0) for s in group), default=0)
+        cell_state[(user_id, problem_id)] = {
+            "accepted": accepted,
+            "attempts": attempts,
+            "penalty": penalty,
+            "score": score,
+        }
+
+    user_ids = {uid for uid, _pid in grouped}
+    rows: list[BoardRow] = []
+    for user_id in user_ids:
+        cells = [
+            BoardCell(
+                problem_id=cp.problem_id,
+                letter=cp.letter,
+                problem_score=cp.score,
+                accepted=cell_state.get((user_id, cp.problem_id), {}).get("accepted", False),
+                attempts=cell_state.get((user_id, cp.problem_id), {}).get("attempts", 0),
+                penalty=cell_state.get((user_id, cp.problem_id), {}).get("penalty", 0),
+                score=cell_state.get((user_id, cp.problem_id), {}).get("score", 0),
+                is_frozen=False,
+            )
+            for cp, _problem in contest_problems
+        ]
+        rows.append(
+            BoardRow(
+                rank=0,
+                user_id=user_id,
+                nickname=nickname_of.get(user_id, ""),
+                solved=sum(1 for c in cells if c.accepted),
+                total_penalty=sum(c.penalty for c in cells),
+                total_score=sum(c.score for c in cells),
+                cells=cells,
+            )
+        )
+    rows.sort(key=lambda r: _row_key(contest.rule_type, r))
+    for index, row in enumerate(rows):
+        row.rank = index + 1
+    return rows, cell_state
+
+
+def build_reveal_steps(
+    rule_type: str,
+    pending: list[Submission],
+    final_rows: list[BoardRow],
+    base_rows: list[BoardRow],
+    nickname_of: dict[uuid.UUID, str],
+) -> list[RevealStep]:
+    """domjudge 式揭晓序列（纯函数，可单测）。
+
+    队伍按「最终名次从差到好」依次结算（同队内按提交时间序）。每一步只把该队
+    向其终局状态演化一格：partial 演化 ⊆ 终局 ⇒ 部分名次恒不劣于终局名次，
+    已结算的更差队伍永远在其下方——动画中队伍名次单调（ICPC 滚榜不变式）。
+    """
+    if not pending:
+        return []
+    letters: dict[uuid.UUID, str | None] = {}
+    for row in final_rows:
+        for cell in row.cells:
+            letters.setdefault(cell.problem_id, cell.letter)
+
+    # 演化起点 = 冻结快照（base_rows）；终点真值 = final_rows
+    state: dict[tuple[uuid.UUID, uuid.UUID], dict] = {}
+    for row in base_rows:
+        for cell in row.cells:
+            state[(row.user_id, cell.problem_id)] = {
+                "accepted": cell.accepted,
+                "attempts": cell.attempts,
+                "penalty": cell.penalty,
+                "score": cell.score,
+            }
+    final_state: dict[tuple[uuid.UUID, uuid.UUID], dict] = {
+        (row.user_id, cell.problem_id): {
+            "accepted": cell.accepted,
+            "attempts": cell.attempts,
+            "penalty": cell.penalty,
+            "score": cell.score,
+        }
+        for row in final_rows
+        for cell in row.cells
+    }
+
+    queue: dict[uuid.UUID, list[Submission]] = {}
+    for s in sorted(pending, key=lambda s: s.created_at):
+        queue.setdefault(s.user_id, []).append(s)
+
+    # 最差终局名次先滚（rank 越大越差）
+    final_rank_of = {row.user_id: row.rank for row in final_rows}
+    reveal_order = sorted(queue, key=lambda uid: -final_rank_of.get(uid, 0))
+
+    steps: list[RevealStep] = []
+    for uid in reveal_order:
+        for s in queue[uid]:
+            key = (uid, s.problem_id)
+            st = state.get(key, {"accepted": False, "attempts": 0, "penalty": 0, "score": 0})
+            fin = final_state.get(key, {"accepted": False, "attempts": 0, "penalty": 0, "score": 0})
+            if s.status == SubmissionStatus.ACCEPTED:
+                st["accepted"] = True
+                st["penalty"] = fin["penalty"]
+            else:
+                st["attempts"] += 1
+            st["score"] = max(st["score"], int(s.score or 0))
+            state[key] = st
+            steps.append(
+                RevealStep(
+                    user_id=uid,
+                    nickname=nickname_of.get(uid, ""),
+                    problem_id=s.problem_id,
+                    letter=letters.get(s.problem_id),
+                    submission_id=s.id,
+                    created_at=s.created_at,
+                    accepted=s.status == SubmissionStatus.ACCEPTED,
+                    score=st["score"] if rule_type == RuleType.IOI else 0,
+                    penalty=st["penalty"] if rule_type == RuleType.ACM else 0,
+                    attempts=st["attempts"],
+                )
+            )
+    return steps
 
 
 class ContestSubmitter(Protocol):
@@ -201,7 +379,7 @@ class ContestService:
             end_time=contest.end_time,
             register_start_time=contest.register_start_time,
             register_end_time=contest.register_end_time,
-            freeze_offset_seconds=contest.freeze_offset_seconds,
+            freeze_time=contest.freeze_time,
             board_frozen=contest.board_frozen,
             status=contest.status,
             problem_count=problems.get(contest.id, 0),
@@ -257,6 +435,8 @@ class ContestService:
             can_view_problems=can_view_problems,
             can_submit=registered and start <= now <= end,
             can_manage=can_manage,
+            announcement=contest.announcement,
+            announcement_updated_at=contest.announcement_updated_at,
             problems=items,
         )
 
@@ -467,7 +647,7 @@ class ContestService:
                 end_time=_aware(body.end_time),
                 register_start_time=_aware(body.register_start_time),
                 register_end_time=_aware(body.register_end_time),
-                freeze_offset_seconds=body.freeze_offset_seconds,
+                freeze_time=_aware(body.freeze_time) if body.freeze_time else None,
                 status=ContestStatus.SCHEDULED,
             )
         )
@@ -478,6 +658,23 @@ class ContestService:
         self, contest_id: uuid.UUID, user: User, body: ContestUpdate
     ) -> ContestSummary:
         contest = await self.require_manage(contest_id, user)
+        # 赛时守卫：比赛开始后结构性信息冻结（docs/contracts/contests.md 状态守卫节）——
+        # 影响比赛公平 / 结构的字段一律拒绝；赛中调整走受控端点（公告 / 后续延时）。
+        # 守卫字段从 ContestUpdate 模型定义推导（杜绝与 schema 脱节的「魔法字段清单」）：
+        # 即「全部字段 - 公告类」，freeze_time 的显式 null（取消封榜）同样计入
+        if contest.status != ContestStatus.SCHEDULED:
+            structural = set(ContestUpdate.model_fields) - ANNOUNCEMENT_EDITABLE_FIELDS
+            touched = {
+                field
+                for field in structural
+                if getattr(body, field) is not None or field in body.model_fields_set
+            }
+            if touched:
+                raise APIError(
+                    RESOURCE_STATE_CONFLICT,
+                    "比赛已开始，不可修改结构性信息（公告等赛时调整请使用赛时工具）",
+                    409,
+                )
         if body.title is not None:
             contest.title = body.title.strip()
         if body.description is not None:
@@ -486,9 +683,8 @@ class ContestService:
             contest.logo = body.logo
         if body.rule_type is not None:
             contest.rule_type = body.rule_type
-        if body.freeze_offset_seconds is not None:
-            contest.freeze_offset_seconds = body.freeze_offset_seconds
-        # 时间四元组为整体约束：合并补丁与现值后整体校验，再统一回写
+        # 时间五元组为整体约束：合并补丁与现值后整体校验，再统一回写。
+        # freeze_time 经 model_fields_set 区分「未传（不动）」与「显式 null（取消封榜）」
         start = _aware(body.start_time) if body.start_time else _aware(contest.start_time)
         end = _aware(body.end_time) if body.end_time else _aware(contest.end_time)
         reg_start = (
@@ -501,11 +697,20 @@ class ContestService:
             if body.register_end_time
             else _aware(contest.register_end_time)
         )
+        if "freeze_time" in body.model_fields_set:
+            freeze_at = _aware(body.freeze_time) if body.freeze_time else None
+        else:
+            freeze_at = _aware(contest.freeze_time) if contest.freeze_time else None
         self._validate_times(start, end, reg_start, reg_end)
+        if freeze_at is not None and not (start < freeze_at <= end):
+            raise APIError(
+                PARAM_FORMAT_INVALID, "封榜时间必须晚于开始时间且不晚于结束时间", 400
+            )
         contest.start_time = start
         contest.end_time = end
         contest.register_start_time = reg_start
         contest.register_end_time = reg_end
+        contest.freeze_time = freeze_at
         if body.problems is not None:
             await self._validate_problem_ids(user, [p.problem_id for p in body.problems])
             await self._replace_problems(contest.id, body.problems)
@@ -655,12 +860,32 @@ class ContestService:
     # ---------------- 封榜 / 解冻 / 状态推进 ----------------
 
     async def unfreeze(self, user: User, contest_id: uuid.UUID) -> ContestSummary:
-        """手动解冻（admin/tutor）：从 submissions 权威重算榜单，回填封榜期间结果。"""
+        """手动解冻（admin/tutor）：从 submissions 权威重算榜单，回填封榜期间结果。
+
+        仅赛后可执行（running 时返回 3002）——封榜是赛时公平性机制，
+        赛中解冻会提前泄露封榜期提交结果；比赛结束前榜单保持冻结快照。
+        """
         contest = await self.require_manage(contest_id, user)
+        if contest.status == ContestStatus.RUNNING:
+            raise APIError(RESOURCE_STATE_CONFLICT, "比赛进行中不可解冻榜单", 409)
         if not contest.board_frozen:
             raise APIError(RESOURCE_STATE_CONFLICT, "榜单未处于冻结中", 409)
         await self._recompute_rankings(contest)
         contest.board_frozen = False
+        await self.db.flush()
+        return await self._to_summary(self.repo, contest)
+
+    async def update_announcement(
+        self, user: User, contest_id: uuid.UUID, body: AnnouncementUpdate
+    ) -> ContestSummary:
+        """更新比赛公告（admin/tutor / 团队管理角色；赛时唯一允许的题外编辑）。
+
+        空字符串 = 清空公告（详情页公告条随之隐藏）。
+        """
+        contest = await self.require_manage(contest_id, user)
+        content = body.announcement.strip()
+        contest.announcement = content or None
+        contest.announcement_updated_at = _now()
         await self.db.flush()
         return await self._to_summary(self.repo, contest)
 
@@ -722,6 +947,72 @@ class ContestService:
         await self.rankings.delete_rows(contest.id)
         await self.rankings.add_rows(fresh)
 
+    # ---------------- 滚榜（赛后大屏工具；只读，不改变榜单状态） ----------------
+
+    async def scoreboard_show(self, user: User, contest_id: uuid.UUID) -> ScoreboardShowOut:
+        """滚榜数据包：冻结快照榜（起点）+ 最终榜（终点）+ 封榜期提交揭晓序列。
+
+        管理角色专用（require_manage）；不落库、不解冻——final_rows 由 submissions
+        现算，base_rows 为榜单表当前快照。封榜期提交以 frozen_at 为界；
+        frozen_at 缺失（历史比赛未记录）回退为封榜配置时间 freeze_time 推导。
+        """
+        contest = await self.require_manage(contest_id, user)
+        contest_problems = await self.repo.list_contest_problems(contest.id)
+        items = sorted(
+            (
+                ContestProblemItemOut(
+                    problem_id=cp.problem_id, letter=cp.letter, score=cp.score,
+                    sort_order=cp.sort_order, title=problem.title,
+                )
+                for cp, problem in contest_problems
+            ),
+            key=lambda i: i.sort_order,
+        )
+
+        # 起点：榜单表现状（封榜快照；未封榜则与 final 一致，滚榜退化为纯展示）
+        base_rows = (await self.board(contest.id)).rows
+
+        # 终点：以 submissions 为唯一事实源现算最终榜（不落库）
+        subs = await self.submissions.list_contest_submissions(contest.id)
+        nickname_of = await self.submissions.list_team_nicknames(contest.id)
+        factor = int(
+            await self.config.get_value(
+                "contest", "contest.penalty_factor_minutes", DEFAULT_PENALTY_FACTOR_MINUTES
+            )
+        )
+        final_rows, _cell_state = _aggregate_final_rows(
+            contest, subs, contest_problems, factor, nickname_of
+        )
+
+        # 揭晓序列：封榜期终态提交（frozen_at 为界，缺省按封榜窗口推导）
+        if contest.frozen_at is not None:
+            freeze_moment = _aware(contest.frozen_at)
+        else:
+            # frozen_at 缺失（历史数据）回退：封榜配置时刻；仍缺失（未封榜）回退比赛开始
+            freeze_moment = (
+                _aware(contest.freeze_time) if contest.freeze_time else _aware(contest.start_time)
+            )
+        pending = [
+            s
+            for s in subs
+            if s.status
+            not in (SubmissionStatus.PENDING, SubmissionStatus.JUDGING, SubmissionStatus.SYSTEM_ERROR)
+            and _aware(s.created_at) >= freeze_moment
+        ]
+        steps = build_reveal_steps(contest.rule_type, pending, final_rows, base_rows, nickname_of)
+
+        return ScoreboardShowOut(
+            contest_id=contest.id,
+            title=contest.title,
+            rule_type=contest.rule_type,
+            board_frozen=contest.board_frozen,
+            frozen_at=contest.frozen_at,
+            problems=items,
+            base_rows=base_rows,
+            final_rows=final_rows,
+            steps=steps,
+        )
+
     async def transition(self) -> None:
         """周期状态推进：开赛 → running；封榜（自动）；结束 → finished（不自动解冻）。
 
@@ -732,14 +1023,10 @@ class ContestService:
         now = _now()
         # 开赛
         await self.repo.start_due_contests(now)
-        # 封榜：进入封榜窗口（end_time - now <= freeze_offset）
-        freezing = [
-            contest
-            for contest in await self.repo.list_freeze_candidates(now)
-            if contest.end_time <= now + timedelta(seconds=contest.freeze_offset_seconds)
-        ]
+        # 封榜：到达封榜时间（freeze_time <= now，repo 直接筛出候选）
+        freezing = await self.repo.list_freeze_candidates(now)
         if freezing:
-            await self.repo.freeze_contests([c.id for c in freezing])
+            await self.repo.freeze_contests([c.id for c in freezing], now)
             for contest in freezing:
                 await self.rankings.freeze_rows(contest.id)
         # 结束（不自动解冻：真实榜单回填由人工解冻触发）

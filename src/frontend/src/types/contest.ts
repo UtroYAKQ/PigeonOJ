@@ -24,11 +24,12 @@ export interface ContestCreatePayload {
   end_time: string
   register_start_time: string
   register_end_time: string
-  freeze_offset_seconds?: number
+  /** 封榜时间（绝对时刻；缺省 = 不封榜） */
+  freeze_time?: string | null
   problems?: ContestProblemPayload[]
 }
 
-/** 编辑比赛（缺省不动；problems 传即全量重排） */
+/** 编辑比赛（缺省不动；problems 传即全量重排；freeze_time 显式 null = 取消封榜） */
 export interface ContestEditPayload {
   title?: string
   description?: string | null
@@ -38,7 +39,7 @@ export interface ContestEditPayload {
   end_time?: string
   register_start_time?: string
   register_end_time?: string
-  freeze_offset_seconds?: number
+  freeze_time?: string | null
   problems?: ContestProblemPayload[] | null
 }
 
@@ -62,7 +63,8 @@ export interface ContestSummary {
   end_time: string
   register_start_time: string
   register_end_time: string
-  freeze_offset_seconds: number
+  /** 封榜时间（绝对时刻；null = 不封榜） */
+  freeze_time: string | null
   board_frozen: boolean
   status: ContestStatusType
   problem_count: number
@@ -78,6 +80,9 @@ export interface ContestDetail extends ContestSummary {
   can_view_problems: boolean
   can_submit: boolean
   can_manage: boolean
+  /** 比赛公告（Markdown，赛时可改；空 = 未发布） */
+  announcement?: string | null
+  announcement_updated_at?: string | null
   problems: ContestProblemItem[]
 }
 
@@ -109,6 +114,35 @@ export interface Board {
   rule_type: ContestRuleType
   board_frozen: boolean
   rows: BoardRow[]
+}
+
+/** 滚榜单步：揭晓一条封榜期提交（队伍行随之重排动画） */
+export interface RevealStep {
+  user_id: string
+  nickname: string
+  problem_id: string
+  letter?: string | null
+  submission_id: string
+  created_at: string
+  accepted: boolean
+  /** IOI：该步后该格分数（ACM 恒 0） */
+  score: number
+  /** ACM：该步后该格罚时（分钟） */
+  penalty: number
+  attempts: number
+}
+
+/** 滚榜数据包（赛后大屏工具，管理角色专用；只读不解冻） */
+export interface ScoreboardShow {
+  contest_id: string
+  title: string
+  rule_type: ContestRuleType
+  board_frozen: boolean
+  frozen_at?: string | null
+  problems: ContestProblemItem[]
+  base_rows: BoardRow[]
+  final_rows: BoardRow[]
+  steps: RevealStep[]
 }
 
 export interface MyContestItem extends ContestSummary {

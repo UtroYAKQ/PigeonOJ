@@ -2,11 +2,13 @@
 /**
  * 比赛管理（管理后台，admin/tutor；docs/contracts/contests.md）：
  * 全量比赛列表；行点击进入编辑页，创建走全页表单（/admin/contests/create）。
+ * 「赛时工具」行内操作跳转独立工具页（公告 / 赛后解榜 / 滚榜大屏）——比赛开始后
+ * 结构性字段被后端守卫锁定，赛时调整收敛到工具页（docs/contracts/contests.md「状态守卫与赛时工具」）。
  */
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NTag } from 'naive-ui'
+import { NButton, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import RefreshButton from '@/components/RefreshButton.vue'
@@ -96,6 +98,26 @@ const columns = computed<DataTableColumns<ContestSummary>>(() => [
     render: (row) => t('contests.list.problemCount', { count: row.problem_count }),
   },
   {
+    title: t('contests.tools.title'),
+    key: 'tools',
+    width: 100,
+    render: (row) =>
+      row.status === 'scheduled'
+        ? h('span', { class: 'tools-cell tools-cell--idle' }, '—')
+        : h(
+            NButton,
+            {
+              size: 'tiny',
+              secondary: true,
+              onClick: (event: MouseEvent) => {
+                event.stopPropagation()
+                router.push(`/admin/contests/${row.id}/tools`)
+              },
+            },
+            { default: () => t('contests.tools.title') },
+          ),
+  },
+  {
     title: t('action.edit'),
     key: 'actions',
     width: 90,
@@ -177,5 +199,9 @@ function rowProps(row: ContestSummary) {
 .contest-name span {
   color: var(--app-text-secondary);
   font-size: 12px;
+}
+.tools-cell--idle {
+  color: var(--app-text-secondary);
+  opacity: 0.5;
 }
 </style>
