@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 题面正文：题目背景 / 描述 / 输入输出说明 / 展示样例 / 官方题解（可选）。
+ * 题面正文：题目背景 / 描述 / 输入输出说明 / 展示样例 / 题面说明（可选） / 官方题解（可选）。
  * 题目详情页、管理预览页、验题面板三处共用；样例统一走 ProblemSamples，
  * 保证「复制输入」等交互全站一致。
  */
@@ -19,6 +19,7 @@ withDefaults(
       | 'input_description'
       | 'output_description'
       | 'samples'
+      | 'note'
       | 'solution'
     >
     /** 是否渲染官方题解分区（solution 为空时始终不渲染） */
@@ -57,6 +58,12 @@ const { t } = useI18n()
       {{ t('problems.detail.samples') }}
     </h3>
     <ProblemSamples v-if="problem.samples?.length" :samples="problem.samples" />
+
+    <!-- 题面说明：题面最后一个分区，填写后才渲染 -->
+    <template v-if="problem.note">
+      <h3 class="problem-statement__subtitle">{{ t('problems.detail.note') }}</h3>
+      <MarkdownView :source="problem.note" />
+    </template>
 
     <template v-if="showSolution && problem.solution">
       <h3 class="problem-statement__subtitle">{{ t('problems.detail.solution') }}</h3>

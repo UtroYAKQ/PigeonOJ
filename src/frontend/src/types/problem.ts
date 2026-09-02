@@ -35,6 +35,8 @@ export interface ProblemSample {
   name: string
   input: string
   output: string
+  /** 样例解释（Markdown；空字符串 = 无解释，不渲染解释区块） */
+  explanation?: string
 }
 export interface ProblemTestCase {
   id: string
@@ -53,6 +55,8 @@ export interface ProblemDetail extends ProblemSummary {
   description: string
   input_description?: string | null
   output_description?: string | null
+  /** 题面说明（可选，Markdown，渲染于题面最后） */
+  note?: string | null
   solution?: string | null
   owner_id: string
   samples: ProblemSample[]
@@ -111,6 +115,8 @@ export interface ProblemEditPayload {
   description?: string
   input_description?: string | null
   output_description?: string | null
+  /** 题面说明（Markdown；空字符串 = 清空，undefined = 不改动） */
+  note?: string | null
   solution?: string | null
   /** 激活标签名（≤8；全量替换关联，undefined = 不改动） */
   tags?: string[]

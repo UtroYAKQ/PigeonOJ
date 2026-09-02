@@ -20,7 +20,8 @@ const loading = ref(false)
 const list = ref<Report[]>([])
 const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
   usePagination()
-const query = reactive({ status: '' as ReportStatus | '' })
+/** n-select 以 null 表示不限：'' 会被 naive-ui fallback 渲染成空串，placeholder 不展示 */
+const query = reactive({ status: null as ReportStatus | null })
 const handleDialog = ref(false)
 const handleTarget = ref<Report | null>(null)
 const handleAction = ref<'handled' | 'ignored'>('handled')

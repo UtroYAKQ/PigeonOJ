@@ -3,51 +3,17 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
-interface Crumb {
-  label: string
-  to?: string
-}
+import { buildCrumbs } from '@/router/crumbs'
 
 /**
- * 面包屑定位：只反映真实层级（如 管理后台/用户管理、题库/题目详情）；
- * 首页与顶级区块互相平级，不作为面包屑起点。
+ * 面包屑展示：层级解析收敛到 router/crumbs.ts（与 AppLayout 链式缓存共用同一解析，
+ * 保证「点面包屑返回的页」与「被缓存的页」永远一致）。
  */
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 
-const crumbs = computed<Crumb[]>(() => {
-  const items: Crumb[] = []
-  route.matched.forEach((record, index) => {
-    if (!record.meta?.titleKey && !record.meta?.title) return
-    if (record.path === '') return // 根路由即首页，平级关系不入面包屑
-    const label = record.meta?.titleKey
-      ? t(String(record.meta.titleKey))
-      : String(record.meta?.title ?? '')
-    if (!label || items.some((c) => c.label === label)) return
-    const isLast = index === route.matched.length - 1
-    const target = !isLast && typeof record.redirect === 'string' ? record.redirect : undefined
-    items.push({ label, to: isLast ? undefined : (target ?? (record.path || '/')) })
-  })
-
-  // 上下文页归属工作台：在末项前插入面包屑父级（如 题库/题目管理/编辑题目；
-  // 题单上下文写题页挂到具体题单详情 —— path 支持按当前路由参数解析动态路径；
-  // 数组形式声明多级父链，按序插入：题单/题单详情/题目详情/评测结果）
-  const leafMeta = route.matched[route.matched.length - 1]?.meta
-  const parentConfig = leafMeta?.breadcrumbParent
-  const parents = parentConfig ? (Array.isArray(parentConfig) ? parentConfig : [parentConfig]) : []
-  if (parents.length && items.length >= 1) {
-    for (const parent of parents) {
-      const parentLabel = t(String(parent.titleKey))
-      if (items.some((c) => c.label === parentLabel)) continue
-      const parentPath = typeof parent.path === 'function' ? parent.path(route) : parent.path
-      items.splice(Math.max(items.length - 1, 0), 0, { label: parentLabel, to: parentPath })
-    }
-  }
-
-  if (items.length === 1) items[0].to = undefined // 仅剩单项时即为当前页，无需链接
-  return items
-})
+const crumbs = computed(() => buildCrumbs(route, (key) => t(key)))
 </script>
 
 <template>

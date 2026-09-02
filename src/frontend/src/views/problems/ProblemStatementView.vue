@@ -23,6 +23,7 @@ const form = reactive({
   description: '',
   input_description: '',
   output_description: '',
+  note: '',
   solution: '',
   /** 标签名（激活标签；≤8，docs/contracts/problems.md） */
   tags: [] as string[],
@@ -35,6 +36,14 @@ const form = reactive({
 const tagOptions = ref<Array<{ label: string; value: string }>>([])
 /** 官方题解编辑器懒挂载：首次展开折叠面板时才创建编辑器实例 */
 const solutionMounted = ref(false)
+/** 题面说明（可选）：与官方题解同款折叠交互 */
+const showNote = ref(false)
+const noteMounted = ref(false)
+
+function toggleNote() {
+  showNote.value = !showNote.value
+  if (showNote.value) noteMounted.value = true
+}
 
 function toggleSolution() {
   showSolution.value = !showSolution.value
@@ -62,6 +71,7 @@ async function loadExisting() {
       description: loaded.description,
       input_description: loaded.input_description ?? '',
       output_description: loaded.output_description ?? '',
+      note: loaded.note ?? '',
       solution: loaded.solution ?? '',
       tags: [...(loaded.tags ?? [])],
       visibility: loaded.visibility ?? 'public',
@@ -69,6 +79,11 @@ async function loadExisting() {
       memory_limit_mb: loaded.memory_limit_mb,
       difficulty: loaded.difficulty ?? null,
     })
+    // 已有说明时默认展开编辑器
+    if (form.note) {
+      showNote.value = true
+      noteMounted.value = true
+    }
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
     router.push('/admin/problems')
@@ -105,6 +120,8 @@ async function goNext() {
       description: form.description,
       input_description: form.input_description || null,
       output_description: form.output_description || null,
+      // 空字符串 = 清空说明（后端 PUT 语义："" 置 NULL）
+      note: form.note,
       solution: form.solution || null,
       tags: form.tags,
       visibility: form.visibility,
@@ -216,6 +233,19 @@ const visibilityOptions = computed(() => [
               <MarkdownEditor v-model="form.output_description" min-height="180px" compact />
             </n-form-item>
           </div>
+
+          <!-- 题面说明：可选题面要素，渲染于题面最后；与官方题解同款折叠交互 -->
+          <div class="solution-head">
+            <span class="section-title">{{ t('problems.create.note') }}</span>
+            <n-button text size="small" type="primary" @click="toggleNote">
+              {{ showNote ? t('problems.create.noteHide') : t('problems.create.noteAdd') }}
+            </n-button>
+          </div>
+          <n-collapse-transition :show="showNote">
+            <n-form-item v-if="noteMounted" :show-feedback="false" class="solution-field">
+              <MarkdownEditor v-model="form.note" min-height="160px" compact />
+            </n-form-item>
+          </n-collapse-transition>
 
           <!-- 官方题解：分区头 + 右侧展开入口；首次展开才挂载编辑器（避免在 0 高折叠容器中初始化） -->
           <div class="solution-head">

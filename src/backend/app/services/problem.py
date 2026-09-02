@@ -227,6 +227,7 @@ class ProblemService:
             description=body.description,
             input_description=body.input_description,
             output_description=body.output_description,
+            note=body.note,
             solution=body.solution,
             visibility=body.visibility,
             time_limit_ms=body.time_limit_ms,
@@ -304,7 +305,12 @@ class ProblemService:
     def _samples_view(problem: Problem) -> list[SampleOut]:
         """problems.samples JSONB → 展示结构（name 按序派生，不暴露内部 id）。"""
         return [
-            SampleOut(name=f"sample{index}", input=item.get("input") or "", output=item.get("output") or "")
+            SampleOut(
+                name=f"sample{index}",
+                input=item.get("input") or "",
+                output=item.get("output") or "",
+                explanation=item.get("explanation") or "",
+            )
             for index, item in enumerate(problem.samples or [], start=1)
             if isinstance(item, dict)
         ]
@@ -323,6 +329,8 @@ class ProblemService:
             problem.input_description = body.input_description
         if body.output_description is not None:
             problem.output_description = body.output_description
+        if body.note is not None:
+            problem.note = body.note or None
         if body.solution is not None:
             problem.solution = body.solution
         if body.visibility is not None:
@@ -579,7 +587,15 @@ class ProblemService:
         problem = await self._require_manage(user, problem_id)
         if problem.status == ProblemStatus.ARCHIVED:
             raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑样例", 409)
-        problem.samples = [s.model_dump() for s in body.samples]
+        # explanation 仅在非空时落键（JSONB 存量格式保持 {"input", "output"} 干净）
+        problem.samples = [
+            {
+                "input": s.input,
+                "output": s.output,
+                **({"explanation": s.explanation} if s.explanation else {}),
+            }
+            for s in body.samples
+        ]
         problem.samples_updated_at = datetime.now()
         problem.updated_at = datetime.now()
         await self.db.flush()
@@ -696,6 +712,7 @@ class ProblemService:
             description=problem.description,
             input_description=problem.input_description,
             output_description=problem.output_description,
+            note=problem.note,
             tags=await self.verifications.tag_names(problem.id),
             time_limit_ms=problem.time_limit_ms,
             memory_limit_mb=problem.memory_limit_mb,
@@ -739,6 +756,7 @@ def to_problem_detail(detail: ProblemDetailData) -> ProblemDetail:
         description=problem.description,
         input_description=problem.input_description,
         output_description=problem.output_description,
+        note=problem.note,
         solution=problem.solution if detail.can_manage else None,
         time_limit_ms=problem.time_limit_ms,
         memory_limit_mb=problem.memory_limit_mb,

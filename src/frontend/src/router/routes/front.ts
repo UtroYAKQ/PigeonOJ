@@ -20,7 +20,7 @@ export const frontRoutes: RouteRecordRaw[] = [
         path: 'list',
         name: 'problems',
         component: () => import('@/views/problems/ProblemListView.vue'),
-        meta: { title: '题库', titleKey: 'nav.problems', icon: 'Collection' },
+        meta: { title: '题库', titleKey: 'nav.problems', icon: 'Collection', keepAlive: true },
       },
       {
         path: ':id',
@@ -32,6 +32,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
+          keepAlive: true,
         },
       },
       {
@@ -44,6 +45,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
+          keepAlive: true,
           // 面包屑：题库 / 题目详情 / 评测结果（父级动态解析到当前题目详情页）
           breadcrumbParent: {
             titleKey: 'problems.detail.title',
@@ -62,7 +64,7 @@ export const frontRoutes: RouteRecordRaw[] = [
         path: 'list',
         name: 'problem-sets',
         component: () => import('@/views/problemsets/ProblemSetListView.vue'),
-        meta: { title: '题单', titleKey: 'nav.problemSets', icon: 'Document' },
+        meta: { title: '题单', titleKey: 'nav.problemSets', icon: 'Document', keepAlive: true },
       },
       {
         path: ':id',
@@ -73,6 +75,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           titleKey: 'problemSets.detail.title',
           hidden: true,
           contextPage: true,
+          keepAlive: true,
         },
       },
       {
@@ -87,6 +90,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
+          keepAlive: true,
           breadcrumbParent: {
             titleKey: 'problemSets.detail.title',
             path: (route) => `/problem-sets/${String(route.params.setId)}`,
@@ -103,6 +107,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
+          keepAlive: true,
           breadcrumbParent: [
             {
               titleKey: 'problemSets.detail.title',
@@ -127,7 +132,7 @@ export const frontRoutes: RouteRecordRaw[] = [
         path: 'list',
         name: 'contests',
         component: () => import('@/views/contests/ContestListView.vue'),
-        meta: { title: '比赛', titleKey: 'nav.contests', icon: 'Trophy' },
+        meta: { title: '比赛', titleKey: 'nav.contests', icon: 'Trophy', keepAlive: true },
       },
       {
         path: ':id',
@@ -138,6 +143,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           titleKey: 'contests.detail.title',
           hidden: true,
           contextPage: true,
+          keepAlive: true,
         },
       },
       {
@@ -152,6 +158,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
+          keepAlive: true,
           breadcrumbParent: {
             titleKey: 'contests.detail.title',
             path: (route) => `/contests/${String(route.params.cid)}`,
@@ -168,6 +175,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
+          keepAlive: true,
           breadcrumbParent: [
             {
               titleKey: 'contests.detail.title',
@@ -193,6 +201,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
+          keepAlive: true,
           breadcrumbParent: {
             titleKey: 'contests.detail.title',
             path: (route) => `/contests/${String(route.params.cid)}`,
@@ -210,7 +219,13 @@ export const frontRoutes: RouteRecordRaw[] = [
         path: 'mine',
         name: 'teams',
         component: () => import('@/views/teams/TeamListView.vue'),
-        meta: { title: '团队', titleKey: 'nav.teams', icon: 'UserFilled', requiresAuth: true },
+        meta: {
+          title: '团队',
+          titleKey: 'nav.teams',
+          icon: 'UserFilled',
+          requiresAuth: true,
+          keepAlive: true,
+        },
       },
       {
         path: 'invites/:token',
@@ -233,6 +248,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
+          keepAlive: true,
           breadcrumbParent: { titleKey: 'nav.teams', path: '/teams/mine' },
         },
       },

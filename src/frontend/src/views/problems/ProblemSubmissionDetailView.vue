@@ -4,7 +4,7 @@
  * 经题目上下文统一入口读取（管理权限 + 归属校验，docs/contracts/judge.md），
  * 不跳出管理动线；面包屑回提交列表。
  */
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onActivated, onDeactivated, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NButton } from 'naive-ui'
@@ -30,6 +30,8 @@ const showCode = ref(true)
 const MAX_POLLS = 150
 const POLL_INTERVAL_MS = 2000
 const pollCount = ref(0)
+/** KeepAlive 缓存页可见标记：切走（deactivated）时暂停轮询，返回时恢复 */
+const pageActive = ref(true)
 
 // 链式延时轮询：上一次响应返回后再等 2s 才发起下一次（卸载自动取消）
 const scheduleNextPoll = useTimeoutFn(() => void load(true), POLL_INTERVAL_MS, {
@@ -47,7 +49,7 @@ async function load(silent = false) {
   if (!silent) loading.value = true
   try {
     submission.value = await getProblemSubmission(problemId, String(route.params.sid))
-    if (isRunning.value && !pollingStopped.value) {
+    if (isRunning.value && !pollingStopped.value && pageActive.value) {
       pollCount.value += 1
       scheduleNextPoll.start()
     }
@@ -57,6 +59,15 @@ async function load(silent = false) {
     if (!silent) loading.value = false
   }
 }
+
+onDeactivated(() => {
+  pageActive.value = false
+  scheduleNextPoll.stop()
+})
+onActivated(() => {
+  pageActive.value = true
+  if (isRunning.value && !pollingStopped.value) scheduleNextPoll.start()
+})
 
 /** 手动刷新：重置轮询计数并立即拉取 */
 function refreshNow() {

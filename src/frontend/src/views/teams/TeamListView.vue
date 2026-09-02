@@ -108,7 +108,7 @@ onMounted(load)
 </script>
 
 <template>
-  <WorkbenchShell :title="t('nav.teams')">
+  <WorkbenchShell>
     <SearchFilterBar
       :keyword="keyword"
       :placeholder="t('teams.list.search')"

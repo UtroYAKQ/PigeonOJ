@@ -2,6 +2,7 @@
 /**
  * 题目样例展示（极简风）：输入 / 输出上下排布，各自独立展示框；
  * 框头左侧弱化文字标签，右侧复制按钮（复制成功后图标短暂切换为对勾）。
+ * 样例解释（explanation，Markdown）按组渲染于样例框之后，空则不展示。
  */
 import { Check, CopyDocument } from '@element-plus/icons-vue'
 import { ref } from 'vue'
@@ -9,9 +10,10 @@ import { useI18n } from 'vue-i18n'
 
 import { copyToClipboard } from '@/utils/clipboard'
 import { message } from '@/utils/feedback'
+import MarkdownView from '@/components/MarkdownView.vue'
 
 defineProps<{
-  samples: Array<{ name: string; input: string; output: string }>
+  samples: Array<{ name: string; input: string; output: string; explanation?: string }>
 }>()
 
 const { t } = useI18n()
@@ -84,6 +86,12 @@ async function copyText(text: string, key: string) {
           <pre class="sample-pane__body">{{ sample.output || t('problems.detail.noOutput') }}</pre>
         </div>
       </div>
+
+      <!-- 样例解释：按组可选，空则不渲染 -->
+      <div v-if="sample.explanation" class="sample-explanation">
+        <p class="sample-explanation__label">{{ t('problems.detail.explanation') }}</p>
+        <MarkdownView :source="sample.explanation" class="sample-explanation__body" />
+      </div>
     </div>
   </div>
   <n-empty v-else size="small" :description="t('problems.detail.noSamples')" />
@@ -105,6 +113,19 @@ async function copyText(text: string, key: string) {
 .sample-panes {
   display: grid;
   gap: 8px;
+}
+/* 样例解释：弱化标签 + Markdown 正文（≤64KB，按组渲染） */
+.sample-explanation {
+  margin-top: 8px;
+}
+.sample-explanation__label {
+  margin: 0 0 4px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.sample-explanation__body {
+  font-size: 13px;
 }
 .sample-pane {
   overflow: hidden;

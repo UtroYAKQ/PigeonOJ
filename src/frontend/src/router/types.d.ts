@@ -18,6 +18,12 @@ declare module 'vue-router' {
     requiresAuth?: boolean
     /** 公开页面（登录 / 注册），跳过登录校验 */
     public?: boolean
+    /**
+     * 是否 KeepAlive 缓存页面实例（仅无参数的列表 / 工作台页使用）：
+     * 从上下文页经面包屑返回时恢复状态（筛选、页码、数据），不重新拉取；
+     * 详情 / 编辑等参数页一律不缓存（避免跨参数串数据与脏数据）。
+     */
+    keepAlive?: boolean
     /** 占位页配置（尚未实现的模块页面） */
     placeholder?: {
       title?: string

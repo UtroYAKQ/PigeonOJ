@@ -314,10 +314,82 @@ async def test_samples_change_requires_reverification(client, admin_headers, fak
     resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
     detail = resp.json()["data"]
     assert detail["needs_reverification"] is False
-    assert detail["samples"] == [{"name": "sample1", "input": "9", "output": "9"}]
+    assert detail["samples"] == [
+        {"name": "sample1", "input": "9", "output": "9", "explanation": ""}
+    ]
 
     resp = await client.post(f"/api/v1/problems/{pid}/publish", headers=admin_headers)
     assert resp.json()["code"] == 0, resp.text
+
+
+@pytest.mark.asyncio
+async def test_note_and_sample_explanation_roundtrip(client, admin_headers):
+    """题面说明（note）与样例解释（explanation）读写链路（docs/contracts/problems.md）。"""
+    resp = await client.post(
+        "/api/v1/problems",
+        json={
+            "title": "N",
+            "background": "B",
+            "description": "D",
+            "input_description": "I",
+            "output_description": "O",
+            "note": "提示：本题数据保证 A, B < 2^63",
+        },
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    data = resp.json()["data"]
+
+    detail = (await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)).json()["data"]
+    assert detail["note"] == "提示：本题数据保证 A, B < 2^63"
+
+    # PUT 置空字符串 → 清空为 NULL（前端「删除说明」语义）
+    resp = await client.put(f"/api/v1/problems/{data['id']}", json={"note": ""}, headers=admin_headers)
+    assert resp.json()["code"] == 0
+    detail = (await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)).json()["data"]
+    assert detail["note"] is None
+
+    # 未填写说明的题目 note 恒为 None（存量行为不变）
+    other = await _create_problem(client, admin_headers)
+    detail = (await client.get(f"/api/v1/problems/{other['id']}", headers=admin_headers)).json()["data"]
+    assert detail["note"] is None
+
+
+@pytest.mark.asyncio
+async def test_sample_explanation_roundtrip(client, admin_headers, fake_storage):
+    """样例解释随 samples 落库与展示；空解释不落键、输出恒为空字符串。"""
+    data = await _create_problem(client, admin_headers)
+    pid = data["id"]
+
+    resp = await client.put(
+        f"/api/v1/problems/{pid}/samples",
+        json={
+            "samples": [
+                {"input": "1 2", "output": "3", "explanation": "1+2=3"},
+                {"input": "4 5", "output": "9"},
+            ]
+        },
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+
+    detail = (await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)).json()["data"]
+    assert detail["samples"] == [
+        {"name": "sample1", "input": "1 2", "output": "3", "explanation": "1+2=3"},
+        {"name": "sample2", "input": "4 5", "output": "9", "explanation": ""},
+    ]
+
+    # 仅解释变更同样更新 samples_updated_at（触发重验门禁的口径与样例一致）
+    resp = await client.put(
+        f"/api/v1/problems/{pid}/samples",
+        json={"samples": [{"input": "1 2", "output": "3", "explanation": ""}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+    detail = (await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)).json()["data"]
+    assert detail["samples"] == [
+        {"name": "sample1", "input": "1 2", "output": "3", "explanation": ""}
+    ]
 
 
 @pytest.mark.asyncio

@@ -30,6 +30,8 @@ class ProblemCreate(BaseModel):
     description: str = Field(min_length=1)
     input_description: str = Field(min_length=1)
     output_description: str = Field(min_length=1)
+    # 题面说明（可选，Markdown，详情页渲染于题面最后）
+    note: str | None = None
     solution: str | None = None
     tags: list[str] = Field(default_factory=list, max_length=8)
     visibility: ProblemVisibility = ProblemVisibility.PUBLIC
@@ -52,6 +54,8 @@ class ProblemUpdate(BaseModel):
     description: str | None = Field(default=None, min_length=1)
     input_description: str | None = None
     output_description: str | None = None
+    # None = 不改动；"" = 清空
+    note: str | None = None
     solution: str | None = None
     # None = 不改动标签关联；空数组 = 清空
     tags: list[str] | None = Field(default=None, max_length=8)
@@ -131,16 +135,27 @@ class TestCasesPatch(BaseModel):
 
 
 class SampleItem(BaseModel):
-    """展示样例（存 problems.samples JSONB；仅展示与自测，不参与判题）。"""
+    """展示样例（存 problems.samples JSONB；仅展示与自测，不参与判题）。
+
+    explanation 为选填样例解释（Markdown，≤64KB；空 = 该组样例无解释）。
+    """
 
     input: str = Field(default="")
     output: str = Field(default="")
+    explanation: str | None = None
 
     @field_validator("input", "output")
     @classmethod
     def content_bytes_limit(cls, value: str) -> str:
         if len(value.encode("utf-8")) > 64 * 1024:
             raise ValueError("样例内容不能超过 64KB")
+        return value
+
+    @field_validator("explanation")
+    @classmethod
+    def explanation_bytes_limit(cls, value: str | None) -> str | None:
+        if value is not None and value != "" and len(value.encode("utf-8")) > 64 * 1024:
+            raise ValueError("样例解释不能超过 64KB")
         return value
 
 
@@ -197,11 +212,15 @@ class TagPublic(BaseModel):
 
 
 class SampleOut(BaseModel):
-    """展示样例输出（name 按序派生，不暴露内部 id）。"""
+    """展示样例输出（name 按序派生，不暴露内部 id）。
+
+    explanation 为样例解释（空字符串 = 无解释，前端不渲染解释区块）。
+    """
 
     name: str
     input: str
     output: str
+    explanation: str = ""
 
 
 class ProblemSummary(BaseModel):
@@ -259,6 +278,7 @@ class ProblemDetail(BaseModel):
     description: str
     input_description: str | None
     output_description: str | None
+    note: str | None = None
     solution: str | None = None
     time_limit_ms: int
     memory_limit_mb: int
@@ -304,6 +324,7 @@ class VerificationInviteOut(BaseModel):
     description: str
     input_description: str | None
     output_description: str | None
+    note: str | None = None
     tags: list[str]
     time_limit_ms: int
     memory_limit_mb: int

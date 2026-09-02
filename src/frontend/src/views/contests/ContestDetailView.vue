@@ -5,7 +5,7 @@
  * 解冻为 admin/tutor 手动操作（重算回填封榜期结果）；进行中榜单 15s 轮询。
  * 提交记录比赛期间仅管理角色（can_manage）可见，赛后对参赛者开放（行点击进上下文内评测结果页）。
  */
-import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { DataTableColumns } from 'naive-ui'
@@ -59,8 +59,15 @@ const {
   isCurrent: subsIsCurrent,
 } = usePagination()
 
-/** 提交记录筛选条件（昵称关键字 / 语言 / 题目 / 状态，均随请求透传） */
-const subsQuery = reactive({ keyword: '', language: '', problemId: '', status: '' })
+/** 提交记录筛选条件（昵称关键字 / 语言 / 题目 / 状态，均随请求透传）；
+ * 下拉筛选以 null 表示不限——naive-ui n-select 对 '' 会走 fallback 渲染成空串，
+ * placeholder（「全部题目」等文字提示）只在 null 时展示 */
+const subsQuery = reactive({
+  keyword: '',
+  language: null as string | null,
+  problemId: null as string | null,
+  status: null as string | null,
+})
 
 /** 比赛期间（end_time 之前）提交记录对参赛者隐藏；管理角色（admin/tutor）随时可见 */
 const subsLocked = computed(
@@ -192,8 +199,8 @@ function stopPolling() {
   }
 }
 
-onMounted(() => {
-  void load()
+function startTimers() {
+  if (clockTimer !== null || pollTimer !== null) return // 已在运行（如 activated 重复触发）
   clockTimer = window.setInterval(() => {
     nowTick.value = Date.now()
   }, 30_000)
@@ -206,6 +213,22 @@ onMounted(() => {
       void loadBoard(true)
     }
   }, 15000)
+}
+
+onMounted(() => {
+  void load()
+  startTimers()
+})
+// KeepAlive 缓存页：被切走时停表（后台不空转），返回时恢复
+onDeactivated(() => {
+  stopPolling()
+  if (clockTimer !== null) {
+    window.clearInterval(clockTimer)
+    clockTimer = null
+  }
+})
+onActivated(() => {
+  startTimers()
 })
 onBeforeUnmount(() => {
   stopPolling()

@@ -41,6 +41,7 @@ export const adminRoutes: RouteRecordRaw[] = [
               icon: 'Collection',
               roles: ['admin', 'tutor'],
               requiresAuth: true,
+              keepAlive: true,
             },
           },
           {
@@ -123,6 +124,7 @@ export const adminRoutes: RouteRecordRaw[] = [
               requiresAuth: true,
               hidden: true,
               contextPage: true,
+              keepAlive: true,
               breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
             },
           },
@@ -137,6 +139,7 @@ export const adminRoutes: RouteRecordRaw[] = [
               requiresAuth: true,
               hidden: true,
               contextPage: true,
+              keepAlive: true,
               breadcrumbParent: {
                 titleKey: 'problems.submissionsManage.title',
                 path: (route) => `/admin/problems/${String(route.params.id)}/submissions`,
@@ -165,6 +168,7 @@ export const adminRoutes: RouteRecordRaw[] = [
               icon: 'Document',
               roles: ['admin', 'tutor'],
               requiresAuth: true,
+              keepAlive: true,
             },
           },
           {
@@ -178,6 +182,7 @@ export const adminRoutes: RouteRecordRaw[] = [
               requiresAuth: true,
               hidden: true,
               contextPage: true,
+              keepAlive: true,
             },
           },
           {
@@ -211,6 +216,7 @@ export const adminRoutes: RouteRecordRaw[] = [
           titleKey: 'nav.contestsManage',
           icon: 'Trophy',
           roles: ['admin', 'tutor'],
+          keepAlive: true,
         },
       },
       {
@@ -259,7 +265,13 @@ export const adminRoutes: RouteRecordRaw[] = [
         path: 'users',
         name: 'admin-users',
         component: () => import('@/views/admin/AdminUsersView.vue'),
-        meta: { title: '用户管理', titleKey: 'nav.users', icon: 'User', roles: ['admin'] },
+        meta: {
+          title: '用户管理',
+          titleKey: 'nav.users',
+          icon: 'User',
+          roles: ['admin'],
+          keepAlive: true,
+        },
       },
       {
         path: 'configs',
@@ -289,7 +301,13 @@ export const adminRoutes: RouteRecordRaw[] = [
         path: 'tags',
         name: 'admin-tags',
         component: () => import('@/views/admin/AdminTagsView.vue'),
-        meta: { title: '标签管理', titleKey: 'nav.tags', icon: 'PriceTag', roles: ['admin'] },
+        meta: {
+          title: '标签管理',
+          titleKey: 'nav.tags',
+          icon: 'PriceTag',
+          roles: ['admin'],
+          keepAlive: true,
+        },
       },
     ],
   },

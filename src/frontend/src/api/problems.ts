@@ -71,10 +71,10 @@ export function patchTestCases(
   return apiRequest('PATCH', `/problems/${id}/test-cases`, body)
 }
 
-/** 全量替换展示样例（存 problems.samples，不参与判题；≤10 组、单项各 ≤64KB） */
+/** 全量替换展示样例（存 problems.samples，不参与判题；≤10 组、单项各 ≤64KB，explanation 选填） */
 export function replaceSamples(
   id: string,
-  samples: Array<{ input: string; output: string }>,
+  samples: Array<{ input: string; output: string; explanation?: string }>,
 ): Promise<null> {
   return apiRequest('PUT', `/problems/${id}/samples`, { samples })
 }
@@ -101,10 +101,11 @@ export function resolveVerifyInvite(token: string): Promise<{
   description: string
   input_description?: string | null
   output_description?: string | null
+  note?: string | null
   tags: string[]
   time_limit_ms: number
   memory_limit_mb: number
-  samples: Array<{ name: string; input: string; output: string }>
+  samples: Array<{ name: string; input: string; output: string; explanation?: string }>
 }> {
   return apiRequest('GET', `/verify-invites/${token}`)
 }

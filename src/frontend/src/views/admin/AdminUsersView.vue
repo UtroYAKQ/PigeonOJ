@@ -22,7 +22,7 @@ const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isC
   usePagination()
 const query = reactive({
   keyword: '',
-  status: '' as UserStatus | '',
+  status: null as UserStatus | null,
 })
 const roleModal = ref(false)
 const roleTarget = ref<User | null>(null)
@@ -44,7 +44,7 @@ async function load() {
       page: page.value,
       page_size: pageSize.value,
       keyword: query.keyword,
-      status: query.status,
+      status: query.status ?? undefined,
     })
     if (!isCurrent(seq)) return
     list.value = res.items
@@ -63,7 +63,7 @@ function onSearch() {
 }
 function onReset() {
   query.keyword = ''
-  query.status = ''
+  query.status = null
   resetPage()
   load()
 }

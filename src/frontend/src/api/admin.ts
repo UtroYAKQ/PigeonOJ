@@ -83,7 +83,7 @@ export function adminSandboxStatus() {
 
 /** GET /admin/reports — 举报列表 */
 export function adminListReports(
-  query: { page?: number; page_size?: number; status?: ReportStatus | '' } = {},
+  query: { page?: number; page_size?: number; status?: ReportStatus | null } = {},
 ) {
   return apiRequest<PageResult<Report>>('GET', `/admin/reports${buildQuery(query)}`)
 }

@@ -40,8 +40,11 @@ class Problem(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     input_description: Mapped[str | None] = mapped_column(Text)
     output_description: Mapped[str | None] = mapped_column(Text)
+    # 题面说明：可选题面要素，详情页渲染于题面最后（docs/contracts/problems.md）
+    note: Mapped[str | None] = mapped_column(Text)
     solution: Mapped[str | None] = mapped_column(Text)
-    # 展示样例数组 [{"input", "output"}]，仅展示与自测，不参与判题（≤10 组，单项各 ≤64KB）
+    # 展示样例数组 [{"input", "output", "explanation"?}]，仅展示与自测，不参与判题
+    # （≤10 组，input / output 各 ≤64KB，explanation 选填 ≤64KB，空 = 不展示解释）
     samples: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     samples_updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

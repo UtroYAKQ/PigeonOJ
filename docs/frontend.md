@@ -58,7 +58,7 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 
 ## Markdown 渲染
 
-- 题面 / 背景 / 输入输出说明 / 官方题解用 `components/MarkdownView.vue` 渲染（markdown-it `html:false` + DOMPurify 白名单）；禁止对用户可控内容直接 `v-html`
+- 题面 / 背景 / 输入输出说明 / 题面说明（note，渲染于题面最后） / 官方题解用 `components/MarkdownView.vue` 渲染（markdown-it `html:false` + DOMPurify 白名单）；禁止对用户可控内容直接 `v-html`
 - 编辑：`components/MarkdownEditor.vue`（md-editor-v3 封装，CodeMirror 编辑，工具栏「纯预览」切换，暗色/语言跟随全局）
 - 插图：`POST /files/upload/image`（登录用户，≤5MB，JPG/PNG/WEBP/GIF），插入 `![](url)`，限宽 50%
 - 数学公式：编辑器与展示侧均支持 KaTeX（`$...$` 行内 / `$$...$$` 块级）
@@ -75,8 +75,8 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 | --- | --- | --- |
 | `components/problem/ProblemWorkbench.vue` | 题面 + 编辑器双栏 | 题目详情 / 编辑向导 |
 | `components/problem/ProblemMetaBar.vue` | 标题 + 限制 + 标签 | 题目详情 / 管理 |
-| `components/problem/ProblemStatement.vue` | 描述 + 输入输出 + 样例 | 题目详情 / 管理 |
-| `components/problem/ProblemSamples.vue` | 展示样例（各带复制） | 详情 / 邀请落地页 |
+| `components/problem/ProblemStatement.vue` | 描述 + 输入输出 + 样例 + 题面说明 | 题目详情 / 管理 |
+| `components/problem/ProblemSamples.vue` | 展示样例（各带复制；解释选填渲染） | 详情 / 邀请落地页 |
 | `components/WizardShell.vue` | 页眉卡片（标题 + 步骤序号 + 动作） | 写题向导多步骤 |
 | `components/StatusTag.vue` | 状态 → 标签颜色/文案 | 提交历史 / 结果页 |
 | `components/EmailCodeInput.vue` | 验证码输入 + 60s 倒计时 | 注册 / 安全设置 |
@@ -132,6 +132,16 @@ src/frontend/
 - 对象上下文页面（创建题目、编辑、提交详情、评测结果）标记 `meta.contextPage: true` + `meta.hidden: true`；归属工作台用 `breadcrumbParent` 声明
 - 路由标题 / 菜单标题设 `meta.titleKey`，由 i18n 生成；无 `titleKey` 的路由不得进导航目录
 - 浏览器标签「页面标题 · 站点名」，favicon 取 `site.logo`
+
+### 页面实例缓存（面包屑链式缓存）
+
+`AppLayout.vue` 对 `router-view` 采用插槽分流：声明 `meta.keepAlive: true` 的页面进入 `<KeepAlive>`（实例 key 为 `route.fullPath`，参数页按 URL 区分、互不串数据），从深层页面（如评测结果）沿面包屑逐级返回（题目详情 → 列表）时沿途页面实例全部命中缓存——筛选、页码、题面、滚动位置等状态保留，不重新拉取；`:max=8` LRU 兜底，最久未用的实例自动释放。缓存 key 绑定当前登录用户 id（`router-view :key="cacheScope"`）：登出 / 换号后缓存整体作废。
+
+- 缓存范围（`meta.keepAlive: true`）：题库 / 题单 / 比赛 / 团队列表，题库 / 题单 / 比赛详情与上下文写题页，各类提交列表与评测结果页，管理后台题目 / 题单 / 比赛 / 用户 / 标签管理、题单详情，会话管理
+- 不缓存：写题向导各步（create / statement / cases / verify）、题目预览、团队邀请、个人资料 / 安全设置——带表单或与编辑强耦合的页面进出都重新挂载，保证数据新鲜
+- 轮询 / 计时页面（评测结果 ×3、比赛详情）必须实现 `onDeactivated` 暂停 + `onActivated` 恢复，禁止缓存页后台空转
+- 面包屑层级解析收敛于 `router/crumbs.ts` 的 `buildCrumbs`（`TheBreadcrumb` 展示与缓存共用同一来源）；新增上下文页接入链式缓存：路由声明 `meta.keepAlive: true` 即可，带表单页面禁止声明
+- 数据时效由各列表页刷新按钮兜底（如新建题目后返回列表需手动刷新）
 
 ### 路由上下文隔离（契约级规范）
 

@@ -4,7 +4,7 @@
  * 经比赛统一入口端点读取（窗口校验：比赛期间所有人不可见，赛后开放），
  * 不跳出比赛上下文；面包屑回比赛详情页。
  */
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onActivated, onDeactivated, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NButton } from 'naive-ui'
@@ -27,6 +27,8 @@ const showCode = ref(true)
 const MAX_POLLS = 150
 const POLL_INTERVAL_MS = 2000
 const pollCount = ref(0)
+/** KeepAlive 缓存页可见标记：切走（deactivated）时暂停轮询，返回时恢复 */
+const pageActive = ref(true)
 
 const scheduleNextPoll = useTimeoutFn(() => void load(true), POLL_INTERVAL_MS, {
   immediate: false,
@@ -45,7 +47,7 @@ async function load(silent = false) {
       String(route.params.cid),
       String(route.params.sid),
     )
-    if (isRunning.value && !pollingStopped.value) {
+    if (isRunning.value && !pollingStopped.value && pageActive.value) {
       pollCount.value += 1
       scheduleNextPoll.start()
     }
@@ -55,6 +57,15 @@ async function load(silent = false) {
     if (!silent) loading.value = false
   }
 }
+
+onDeactivated(() => {
+  pageActive.value = false
+  scheduleNextPoll.stop()
+})
+onActivated(() => {
+  pageActive.value = true
+  if (isRunning.value && !pollingStopped.value) scheduleNextPoll.start()
+})
 
 function refreshNow() {
   pollCount.value = 0

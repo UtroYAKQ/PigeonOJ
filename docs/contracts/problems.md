@@ -14,8 +14,9 @@
 | description | TEXT | NOT NULL | 题面（Markdown） |
 | input_description | TEXT | NULL | 输入说明（Markdown，**必填**：创建接口校验非空；存量列保留可空以兼容历史数据） |
 | output_description | TEXT | NULL | 输出说明（Markdown，必填，同上） |
+| note | TEXT | NULL | 题面说明（Markdown，**可选**：NULL=未填写；详情页渲染于题面最后；PUT 编辑传空字符串 = 清空） |
 | solution | TEXT | NULL | 官方题解（Markdown） |
-| samples | JSONB | NOT NULL DEFAULT '[]' | 展示样例数组（`[{"input": "...", "output": "..."}]`，出题人字符串录入；仅用于详情页展示与自测，**不参与判题**）；≤10 组，单项 input / output 各 ≤64KB |
+| samples | JSONB | NOT NULL DEFAULT '[]' | 展示样例数组（`[{"input": "...", "output": "...", "explanation": "..."}]`，出题人字符串录入；`explanation` 选填 Markdown 样例解释，缺省/空 = 该组无解释；仅用于详情页展示与自测，**不参与判题**）；≤10 组，input / output 各 ≤64KB、explanation ≤64KB |
 | samples_updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | 样例最近一次变更时间（重验判定依据之一） |
 | active_case_ids | JSONB | NOT NULL DEFAULT '[]' | 生效测试点 id 列表（test_cases.id 引用；判题唯一数据来源） |
 | pending_case_ids | JSONB | NULL DEFAULT NULL | 暂存测试点 id 列表（编辑目标状态，验题判定对象）；**NULL = 无暂存改动**，数组（含 `'[]'`）= 有暂存改动 |
@@ -158,9 +159,9 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 | PUT | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 全量替换**暂存集**测试点（出题不设分值；提交得分由判题服务端按通过比例派生，比赛计分随 contests 模块配置）；被替换内容的 MinIO 旧对象异步清理；生效集不动，验题通过后晋升 | cases[]（name?、input、expected_output、sort_order） | - |
 | PATCH | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 增量更新**暂存集**（前端编辑器按行 diff 只提交变化的行）：upserts 带 id 为修改（input/expected_output 缺省或 null = 内容不变，可仅改名 / 调序；传字符串则整体替换该侧内容，空字符串 = 显式清空——写入空对象、ossId 保持非空，两侧同时置空返回 1001；改动生成新行、origin_id 指回原行）、无 id 为新增（输入输出不能全空）；delete_ids 表示目标状态中不含该点；同一 id 不得同时出现在 upserts 与 delete_ids（1001），未知 id 返回 3001；被替换内容的 MinIO 旧对象异步清理。生效集在晋升前不受影响 | upserts[]（id?、name?、input?、expected_output?、sort_order?）/ delete_ids[] | cases[]（目标状态合并视图：未改动点沿用原 id，含内容与 staged 标记，供前端重置基线） |
 | POST | /problems/{id}/test-cases/apply | admin/tutor/team_creator/team_admin | 显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦，点「保存」才生效）；无暂存改动返回 3002，未通过验题（`pending_verified=false`）返回 3002；任何新的暂存写入都会清除已验标记 | - | problem |
-| PUT | /problems/{id}/samples | admin/tutor/team_creator/team_admin | 全量替换展示样例（写 `problems.samples`，同时更新 `samples_updated_at`；不上传 MinIO） | samples[]（input、output），≤10 组、单项各 ≤64KB | - |
+| PUT | /problems/{id}/samples | admin/tutor/team_creator/team_admin | 全量替换展示样例（写 `problems.samples`，同时更新 `samples_updated_at`；不上传 MinIO；仅解释变更同样更新时间戳触发重验口径） | samples[]（input、output、explanation?），≤10 组、input / output 各 ≤64KB、explanation ≤64KB | - |
 | POST | /problems/{id}/verify | admin/tutor/team_creator/team_admin（发起）/ auth（提交验题代码） | 发起验题 / 提交验题代码（双模式请求体：`code+language` 为提交，否则为发起）；提交不限身份，`invite_token` 可选 | invite_expires_hours?/invite_token?/code?/language? | verification 或 submission_id |
-| GET | /verify-invites/{token} | public | 解析验题邀请链接（数据源 Redis `verify_invite:{token}`；返回题面与样例供受邀人查看，不含正式测试点内容与题解；`expires_at` 由 TTL 推算） | - | {problem_id, problem_title, expires_at, background, description, input_description?, output_description?, tags[], time_limit_ms, memory_limit_mb, samples[]} |
+| GET | /verify-invites/{token} | public | 解析验题邀请链接（数据源 Redis `verify_invite:{token}`；返回题面与样例供受邀人查看，不含正式测试点内容与题解；`expires_at` 由 TTL 推算） | - | {problem_id, problem_title, expires_at, background, description, input_description?, output_description?, note?, tags[], time_limit_ms, memory_limit_mb, samples[]} |
 | POST | /problems/{id}/publish | admin/tutor/team_creator/team_admin | 发布（须验题通过 + active 测试点 ≥ 1 + `pending_case_ids` 为 NULL；存在暂存改动或样例晚于 verified_at 时返回 3002，须重新验题） | - | problem |
 | POST | /problems/{id}/archive | admin/tutor/team_creator/team_admin | 下线归档 | - | problem |
 | GET | /teams/{team_id}/problems | admin/tutor/team_creator/team_admin | 团队题库列表（随 teams 模块实现） | 分页/可见性 | problem[] |
@@ -181,7 +182,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 ## 当前基础前端页面
 
-前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面题面 / 题目背景 / 输入输出说明 / 官方题解使用 Markdown 编辑器（md-editor-v3，编辑 + 按需分屏预览；存储仍为 Markdown 文本），题目背景为必填、渲染于题面之前。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端高度锁定为一屏、左右两栏独立滚动（题面过长时左栏内部滚动）、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题目背景 / 题面 / 输入输出说明 / 官方题解按 Markdown 渲染（markdown-it + DOMPurify，支持 KaTeX 公式 `$...$` / `$$...$$`），样例仍为等宽文本块并提供复制。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
+前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面题面 / 题目背景 / 输入输出说明 / 题面说明（可选，折叠展开） / 官方题解使用 Markdown 编辑器（md-editor-v3，编辑 + 按需分屏预览；存储仍为 Markdown 文本），题目背景为必填、渲染于题面之前，题面说明渲染于题面最后（未填写不渲染）。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端高度锁定为一屏、左右两栏独立滚动（题面过长时左栏内部滚动）、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题目背景 / 题面 / 输入输出说明 / 题面说明 / 官方题解按 Markdown 渲染（markdown-it + DOMPurify，支持 KaTeX 公式 `$...$` / `$$...$$`），样例仍为等宽文本块并提供复制，每组样例下的样例解释（Markdown，选填）仅在有内容时渲染。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
 
 管理后台「题目管理」（`/admin/problems`）列表：**点击行即进入只读预览**（草稿 / 已发布 / 已归档一致，留在管理动线，不跳前台），编辑 / 查看提交 / 归档收敛在行内操作列；「查看提交」进入 `/admin/problems/{id}/submissions` 提交列表页（上下文路由，面包屑「管理后台 / 题目管理 / 提交列表」），经 `GET /problems/{id}/submissions` 分页查看该题**全员提交**（含提交人、状态、得分、耗时、内存、语言、提交类型与提交时间），支持状态页签、提交人昵称关键字与语言 / 提交类型（练习 / 比赛 / 验题）筛选；**点击行进入 `/admin/problems/{id}/submissions/{sid}` 评测详情**（状态 / 得分 / 耗时 / 内存、编译错误信息、代码与逐测试点明细，评测中自动轮询），详情经 `GET /problems/{id}/submissions/{sid}` 读取。非题目管理角色访问均被后端 2003 拦截。
 
@@ -190,7 +191,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 1. **题目生命周期**：创建默认 `status='draft'` → 编辑 / 维护测试点 → 验题 → `publish`（`status='published'`，CHECK 强制 `is_verified`）→ `archive`（`status='archived'`）。被题单 / 比赛引用时不得物理删除，仅归档。
 2. **验题时效**：题目内容（题面等）变更不影响验题有效性；**测试点存在暂存集（pending 非空，精确判定）或样例在最近一次验题通过后变更（`problems.samples_updated_at > verified_at`），则须重新走验题流程才能发布**——发布接口违反时返回 3002；`scope=mine` 列表与详情分别以 `needs_reverification` 字段透出。测试点编辑只落暂存集，生效集（active）在晋升前不受影响，比赛中判题始终使用已验证的 active 集。
 3. **验题**：发起 `POST /problems/{id}/verify`（生成邀请链接存 Redis，或不带参数创建空白记录）→ 任意登录用户提交代码（凭邀请链接或直接提交，身份不限）→ 系统按题目**暂存集（pending 为空时退化为生效集）**判题（复用 `submissions`，`submit_type='verify'`）→ 全部通过 → 仅打「已验待生效」标记（`pending_verified=true`，`case_status='verified'`）并回写 `problem_verifications.status='passed'`、判题链路回写 `verified_by / verified_at`（`verifier_id` 回写实际提交人）；**晋升与验题解耦**——管理角色调 `POST /problems/{id}/test-cases/apply` 显式生效后，单事务 `active_case_ids := pending_case_ids`、清空 pending（被取代旧行退役留档）。任何新的暂存写入都会清除已验标记。
-4. **样例自测**：题目详情页展示样例字符串（`problems.samples` 数组）并提供复制；在线试运行能力规划由判题节点侧专用端点承担（当前后端不执行用户代码）。
+4. **样例自测**：题目详情页展示样例字符串（`problems.samples` 数组）并提供复制；每组样例可附样例解释（`explanation`，Markdown，空则前端不渲染解释区块）；在线试运行能力规划由判题节点侧专用端点承担（当前后端不执行用户代码）。
 5. **难度分与通过率**：难度分为出题人手动填写（`problems.difficulty`，非负整数，NULL=未评分），列表支持闭区间筛选；通过率统计由 `problem_counters` 承载，判题终态原子累加（口径见 `docs/contracts/judge.md`），API 返回原始计数、前端现算百分比。
 
 ## 明确不做

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMediaQuery } from '@vueuse/core'
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 
 import MenuCollapse from './components/MenuCollapse.vue'
 import SideLogo from './components/SideLogo.vue'
@@ -11,8 +11,10 @@ import LanguageSwitcher from './components/LanguageSwitcher.vue'
 import UserMenu from './components/UserMenu.vue'
 import { COLLAPSE_BREAKPOINT, LAYOUT } from '@/settings/theme'
 import { useAppStore } from '@/stores/app'
+import { useUserStore } from '@/stores/user'
 
 const appStore = useAppStore()
+const userStore = useUserStore()
 
 // 窄屏（平板 / 手机）强制收起侧栏，与参考模板断点行为一致
 const isNarrowScreen = useMediaQuery(`(max-width: ${COLLAPSE_BREAKPOINT}px)`)
@@ -23,6 +25,12 @@ watch(
   },
   { immediate: true },
 )
+
+/**
+ * 缓存作用域 = 当前登录用户 id：KeepAlive 的实例 key。
+ * 登录 / 登出切换 key 使旧用户缓存全部作废，避免跨账号脏数据。
+ */
+const cacheScope = computed(() => userStore.user?.id ?? 'anon')
 </script>
 
 <template>
@@ -54,7 +62,26 @@ watch(
       </header>
 
       <main class="app-main">
-        <router-view />
+        <!--
+          面包屑链式缓存：meta.keepAlive 页面进 KeepAlive（:key=fullPath，参数页按 URL 区分实例），
+          从评测结果 → 题目详情 → 列表逐级返回全程不刷新。:max=8 LRU 兜底——刚访问的链路页
+          恒在缓存最前，超出后最久未用的实例自动释放。编辑向导等表单页不声明 keepAlive，进出重挂载。
+          :key="cacheScope" 绑定登录用户，登出 / 换号后缓存整体作废。
+        -->
+        <router-view v-slot="{ Component, route }" :key="cacheScope">
+          <keep-alive :max="8">
+            <component
+              :is="Component"
+              v-if="route.meta.keepAlive"
+              :key="route.fullPath"
+            />
+          </keep-alive>
+          <component
+            :is="Component"
+            v-if="!route.meta.keepAlive"
+            :key="route.fullPath"
+          />
+        </router-view>
       </main>
       <footer v-if="appStore.siteConfig.icp" class="app-footer">
         {{ appStore.siteConfig.icp }}

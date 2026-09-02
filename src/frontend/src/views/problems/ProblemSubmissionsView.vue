@@ -33,11 +33,12 @@ const problem = ref<ProblemDetailEx | null>(null)
 const loading = ref(false)
 const list = ref<ProblemSubmissionItem[]>([])
 const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
+/** n-select 筛选以 null 表示不限：'' 会被 naive-ui fallback 渲染成空串，placeholder 不展示 */
 const query = reactive({
   status: '',
   keyword: '',
-  language: '',
-  submit_type: '',
+  language: null as string | null,
+  submit_type: null as string | null,
 })
 
 /** 状态筛选页签（全部 + 常用结果；标签复用 problems.status 字典） */

@@ -22,8 +22,8 @@ const loading = ref(false)
 const problemId = String(route.params.id)
 
 const cases = ref<TestCaseDraft[]>([])
-/** 展示样例（problems.samples；仅展示与自测，不参与判题） */
-const samples = ref<Array<{ input: string; output: string }>>([])
+/** 展示样例（problems.samples；仅展示与自测，不参与判题；explanation 为选填样例解释） */
+const samples = ref<Array<{ input: string; output: string; explanation: string }>>([])
 
 function addCase() {
   cases.value.push({
@@ -35,7 +35,7 @@ function addCase() {
 }
 function addSample() {
   if (samples.value.length >= 10) return
-  samples.value.push({ input: '', output: '' })
+  samples.value.push({ input: '', output: '', explanation: '' })
 }
 function removeSample(index: number) {
   samples.value.splice(index, 1)
@@ -71,6 +71,7 @@ async function loadExisting() {
     samples.value = (loaded.samples ?? []).map((item) => ({
       input: item.input,
       output: item.output,
+      explanation: item.explanation ?? '',
     }))
     // 记录服务器端基线快照，保存时按行 diff 只提交变化的测试点
     serverCases = loaded.test_cases ?? []
@@ -83,13 +84,15 @@ async function loadExisting() {
   }
 }
 
-function sampleSignature(list?: Array<{ input: string; output: string }>) {
-  return JSON.stringify((list ?? []).map((item) => [item.input ?? '', item.output ?? '']))
+function sampleSignature(list?: Array<{ input: string; output: string; explanation?: string }>) {
+  return JSON.stringify(
+    (list ?? []).map((item) => [item.input ?? '', item.output ?? '', item.explanation ?? '']),
+  )
 }
 
 /** 服务器端当前内容快照（loadExisting / 保存成功后刷新） */
 let serverCases: ProblemTestCase[] = []
-let serverSamples: Array<{ input: string; output: string }> = []
+let serverSamples: Array<{ input: string; output: string; explanation: string }> = []
 
 /** 行级 diff：新增（无 id）、内容/名称变化、位置变化、被移除的行 */
 function diffCases(validCases: TestCaseDraft[]): {
@@ -227,6 +230,13 @@ onMounted(loadExisting)
                     :placeholder="t('problems.create.outputContent')"
                   />
                 </div>
+                <n-input
+                  v-model:value="sample.explanation"
+                  type="textarea"
+                  :rows="2"
+                  class="sample-explanation-input"
+                  :placeholder="t('problems.create.explanationPlaceholder')"
+                />
               </div>
             </div>
             <n-empty v-else :description="t('problems.detail.noSamples')" size="small" />
@@ -343,6 +353,10 @@ onMounted(loadExisting)
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+  margin-top: 12px;
+}
+/* 样例解释：通栏选填输入（Markdown），留空 = 该组无解释 */
+.sample-explanation-input {
   margin-top: 12px;
 }
 @media (max-width: 760px) {

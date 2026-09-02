@@ -24,10 +24,11 @@ interface InviteResolution {
   description: string
   input_description?: string | null
   output_description?: string | null
+  note?: string | null
   tags: string[]
   time_limit_ms: number
   memory_limit_mb: number
-  samples: Array<{ name: string; input: string; output: string }>
+  samples: Array<{ name: string; input: string; output: string; explanation?: string }>
 }
 
 const route = useRoute()
@@ -161,6 +162,12 @@ function submit() {
             <template v-if="invite.samples.length">
               <h3 class="verify-subtitle">{{ t('problems.detail.samples') }}</h3>
               <ProblemSamples :samples="invite.samples" />
+            </template>
+
+            <!-- 题面说明：题面最后分区，填写后才渲染 -->
+            <template v-if="invite.note">
+              <h3 class="verify-subtitle">{{ t('problems.detail.note') }}</h3>
+              <MarkdownView :source="invite.note" />
             </template>
           </section>
         </section>

@@ -36,6 +36,7 @@ export const userRoutes: RouteRecordRaw[] = [
           titleKey: 'user.sessions',
           icon: 'Odometer',
           requiresAuth: true,
+          keepAlive: true,
         },
       },
     ],
