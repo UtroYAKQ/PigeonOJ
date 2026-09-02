@@ -116,6 +116,9 @@
       needsRegistration:
         'After the contest, submissions are visible to participants and staff only',
       backToContest: 'Back to contest',
+      search: 'Search by submitter nickname',
+      allProblems: 'All problems',
+      allLanguages: 'All languages',
     },
   },
 }

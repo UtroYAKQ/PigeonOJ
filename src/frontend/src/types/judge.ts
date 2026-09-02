@@ -48,6 +48,20 @@ export interface SubmissionListQuery {
   status?: SubmissionStatus
 }
 
+/** 题目管理视角的提交列表项（题目管理角色可见全员提交，含提交人昵称） */
+export interface ProblemSubmissionItem {
+  id: string
+  user_id: string
+  nickname: string
+  language: string
+  submit_type: string
+  status: SubmissionStatus
+  score: number | null
+  time_used_ms: number | null
+  memory_used_kb: number | null
+  created_at: string
+}
+
 /** 创建提交载荷（POST /submissions）；携带 invite_token 时为验题提交（submit_type=verify） */
 export interface SubmissionCreatePayload {
   problem_id: string

@@ -17,6 +17,7 @@ from app.models.problem import (  # noqa: F401
 )
 from app.models.system_config import SystemConfig  # noqa: F401
 from app.models.problem_set import ProblemSet, ProblemSetItem  # noqa: F401
+from app.models.team import Team, TeamMember, TeamMemberApplication  # noqa: F401
 from app.models.user import Role, User, UserRole, UserSession  # noqa: F401
 
 __all__ = [
@@ -35,6 +36,9 @@ __all__ = [
     "TestCase",
     "ProblemSet",
     "ProblemSetItem",
+    "Team",
+    "TeamMember",
+    "TeamMemberApplication",
     "Contest",
     "ContestProblem",
     "ContestRegistration",

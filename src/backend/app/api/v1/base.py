@@ -1,11 +1,9 @@
 """系统基础端点：健康检查（根路径）与公开站点配置（/api/v1）。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter
 
-from app.services.system_config import get_site_public_configs
-from app.core.database import get_db
+from app.api.deps import SiteConfigsDep
 from app.schemas.admin import SitePublicConfig
 from app.schemas.common import HealthStatus
 from app.utils.response import ApiResponse, ok
@@ -24,6 +22,6 @@ async def health() -> ApiResponse[HealthStatus]:
 
 
 @v1_router.get("/site-config", response_model=ApiResponse[SitePublicConfig])
-async def site_config(db: AsyncSession = Depends(get_db)) -> ApiResponse[SitePublicConfig]:
+async def site_config(configs: SiteConfigsDep) -> ApiResponse[SitePublicConfig]:
     """公开站点配置（未登录可读）：站点名 / Logo / ICP / 默认主题 / 注册开关。"""
-    return ok(await get_site_public_configs(db))
+    return ok(configs)

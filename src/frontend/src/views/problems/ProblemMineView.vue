@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { CirclePlus, EditPen, TurnOff, View } from '@element-plus/icons-vue'
+import { CirclePlus, EditPen, Tickets, TurnOff } from '@element-plus/icons-vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -63,6 +63,9 @@ function goEdit(row: ProblemSummary) {
 function goDetail(row: ProblemSummary) {
   // 管理动线只读预览：留在后台，不进前台写题页
   router.push(`/admin/problems/${row.id}/preview`)
+}
+function goSubmissions(row: ProblemSummary) {
+  router.push(`/admin/problems/${row.id}/submissions`)
 }
 
 function doArchive(row: ProblemSummary) {
@@ -138,14 +141,14 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
   {
     title: t('action.edit'),
     key: 'actions',
-    width: 210,
+    width: 250,
     fixed: 'right',
     render(row) {
       const buttons: ReturnType<typeof h>[] = []
       // 行内操作：text 按钮 + 语义图标（docs/frontend.md 按钮规范）；归档为唯一危险操作。
       // 点击必须 stopPropagation，否则冒泡到行 onClick 会把路由覆盖成行的目标（如预览页）
       function actionButton(
-        icon: typeof View,
+        icon: typeof Tickets,
         label: string,
         onClick: () => void,
         type?: 'primary' | 'error',
@@ -167,19 +170,22 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
           },
         )
       }
+      // 查看不再单设按钮：点击行即进入只读预览（见 rowProps）
       if (row.status === 'draft') {
         buttons.push(
-          actionButton(View, t('action.view'), () => goDetail(row)),
+          actionButton(Tickets, t('problems.mine.viewSubmissions'), () => goSubmissions(row)),
           actionButton(EditPen, t('action.edit'), () => goEdit(row), 'primary'),
         )
       } else if (row.status === 'published') {
         buttons.push(
-          actionButton(View, t('action.view'), () => goDetail(row)),
+          actionButton(Tickets, t('problems.mine.viewSubmissions'), () => goSubmissions(row)),
           actionButton(EditPen, t('action.edit'), () => goEdit(row), 'primary'),
           actionButton(TurnOff, t('problems.detail.archive'), () => doArchive(row), 'error'),
         )
       } else {
-        buttons.push(actionButton(View, t('action.view'), () => goDetail(row)))
+        buttons.push(
+          actionButton(Tickets, t('problems.mine.viewSubmissions'), () => goSubmissions(row)),
+        )
       }
       return h('div', { class: 'cell-actions' }, buttons)
     },
@@ -187,15 +193,10 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
 ])
 
 function rowProps(row: ProblemSummary) {
-  // 归档题只读：行点击不跳转（避免被带出管理后台），查看走操作列「详情」
-  if (row.status === 'archived') return { style: 'cursor: default;' }
-  const target =
-    row.status === 'draft'
-      ? `/admin/problems/${row.id}/edit/statement`
-      : `/admin/problems/${row.id}/preview`
+  // 点击行即查看（只读预览，留在管理后台）：草稿 / 已发布 / 已归档一致
   return {
     style: 'cursor: pointer;',
-    onClick: () => router.push(target),
+    onClick: () => goDetail(row),
   }
 }
 </script>

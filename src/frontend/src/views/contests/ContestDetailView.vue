@@ -3,9 +3,9 @@
  * 比赛详情：主页（hero + 倒计时条 + 数据瓦片 + 时间轴 + 说明）/ 题目 / 榜单 / 提交记录 四个 tab。
  * 题目进入比赛上下文写题页（统一入口交题）；榜单封榜展示冻结快照，
  * 解冻为 admin/tutor 手动操作（重算回填封榜期结果）；进行中榜单 15s 轮询。
- * 提交记录比赛期间对所有人隐藏，赛后开放（行点击进上下文内评测结果页）。
+ * 提交记录比赛期间仅管理角色（can_manage）可见，赛后对参赛者开放（行点击进上下文内评测结果页）。
  */
-import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { DataTableColumns } from 'naive-ui'
@@ -26,6 +26,8 @@ import {
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
 import { usePagination } from '@/composables/usePagination'
+import SearchFilterBar from '@/components/SearchFilterBar.vue'
+import { languageOptions } from '@/constants/languages'
 import type {
   Board,
   BoardCell,
@@ -43,7 +45,7 @@ const detail = ref<ContestDetail | null>(null)
 const registering = ref(false)
 const activeTab = ref<'home' | 'problems' | 'board' | 'submissions'>('home')
 
-// ---- 提交记录（tab 激活时懒加载；比赛期间所有人不可见，赛后开放） ----
+// ---- 提交记录（tab 激活时懒加载；比赛期间仅管理角色可见，赛后开放参赛者） ----
 const submissions = ref<ContestSubmissionItem[]>([])
 const subsLoading = ref(false)
 const {
@@ -52,13 +54,20 @@ const {
   total: subsTotal,
   changePage,
   changeSize,
+  resetPage: subsResetPage,
   beginLoad: subsBeginLoad,
   isCurrent: subsIsCurrent,
 } = usePagination()
 
-/** 比赛期间（end_time 之前）提交记录对所有人隐藏 */
+/** 提交记录筛选条件（昵称关键字 / 语言 / 题目 / 状态，均随请求透传） */
+const subsQuery = reactive({ keyword: '', language: '', problemId: '', status: '' })
+
+/** 比赛期间（end_time 之前）提交记录对参赛者隐藏；管理角色（admin/tutor）随时可见 */
 const subsLocked = computed(
-  () => !!detail.value && Date.now() < new Date(detail.value.end_time).getTime(),
+  () =>
+    !!detail.value &&
+    !detail.value.can_manage &&
+    Date.now() < new Date(detail.value.end_time).getTime(),
 )
 /** 赛后仅参赛者与管理角色可见 */
 const subsAllowed = computed(() => {
@@ -73,6 +82,10 @@ async function loadSubmissions(silent = false) {
     const result = await listContestSubmissions(String(route.params.id), {
       page: subsPage.value,
       page_size: subsPageSize.value,
+      keyword: subsQuery.keyword || undefined,
+      language: subsQuery.language || undefined,
+      problem_id: subsQuery.problemId || undefined,
+      status: subsQuery.status || undefined,
     })
     if (!subsIsCurrent(seq)) return
     submissions.value = result.items
@@ -84,6 +97,33 @@ async function loadSubmissions(silent = false) {
     if (subsIsCurrent(seq)) subsLoading.value = false
   }
 }
+
+/** 筛选条件变更：回第一页重新加载 */
+function onSubsSearch() {
+  subsResetPage()
+  void loadSubmissions()
+}
+
+/** 题目筛选选项（比赛题目，题号 + 标题；详情携带题目时才可筛选） */
+const subsProblemOptions = computed(() =>
+  (detail.value?.problems ?? []).map((p) => ({
+    value: p.problem_id,
+    label: p.letter ? `${p.letter} · ${p.title}` : p.title,
+  })),
+)
+
+/** 语言筛选选项（复用判题语言字典；空值「全部语言」由 clearable placeholder 承担） */
+const subsLanguageOptions = languageOptions.map((option) => ({
+  label: option.label,
+  value: option.value,
+}))
+
+/** 状态筛选选项（常用结果；标签复用 problems.status 字典） */
+const subsStatusOptions = [
+  { value: 'accepted', labelKey: 'problems.status.accepted' },
+  { value: 'wrong_answer', labelKey: 'problems.status.wrong_answer' },
+  { value: 'compile_error', labelKey: 'problems.status.compile_error' },
+].map((option) => ({ value: option.value, label: t(option.labelKey) }))
 
 function changeSubsPage(value: number) {
   changePage(value)
@@ -902,6 +942,43 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
               {{ t('contests.submissions.needsRegistration') }}
             </n-alert>
             <template v-else>
+              <SearchFilterBar
+                :keyword="subsQuery.keyword"
+                :placeholder="t('contests.submissions.search')"
+                @update:keyword="
+                  (v: string) => {
+                    subsQuery.keyword = v
+                  }
+                "
+                @search="onSubsSearch"
+                @reset="onSubsSearch"
+              >
+                <n-select
+                  v-model:value="subsQuery.problemId"
+                  clearable
+                  filterable
+                  style="width: 200px"
+                  :options="subsProblemOptions"
+                  :placeholder="t('contests.submissions.allProblems')"
+                  @update:value="onSubsSearch"
+                />
+                <n-select
+                  v-model:value="subsQuery.language"
+                  clearable
+                  style="width: 150px"
+                  :options="subsLanguageOptions"
+                  :placeholder="t('contests.submissions.allLanguages')"
+                  @update:value="onSubsSearch"
+                />
+                <n-select
+                  v-model:value="subsQuery.status"
+                  clearable
+                  style="width: 130px"
+                  :options="subsStatusOptions"
+                  :placeholder="t('common.allStatus')"
+                  @update:value="onSubsSearch"
+                />
+              </SearchFilterBar>
               <PaginatedDataTable
                 :columns="submissionColumns"
                 :data="submissions"

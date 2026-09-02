@@ -97,7 +97,9 @@ CHECK (
 
 ## 数据所有权
 
-- 用户只能读自己的提交历史（`WHERE user_id = ?`）；提交详情 `owner` 可见
+- 用户只能读自己的提交历史（`WHERE user_id = ?`）；提交详情 `owner` 可见；
+  题目管理视角的全员提交列表与提交详情仅题目管理角色可读（`GET /problems/{id}/submissions[/{sid}]`，
+  复用 `can_manage_problem`，详情端点在入口校验提交归属该题）
 - 提交结果不返回测试点期望输出（`expected_output`）
 - 沙箱执行日志作为子记录按 `request_id` 归入 `request_logs.extra`，不单独建日志表
 - **后端进程不执行任何用户代码**：代码执行只发生在注册的判题节点容器内；
@@ -124,6 +126,8 @@ CHECK (
 | POST | /submissions | auth | 提交判题 | problem_id, language, code, submit_type, contest_id?/verification_id? | submission_id |
 | GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细 case_name + 状态/耗时/内存/得分/程序输出；不返回期望输出） | - | submission |
 | GET | /submissions | auth | 提交历史（本人，`WHERE user_id=?`） | problem_id/contest_id/status/分页 | submission[] |
+| GET | /problems/{id}/submissions | 题目管理角色（创建者 / admin / tutor / team_creator / team_admin，`can_manage_problem`） | 题目管理视角**全员提交列表**（题目管理页「查看提交」入口；含提交人昵称与提交类型；提交时间倒序分页） | 分页/status（提交状态）/keyword（昵称模糊）/language /submit_type（均精确） | submission[]（含 user_id / nickname / submit_type） |
+| GET | /problems/{id}/submissions/{sid} | 题目管理角色（同上） | 题目管理视角**提交详情（统一入口）**：管理权限 + 提交归属该题校验后复用判题详情装配（含代码与逐测试点明细；不返回期望输出） | - | submission |
 | POST | /problems/{id}/run-code | auth | 用户自测（单次运行，不落库不计分；见「用户自测」节） | language, code, input? | status, output(stdout), error_message?, time_used_ms, memory_used_kb? |
 | GET | /sandbox/health | admin | 沙箱节点健康 | - | nodes[{id, name, status, channel, load, cpu_usage, memory_usage, running_tasks, capacity, version, last_heartbeat_at}] |
 

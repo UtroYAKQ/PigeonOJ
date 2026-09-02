@@ -271,6 +271,35 @@ class ProblemService:
             accepted_count=counter.accepted_count if counter else 0,
         )
 
+    async def get_detail_view(self, problem_id: uuid.UUID, user: object | None) -> ProblemDetail:
+        """路由侧装配：详情聚合 + 契约模型转换一步到位。
+
+        路由层经 app/api/deps.py 注入本服务后无需再引用模块级装配函数。
+        """
+        return to_problem_detail(await self.get_detail(problem_id, user))
+
+    async def on_submission_finalized(self, submission: Submission, status: str) -> None:
+        """判题终态回写端口：通过率计数 + 验题状态机推进（judge 上下文唯一入口）。
+
+        - 验题提交：无论终态如何都推进验题状态机（system_error 视为未通过）
+        - 练习/比赛提交：回写通过率计数；verify（非真实作答）与 system_error（平台故障）不计入
+          （docs/contracts/judge.md 统计口径）
+        """
+        if submission.submit_type == SubmitType.VERIFY:
+            if submission.verification_id:
+                await complete_verification(
+                    self.db,
+                    submission.verification_id,
+                    passed=status == SubmissionStatus.ACCEPTED,
+                    verifier_id=submission.user_id,
+                )
+            return
+        if status == SubmissionStatus.SYSTEM_ERROR:
+            return
+        await bump_counters(
+            self.db, submission.problem_id, accepted=status == SubmissionStatus.ACCEPTED
+        )
+
     @staticmethod
     def _samples_view(problem: Problem) -> list[SampleOut]:
         """problems.samples JSONB → 展示结构（name 按序派生，不暴露内部 id）。"""

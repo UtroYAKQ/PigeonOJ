@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import urllib.parse
 import uuid as uuid_mod
 from datetime import datetime, timedelta, timezone
 
@@ -259,7 +260,8 @@ async def test_contest_access_and_submission_flow(client: httpx.AsyncClient, use
 
 
 async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_headers) -> None:
-    """提交记录窗口（第 7 条）：比赛期间对所有人隐藏（含本人与管理角色）；赛后已报名与管理角色可见。"""
+    """提交记录窗口（第 7 条）：管理角色随时可见（含比赛期间）；
+    参赛者比赛期间隐藏、赛后开放；未报名用户不可见。"""
     p1 = await _seed_problem("记录窗口题")
     tutor = await _tutor_headers(client)
     payload = _contest_payload(
@@ -281,10 +283,14 @@ async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_he
     assert resp.json()["code"] == 0
     submission_id = resp.json()["data"]["submission_id"]
 
-    # 比赛期间：参赛者 / 管理角色 / 未登录全部不可见
-    resp = await client.get(f"/api/v1/contests/{cid}/submissions", headers=user_headers)
-    assert resp.json()["code"] == 2003
+    # 比赛期间：管理角色可见列表与详情；参赛者不可见
     resp = await client.get(f"/api/v1/contests/{cid}/submissions", headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    items = resp.json()["data"]["items"]
+    assert len(items) == 1 and items[0]["letter"] == "A"
+    resp = await client.get(f"/api/v1/contests/{cid}/submissions/{submission_id}", headers=tutor)
+    assert resp.json()["code"] == 0
+    resp = await client.get(f"/api/v1/contests/{cid}/submissions", headers=user_headers)
     assert resp.json()["code"] == 2003
     resp = await client.get(f"/api/v1/contests/{cid}/submissions/{submission_id}", headers=user_headers)
     assert resp.json()["code"] == 2003
@@ -310,6 +316,39 @@ async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_he
     other = {"Authorization": f"Bearer {other_token}"}
     resp = await client.get(f"/api/v1/contests/{cid}/submissions", headers=other)
     assert resp.json()["code"] == 2003
+
+    # 筛选：昵称关键字 / 语言 / 状态 / 题目
+    resp = await client.get(
+        f"/api/v1/contests/{cid}/submissions?keyword={urllib.parse.quote('普通')}",
+        headers=user_headers,
+    )
+    assert resp.json()["data"]["total"] == 1
+    resp = await client.get(
+        f"/api/v1/contests/{cid}/submissions?keyword={urllib.parse.quote('不存在')}",
+        headers=user_headers,
+    )
+    assert resp.json()["data"]["total"] == 0
+    resp = await client.get(
+        f"/api/v1/contests/{cid}/submissions?language=cpp17", headers=user_headers
+    )
+    assert resp.json()["data"]["total"] == 1
+    resp = await client.get(
+        f"/api/v1/contests/{cid}/submissions?language=python3.12", headers=user_headers
+    )
+    assert resp.json()["data"]["total"] == 0
+    resp = await client.get(
+        f"/api/v1/contests/{cid}/submissions?status=accepted", headers=user_headers
+    )
+    assert resp.json()["data"]["total"] == 0
+    resp = await client.get(
+        f"/api/v1/contests/{cid}/submissions?problem_id={p1}", headers=user_headers
+    )
+    assert resp.json()["data"]["total"] == 1
+    resp = await client.get(
+        f"/api/v1/contests/{cid}/submissions?problem_id={uuid_mod.uuid4()}",
+        headers=user_headers,
+    )
+    assert resp.json()["data"]["total"] == 0
 
 
 async def test_acm_ranking_and_manual_unfreeze(client: httpx.AsyncClient, user_headers) -> None:

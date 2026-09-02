@@ -78,10 +78,18 @@ export function getContestBoard(id: string): Promise<Board> {
   return apiRequest('GET', `/contests/${id}/board`)
 }
 
-/** 比赛提交记录（比赛期间对所有人隐藏，赛后开放） */
+/** 比赛提交记录（管理角色随时可见，参赛者赛后开放）；
+ * keyword 模糊匹配提交人昵称，language / status / problem_id 精确过滤 */
 export function listContestSubmissions(
   id: string,
-  query: { page?: number; page_size?: number } = {},
+  query: {
+    page?: number
+    page_size?: number
+    keyword?: string
+    language?: string
+    status?: string
+    problem_id?: string
+  } = {},
 ): Promise<PageResult<ContestSubmissionItem>> {
   return apiRequest('GET', `/contests/${id}/submissions${buildQuery(query)}`)
 }

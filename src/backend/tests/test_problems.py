@@ -1,6 +1,7 @@
 """题库模块集成测试：权限、可见性、生命周期、验题流程、提交历史（docs/contracts/problems.md）。"""
 from __future__ import annotations
 
+import urllib.parse
 import uuid
 from datetime import datetime
 
@@ -482,6 +483,124 @@ async def test_submission_history_and_detail(client, admin_headers, user_headers
         "/api/v1/submissions",
         json={"problem_id": draft["id"], "language": "cpp17", "code": "int main(){}"},
         headers=user_headers,
+    )
+    assert resp.json()["code"] == 2003
+
+
+@pytest.mark.asyncio
+async def test_problem_submissions_manage_view(client, admin_headers, user_headers):
+    """题目管理视角全员提交：题目管理角色可见所有人提交（含提交人昵称），
+    非管理角色 403；支持状态 / 昵称 / 语言过滤（docs/contracts/judge.md）。"""
+    data = await _create_problem(client, admin_headers)
+    pid = data["id"]
+    async with SessionLocal() as db:
+        row = await db.get(Problem, uuid.UUID(pid))
+        row.status = "published"
+        row.verified_at = datetime.now()
+        await db.commit()
+
+    # 两个用户各交一题
+    for headers, lang in ((admin_headers, "cpp17"), (user_headers, "python3.12")):
+        resp = await client.post(
+            "/api/v1/submissions",
+            json={"problem_id": pid, "language": lang, "code": "int main(){}"},
+            headers=headers,
+        )
+        assert resp.json()["code"] == 0, resp.text
+
+    # 管理角色可见全员提交（含昵称），提交时间倒序
+    resp = await client.get(f"/api/v1/problems/{pid}/submissions", headers=admin_headers)
+    body = resp.json()
+    assert body["code"] == 0, body
+    assert body["data"]["total"] == 2
+    nicknames = {item["nickname"] for item in body["data"]["items"]}
+    assert nicknames == {"管理员", "普通用户"}
+    assert all(item["user_id"] and item["language"] in {"cpp17", "python3.12"} for item in body["data"]["items"])
+
+    # 状态过滤
+    resp = await client.get(
+        f"/api/v1/problems/{pid}/submissions?status=accepted", headers=admin_headers
+    )
+    assert resp.json()["data"]["total"] == 0
+    resp = await client.get(
+        f"/api/v1/problems/{pid}/submissions?status=pending", headers=admin_headers
+    )
+    assert resp.json()["data"]["total"] == 2
+
+    # 昵称关键字 / 语言过滤
+    resp = await client.get(
+        f"/api/v1/problems/{pid}/submissions?keyword={urllib.parse.quote('普通')}",
+        headers=admin_headers,
+    )
+    data_body = resp.json()["data"]
+    assert data_body["total"] == 1
+    assert data_body["items"][0]["nickname"] == "普通用户"
+    resp = await client.get(
+        f"/api/v1/problems/{pid}/submissions?language=python3.12", headers=admin_headers
+    )
+    data_body = resp.json()["data"]
+    assert data_body["total"] == 1
+    assert data_body["items"][0]["nickname"] == "普通用户"
+
+    # 提交类型过滤
+    resp = await client.get(
+        f"/api/v1/problems/{pid}/submissions?submit_type=practice", headers=admin_headers
+    )
+    assert resp.json()["data"]["total"] == 2
+    resp = await client.get(
+        f"/api/v1/problems/{pid}/submissions?submit_type=contest", headers=admin_headers
+    )
+    assert resp.json()["data"]["total"] == 0
+
+    # 非管理角色越权 → 2003；题目不存在 → 3001
+    resp = await client.get(
+        f"/api/v1/problems/{uuid.uuid4()}/submissions", headers=admin_headers
+    )
+    assert resp.json()["code"] == 3001
+    resp = await client.get(f"/api/v1/problems/{pid}/submissions", headers=user_headers)
+    assert resp.json()["code"] == 2003
+
+
+@pytest.mark.asyncio
+async def test_problem_submission_detail_manage_view(client, admin_headers, user_headers, fake_storage):
+    """题目管理视角提交详情（统一入口）：管理权限 + 归属校验后复用判题装配；
+    非管理角色 403，跨题目归属 3001（docs/contracts/judge.md）。"""
+    data = await _create_problem(client, admin_headers)
+    other = await _create_problem(client, admin_headers)
+    pid = data["id"]
+    async with SessionLocal() as db:
+        for row_id in (pid, other["id"]):
+            row = await db.get(Problem, uuid.UUID(row_id))
+            row.status = "published"
+            row.verified_at = datetime.now()
+        await db.commit()
+
+    resp = await client.post(
+        "/api/v1/submissions",
+        json={"problem_id": pid, "language": "cpp17", "code": "int main(){}"},
+        headers=user_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    sid = resp.json()["data"]["submission_id"]
+
+    # 管理角色可读他人提交详情（含代码与测试点明细骨架）
+    resp = await client.get(
+        f"/api/v1/problems/{pid}/submissions/{sid}", headers=admin_headers
+    )
+    body = resp.json()
+    assert body["code"] == 0, body
+    assert body["data"]["code"] == "int main(){}"
+    assert isinstance(body["data"]["cases"], list)
+
+    # 提交不属于该题目 → 3001
+    resp = await client.get(
+        f"/api/v1/problems/{other['id']}/submissions/{sid}", headers=admin_headers
+    )
+    assert resp.json()["code"] == 3001
+
+    # 非管理角色（即使提交者本人也走管理端点权限）→ 2003
+    resp = await client.get(
+        f"/api/v1/problems/{pid}/submissions/{sid}", headers=user_headers
     )
     assert resp.json()["code"] == 2003
 

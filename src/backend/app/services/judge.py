@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import ProblemStatus, SubmissionStatus, SubmitType
+from app.enums import ProblemStatus, RuleType, SubmissionStatus, SubmitType
 from app.core.exceptions import (
     APIError,
     AUTH_FORBIDDEN,
@@ -16,12 +16,12 @@ from app.core.exceptions import (
 )
 from app.core.redis import get_redis
 from app.core.storage import get_storage
-from app.models.contest import Contest
 from app.models.judge import SandboxConfig, Submission, SubmissionTestCaseResult
 from app.models.problem import TestCase
 from app.repositories.judge import JudgeRepository, SubmissionRepository, TestCaseRepository
 from app.repositories.problem import ProblemRepository
 from app.schemas.judge import (
+    ProblemSubmissionItem,
     SelfTestRequest,
     SubmissionCreate,
     SubmissionDetailOut,
@@ -130,18 +130,17 @@ class SubmissionService:
         language: str,
         code: str,
         after_contest: bool,
+        rule_type: RuleType,
     ) -> Submission:
-        """比赛提交（docs/contracts/contests.md 统一入口）：窗口与报名校验由比赛服务完成。
+        """比赛提交（docs/contracts/contests.md 统一入口）：窗口 / 报名 / 存在性校验由比赛服务完成。
 
-        赛制在创建时快照进提交行（submissions.rule_type），判题计分按快照派生，
-        不再依赖比赛上下文与时间窗判断（docs/contracts/judge.md「赛制计分」）。
+        赛制与补题标记在创建时由比赛上下文经命令参数快照进提交行
+        （submissions.rule_type / is_after_contest），判题计分按快照派生；
+        判题上下文不回查比赛模型（docs/architecture.md 上下文协作）。
         """
         problem = await get_problem(self.db, problem_id)
         if problem.status != ProblemStatus.PUBLISHED:
             raise APIError(AUTH_FORBIDDEN, "题目未发布，不可提交", 403)
-        contest = await self.db.get(Contest, contest_id)
-        if contest is None:
-            raise APIError(RESOURCE_NOT_FOUND, "比赛不存在", 404)
         submission = Submission(
             user_id=user.id,
             problem_id=problem_id,
@@ -149,7 +148,7 @@ class SubmissionService:
             code=code,
             submit_type=SubmitType.CONTEST,
             contest_id=contest_id,
-            rule_type=contest.rule_type,
+            rule_type=rule_type,
             is_after_contest=after_contest,
             status=SubmissionStatus.PENDING,
         )
@@ -164,6 +163,48 @@ class SubmissionService:
         """本人提交历史摘要。"""
         rows, total = await self.list_for_user(user, query)
         return [SubmissionSummary.model_validate(row) for row in rows], total
+
+    async def list_problem_summaries(
+        self, user: object, problem_id: uuid.UUID, status: str | None, keyword: str | None,
+        language: str | None, submit_type: str | None, page: int, page_size: int,
+    ) -> tuple[list[ProblemSubmissionItem], int]:
+        """题目全员提交（题目管理视角：创建者与管理角色，docs/contracts/judge.md）。
+
+        keyword 模糊匹配提交人昵称；language / submit_type 精确匹配。
+        """
+        problem = await get_problem(self.db, problem_id)
+        if not await can_manage_problem(self.db, user, problem):
+            raise APIError(AUTH_FORBIDDEN, "无权限查看该题目提交", 403)
+        rows, total = await self.submissions.list_for_problem(
+            problem_id, status, keyword, language, submit_type, page, page_size,
+        )
+        return [
+            ProblemSubmissionItem(
+                id=submission.id,
+                user_id=submission.user_id,
+                nickname=user_row.nickname,
+                language=submission.language,
+                submit_type=submission.submit_type,
+                status=submission.status,
+                score=submission.score,
+                time_used_ms=submission.time_used_ms,
+                memory_used_kb=submission.memory_used_kb,
+                created_at=submission.created_at,
+            )
+            for submission, user_row in rows
+        ], total
+
+    async def get_problem_submission_detail(
+        self, user: object, problem_id: uuid.UUID, submission_id: uuid.UUID,
+    ) -> SubmissionDetailOut:
+        """题目管理视角的提交详情（统一入口）：管理权限 + 归属校验后复用统一装配。"""
+        problem = await get_problem(self.db, problem_id)
+        if not await can_manage_problem(self.db, user, problem):
+            raise APIError(AUTH_FORBIDDEN, "无权限查看该题目提交", 403)
+        submission = await self.submissions.get_by_id(submission_id)
+        if submission is None or submission.problem_id != problem_id:
+            raise APIError(RESOURCE_NOT_FOUND, "提交不存在", 404)
+        return await self.build_detail(submission)
 
     async def get_detail(self, user: object, submission_id: uuid.UUID) -> SubmissionDetailOut:
         submission = await self.submissions.get_by_id(submission_id)

@@ -98,12 +98,12 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | PUT | /contests/{id} | admin/tutor/team_creator/team_admin | 编辑比赛 | ... | contest |
 | POST | /contests/{id}/register | auth | 报名 | - | - |
 | GET | /contests/{id}/board | auth | 榜单（封榜时按冻结展示；BoardCell 含 problem_score 单题满分） | - | board |
-| GET | /contests/{id}/board/{user_id}/{problem_id}/accepted | auth（**赛后**：已报名 / admin·tutor） | **榜单单格成功提交**：该 (选手, 题目) 比赛内 AC 提交（不含补题，时间正序）；窗口与角色门控随提交记录 | - | submission[] |
+| GET | /contests/{id}/board/{user_id}/{problem_id}/accepted | auth（admin·tutor 随时 / **赛后**：已报名） | **榜单单格成功提交**：该 (选手, 题目) 比赛内 AC 提交（不含补题，时间正序）；窗口与角色门控随提交记录 | - | submission[] |
 | POST | /contests/{id}/unfreeze | admin/tutor | **手动解冻榜单**：从 submissions 权威重算并回填封榜期间结果（解冻必须人工触发，比赛结束后亦然） | - | contest |
 | GET | /contests/{id}/problems/{pid} | auth（已报名 + 看题窗口） | **比赛内题目详情（统一入口）**：归属 / 窗口校验后与 `GET /problems/{id}` 装配一致 | - | problem |
 | POST | /contests/{id}/problems/{pid}/submissions | auth（已报名 + 时间窗口） | **比赛交题（统一入口）**：窗口校验后落 contest 提交并派发；赛后自动标记补题（不计榜单） | language/code | submission_id |
-| GET | /contests/{id}/submissions | auth（**赛后**：已报名 / admin·tutor） | **比赛提交记录列表**：全员正式提交 + 补题，提交时间倒序；比赛期间对所有人隐藏（403） | 分页 | submission[]（含 nickname / letter） |
-| GET | /contests/{id}/submissions/{sid} | auth（**赛后**：已报名 / admin·tutor） | **比赛提交详情（统一入口）**：窗口与 contest 归属校验后复用判题详情装配 | - | submission（含代码 / 测试点明细） |
+| GET | /contests/{id}/submissions | auth（admin·tutor 随时 / **赛后**：已报名） | **比赛提交记录列表**：全员正式提交 + 补题，提交时间倒序；比赛期间仅管理角色可见，参赛者赛后开放 | 分页/keyword（昵称模糊）/language/status/problem_id（均精确） | submission[]（含 nickname / letter） |
+| GET | /contests/{id}/submissions/{sid} | auth（admin·tutor 随时 / **赛后**：已报名） | **比赛提交详情（统一入口）**：窗口与 contest 归属校验后复用判题详情装配 | - | submission（含代码 / 测试点明细） |
 | GET | /teams/{team_id}/contests | team 角色 | 团队比赛列表（随 teams 模块实现） | 分页 | contest[] |
 | GET | /users/me/contests | auth | 我的比赛 / 报名列表 | 分页/状态 | contest[] |
 
@@ -137,19 +137,20 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
    不更新榜单行。
 6. **赛后补题**：允许补题（`submissions.is_after_contest=true`），不计入榜单。
 7. **提交记录可见性**（比赛上下文统一入口端点）：
-   - **比赛期间（`now < end_time`）对所有人隐藏**（含参赛者本人与管理角色，返回 2003）；
-     前端「提交记录」tab 在此窗口内展示提示、不发起列表请求
-   - **赛后**：已报名用户与 admin/tutor 可见全部比赛提交（含补题行），列表含提交人昵称与题号；
+   - **管理角色（admin/tutor）随时可见**（含比赛期间与封榜期间，便于监考 / 巡查）
+   - **比赛期间（`now < end_time`）对参赛者与未报名用户隐藏**（返回 2003）；
+     前端「提交记录」tab 对非管理角色在此窗口内展示提示、不发起列表请求
+   - **赛后**：已报名用户与管理角色可见全部比赛提交（含补题行），列表含提交人昵称与题号；
      未报名用户不可见（2003）
    - 提交详情经比赛上下文端点 `GET /contests/{id}/submissions/{sid}` 读取（不跨模块直调
      `GET /submissions/{id}`，后者仍仅限本人）；装配复用 `SubmissionService.build_detail`
    - 详情校验按 `(contest_id, submission_id, submit_type='contest')` 归属查询，
      不信任客户端 contest_id
 8. **榜单单格成功提交**：榜单 BoardCell 携带 `problem_score`（单题满分，前端做分母）；
-   赛后点击通过格可调 `GET /contests/{id}/board/{user_id}/{problem_id}/accepted`
+   赛后（管理角色随时）点击通过格可调 `GET /contests/{id}/board/{user_id}/{problem_id}/accepted`
    查看该格「当时成功」的提交——仅该 (选手, 题目) 比赛内 AC（不含补题，时间正序）；
-   可见性随第 7 条提交记录窗口（比赛期间对所有人隐藏，赛后参赛者与管理角色）；
-   格子内提交行可点击进入上下文内评测结果页。封榜冻结格不可点击。
+   可见性随第 7 条提交记录窗口（管理角色随时，参赛者赛后）；
+   格子内提交行可点击进入上下文内评测结果页。封榜冻结格对参赛者不可点击。
 
 ## 明确不做
 
@@ -166,8 +167,9 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 - 已实现：提交行原生赛制快照（`submissions.rule_type`，迁移 0020）——ACM 二值计分 +
   派题 `stop_on_failure` 短路（首个失败点后不测后续点），IOI 部分计分；计分与可见性
   不再依赖比赛时间判断（judge.md「赛制计分」）
-- 已实现：比赛提交记录端点（列表 + 详情，赛后开放；第 7 条）；比赛详情页「提交记录」tab
-  （比赛期间展示提示，赛后分页列表，行点击进上下文内评测结果页 `/contests/:cid/submissions/:sid`）；
+- 已实现：比赛提交记录端点（列表 + 详情；管理角色随时可见，参赛者赛后开放——第 7 条）；
+  比赛详情页「提交记录」tab（非管理角色比赛期间展示提示，管理角色比赛期间即可分页查看，
+  赛后参赛者开放，行点击进上下文内评测结果页 `/contests/:cid/submissions/:sid`）；
   详情页 tab 内容纵向伸展，分页条固定在内容区底部
 - 已实现：榜单视觉重设计（排名 / 选手列固定左侧，双行题头 = 题号 + IOI 单题满分，
   AC / 部分分 / 尝试 / 未提交药丸格 + 图例，flex-height 表体滚动 + 分页贴底）；

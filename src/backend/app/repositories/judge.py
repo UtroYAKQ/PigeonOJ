@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.judge import Submission, SubmissionTestCaseResult
 from app.models.problem import TestCase
+from app.models.user import User
 
 
 class JudgeRepository:
@@ -77,6 +78,44 @@ class SubmissionRepository:
             ).scalars()
         )
         return rows, int(total)
+
+    async def list_for_problem(
+        self, problem_id: uuid.UUID, status: str | None, keyword: str | None,
+        language: str | None, submit_type: str | None, page: int, page_size: int,
+    ) -> tuple[list[tuple[Submission, User]], int]:
+        """题目全员提交（join 用户，提交时间倒序分页；题目管理视角，权限由服务层校验）。
+
+        keyword 模糊匹配提交人昵称；language / submit_type 精确匹配。
+        """
+        conditions = [Submission.problem_id == problem_id]
+        if status:
+            conditions.append(Submission.status == status)
+        if keyword:
+            conditions.append(User.nickname.ilike(f"%{keyword}%"))
+        if language:
+            conditions.append(Submission.language == language)
+        if submit_type:
+            conditions.append(Submission.submit_type == submit_type)
+        # 显式 join：keyword 条件引用 User 列，避免 count 查询被隐式交叉连接放大
+        total = (
+            await self.db.scalar(
+                select(func.count())
+                .select_from(Submission)
+                .join(User, User.id == Submission.user_id)
+                .where(*conditions)
+            )
+        ) or 0
+        rows = (
+            await self.db.execute(
+                select(Submission, User)
+                .join(User, User.id == Submission.user_id)
+                .where(*conditions)
+                .order_by(Submission.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        ).all()
+        return [(submission, user) for submission, user in rows], int(total)
 
 
 class TestCaseRepository:

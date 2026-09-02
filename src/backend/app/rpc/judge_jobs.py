@@ -7,7 +7,8 @@
 data_version 指纹 = sha256(测试点数量 | 最大 updated_at)，按**判定集**计算：
 练习/比赛=生效集（active_case_ids），验题=暂存集（pending_case_ids，空则退化生效集）；
 晋升必然改变生效集指纹，节点据此做 <problem_id>-<version> 本地缓存。
-题目 / 测试点经 problems.api 读取；验题结果回写走 complete_verification 钩子。
+题目 / 测试点经 problems.api 读取；终态回写（通过率计数 / 验题状态机 / 榜单 / 满分基准）
+经 ProblemService / ContestService 上下文端口，本模块不直查比赛模型（check_import_rules 规则 6）。
 """
 from __future__ import annotations
 
@@ -22,6 +23,8 @@ from app.enums import RuleType, SubmissionStatus, SubmitType
 from app.models.judge import SandboxConfig, Submission
 from app.repositories.judge import JudgeRepository
 from app.services import problem as problems
+from app.services.contest import ContestService
+from app.services.problem import ProblemService
 
 from app.core.storage import get_storage
 
@@ -219,32 +222,9 @@ async def _finish_with_error(db, repository: JudgeRepository, submission: Submis
     await repository.finish_submission(
         db, submission, status=SubmissionStatus.SYSTEM_ERROR, score=0, time_used_ms=0, memory_used_kb=None, error_message=message
     )
-    await _complete_verification_if_needed(db, submission)
+    # 终态回写（验题状态机推进 / 通过率计数豁免）经题目上下文端口
+    await ProblemService(db).on_submission_finalized(submission, SubmissionStatus.SYSTEM_ERROR)
     await db.commit()
-
-
-async def _complete_verification_if_needed(db, submission: Submission) -> None:
-    """验题提交完成后回调题库模块状态机（passed → problems.is_verified 等回写）。"""
-    if submission.submit_type != SubmitType.VERIFY or not submission.verification_id:
-        return
-    await problems.complete_verification(
-        db,
-        submission.verification_id,
-        passed=submission.status == SubmissionStatus.ACCEPTED,
-        verifier_id=submission.user_id,
-    )
-
-
-async def _bump_problem_counters_if_needed(db, submission: Submission, status: str) -> None:
-    """练习/比赛提交终态回写题目通过率计数（docs/contracts/judge.md 统计口径）。
-
-    verify（验题非真实作答）与 system_error（平台故障）不计入。
-    """
-    if submission.submit_type == SubmitType.VERIFY or status == SubmissionStatus.SYSTEM_ERROR:
-        return
-    await problems.bump_counters(
-        db, submission.problem_id, accepted=status == SubmissionStatus.ACCEPTED
-    )
 
 
 async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
@@ -259,22 +239,18 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
     # - ACM（二值）：全部测试点通过 = 单题满分，否则 0；测试点不设分值。
     #   短路执行（stop_on_failure）下节点仅回传已执行测试点，无部分分可泄露。
     # - IOI / 练习 / 验题（部分计分）：测试点分值一致，单点 = 满分 ÷ 测试点数，
-    #   仅通过计分；比赛提交以比赛配置的单题分值为满分基准。
+    #   仅通过计分；比赛提交的单题满分基准经比赛上下文端口获取（不直查 ContestProblem）。
     # 节点可能回传少于全部测试点的结果（ACM 短路），未执行测试点不落结果行。
+    contest_service = ContestService(db)
+    problem_service = ProblemService(db)
     cases = outcome.cases
     case_count = len(cases)
     full = _FULL_SCORE
     if submission.submit_type == SubmitType.CONTEST and submission.contest_id is not None:
-        from app.models.contest import ContestProblem
-
-        contest_problem = await db.scalar(
-            select(ContestProblem).where(
-                ContestProblem.contest_id == submission.contest_id,
-                ContestProblem.problem_id == submission.problem_id,
-            )
+        full = (
+            await contest_service.full_score_for(submission.contest_id, submission.problem_id)
+            or _FULL_SCORE
         )
-        if contest_problem is not None and contest_problem.score > 0:
-            full = contest_problem.score
     acm = submission.rule_type == RuleType.ACM
     base, extra = divmod(full, case_count) if case_count else (0, 0)
 
@@ -312,17 +288,11 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
         memory_used_kb=max_memory,
         error_message=outcome.error_message,
     )
-    # 练习/比赛提交终态：回写题目通过率计数（verify/system_error 不计入）
-    await _bump_problem_counters_if_needed(db, submission, outcome.status or SubmissionStatus.SYSTEM_ERROR)
-    # 比赛提交：条件更新榜单行（封榜期 / 补题 / system_error 不计）
-    if submission.submit_type == SubmitType.CONTEST and submission.contest_id is not None:
-        from app.services.contest import ContestService
-
-        await ContestService(db).update_ranking_on_result(
-            submission, outcome.status or SubmissionStatus.SYSTEM_ERROR
-        )
-    # 验题提交：回写 problem_verifications 与 problems.is_verified
-    await _complete_verification_if_needed(db, submission)
+    # 终态回写（同事务内顺序执行，任一失败整体回滚）：
+    # 1. 题目上下文：通过率计数 + 验题状态机推进（verify/system_error 豁免由端口内判断）
+    await problem_service.on_submission_finalized(submission, outcome.status or SubmissionStatus.SYSTEM_ERROR)
+    # 2. 比赛上下文：榜单条件更新（封榜期 / 补题 / system_error 不计）
+    await contest_service.on_submission_finalized(submission, outcome.status or SubmissionStatus.SYSTEM_ERROR)
     await db.commit()
     return True
 

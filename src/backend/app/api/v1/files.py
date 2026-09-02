@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Response, UploadFile
 
-from app.services.file import FileService
+from app.api.deps import FileServiceDep
 from app.models.user import User
 from app.schemas.file import AvatarUploadResult, ImageUploadResult
 from app.core.dependency import get_current_user
@@ -16,19 +16,21 @@ router = APIRouter(prefix="/files", tags=["files"])
 
 @router.post("/upload/avatar", response_model=ApiResponse[AvatarUploadResult])
 async def upload_avatar(
+    service: FileServiceDep,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ) -> ApiResponse[AvatarUploadResult]:
-    return ok(await FileService().upload_avatar(current_user.id, file))
+    return ok(await service.upload_avatar(current_user.id, file))
 
 
 @router.post("/upload/image", response_model=ApiResponse[ImageUploadResult])
 async def upload_image(
+    service: FileServiceDep,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ) -> ApiResponse[ImageUploadResult]:
     """公共图片上传（登录用户可用）：题面插图等 Markdown 引用场景。"""
-    return ok(await FileService().upload_image(current_user.id, file))
+    return ok(await service.upload_image(current_user.id, file))
 
 
 @router.get("/{object_key:path}")

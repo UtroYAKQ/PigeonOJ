@@ -394,16 +394,33 @@ class ContestSubmissionQueryRepository:
         )
 
     async def list_records_with_users(
-        self, contest_id: uuid.UUID, *, page: int, page_size: int
+        self, contest_id: uuid.UUID, *, page: int, page_size: int,
+        keyword: str | None = None, language: str | None = None,
+        status: str | None = None, problem_id: uuid.UUID | None = None,
     ) -> tuple[list[tuple[Submission, User]], int]:
-        """比赛提交记录（join 用户，提交时间倒序分页）。"""
+        """比赛提交记录（join 用户，提交时间倒序分页）。
+
+        keyword 模糊匹配提交人昵称；language / status / problem_id 精确过滤。
+        """
         conditions = [
             Submission.contest_id == contest_id,
             Submission.submit_type == SubmitType.CONTEST,
         ]
+        if keyword:
+            conditions.append(User.nickname.ilike(f"%{keyword}%"))
+        if language:
+            conditions.append(Submission.language == language)
+        if status:
+            conditions.append(Submission.status == status)
+        if problem_id:
+            conditions.append(Submission.problem_id == problem_id)
+        # 显式 join：keyword 条件引用 User 列，避免 count 查询被隐式交叉连接放大
         total = (
             await self.db.scalar(
-                select(func.count()).select_from(Submission).where(*conditions)
+                select(func.count())
+                .select_from(Submission)
+                .join(User, User.id == Submission.user_id)
+                .where(*conditions)
             )
         ) or 0
         rows = (

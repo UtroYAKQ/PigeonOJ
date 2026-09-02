@@ -46,6 +46,23 @@ export default {
       empty: 'No matching problems',
       archiveConfirm:
         'Archiving hides the problem from the catalog; existing references are unaffected. Archive now?',
+      viewSubmissions: 'View submissions',
+    },
+    submissionsManage: {
+      title: 'Submissions',
+      user: 'Submitter',
+      type: 'Type',
+      typePractice: 'Practice',
+      typeContest: 'Contest',
+      typeVerify: 'Verification',
+      submitTime: 'Submitted at',
+      totalCount: '{count} submissions',
+      empty: 'No submissions yet',
+      loadFailed: 'Failed to load submissions',
+      search: 'Search by submitter nickname',
+      allLanguages: 'All languages',
+      allTypes: 'All types',
+      backToList: 'Back to submissions',
     },
     wizard: {
       basic: 'Basics & statement',

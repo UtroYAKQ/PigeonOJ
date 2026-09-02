@@ -203,17 +203,39 @@ export const frontRoutes: RouteRecordRaw[] = [
   },
   {
     path: 'teams',
-    name: 'teams',
-    component: () => import('@/views/PlaceholderView.vue'),
-    meta: {
-      title: '团队',
-      titleKey: 'nav.teams',
-      icon: 'UserFilled',
-      placeholder: {
-        titleKey: 'nav.teams',
-        descriptionKey: 'placeholder.teamsDescription',
-        endpoints: ['GET /api/v1/teams', 'POST /api/v1/teams', 'POST /api/v1/teams/{id}/invites'],
+    redirect: '/teams/mine',
+    meta: { title: '团队', titleKey: 'nav.teams', icon: 'UserFilled' },
+    children: [
+      {
+        path: 'mine',
+        name: 'teams',
+        component: () => import('@/views/teams/TeamListView.vue'),
+        meta: { title: '团队', titleKey: 'nav.teams', icon: 'UserFilled', requiresAuth: true },
       },
-    },
+      {
+        path: 'invites/:token',
+        name: 'team-invite',
+        component: () => import('@/views/teams/TeamInviteView.vue'),
+        meta: {
+          title: '团队邀请',
+          titleKey: 'teams.invite.title',
+          hidden: true,
+          contextPage: true,
+        },
+      },
+      {
+        path: ':id',
+        name: 'team-detail',
+        component: () => import('@/views/teams/TeamDetailView.vue'),
+        meta: {
+          title: '团队详情',
+          titleKey: 'teams.detail.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: { titleKey: 'nav.teams', path: '/teams/mine' },
+        },
+      },
+    ],
   },
 ]

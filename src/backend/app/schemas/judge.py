@@ -84,6 +84,21 @@ class SubmissionSummary(BaseModel):
     created_at: datetime
 
 
+class ProblemSubmissionItem(BaseModel):
+    """题目管理视角的提交列表项（题目管理角色可见全员提交，含提交人昵称）。"""
+
+    id: uuid.UUID
+    user_id: uuid.UUID
+    nickname: str
+    language: str
+    submit_type: SubmitType
+    status: SubmissionStatus
+    score: int
+    time_used_ms: int | None
+    memory_used_kb: int | None
+    created_at: datetime
+
+
 class SubmissionDetail(BaseModel):
     """提交详情（含代码和测试点结果）。"""
 

@@ -7,15 +7,38 @@ import type {
   ProblemEditPayload,
   ProblemLanguage,
   ProblemListQuery,
+  ProblemSubmissionItem,
   ProblemSummary,
   ProblemTagItem,
   ProblemTestCase,
+  Submission,
   TestCaseDraft,
   TestCaseUpsertPayload,
 } from '@/types'
 
 export function listProblems(query: ProblemListQuery = {}): Promise<PageResult<ProblemSummary>> {
   return apiRequest('GET', `/problems${buildQuery(query)}`)
+}
+
+/** 题目管理视角：该题全员提交列表（创建者与管理角色，docs/contracts/judge.md）；
+ * keyword 模糊匹配提交人昵称，language / status / submit_type 精确过滤 */
+export function listProblemSubmissions(
+  id: string,
+  query: {
+    page?: number
+    page_size?: number
+    status?: string
+    keyword?: string
+    language?: string
+    submit_type?: string
+  } = {},
+): Promise<PageResult<ProblemSubmissionItem>> {
+  return apiRequest('GET', `/problems/${id}/submissions${buildQuery(query)}`)
+}
+
+/** 题目管理视角：提交详情（统一入口，管理权限 + 归属校验后复用判题装配） */
+export function getProblemSubmission(problemId: string, submissionId: string): Promise<Submission> {
+  return apiRequest('GET', `/problems/${problemId}/submissions/${submissionId}`)
 }
 
 /** 激活标签列表（public：打标选择器与题库筛选） */

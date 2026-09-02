@@ -112,6 +112,37 @@ export const adminRoutes: RouteRecordRaw[] = [
               breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
             },
           },
+          {
+            // 题目管理 · 提交列表（全员提交，题目管理角色可见）
+            path: ':id/submissions',
+            name: 'problem-submissions',
+            component: () => import('@/views/problems/ProblemSubmissionsView.vue'),
+            meta: {
+              title: '提交列表',
+              titleKey: 'problems.submissionsManage.title',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            // 题目管理 · 提交评测详情（面包屑回当前题目的提交列表）
+            path: ':id/submissions/:sid',
+            name: 'problem-submission-detail',
+            component: () => import('@/views/problems/ProblemSubmissionDetailView.vue'),
+            meta: {
+              title: '评测结果',
+              titleKey: 'problems.submission.title',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: {
+                titleKey: 'problems.submissionsManage.title',
+                path: (route) => `/admin/problems/${String(route.params.id)}/submissions`,
+              },
+            },
+          },
         ],
       },
       {

@@ -30,7 +30,7 @@ from app.enums import CaseStatus, ProblemStatus, ProblemVisibility, TagStatus, V
 
 
 class Problem(Base):
-    """题目（docs/contracts/problems.md；team_id 随 teams 模块迁移补齐）。"""
+    """题目（docs/contracts/problems.md）：team_id 非空为团队题目（teams 模块，0022 起落库）。"""
 
     __tablename__ = "problems"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -58,8 +58,10 @@ class Problem(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     # 难度分（手动填写，类似 Codeforces；NULL=未评分；仅约束非负，不设上限）
     difficulty: Mapped[int | None] = mapped_column(Integer)
-    # 全站题目：private / public（团队题目 admin_visible / team_visible / public 随 teams 模块扩展）
+    # 全站题目：private / public；团队题目（team_id 非空）：admin_visible / team_visible
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemVisibility.PUBLIC)
+    # 归属团队；NULL=全站题目（docs/contracts/problems.md 可见性设计）
+    team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id"))
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemStatus.DRAFT)
     verified_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     # 验题通过时间即「已验题」事实载体（is_verified 列已移除，≡ verified_at 非空）
@@ -71,8 +73,13 @@ class Problem(Base):
     __table_args__ = (
         Index("ix_problems_owner", "owner_id"),
         Index("ix_problems_visibility_status", "visibility", "status"),
+        Index("ix_problems_team_visibility_status", "team_id", "visibility", "status"),
         CheckConstraint(
-            "visibility IN ('private','public')", name="ck_problems_site_visibility"
+            "("
+            "(team_id IS NULL     AND visibility IN ('private','public')) OR"
+            "(team_id IS NOT NULL AND visibility IN ('admin_visible','team_visible'))"
+            ")",
+            name="ck_problems_owner_visibility",
         ),
         CheckConstraint("(status <> 'published' OR verified_at IS NOT NULL)", name="ck_problems_published_verified"),
         CheckConstraint("difficulty IS NULL OR difficulty >= 0", name="ck_problems_difficulty_nonneg"),

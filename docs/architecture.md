@@ -61,7 +61,17 @@ api/v1（路由）→ services（业务）→ repositories（仓储）→ models
 - **`app/api/` 是最上层**：任何非 api 层 import `app.api` 即违规
 - **models / schemas / enums 纯净**：不依赖 services / repositories / rpc / api
 - **utils 不 import** api / services / repositories / rpc / models / schemas（允许 core）
+- **路由层服务经 `app/api/deps.py` Provider 注入**：路由只声明 `XxxServiceDep` 等
+  Annotated 依赖，禁止直接 import app.services 构造服务；Provider 是路由层唯一的
+  services 引用点（跨上下文端口，如 ContestService 的 ContestSubmitter，也在此装配）；
+  同一请求内多个 Provider 共享同一请求级 db 会话（FastAPI 依赖缓存），需要显式
+  commit 的路由另注入 `SessionDep`
 - **组合根只两处**：`app/__init__.py`（create_app 工厂）、`app/core/init_app.py`（路由注册）
+- **上下文协作用显式端口，不直读对方聚合**：判题终态回写只经
+  `ProblemService.on_submission_finalized`（通过率计数 + 验题状态机）与
+  `ContestService.on_submission_finalized`（榜单）/ `full_score_for`（满分基准）；
+  赛制在交题时由比赛上下文经命令参数快照进提交行，judge 不回查 Contest 模型。
+  由 `check_import_rules.py` 规则 6 机械守护；出现第三个订阅方时再引入领域事件总线
 - 以上由 `src/backend/scripts/check_import_rules.py` 机械检查
 
 ### 代码组织

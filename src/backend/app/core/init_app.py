@@ -66,6 +66,7 @@ def register_routers(app: FastAPI, prefix: str = "/api/v1") -> None:
     from app.api.v1 import judge as judge_routes
     from app.api.v1 import problem_sets as problem_sets_routes
     from app.api.v1 import problems as problems_routes
+    from app.api.v1 import teams as team_routes
     from app.api.v1 import users as users_routes
 
     # 系统端点：/health 根级、/api/v1/site-config
@@ -78,4 +79,5 @@ def register_routers(app: FastAPI, prefix: str = "/api/v1") -> None:
     app.include_router(problem_sets_routes.router, prefix=prefix)
     app.include_router(contest_routes.router, prefix=prefix)
     app.include_router(judge_routes.router, prefix=prefix)
+    app.include_router(team_routes.router, prefix=prefix)
     app.include_router(admin_routes.router, prefix=prefix)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,13 +68,34 @@ def _letter(index: int) -> str:
     return chr(ord("A") + index % 26) + (str(index // 26) if index >= 26 else "")
 
 
+class ContestSubmitter(Protocol):
+    """判题上下文端口：比赛交题创建（消费方拥有接口，docs/architecture.md 依赖注入约定）。
+
+    由 ContestService 构造注入（路由层经 app/api/deps.py 装配 SubmissionService），
+    避免比赛上下文直接依赖判题服务实现。
+    """
+
+    async def create_contest_submission(
+        self,
+        user: object,
+        *,
+        contest_id: uuid.UUID,
+        problem_id: uuid.UUID,
+        language: str,
+        code: str,
+        after_contest: bool,
+        rule_type: RuleType,
+    ) -> object: ...
+
+
 class ContestService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, *, submitter: ContestSubmitter | None = None) -> None:
         self.db = db
         self.repo = ContestRepository(db)
         self.rankings = ContestRankingRepository(db)
         self.submissions = ContestSubmissionQueryRepository(db)
         self.config = ConfigService(db)
+        self._submitter = submitter
 
     async def _can_manage(self, user: User | None) -> bool:
         if user is None:
@@ -106,10 +128,12 @@ class ContestService:
         return registration is not None and registration.status == RegistrationStatus.REGISTERED
 
     async def _ensure_submissions_visible(self, contest: Contest, user: User) -> None:
-        """提交记录窗口：比赛期间（end_time 之前）对所有人隐藏，赛后仅已报名用户与管理角色。"""
+        """提交记录窗口：管理角色随时可见；比赛期间对参赛者隐藏，赛后开放已报名用户。"""
+        if await self._can_manage(user):
+            return
         if _now() < _aware(contest.end_time):
             raise APIError(AUTH_FORBIDDEN, "比赛期间提交记录不可见，结束后开放查看", 403)
-        if not (await self._is_registered(contest, user) or await self._can_manage(user)):
+        if not await self._is_registered(contest, user):
             raise APIError(AUTH_FORBIDDEN, "未报名该比赛，无权查看提交记录", 403)
 
     @staticmethod
@@ -277,12 +301,12 @@ class ContestService:
         *,
         language: str,
         code: str,
-        create_submission,
     ) -> tuple[object, bool]:
-        """比赛交题（统一入口）：窗口校验 → 创建 contest 提交。
+        """比赛交题（统一入口）：窗口校验 → 经 ContestSubmitter 端口创建 contest 提交。
 
-        返回 (submission, after_contest)；创建函数由路由注入（避免跨模块循环依赖）。
-        赛后提交自动标记补题，不计榜单（docs/contracts/contests.md 第 6 条）。
+        返回 (submission, after_contest)；判题上下文端口由构造注入，非路由组合根
+        （rpc / 测试）未装配端口时延迟自建兜底。赛后提交自动标记补题，不计榜单
+        （docs/contracts/contests.md 第 6 条）。
         """
         contest = await self._get_contest(contest_id)
         await self._require_registered(contest, user)
@@ -292,13 +316,20 @@ class ContestService:
         if now < _aware(contest.start_time):
             raise APIError(AUTH_FORBIDDEN, "比赛尚未开始，不可提交", 403)
         after = now > _aware(contest.end_time)
-        submission = await create_submission(
+        if self._submitter is not None:
+            submitter = self._submitter
+        else:  # 非路由组合根兜底：延迟导入避免模块环
+            from app.services.judge import SubmissionService
+
+            submitter = SubmissionService(self.db)
+        submission = await submitter.create_contest_submission(
             user,
             contest_id=contest.id,
             problem_id=problem_id,
             language=language,
             code=code,
             after_contest=after,
+            rule_type=contest.rule_type,
         )
         return submission, after
 
@@ -317,13 +348,19 @@ class ContestService:
     # ---------------- 提交记录（赛后开放） ----------------
 
     async def list_submissions(
-        self, user: User, contest_id: uuid.UUID, *, page: int, page_size: int
+        self, user: User, contest_id: uuid.UUID, *, page: int, page_size: int,
+        keyword: str | None = None, language: str | None = None,
+        status: str | None = None, problem_id: uuid.UUID | None = None,
     ) -> tuple[list[ContestSubmissionItem], int]:
-        """比赛提交记录列表（比赛期间对所有人隐藏，赛后仅已报名用户与管理角色可见）。"""
+        """比赛提交记录列表（管理角色随时可见；参赛者赛后开放）。
+
+        keyword 模糊匹配提交人昵称；language / status / problem_id 精确过滤。
+        """
         contest = await self._get_contest(contest_id)
         await self._ensure_submissions_visible(contest, user)
         rows, total = await self.submissions.list_records_with_users(
-            contest.id, page=page, page_size=page_size
+            contest.id, page=page, page_size=page_size,
+            keyword=keyword, language=language, status=status, problem_id=problem_id,
         )
         letters = {
             cp.problem_id: cp.letter
@@ -549,6 +586,24 @@ class ContestService:
         )
 
     # ---------------- 判题挂钩（judge_jobs 终态调用） ----------------
+
+    async def full_score_for(self, contest_id: uuid.UUID, problem_id: uuid.UUID) -> int | None:
+        """单题满分基准（比赛上下文自持的计分知识，docs/contracts/contests.md 第 4 条）。
+
+        返回比赛配置的单题分值；未配置（<= 0）或题目不在比赛中返回 None（调用方用练习满分兜底）。
+        判题上下文不直查 ContestProblem，经本方法获取。
+        """
+        contest_problem = await self.repo.get_contest_problem(contest_id, problem_id)
+        if contest_problem is not None and contest_problem.score > 0:
+            return contest_problem.score
+        return None
+
+    async def on_submission_finalized(self, submission: Submission, status: str) -> None:
+        """判题终态回写端口：比赛提交的榜单条件更新（judge 上下文唯一入口）。
+
+        内部委托 update_ranking_on_result；非比赛提交为无操作。
+        """
+        await self.update_ranking_on_result(submission, status)
 
     async def update_ranking_on_result(self, submission: Submission, status: str) -> None:
         """判题终态回写榜单（条件更新，docs/contracts/contests.md 第 4 条）。

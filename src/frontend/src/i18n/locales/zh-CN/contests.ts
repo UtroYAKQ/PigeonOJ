@@ -112,6 +112,9 @@
       hiddenDuringContest: '比赛期间提交记录不可见，结束后开放查看',
       needsRegistration: '赛后提交记录仅对参赛者与管理角色开放',
       backToContest: '返回比赛',
+      search: '搜索提交人昵称',
+      allProblems: '全部题目',
+      allLanguages: '全部语言',
     },
   },
 }

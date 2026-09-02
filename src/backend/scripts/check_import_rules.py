@@ -17,6 +17,11 @@
 2. models / schemas 不得 import services / repositories / rpc（契约层不依赖业务逻辑）
 3. enums 保持纯净：不得 import 其他应用分层；utils 不 import api / services / repositories / rpc / models / schemas
 4. 豁免（组合根与工具链）：app/core/init_app.py（路由装配）、alembic/**、scripts/**、tests/**
+5. 路由层（app/api/v1/**）不得直接 import app.services；服务一律经 app/api/deps.py Provider 注入
+   （deps.py 是路由层唯一的 services 引用点，依赖注入约定见 docs/architecture.md）
+6. 判题上下文（services/judge、repositories/judge、models/judge）禁止依赖比赛上下文
+   （赛制经命令快照进提交行，满分基准 / 榜单回写经 ContestService 端口）；
+   判题派发层（rpc/judge_jobs）禁止直查比赛模型
 
 用法：
     python scripts/check_import_rules.py
@@ -103,6 +108,28 @@ def check_file(path: Path) -> list[str]:
                 own_layer == "utils" and target_layer in ("api", "services", "repositories", "rpc", "models", "schemas")
             ):
                 problems.append(f"{dotted(path)}:{line}: {own_layer} 违规依赖 {target_layer} -> {target}")
+                continue
+            # 规则 5：路由层经 app.api.deps Provider 注入服务，禁止直接依赖 services
+            if dotted(path).startswith("app.api.v1") and target_layer == "services":
+                problems.append(
+                    f"{dotted(path)}:{line}: 路由层违规直接依赖 services（请经 app.api.deps Provider 注入）-> {target}"
+                )
+                continue
+            # 规则 6：判题上下文禁止依赖比赛上下文（计分 / 榜单知识归属比赛上下文）
+            _is_contest_module = target == "app.models.contest" or target.startswith("app.models.contest.") or (
+                target == "app.services.contest" or target.startswith("app.services.contest.")
+            ) or (target == "app.repositories.contest" or target.startswith("app.repositories.contest."))
+            if dotted(path) in ("app.services.judge", "app.repositories.judge", "app.models.judge") and _is_contest_module:
+                problems.append(
+                    f"{dotted(path)}:{line}: 判题上下文禁止依赖比赛上下文（赛制经命令快照，满分/榜单经 ContestService 端口）-> {target}"
+                )
+                continue
+            if dotted(path) == "app.rpc.judge_jobs" and (
+                target == "app.models.contest" or target.startswith("app.models.contest.")
+            ):
+                problems.append(
+                    f"{dotted(path)}:{line}: 判题派发层禁止直查比赛模型（满分基准经 ContestService.full_score_for）-> {target}"
+                )
     return problems
 
 
@@ -116,7 +143,7 @@ def main() -> int:
         for p in all_problems:
             print(" -", p)
         return 1
-    print(f"导入规则检查通过（{len(files)} 个文件）：api 不被下穿依赖，契约层与 utils 保持纯净。")
+    print(f"导入规则检查通过（{len(files)} 个文件）：api 不被下穿依赖，路由经 deps 注入服务，契约层与 utils 保持纯净。")
     return 0
 
 

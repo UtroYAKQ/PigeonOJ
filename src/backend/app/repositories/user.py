@@ -178,3 +178,94 @@ class RoleRepository:
         for role_id in role_ids:
             self.db.add(UserRole(user_id=user_id, role_id=role_id, scope=UserRoleScope.GLOBAL, object_id=None))
         await self.db.flush()
+
+    # ---- 团队作用域授权（scope='team'、object_id=team_id，docs/contracts/teams.md） ----
+
+    async def get_team_role_codes(self, user_id: uuid.UUID, team_id: uuid.UUID) -> list[str]:
+        """读取用户在指定团队的角色 code 列表。"""
+        stmt = (
+            select(Role.code)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.scope == UserRoleScope.TEAM,
+                UserRole.object_id == team_id,
+            )
+        )
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    async def get_team_roles_for_teams(
+        self, user_id: uuid.UUID, team_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, set[str]]:
+        """批量读取用户在多个团队的角色（我的团队列表一次查询，避免 N+1）。"""
+        if not team_ids:
+            return {}
+        stmt = (
+            select(UserRole.object_id, Role.code)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.scope == UserRoleScope.TEAM,
+                UserRole.object_id.in_(team_ids),
+            )
+        )
+        result: dict[uuid.UUID, set[str]] = {tid: set() for tid in team_ids}
+        for team_id, code in (await self.db.execute(stmt)).all():
+            if team_id in result:
+                result[team_id].add(code)
+        return result
+
+    async def grant_team_role(self, user_id: uuid.UUID, team_id: uuid.UUID, code: str) -> None:
+        """授予团队角色（幂等：已存在则跳过，唯一约束兜底）。"""
+        role = await self.get_by_code(code)
+        if role is None:
+            return
+        exists = (
+            await self.db.execute(
+                select(UserRole.id).where(
+                    UserRole.user_id == user_id,
+                    UserRole.role_id == role.id,
+                    UserRole.scope == UserRoleScope.TEAM,
+                    UserRole.object_id == team_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if exists is not None:
+            return
+        self.db.add(
+            UserRole(
+                user_id=user_id, role_id=role.id, scope=UserRoleScope.TEAM, object_id=team_id
+            )
+        )
+        await self.db.flush()
+
+    async def revoke_team_roles(
+        self, user_id: uuid.UUID, team_id: uuid.UUID, codes: set[str]
+    ) -> None:
+        """撤销用户在指定团队的角色（按角色 code 集合）。"""
+        if not codes:
+            return
+        role_ids = (
+            await self.db.execute(select(Role.id).where(Role.code.in_(codes)))
+        ).scalars().all()
+        if not role_ids:
+            return
+        await self.db.execute(
+            delete(UserRole).where(
+                UserRole.user_id == user_id,
+                UserRole.scope == UserRoleScope.TEAM,
+                UserRole.object_id == team_id,
+                UserRole.role_id.in_(role_ids),
+            )
+        )
+        await self.db.flush()
+
+    async def revoke_all_team_roles(self, team_id: uuid.UUID) -> None:
+        """撤销团队全部角色授权（解散时调用）。"""
+        await self.db.execute(
+            delete(UserRole).where(
+                UserRole.scope == UserRoleScope.TEAM,
+                UserRole.object_id == team_id,
+            )
+        )
+        await self.db.flush()

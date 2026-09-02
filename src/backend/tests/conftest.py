@@ -27,6 +27,7 @@ import app.models.admin  # noqa: F401  (注册到 Base.metadata)
 import app.models.contest  # noqa: F401
 import app.models.judge  # noqa: F401
 import app.models.problem  # noqa: F401
+import app.models.team  # noqa: F401
 import app.models.user  # noqa: F401
 import app.models.audit  # noqa: F401  (平台表：审计日志)
 import app.models.system_config  # noqa: F401  (平台表：系统配置)

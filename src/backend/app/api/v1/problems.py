@@ -8,8 +8,9 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import ProblemServiceDep, SessionDep, TagServiceDep
+from app.models.user import User
 from app.schemas.problem import (
     ProblemCreate,
     ProblemDetail,
@@ -23,20 +24,17 @@ from app.schemas.problem import (
     TestCasesUpdate,
     VerificationInviteOut,
 )
-from app.services.problem import ProblemService, to_problem_detail
-from app.services.tag import TagService
-from app.models.user import User
 from app.core.dependency import get_current_user, get_optional_user
 from app.core.exceptions import AUTH_NOT_LOGGED_IN, PARAM_FORMAT_INVALID, APIError
 from app.utils.pagination import PaginatedResponse
 from app.utils.response import ApiResponse, ok
-from app.core.database import get_db
 
 router = APIRouter(tags=["problems"])
 
 
 @router.get("/problems", response_model=ApiResponse[PaginatedResponse[ProblemSummary]])
 async def list_problems(
+    service: ProblemServiceDep,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     keyword: str | None = Query(default=None, max_length=128),
@@ -46,7 +44,6 @@ async def list_problems(
     difficulty_min: int | None = Query(default=None, ge=0),
     difficulty_max: int | None = Query(default=None, ge=0),
     user: User | None = Depends(get_optional_user),
-    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[PaginatedResponse[ProblemSummary]]:
     try:
         query = ProblemQuery(
@@ -57,7 +54,6 @@ async def list_problems(
         raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
     if query.scope == "mine" and user is None:
         raise APIError(AUTH_NOT_LOGGED_IN, "查看我的题目需要登录", 401)
-    service = ProblemService(db)
     rows, total = await service.list_published(query, viewer=user)
     flags = (
         await service.verification_flags([row.id for row in rows]) if query.scope == "mine" else {}
@@ -73,9 +69,11 @@ async def list_problems(
 
 @router.post("/problems", response_model=ApiResponse[ProblemSummary])
 async def create_problem(
-    body: ProblemCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    body: ProblemCreate,
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
-    service = ProblemService(db)
     problem = await service.create(user, body)
     await db.commit()  # 显式提交：确保数据持久化后再返回（get_db 会再次 commit，但无害）
     summary = ProblemSummary.model_validate(problem)
@@ -84,31 +82,31 @@ async def create_problem(
 
 
 @router.get("/problems/tags", response_model=ApiResponse[list[TagPublic]])
-async def list_active_tags(db: AsyncSession = Depends(get_db)) -> ApiResponse[list[TagPublic]]:
+async def list_active_tags(service: TagServiceDep) -> ApiResponse[list[TagPublic]]:
     """激活标签列表（public：打标选择器与题库筛选；docs/contracts/problems.md 端点表）。
 
     注意必须先于 /problems/{problem_id} 注册，否则 tags 会被当作 uuid 解析。
     """
-    rows = await TagService(db).list_active()
+    rows = await service.list_active()
     return ok([TagPublic.model_validate(row) for row in rows])
 
 
 @router.get("/problems/{problem_id}", response_model=ApiResponse[ProblemDetail])
 async def get_problem(
     problem_id: uuid.UUID,
+    service: ProblemServiceDep,
     user: User | None = Depends(get_optional_user),
-    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ProblemDetail]:
-    detail = await ProblemService(db).get_detail(problem_id, user)
-    return ok(to_problem_detail(detail))
+    return ok(await service.get_detail_view(problem_id, user))
 
 
 @router.put("/problems/{problem_id}", response_model=ApiResponse[ProblemSummary])
 async def update_problem(
     problem_id: uuid.UUID, body: ProblemUpdate,
-    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
-    service = ProblemService(db)
     problem = await service.update(user, problem_id, body)
     await db.commit()  # 显式提交：确保数据持久化
     summary = ProblemSummary.model_validate(problem)
@@ -119,10 +117,12 @@ async def update_problem(
 @router.put("/problems/{problem_id}/test-cases", response_model=ApiResponse[None])
 async def update_test_cases(
     problem_id: uuid.UUID, body: TestCasesUpdate,
-    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """全量替换暂存集（生效集不动，验题通过后晋升；行不可变不物理删除）。"""
-    await ProblemService(db).replace_cases(user, problem_id, body)
+    await service.replace_cases(user, problem_id, body)
     await db.commit()  # 显式提交：确保数据持久化
     return ok(None)
 
@@ -130,10 +130,11 @@ async def update_test_cases(
 @router.patch("/problems/{problem_id}/test-cases", response_model=ApiResponse[TestCasesOut])
 async def patch_test_cases(
     problem_id: uuid.UUID, body: TestCasesPatch,
-    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[TestCasesOut]:
     """增量更新暂存集：只提交变化的测试点（带 id=修改 / 无 id=新增 / delete_ids=目标状态移除）。"""
-    service = ProblemService(db)
     await service.patch_cases(user, problem_id, body)
     await db.commit()  # 显式提交：确保数据持久化
     problem = await service.problems.get_by_id(problem_id)
@@ -143,10 +144,12 @@ async def patch_test_cases(
 
 @router.post("/problems/{problem_id}/test-cases/apply", response_model=ApiResponse[ProblemSummary])
 async def apply_test_cases(
-    problem_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    problem_id: uuid.UUID,
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
     """显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦）。"""
-    service = ProblemService(db)
     problem = await service.apply_pending_cases(user, problem_id)
     await db.commit()
     summary = ProblemSummary.model_validate(problem)
@@ -157,18 +160,22 @@ async def apply_test_cases(
 @router.put("/problems/{problem_id}/samples", response_model=ApiResponse[None])
 async def update_samples(
     problem_id: uuid.UUID, body: SamplesUpdate,
-    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
-    await ProblemService(db).replace_samples(user, problem_id, body)
+    await service.replace_samples(user, problem_id, body)
     await db.commit()  # 显式提交：确保数据持久化
     return ok(None)
 
 
 @router.post("/problems/{problem_id}/publish", response_model=ApiResponse[ProblemSummary])
 async def publish_problem(
-    problem_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    problem_id: uuid.UUID,
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
-    service = ProblemService(db)
     problem = await service.publish(user, problem_id)
     await db.commit()  # 显式提交：确保数据持久化
     summary = ProblemSummary.model_validate(problem)
@@ -178,9 +185,11 @@ async def publish_problem(
 
 @router.post("/problems/{problem_id}/archive", response_model=ApiResponse[ProblemSummary])
 async def archive_problem(
-    problem_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    problem_id: uuid.UUID,
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
-    service = ProblemService(db)
     problem = await service.archive(user, problem_id)
     await db.commit()  # 显式提交：确保数据持久化
     summary = ProblemSummary.model_validate(problem)
@@ -189,5 +198,5 @@ async def archive_problem(
 
 
 @router.get("/verify-invites/{token}", response_model=ApiResponse[VerificationInviteOut])
-async def resolve_verify_invite(token: str, db: AsyncSession = Depends(get_db)) -> ApiResponse[VerificationInviteOut]:
-    return ok(await ProblemService(db).resolve_invite(token))
+async def resolve_verify_invite(token: str, service: ProblemServiceDep) -> ApiResponse[VerificationInviteOut]:
+    return ok(await service.resolve_invite(token))

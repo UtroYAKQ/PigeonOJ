@@ -8,8 +8,8 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import AuthServiceDep, UserServiceDep
 from app.core.dependency import get_bearer_token, get_current_user, parse_client_ip
 from app.models.user import User
 from app.schemas.user import (
@@ -25,10 +25,8 @@ from app.schemas.user import (
     SessionOut,
     UserPublic,
 )
-from app.services.user import AuthService, UserService
 from app.utils.security import hash_token
 from app.utils.response import ApiResponse, ok
-from app.core.database import get_db
 
 router = APIRouter()
 _auth = APIRouter(prefix="/auth", tags=["auth"])
@@ -46,10 +44,10 @@ def _client_meta(request: Request) -> tuple[str | None, str | None]:
 async def send_email_code(
     body: EmailCodeRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    service: AuthServiceDep,
 ) -> ApiResponse[None]:
     ip, ua = _client_meta(request)
-    await AuthService(db).send_email_code(body, ip, ua)
+    await service.send_email_code(body, ip, ua)
     return ok(None)
 
 
@@ -57,10 +55,10 @@ async def send_email_code(
 async def register(
     body: RegisterRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    service: AuthServiceDep,
 ) -> ApiResponse[None]:
     ip, ua = _client_meta(request)
-    await AuthService(db).register(body, ip, ua)
+    await service.register(body, ip, ua)
     return ok(None)
 
 
@@ -68,20 +66,20 @@ async def register(
 async def login(
     body: LoginRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    service: AuthServiceDep,
 ) -> ApiResponse[LoginResult]:
     ip, ua = _client_meta(request)
-    return ok(await AuthService(db).login(body, ip, ua))
+    return ok(await service.login(body, ip, ua))
 
 
 @_auth.post("/logout", response_model=ApiResponse[None])
 async def logout(
     request: Request,
+    service: AuthServiceDep,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[None]:
     ip, ua = _client_meta(request)
-    await AuthService(db).logout(get_bearer_token(request), current_user, ip, ua)
+    await service.logout(get_bearer_token(request), current_user, ip, ua)
     return ok(None)
 
 
@@ -89,20 +87,20 @@ async def logout(
 async def reset_password(
     body: ResetPasswordRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    service: AuthServiceDep,
 ) -> ApiResponse[None]:
     ip, ua = _client_meta(request)
-    await AuthService(db).reset_password(body, ip, ua)
+    await service.reset_password(body, ip, ua)
     return ok(None)
 
 
 @_auth.post("/change-password", response_model=ApiResponse[None])
 async def change_password(
     body: ChangePasswordRequest,
+    service: AuthServiceDep,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[None]:
-    await AuthService(db).change_password(current_user, body)
+    await service.change_password(current_user, body)
     return ok(None)
 
 
@@ -110,11 +108,11 @@ async def change_password(
 async def change_email(
     body: ChangeEmailRequest,
     request: Request,
+    service: AuthServiceDep,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[None]:
     ip, ua = _client_meta(request)
-    await AuthService(db).change_email(current_user, body, ip, ua)
+    await service.change_email(current_user, body, ip, ua)
     return ok(None)
 
 
@@ -123,39 +121,38 @@ async def change_email(
 
 @_users.get("/me", response_model=ApiResponse[UserPublic])
 async def get_me(
+    service: UserServiceDep,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[UserPublic]:
-    return ok(await UserService(db).get_me(current_user))
+    return ok(await service.get_me(current_user))
 
 
 @_users.put("/me", response_model=ApiResponse[UserPublic])
 async def update_me(
     patch: ProfileUpdate,
+    service: UserServiceDep,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[UserPublic]:
-    return ok(await UserService(db).update_profile(current_user, patch))
+    return ok(await service.update_profile(current_user, patch))
 
 
 @_users.delete("/me", response_model=ApiResponse[None])
 async def delete_me(
     body: PasswordConfirm,
+    service: UserServiceDep,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[None]:
     """注销账号（软注销，需密码确认）。"""
-    await UserService(db).soft_delete(current_user, body.password)
+    await service.soft_delete(current_user, body.password)
     return ok(None)
 
 
 @_users.get("/me/sessions", response_model=ApiResponse[list[SessionOut]])
 async def list_sessions(
     request: Request,
+    service: UserServiceDep,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[list[SessionOut]]:
-    service = UserService(db)
     raw_token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
     current_hash = hash_token(raw_token) if raw_token else ""
     return ok(await service.list_sessions(current_user, current_hash))
@@ -165,10 +162,9 @@ async def list_sessions(
 async def revoke_session(
     session_id: uuid.UUID,
     request: Request,
+    service: UserServiceDep,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[None]:
-    service = UserService(db)
     raw_token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
     current_hash = hash_token(raw_token) if raw_token else ""
     await service.revoke_session(current_user, session_id, current_hash)

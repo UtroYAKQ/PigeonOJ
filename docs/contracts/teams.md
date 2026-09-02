@@ -80,7 +80,7 @@
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | POST | /teams | admin/tutor | 创建团队 | name, description? | team |
-| GET | /users/me/teams | auth | 我的团队列表 | 分页 | team[] |
+| GET | /teams/mine | auth | 我的团队列表（在册成员；带成员数与我的角色；与 /contests/me 同款资源域内 me 端点） | 分页/keyword（名称模糊） | team[] |
 | GET | /teams/{id} | auth（成员） | 团队详情 | - | team |
 | GET | /teams/{id}/members | team 角色 | 成员列表 | 分页/状态 | member[] |
 | POST | /teams/{id}/invites | team_creator/team_admin | 生成邀请链接（写 Redis） | - | {token, expires_at} |
@@ -106,9 +106,21 @@
 
 1. **创建团队**：`admin/tutor` 创建 → 自动写创建者 `team_members`（active）记录 + `user_roles` 授权 `team_creator`（scope='team'）。
 2. **邀请链接**：`POST /teams/{id}/invites` 生成 token → 写 Redis `team:invite:<token>`（TTL=有效期，默认配置）；链接不可撤销、支持多人使用、无人数 / 一次性限制。用户经链接提交申请时记录 `invite_token` 来源。
-3. **加入审批**：用户提交申请（pending）→ 创建者 / 管理员审批；通过 → 写 `team_members`（active）+ `user_roles`（`team_member`）+ 通知；拒绝 → 记录状态 + 通知。
+3. **加入审批**：用户提交申请（pending）→ 创建者 / 管理员审批；通过 → 写 `team_members`（active）+ `user_roles`（`team_member`）+ 通知；拒绝 → 记录状态 + 通知（通知随通知模块开放，当前仅记录申请状态与审批人 / 时间）。
 4. **分配管理员**：仅创建者可执行 `POST /teams/{id}/members/{uid}/admin`；分配即写 `team_admin` 授权，取消即删除。
 5. **退出 / 踢出 / 解散**：同步清理成员记录状态与 `user_roles` 团队授权。
+
+## 实现状态
+
+- 已实现（迁移 0022）：团队基础能力端到端——创建（admin/tutor）/ 编辑信息 / 成员列表 /
+  邀请链接生成与解析（Redis `team:invite:<token>`）/ 加入申请与审批 / 分配·取消管理员（仅创建者）/
+  踢出 / 退出 / 解散（软解散，授权全清）；`GET /teams/mine` 我的团队列表。
+- 已实现：为 `problem_sets.team_id` / `contests.team_id` 补 FK；`problems` 补 `team_id` 列 +
+  FK + 索引，全站可见性 CHECK 扩展为契约双分支（全站 private/public，团队 admin_visible/team_visible）。
+- 前端：`/teams/mine` 团队中心（列表 + 创建）、`/teams/:id` 详情工作台（成员 / 加入申请 / 设置三 tab，
+  权限按 `my_role` 显隐）、`/teams/invites/:token` 邀请落地页（公开解析 + 申请加入）。
+- 随 teams 模块开放（暂未实现）：团队题库 / 团队题单 / 团队比赛的业务功能
+  （数据模型列与 FK 已就绪）；审批通知。
 
 ## 明确不做
 
