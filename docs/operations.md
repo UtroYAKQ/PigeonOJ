@@ -99,7 +99,8 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 | `session:<token>` | 会话热点缓存 | 会话有效期 |
 | `email:code:<email>:<purpose>` | 邮箱验证码 + 错误计数 | 验证码有效期 |
 | `email:resend:<email>:<purpose>` | 验证码重发间隔计数 | 重发间隔 |
-| `rank:contest:<id>` | 榜单读缓存（权威在 `contest_rankings`） | 比赛期 |
+| `rank:contest:<id>` | 榜单读缓存（权威在 `contest_rankings`） | 进行中 3s / 封榜 60s / 完赛已解冻 永久 |
+| `rank:contest:<id>:lock` | 榜单缓存重建互斥锁（防击穿，未抢到方等待重读后兜底回源） | 10s |
 | `login:fail:<email>` | 登录失败计数（窗口内超次触发临时锁定） | 15 分钟 |
 | `login:lock:<email>` | 登录临时锁定标记（到期自动恢复，不改动账号状态） | 15 分钟 |
 | `sandbox:node:<id>` | 判题节点运行时状态 | 心跳周期（过期视为离线） |
@@ -110,7 +111,9 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 ### 缓存一致性
 
 - 会话、邀请链接、判题节点状态为 Redis 唯一事实来源，不落库
-- 榜单以数据库 `contest_rankings` 为权威，Redis 仅作读缓存，失效 / 封榜切换回源
+- 榜单以数据库 `contest_rankings` 为权威，Redis 仅作读缓存；写路径（判题回写、自动封榜、手动解冻）主动失效，
+  且判题回写与解冻在 **DB commit 后**补删一次（消除「先删缓存后提交」窗口内并发读回填旧榜单）；
+  Redis 异常时读写全部降级直查数据库，短 TTL 兜底最终一致
 - 全局判题并发上限由网关注册表在内存统计（节点 in-flight 之和），不占 Redis
 
 ## 后台调度机制
