@@ -14,3 +14,10 @@ export function uploadImage(file: File) {
   data.append('file', file)
   return requestUpload<UploadResult>('/files/upload/image', data)
 }
+
+/** 站点 Logo 上传（仅 admin）：存 MinIO site/logo/，返回站内 URL 供 site.logo 引用。 */
+export function uploadSiteLogo(file: File) {
+  const data = new FormData()
+  data.append('file', file)
+  return requestUpload<UploadResult>('/files/upload/site-logo', data)
+}

@@ -137,6 +137,7 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 | `submissions/{submission_id}/cases/{case_id}/output` | 提交运行输出 |
 | `users/{user_id}/avatar` | 用户头像 |
 | `teams/{team_id}/avatar` | 团队头像 |
+| `site/logo/{uuid}` | 站点 Logo（系统配置 `site.logo`，经 `POST /files/upload/site-logo` 上传） |
 
 上传方式：经 `POST /files/upload` 后端校验后转存 MinIO，对象 key 由服务端生成并回填 ossId。**判题节点不访问 MinIO**：经网关按 `data_version` 流式拉取到节点本地缓存。测试点不向前端签发预签名 URL。
 

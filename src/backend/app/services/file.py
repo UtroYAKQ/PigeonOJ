@@ -43,6 +43,19 @@ class FileService:
         object_key = f"users/{user_id}/images/{uuid.uuid4().hex}"
         return await _store_image(object_key, content_type, content, ImageUploadResult)
 
+    async def upload_site_logo(self, file: UploadFile) -> ImageUploadResult:
+        """站点 Logo 上传：仅 admin，供站点配置 site.logo 引用。"""
+        content_type, content = await _validate_image(
+            file,
+            max_bytes=_MAX_IMAGE_BYTES,
+            type_error="站点 Logo 仅支持 JPG、PNG、WEBP 或 GIF",
+            size_error="站点 Logo 大小不能超过 5MB",
+            empty_error="站点 Logo 文件不能为空",
+        )
+
+        object_key = f"site/logo/{uuid.uuid4().hex}"
+        return await _store_image(object_key, content_type, content, ImageUploadResult)
+
 
 async def _validate_image(
     file: UploadFile,

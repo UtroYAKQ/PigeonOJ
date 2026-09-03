@@ -5,7 +5,7 @@
 export interface SiteConfig {
   /** 站点名称（侧栏 / 登录注册页品牌区） */
   name: string
-  /** 站点 Logo：外链 URL；空则回退默认图标（ossId 形态暂不在此消费） */
+  /** 站点 Logo：外链 URL 或站内文件 URL（/api/v1/files/site/logo/…，经 /files/upload/site-logo 上传）；空则回退默认图标 */
   logo: string
   /** ICP 备案号；空则不展示 */
   icp: string

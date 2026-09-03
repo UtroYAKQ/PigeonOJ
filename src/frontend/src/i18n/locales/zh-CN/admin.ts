@@ -23,6 +23,9 @@
     htmlTemplateHint: '支持占位符：{code} 验证码、{purpose} 用途文案（如「注册」「重置密码」）',
     preview: '邮箱验证码卡片预览',
     previewPurpose: '注册',
+    uploadLogo: '上传图片',
+    logoPlaceholder: '填写外链图片 URL，或留空使用默认图标',
+    logoHint: '上传本地图片（JPG / PNG / WEBP / GIF，≤5MB）或直接填写外链 URL',
   },
   admin: {
     backToApp: '返回前台',

@@ -23,6 +23,9 @@
     htmlTemplateHint: 'Placeholders: {code} = code, {purpose} = purpose label (e.g. "register")',
     preview: 'Email code card preview',
     previewPurpose: 'Register',
+    uploadLogo: 'Upload image',
+    logoPlaceholder: 'Enter an external image URL, or leave empty for the default icon',
+    logoHint: 'Upload a local image (JPG / PNG / WEBP / GIF, ≤5MB) or enter an external URL',
   },
   admin: {
     backToApp: 'Back to site',

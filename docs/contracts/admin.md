@@ -24,7 +24,7 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 
 | 域 | 配置键（示例） | 说明 |
 | --- | --- | --- |
-| site | `site.name` / `site.logo` / `site.icp` / `site.default_theme` | 站点基础配置 |
+| site | `site.name` / `site.logo` / `site.icp` / `site.default_theme` | 站点基础配置。`site.logo` 值为站内文件 URL（`/api/v1/files/site/logo/{uuid}`，经 `POST /files/upload/site-logo` 上传）或 http(s) 外链；空则前端回退默认图标 |
 | site | `site.register_enabled` | 注册开关 |
 | auth_email | `email.code.expire_seconds` / `email.code.resend_seconds` / `email.code.max_attempts` | 验证码安全策略 |
 | auth_email | `email.verify_enabled` | 注册邮箱验证开关（false 时注册无需验证码） |
@@ -123,7 +123,8 @@ ORDER BY r.created_at DESC, r.id DESC
 | GET | /site-config | public | 公开站点配置（白名单字段：name / logo / icp / default_theme / register_enabled / email_verify_enabled；前端壳层与注册页消费） | - | siteConfig |
 | POST | /files/upload/avatar | auth | 上传当前用户头像到 MinIO | multipart file（≤2MB，JPG/PNG/WEBP/GIF） | oss_id / url |
 | POST | /files/upload/image | auth | 公共图片上传（题面插图等 Markdown 引用场景，登录用户可用），存 MinIO `users/{uid}/images/` | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | oss_id / url |
-| GET | /files/{object_key} | public | 读取头像 / 公共图片等公开文件；不允许读取测试点 | object_key（仅 users/ 前缀） | binary |
+| POST | /files/upload/site-logo | admin | 站点 Logo 上传（站点配置 `site.logo` 引用），存 MinIO `site/logo/` | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | oss_id / url |
+| GET | /files/{object_key} | public | 读取头像 / 公共图片 / 站点 Logo 等公开文件；不允许读取测试点 | object_key（仅 `users/` 或 `site/logo/` 前缀） | binary |
 | GET | /admin/logs/{type} | admin | 日志查询 / 筛选 / 导出 | 时间范围/条件 | log[] |
 | GET | /admin/sandbox/status | admin | 沙箱状态展示（读 Redis `sandbox:node:<id>`；指标由网关心跳写入） | - | nodes[{id, name, status, channel, load, cpu_usage, memory_usage, running_tasks, capacity, version, last_heartbeat_at}] |
 | GET | /admin/reports | admin | 举报列表 / 处理 | 分页/状态 | report[] |
@@ -149,6 +150,6 @@ ORDER BY r.created_at DESC, r.id DESC
 
 ## 明确不做
 
-- 文件上传由服务端校验类型 / 大小并生成对象 key；头像对象使用 `users/{user_id}/avatar/{uuid}`，测试点对象不暴露下载 / 预签名 URL（判题内部链路）
+- 文件上传由服务端校验类型 / 大小并生成对象 key；头像对象使用 `users/{user_id}/avatar/{uuid}`，站点 Logo 使用 `site/logo/{uuid}`，测试点对象不暴露下载 / 预签名 URL（判题内部链路）
 - 日志请求体不回传明文（脱敏摘要）
 - Token 用量仅统计、不做额度控制

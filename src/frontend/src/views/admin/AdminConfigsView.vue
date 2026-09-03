@@ -5,9 +5,11 @@ import { NButton } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import * as adminApi from '@/api/admin'
+import { uploadSiteLogo } from '@/api/files'
 import type { ConfigCategory, SystemConfigItem } from '@/types'
 import { configCategories } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
+import { isRenderableLogo } from '@/utils/logo'
 import { message } from '@/utils/feedback'
 import ModalFooter from '@/components/ModalFooter.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
@@ -21,6 +23,9 @@ const editDialog = ref(false)
 const editTarget = ref<SystemConfigItem | null>(null)
 const editValue = ref<unknown>(null)
 const saving = ref(false)
+
+const logoInput = ref<HTMLInputElement | null>(null)
+const uploadingLogo = ref(false)
 
 const selectOptions = computed<Record<string, Array<{ label: string; value: string }>>>(() => ({
   'site.default_theme': [
@@ -63,9 +68,11 @@ const emailPreviewHtml = computed(() => {
     .replaceAll('{purpose}', t('config.previewPurpose'))
 })
 
-const editorKind = computed<'boolean' | 'number' | 'select' | 'text' | 'switches' | 'multiline'>(
+const editorKind = computed<'boolean' | 'image' | 'number' | 'select' | 'text' | 'switches' | 'multiline'>(
   () => {
     if (editTarget.value && MULTILINE_KEYS.has(editTarget.value.config_key)) return 'multiline'
+    // site.logo：上传图片（存 MinIO site/logo/）与外链 URL 双形态编辑
+    if (editTarget.value?.config_key === 'site.logo') return 'image'
     if (typeof editValue.value === 'boolean') return 'boolean'
     if (typeof editValue.value === 'number') return 'number'
     if (editTarget.value && selectOptions.value[editTarget.value.config_key]) return 'select'
@@ -117,6 +124,33 @@ function displayValue(value: unknown, key?: string) {
 
 function switches(): Record<string, boolean> {
   return (editValue.value ?? {}) as Record<string, boolean>
+}
+
+/** site.logo 预览：仅渲染可识别形态（外链 / 站内文件 URL） */
+const logoPreviewUrl = computed(() => {
+  const v = typeof editValue.value === 'string' ? editValue.value : ''
+  return isRenderableLogo(v) ? v : ''
+})
+
+function pickLogo() {
+  logoInput.value?.click()
+}
+
+async function onLogoFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  uploadingLogo.value = true
+  try {
+    const result = await uploadSiteLogo(file)
+    editValue.value = result.url
+    message.success(t('common.success'))
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.imageUploadFailed'))
+  } finally {
+    uploadingLogo.value = false
+  }
 }
 
 async function saveEdit() {
@@ -199,6 +233,35 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
     >
       <p class="configs__desc">{{ editTarget?.description }}</p>
       <n-switch v-if="editorKind === 'boolean'" v-model:value="editValue as boolean" />
+      <template v-else-if="editorKind === 'image'">
+        <div class="configs__logo">
+          <div class="configs__logo-preview">
+            <img v-if="logoPreviewUrl" :src="logoPreviewUrl" alt="logo" />
+            <span v-else>🐦</span>
+          </div>
+          <div class="configs__logo-fields">
+            <n-input
+              v-model:value="editValue as string"
+              clearable
+              :placeholder="t('config.logoPlaceholder')"
+              class="configs__control"
+            />
+            <div class="configs__logo-actions">
+              <input
+                ref="logoInput"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                hidden
+                @change="onLogoFileChange"
+              />
+              <n-button size="small" :loading="uploadingLogo" @click="pickLogo">
+                {{ t('config.uploadLogo') }}
+              </n-button>
+              <span class="configs__hint configs__hint--inline">{{ t('config.logoHint') }}</span>
+            </div>
+          </div>
+        </div>
+      </template>
       <n-input-number
         v-else-if="editorKind === 'number'"
         v-model:value="editValue as number"
@@ -276,6 +339,44 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
   margin: 8px 0 0;
   color: var(--app-text-secondary);
   font-size: 12px;
+}
+.configs__hint--inline {
+  margin: 0;
+}
+/* site.logo 编辑：左侧预览 + 右侧外链输入 / 上传按钮 */
+.configs__logo {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.configs__logo-preview {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px dashed var(--app-border);
+  border-radius: 6px;
+  background: var(--app-muted-bg);
+  font-size: 32px;
+}
+.configs__logo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.configs__logo-fields {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.configs__logo-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .configs__split {
   display: flex;

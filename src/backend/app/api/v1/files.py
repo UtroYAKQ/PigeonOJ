@@ -6,12 +6,15 @@ from fastapi import APIRouter, Depends, File, Response, UploadFile
 from app.api.deps import FileServiceDep
 from app.models.user import User
 from app.schemas.file import AvatarUploadResult, ImageUploadResult
-from app.core.dependency import get_current_user
+from app.core.dependency import get_current_admin, get_current_user
 from app.core.exceptions import APIError, RESOURCE_NOT_FOUND
 from app.utils.response import ApiResponse, ok
 from app.core.storage import S3Error, get_storage
 
 router = APIRouter(prefix="/files", tags=["files"])
+
+# 公开读取白名单：用户头像 / 公共图片、站点 Logo（判题测试点不在其列）
+_PUBLIC_FILE_PREFIXES = ("users/", "site/logo/")
 
 
 @router.post("/upload/avatar", response_model=ApiResponse[AvatarUploadResult])
@@ -33,10 +36,20 @@ async def upload_image(
     return ok(await service.upload_image(current_user.id, file))
 
 
+@router.post("/upload/site-logo", response_model=ApiResponse[ImageUploadResult])
+async def upload_site_logo(
+    service: FileServiceDep,
+    file: UploadFile = File(...),
+    _admin: User = Depends(get_current_admin),
+) -> ApiResponse[ImageUploadResult]:
+    """站点 Logo 上传（仅 admin）：用于站点配置 site.logo。"""
+    return ok(await service.upload_site_logo(file))
+
+
 @router.get("/{object_key:path}")
 async def read_file(object_key: str):
     """读取用户头像等公开展示文件；判题测试点不使用此接口。"""
-    if not object_key.startswith("users/"):
+    if not object_key.startswith(_PUBLIC_FILE_PREFIXES):
         raise APIError(RESOURCE_NOT_FOUND, "文件不存在", 404)
     try:
         content, content_type = await get_storage().get_bytes(object_key)
