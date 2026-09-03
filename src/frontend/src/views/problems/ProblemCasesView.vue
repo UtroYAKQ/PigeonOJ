@@ -3,10 +3,10 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
-import { getProblem, patchTestCases, replaceSamples } from '@/api/problems'
+import { getProblem, getProblemTestCases, patchTestCases, replaceSamples } from '@/api/problems'
 import { message } from '@/utils/feedback'
 import type {
-  ProblemDetailEx,
+  ProblemDetail,
   ProblemTestCase,
   TestCaseDraft,
   TestCaseUpsertPayload,
@@ -57,10 +57,12 @@ function normalize() {
 async function loadExisting() {
   loading.value = true
   try {
-    const loaded: ProblemDetailEx = await getProblem(problemId)
+    const loaded: ProblemDetail = await getProblem(problemId)
     if (!loaded.can_manage) throw new Error(t('problems.create.noPermission'))
-    if (loaded.test_cases?.length)
-      cases.value = loaded.test_cases.map((item) => ({
+    // 测试点走独立管理端点（详情不再携带）
+    const caseList = await getProblemTestCases(problemId)
+    if (caseList.cases.length)
+      cases.value = caseList.cases.map((item) => ({
         id: item.id,
         name: item.name ?? '',
         input: item.input ?? '',
@@ -74,7 +76,7 @@ async function loadExisting() {
       explanation: item.explanation ?? '',
     }))
     // 记录服务器端基线快照，保存时按行 diff 只提交变化的测试点
-    serverCases = loaded.test_cases ?? []
+    serverCases = caseList.cases ?? []
     serverSamples = samples.value.map((item) => ({ ...item }))
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))

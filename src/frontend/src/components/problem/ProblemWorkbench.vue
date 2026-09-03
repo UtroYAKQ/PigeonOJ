@@ -15,12 +15,12 @@ import CodeEditor from '@/components/CodeEditor.vue'
 import ProblemMetaBar from '@/components/problem/ProblemMetaBar.vue'
 import ProblemStatement from '@/components/problem/ProblemStatement.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import type { ProblemDetailEx, ProblemLanguage, SelfTestResult } from '@/types'
+import type { ProblemDetail, ProblemLanguage, SelfTestResult } from '@/types'
 
 const props = withDefaults(
   defineProps<{
     /** 题目详情（题面 + 元信息） */
-    problem: ProblemDetailEx
+    problem: ProblemDetail
     /** 主按钮 loading（提交中） */
     submitting?: boolean
     /** 主按钮禁用（如验题代码为空） */

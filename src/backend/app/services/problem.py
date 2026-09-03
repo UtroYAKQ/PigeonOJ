@@ -57,6 +57,7 @@ from app.schemas.problem import (
     ProblemUpdate,
     SampleOut,
     SamplesUpdate,
+    TestCaseListOut,
     TestCaseOut,
     TestCasesPatch,
     TestCasesUpdate,
@@ -140,8 +141,6 @@ class ProblemDetailData:
     tags: list[str]
     can_manage: bool
     needs_reverification: bool
-    test_cases: list[TestCaseOut] | None
-    cases_updated_at: datetime | None
     # 通过率计数（problem_counters，无记录按 0）
     submission_count: int = 0
     accepted_count: int = 0
@@ -251,13 +250,6 @@ class ProblemService:
         tags = await self.verifications.tag_names(problem_id)
         tag_names = sorted(tags)
         samples = self._samples_view(problem)
-        cases_updated_at = await self.test_cases.max_updated_at(
-            problem_id, _uuid_list(problem.active_case_ids)
-        )
-        # 管理角色编辑用：目标状态（暂存优先）回读内容而非对象 key（docs/contracts/problems.md）
-        test_cases = None
-        if can_manage:
-            test_cases = await self.list_cases_view(problem)
         counter = await self.db.get(ProblemCounter, problem_id)
         return ProblemDetailData(
             problem=problem,
@@ -267,11 +259,21 @@ class ProblemService:
             needs_reverification=(
                 needs_reverification(problem) if problem.verified_at and problem.is_verified else False
             ),
-            test_cases=test_cases,
-            cases_updated_at=cases_updated_at,
             submission_count=counter.submission_count if counter else 0,
             accepted_count=counter.accepted_count if counter else 0,
         )
+
+    async def get_cases_managed(self, user: object, problem_id: uuid.UUID) -> TestCaseListOut:
+        """测试点列表（独立管理端点）：仅题目管理者（admin 或创建者）可读。
+
+        详情响应一律不携带测试点（docs/contracts/problems.md 数据所有权），
+        编辑器经本端点回读目标状态（暂存优先）。
+        """
+        problem = await self._require_manage(user, problem_id)
+        cases = await self.list_cases_view(problem)
+        ids, _staged = staged_target(problem)
+        updated_at = await self.test_cases.max_updated_at(problem_id, ids)
+        return TestCaseListOut(cases=cases, updated_at=updated_at)
 
     async def get_detail_view(self, problem_id: uuid.UUID, user: object | None) -> ProblemDetail:
         """路由侧装配：详情聚合 + 契约模型转换一步到位。
@@ -780,8 +782,6 @@ def to_problem_detail(detail: ProblemDetailData) -> ProblemDetail:
         can_manage=detail.can_manage,
         needs_reverification=bool(detail.needs_reverification),
         case_status=problem.case_status,
-        test_cases=detail.test_cases if detail.can_manage and detail.test_cases else None,
-        cases_updated_at=detail.cases_updated_at,
         samples_updated_at=problem.samples_updated_at,
     )
 

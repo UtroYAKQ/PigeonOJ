@@ -3,7 +3,7 @@ import { buildQuery } from '@/utils/query'
 import type {
   PageResult,
   ProblemCreatePayload,
-  ProblemDetailEx,
+  ProblemDetail,
   ProblemEditPayload,
   ProblemLanguage,
   ProblemListQuery,
@@ -11,6 +11,7 @@ import type {
   ProblemSummary,
   ProblemTagItem,
   ProblemTestCase,
+  ProblemTestCaseList,
   Submission,
   TestCaseDraft,
   TestCaseUpsertPayload,
@@ -45,8 +46,13 @@ export function getProblemSubmission(problemId: string, submissionId: string): P
 export function listActiveTags(): Promise<ProblemTagItem[]> {
   return apiRequest('GET', '/problems/tags')
 }
-export function getProblem(id: string): Promise<ProblemDetailEx> {
+export function getProblem(id: string): Promise<ProblemDetail> {
   return apiRequest('GET', `/problems/${id}`)
+}
+
+/** 测试点列表（独立管理端点，仅题目管理者可读；详情不再携带测试点） */
+export function getProblemTestCases(id: string): Promise<ProblemTestCaseList> {
+  return apiRequest('GET', `/problems/${id}/test-cases`)
 }
 export function createProblem(body: ProblemCreatePayload): Promise<ProblemSummary> {
   return apiRequest('POST', '/problems', body)

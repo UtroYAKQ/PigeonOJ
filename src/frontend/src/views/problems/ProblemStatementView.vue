@@ -7,7 +7,7 @@ import { createProblem, getProblem, listActiveTags, updateProblem } from '@/api/
 import { message } from '@/utils/feedback'
 import WizardShell from '@/components/WizardShell.vue'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
-import type { ProblemDetailEx, ProblemTagItem } from '@/types'
+import type { ProblemDetail, ProblemTagItem } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -63,7 +63,7 @@ async function loadExisting() {
   if (!isEdit.value) return
   loading.value = true
   try {
-    const loaded: ProblemDetailEx = await getProblem(String(route.params.id))
+    const loaded: ProblemDetail = await getProblem(String(route.params.id))
     if (!loaded.can_manage) throw new Error(t('problems.create.noPermission'))
     Object.assign(form, {
       title: loaded.title,

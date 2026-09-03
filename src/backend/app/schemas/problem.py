@@ -261,6 +261,13 @@ class TestCaseOut(BaseModel):
     staged: bool = False
 
 
+class TestCaseListOut(BaseModel):
+    """题目测试点列表（独立管理端点 GET /problems/{id}/test-cases；仅题目管理者可读）。"""
+
+    cases: list[TestCaseOut]
+    updated_at: datetime | None = None
+
+
 class TestCasesOut(BaseModel):
     """增量更新测试点响应：目标状态合并视图（PATCH /problems/{id}/test-cases）。"""
 
@@ -268,7 +275,10 @@ class TestCasesOut(BaseModel):
 
 
 class ProblemDetail(BaseModel):
-    """题目详情（含描述、样例、标签等）。"""
+    """题目详情（描述、样例、标签等；**不含测试点**——测试点走独立管理端点）。
+
+    `solution` 仅题目的管理者（admin 或创建者）返回。
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -299,8 +309,6 @@ class ProblemDetail(BaseModel):
     can_manage: bool = False
     needs_reverification: bool = False
     case_status: str | None = None
-    test_cases: list[TestCaseOut] | None = None
-    cases_updated_at: datetime | None = None
     samples_updated_at: datetime | None = None
 
 

@@ -127,10 +127,13 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 - **单一所有权模型**：题目管理权限（编辑 / 测试点 / 样例 / 验题发起 / 发布 / 归档 / 提交列表查看）
   按「`admin` 管理全站题目，其余管理角色（`tutor` / `team_creator` / `team_admin`）仅管理本人创建的题目」判定；
   非创建者、非 admin 访问或编辑他人题目一律 2003
+- **详情不含测试点**：`GET /problems/{id}`（及题单 / 比赛上下文的统一入口详情）任何角色（含 admin）
+  均不返回 `test_cases` / `cases_updated_at`；测试点查询收敛为独立管理端点
+  `GET /problems/{id}/test-cases`，仅题目管理者可读（普通用户 2003 / 匿名 2001）
 - 题目按 `status + visibility` 双重控制访问（见下方可见性）；所有查询必须带可见性过滤
 - 题目草稿（`status='draft'`）仅创建者本人可见
 - 官方题解 `solution` 仅题目的管理者（admin 或创建者，按单一所有权模型）可见
-- 测试点文件仅题目的管理者可读写；读详情时回读测试点内容用于编辑；判题读取走服务端内部链路，不向前端暴露下载 / 预签名 URL
+- 测试点文件仅题目的管理者可读写；管理者经独立端点 `GET /problems/{id}/test-cases` 回读测试点内容用于编辑（详情不携带）；判题读取走服务端内部链路，不向前端暴露下载 / 预签名 URL
 - 提交结果不返回测试点期望输出（`expected_output`）
 
 ## 可见性设计
@@ -156,7 +159,8 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 | POST | /admin/tags | admin | 新增标签（name 唯一，重复返回 1001） | name/color? | tag |
 | PUT | /admin/tags/{id} | admin | 修改标签名称 / 颜色 | name?/color? | tag |
 | POST | /admin/tags/{id}/archive | admin | 归档标签（关联保留、不再可选） | - | tag |
-| GET | /problems/{id} | public/owner | 题目详情（按可见性过滤）；带 `difficulty` 与 `submission_count` / `accepted_count` | - | problem |
+| GET | /problems/{id} | public/owner | 题目详情（按可见性过滤；**不含测试点**，测试点走独立端点）；带 `difficulty` 与 `submission_count` / `accepted_count` | - | problem |
+| GET | /problems/{id}/test-cases | admin/owner（题目管理者） | **测试点列表（独立管理端点）**：目标状态合并视图（暂存优先）+ `updated_at`；普通用户 2003、匿名 2001 | - | { cases[], updated_at } |
 | POST | /problems | admin/tutor/team_creator/team_admin | 创建题目（公开/团队） | team_id?/title/.../tags?/visibility/limits/difficulty? | problem |
 | PUT | /problems/{id} | admin/tutor/team_creator/team_admin | 编辑题目 | ...（`tags` 全量替换标签关联；`difficulty` 非负整数，缺省不改动） | problem |
 | PUT | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 全量替换**暂存集**测试点（出题不设分值；提交得分由判题服务端按通过比例派生，比赛计分随 contests 模块配置）；被替换内容的 MinIO 旧对象异步清理；生效集不动，验题通过后晋升 | cases[]（name?、input、expected_output、sort_order） | - |

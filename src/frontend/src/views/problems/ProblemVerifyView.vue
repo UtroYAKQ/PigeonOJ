@@ -20,7 +20,7 @@ import {
 } from '@/api/problems'
 import { listSubmissions } from '@/api/judge'
 import { useSelfTest } from '@/composables/useSelfTest'
-import type { ProblemDetailEx, ProblemLanguage, Submission } from '@/types'
+import type { ProblemDetail, ProblemLanguage, Submission } from '@/types'
 import { dialog, message } from '@/utils/feedback'
 import { copyToClipboard } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/format'
@@ -35,7 +35,7 @@ const { t } = useI18n()
 const loading = ref(false)
 const problemId = String(route.params.id)
 /** 完整详情（含验题状态），驱动门禁与状态标签 */
-const detail = ref<ProblemDetailEx | null>(null)
+const detail = ref<ProblemDetail | null>(null)
 
 // ---- 工作台状态（v-model 双向绑定给 ProblemWorkbench）----
 const code = ref('')
@@ -263,7 +263,7 @@ async function onApply() {
 async function loadExisting() {
   loading.value = true
   try {
-    const loaded: ProblemDetailEx = await getProblem(problemId)
+    const loaded: ProblemDetail = await getProblem(problemId)
     if (!loaded.can_manage) throw new Error(t('problems.create.noPermission'))
     detail.value = loaded
   } catch (error) {

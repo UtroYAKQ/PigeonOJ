@@ -19,6 +19,7 @@ from app.schemas.problem import (
     ProblemUpdate,
     SamplesUpdate,
     TagPublic,
+    TestCaseListOut,
     TestCasesOut,
     TestCasesPatch,
     TestCasesUpdate,
@@ -112,6 +113,19 @@ async def update_problem(
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
     return ok(summary)
+
+
+@router.get("/problems/{problem_id}/test-cases", response_model=ApiResponse[TestCaseListOut])
+async def get_test_cases(
+    problem_id: uuid.UUID,
+    service: ProblemServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[TestCaseListOut]:
+    """测试点列表（独立管理端点）：仅题目管理者（admin 或创建者）可读，普通用户 2003。
+
+    详情响应一律不携带测试点；编辑器经本端点回读目标状态（暂存优先）。
+    """
+    return ok(await service.get_cases_managed(user, problem_id))
 
 
 @router.put("/problems/{problem_id}/test-cases", response_model=ApiResponse[None])

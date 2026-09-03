@@ -8,12 +8,12 @@ import { message } from '@/utils/feedback'
 import { goBackOrFallback } from '@/utils/navigation'
 import ProblemMetaBar from '@/components/problem/ProblemMetaBar.vue'
 import ProblemStatement from '@/components/problem/ProblemStatement.vue'
-import type { ProblemDetailEx } from '@/types'
+import type { ProblemDetail } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const problem = ref<ProblemDetailEx | null>(null)
+const problem = ref<ProblemDetail | null>(null)
 const loading = ref(false)
 
 /** 题目 id：题库管理取 params.id；题单管理上下文取 params.problemId（params.id 为题单 id） */

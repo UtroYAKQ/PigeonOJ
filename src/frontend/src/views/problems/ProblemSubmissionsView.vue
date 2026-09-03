@@ -22,14 +22,14 @@ import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import { formatDateTime } from '@/utils/format'
 import { languageOptions } from '@/constants/languages'
 import type { NaiveTagType } from '@/constants/dict'
-import type { ProblemDetailEx, ProblemSubmissionItem } from '@/types'
+import type { ProblemDetail, ProblemSubmissionItem } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 
 const problemId = String(route.params.id)
-const problem = ref<ProblemDetailEx | null>(null)
+const problem = ref<ProblemDetail | null>(null)
 const loading = ref(false)
 const list = ref<ProblemSubmissionItem[]>([])
 const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()

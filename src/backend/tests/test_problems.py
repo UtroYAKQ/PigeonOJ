@@ -52,6 +52,13 @@ async def _apply_pending(client, admin_headers, pid: str) -> None:
     assert resp.json()["code"] == 0, resp.text
 
 
+async def _get_cases(client, headers, pid: str) -> list[dict]:
+    """GET /problems/{id}/test-cases（独立管理端点）：返回 cases 列表。"""
+    resp = await client.get(f"/api/v1/problems/{pid}/test-cases", headers=headers)
+    assert resp.json()["code"] == 0, resp.text
+    return resp.json()["data"]["cases"]
+
+
 async def _tutor_headers(client) -> dict[str, str]:
     """注册一个 tutor 账号并返回认证头（题目管理角色，单一所有权模型用例）。"""
     email = "tutor@pigeonoj.dev"
@@ -141,7 +148,9 @@ async def test_create_defaults_and_draft_visibility(client, admin_headers):
     detail = resp.json()["data"]
     assert detail["can_manage"] is True
     assert detail["background"] == "经典入门题"
-    assert "solution" in detail and "test_cases" in detail
+    # 详情不再携带测试点（独立管理端点承担，docs/contracts/problems.md）
+    assert "test_cases" not in detail
+    assert "solution" in detail
 
 
 @pytest.mark.asyncio
@@ -786,7 +795,7 @@ async def test_replace_cases_keeps_history_results(client, admin_headers, fake_s
 
 @pytest.mark.asyncio
 async def test_detail_reads_back_case_contents(client, admin_headers, fake_storage):
-    """回归：管理角色读详情回读测试点内容（而非 MinIO 对象 key）。"""
+    """回归：测试点独立端点回读内容（而非 MinIO 对象 key）；详情不携带测试点。"""
     data = await _create_problem(client, admin_headers)
     resp = await client.put(
         f"/api/v1/problems/{data['id']}/test-cases",
@@ -796,12 +805,38 @@ async def test_detail_reads_back_case_contents(client, admin_headers, fake_stora
     assert resp.json()["code"] == 0
 
     resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
-    body = resp.json()
-    assert body["code"] == 0, resp.text
-    cases = body["data"]["test_cases"]
+    assert "test_cases" not in resp.json()["data"]
+
+    cases = await _get_cases(client, admin_headers, data["id"])
     assert len(cases) == 1
     assert cases[0]["input"] == "1"
     assert cases[0]["expected_output"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_test_cases_endpoint_manager_only(client, admin_headers, user_headers, fake_storage):
+    """测试点独立端点权限：普通用户 2003（含端点不存在于其视角）；创建者 / admin 可读。"""
+    data = await _create_problem(client, admin_headers)
+    resp = await client.put(
+        f"/api/v1/problems/{data['id']}/test-cases",
+        json={"cases": [{"name": "c1", "input": "1", "expected_output": "2"}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+
+    # 普通用户读测试点 → 2003
+    resp = await client.get(f"/api/v1/problems/{data['id']}/test-cases", headers=user_headers)
+    assert resp.json()["code"] == 2003
+
+    # 匿名读测试点 → 2001（未登录）
+    resp = await client.get(f"/api/v1/problems/{data['id']}/test-cases")
+    assert resp.json()["code"] == 2001
+
+    # admin 可读，返回内容与 updated_at
+    resp = await client.get(f"/api/v1/problems/{data['id']}/test-cases", headers=admin_headers)
+    body = resp.json()["data"]
+    assert len(body["cases"]) == 1
+    assert body["cases"][0]["input"] == "1"
 
 
 @pytest.mark.asyncio
@@ -819,8 +854,8 @@ async def test_patch_test_cases_incremental(client, admin_headers, fake_storage)
     )
     assert resp.json()["code"] == 0
 
-    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
-    detail_cases = resp.json()["data"]["test_cases"]
+    resp = await client.get(f"/api/v1/problems/{data['id']}/test-cases", headers=admin_headers)
+    detail_cases = resp.json()["data"]["cases"]
     c1 = next(c for c in detail_cases if c["name"] == "c1")
     c2 = next(c for c in detail_cases if c["name"] == "c2")
 
@@ -869,8 +904,8 @@ async def test_patch_test_cases_clear_content(client, admin_headers, fake_storag
         headers=admin_headers,
     )
     assert resp.json()["code"] == 0
-    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
-    c1 = resp.json()["data"]["test_cases"][0]
+    resp = await client.get(f"/api/v1/problems/{data['id']}/test-cases", headers=admin_headers)
+    c1 = resp.json()["data"]["cases"][0]
 
     # 仅清空输入（显式空字符串），期望输出缺省 = 不变
     resp = await client.patch(
@@ -894,8 +929,7 @@ async def test_patch_test_cases_clear_content(client, admin_headers, fake_storag
     assert resp.json()["code"] == 1001
 
     # 回读稳定：清空结果持久化，未触碰的期望输出不受影响
-    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
-    again = resp.json()["data"]["test_cases"][0]
+    again = (await _get_cases(client, admin_headers, data["id"]))[0]
     assert again["input"] == "" and again["expected_output"] == "2"
 
 
@@ -923,9 +957,9 @@ async def test_staged_edit_does_not_touch_active_until_promotion(client, admin_h
             row = await db.get(Problem, pid)
             return [str(v) for v in row.active_case_ids]
 
-    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
-    detail = resp.json()["data"]
-    active_snapshot = [c["id"] for c in detail["test_cases"]]
+    resp = await client.get(f"/api/v1/problems/{data['id']}/test-cases", headers=admin_headers)
+    detail_cases = resp.json()["data"]["cases"]
+    active_snapshot = [c["id"] for c in detail_cases]
     assert active_snapshot == await _active_ids()
 
     from app.rpc.judge_jobs import compute_data_version
@@ -945,8 +979,8 @@ async def test_staged_edit_does_not_touch_active_until_promotion(client, admin_h
         version_active_before = _fingerprint(await list_active_cases(db, problem))
 
     # 仅修改 c1 的输入：生成新版本行进暂存集，c2 沿用原 id，生效集不动
-    c1 = detail["test_cases"][0]
-    c2 = detail["test_cases"][1]
+    c1 = detail_cases[0]
+    c2 = detail_cases[1]
     resp = await client.patch(
         cases_url,
         json={"upserts": [{"id": c1["id"], "input": "9"}], "delete_ids": []},
@@ -996,10 +1030,10 @@ async def test_staged_edit_does_not_touch_active_until_promotion(client, admin_h
     # 显式应用（点保存）→ 晋升，之后可发布
     await _apply_pending(client, admin_headers, pid)
     resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
-    promoted = resp.json()["data"]
-    assert promoted["needs_reverification"] is False
-    assert [c["id"] for c in promoted["test_cases"]] == [new_c1["id"], new_c2["id"]]
-    assert all(c["staged"] is False for c in promoted["test_cases"])
+    assert resp.json()["data"]["needs_reverification"] is False
+    promoted = await _get_cases(client, admin_headers, data["id"])
+    assert [c["id"] for c in promoted] == [new_c1["id"], new_c2["id"]]
+    assert all(c["staged"] is False for c in promoted)
     resp = await client.post(f"/api/v1/problems/{data['id']}/publish", headers=admin_headers)
     assert resp.json()["code"] == 0, resp.text
 
@@ -1015,8 +1049,7 @@ async def test_delete_last_case_rejected(client, admin_headers, fake_storage):
         headers=admin_headers,
     )
     assert resp.json()["code"] == 0
-    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
-    case_id = resp.json()["data"]["test_cases"][0]["id"]
+    case_id = (await _get_cases(client, admin_headers, data["id"]))[0]["id"]
 
     resp = await client.patch(
         cases_url,
@@ -1025,9 +1058,8 @@ async def test_delete_last_case_rejected(client, admin_headers, fake_storage):
     )
     assert resp.json()["code"] == 1001
 
-    # 拒绝后集合状态完好：详情仍能看到该测试点
-    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
-    assert len(resp.json()["data"]["test_cases"]) == 1
+    # 拒绝后集合状态完好：独立端点仍能看到该测试点
+    assert len(await _get_cases(client, admin_headers, data["id"])) == 1
 
 
 @pytest.mark.asyncio
@@ -1044,8 +1076,8 @@ async def test_failed_verification_keeps_pending(client, admin_headers, user_hea
     await _pass_verification(data["id"])
     await _apply_pending(client, admin_headers, data["id"])  # 生效集就位
 
-    resp = await client.get(f"/api/v1/problems/{data['id']}", headers=admin_headers)
-    old_case = resp.json()["data"]["test_cases"][0]
+    resp = await client.get(f"/api/v1/problems/{data['id']}/test-cases", headers=admin_headers)
+    old_case = resp.json()["data"]["cases"][0]
     resp = await client.patch(
         cases_url,
         json={"upserts": [{"id": old_case["id"], "expected_output": "9"}]},

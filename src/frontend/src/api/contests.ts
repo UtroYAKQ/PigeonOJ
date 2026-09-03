@@ -61,7 +61,7 @@ export function searchContestProblems(
 export function getContestProblem(
   contestId: string,
   problemId: string,
-): Promise<import('@/types').ProblemDetailEx> {
+): Promise<import('@/types').ProblemDetail> {
   return apiRequest('GET', `/contests/${contestId}/problems/${problemId}`)
 }
 

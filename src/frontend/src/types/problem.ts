@@ -48,7 +48,7 @@ export interface ProblemTestCase {
   staged?: boolean
 }
 
-/** 题目详情：test_cases / solution 仅管理角色返回（can_manage=true 时） */
+/** 题目详情（不含测试点——测试点走独立管理端点 GET /problems/:id/test-cases） */
 export interface ProblemDetail extends ProblemSummary {
   /** 题目背景（必填；存量数据为「无」） */
   background: string
@@ -57,6 +57,7 @@ export interface ProblemDetail extends ProblemSummary {
   output_description?: string | null
   /** 题面说明（可选，Markdown，渲染于题面最后） */
   note?: string | null
+  /** 官方题解：仅题目的管理者（admin 或创建者）返回 */
   solution?: string | null
   owner_id: string
   samples: ProblemSample[]
@@ -68,8 +69,13 @@ export interface ProblemDetail extends ProblemSummary {
   needs_reverification?: boolean
   /** 测试点集合状态缓存：empty / to_verify / to_reverify / ok */
   case_status?: string | null
-  cases_updated_at?: string | null
   samples_updated_at?: string | null
+}
+
+/** 测试点列表（独立管理端点 GET /problems/:id/test-cases；仅题目管理者可读） */
+export interface ProblemTestCaseList {
+  cases: ProblemTestCase[]
+  updated_at?: string | null
 }
 
 /** 测试点草稿：编辑器内编辑；id 存在表示服务器已有该测试点（保存时按行 diff 增量提交） */
@@ -134,9 +140,4 @@ export interface ProblemCreatePayload extends ProblemEditPayload {
   /** 题面要素必填（docs/contracts/problems.md） */
   input_description: string
   output_description: string
-}
-
-/** 管理角色读取详情时返回测试点内容（含正式点回读，用于编辑） */
-export interface ProblemDetailEx extends ProblemDetail {
-  test_cases?: ProblemTestCase[] | null
 }

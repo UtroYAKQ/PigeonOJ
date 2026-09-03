@@ -13,12 +13,12 @@ import { useSelfTest } from '@/composables/useSelfTest'
 import { dialog, message } from '@/utils/feedback'
 import StatusTag from '@/components/StatusTag.vue'
 import ProblemWorkbench from '@/components/problem/ProblemWorkbench.vue'
-import type { ProblemDetailEx, ProblemLanguage, Submission } from '@/types'
+import type { ProblemDetail, ProblemLanguage, Submission } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const problem = ref<ProblemDetailEx | null>(null)
+const problem = ref<ProblemDetail | null>(null)
 const submitting = ref(false)
 const subsVisible = ref(false)
 const language = ref<ProblemLanguage>('cpp17')
