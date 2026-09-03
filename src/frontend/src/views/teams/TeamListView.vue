@@ -1,14 +1,15 @@
 <script setup lang="ts">
 /**
  * 团队中心：我的团队卡片墙（分页）+ 创建团队（admin/tutor）。
- * 卡片范式与比赛列表（ContestListView）一致：头像左上 / 角色徽标右上 /
- * 名称其下 / 描述两行截断 / 元信息与底部引导收尾；团队基础管理在 /teams/:id。
+ * 卡片范式与比赛列表（ContestListView）一致：单行头部（头像 + 名称 + 右侧角色点标）、
+ * 描述两行截断、成员数元信息、底部创建时间；
+ * 悬停仅边框加深 + 标题主色，无位移 / 阴影 / 动画。
  */
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { CirclePlus } from '@element-plus/icons-vue'
-import { NButton, NIcon, NTag } from 'naive-ui'
+import { NButton, NIcon } from 'naive-ui'
 
 import { createTeam, listMyTeams } from '@/api/teams'
 import { message } from '@/utils/feedback'
@@ -35,11 +36,11 @@ const showCreate = ref(false)
 const creating = ref(false)
 const createForm = ref({ name: '', description: '' })
 
-/** 我的角色 → 徽标（颜色与文案；创建者警示橙 / 管理员信息蓝 / 成员中性灰） */
-const roleMeta: Record<TeamRoleType, { type: 'warning' | 'info' | 'default'; labelKey: string }> = {
-  creator: { type: 'warning', labelKey: 'teams.role.creator' },
-  admin: { type: 'info', labelKey: 'teams.role.admin' },
-  member: { type: 'default', labelKey: 'teams.role.member' },
+/** 我的角色 → 点标（语义色 class + 文案 key；创建者警示橙 / 管理员信息蓝 / 成员中性灰） */
+const roleMeta: Record<TeamRoleType, { cls: string; labelKey: string }> = {
+  creator: { cls: 'role-chip--creator', labelKey: 'teams.role.creator' },
+  admin: { cls: 'role-chip--admin', labelKey: 'teams.role.admin' },
+  member: { cls: 'role-chip--member', labelKey: 'teams.role.member' },
 }
 
 function initialOf(team: TeamSummary) {
@@ -94,16 +95,6 @@ async function doCreate() {
   }
 }
 
-// 角色徽标渲染（模板内以组件方式复用）
-const RoleBadge = (props: { role: TeamRoleType }) => {
-  const meta = roleMeta[props.role]
-  return h(
-    NTag,
-    { size: 'small', round: true, bordered: false, type: meta.type },
-    { default: () => t(meta.labelKey) },
-  )
-}
-
 onMounted(load)
 </script>
 
@@ -144,15 +135,24 @@ onMounted(load)
         >
           <div class="team-card__top">
             <img v-if="team.avatar_url" :src="team.avatar_url" alt="" class="team-card__avatar" />
-            <div v-else class="team-card__avatar team-card__avatar--fallback" aria-hidden="true">
+            <div
+              v-else
+              class="team-card__avatar team-card__avatar--fallback"
+              aria-hidden="true"
+            >
               {{ initialOf(team) }}
             </div>
-            <div class="team-card__badges">
-              <RoleBadge v-if="team.my_role" :role="team.my_role" />
-            </div>
+            <h3 class="team-card__title" :title="team.name">{{ team.name }}</h3>
+            <span
+              v-if="team.my_role"
+              class="role-chip"
+              :class="roleMeta[team.my_role].cls"
+            >
+              <span class="role-chip__dot" aria-hidden="true" />
+              {{ t(roleMeta[team.my_role].labelKey) }}
+            </span>
           </div>
 
-          <h3 class="team-card__title" :title="team.name">{{ team.name }}</h3>
           <p class="team-card__desc" :class="{ 'team-card__desc--empty': !team.description }">
             {{ team.description ?? '—' }}
           </p>
@@ -166,9 +166,6 @@ onMounted(load)
 
           <div class="team-card__footer">
             <span>{{ formatDateTime(team.created_at) }}</span>
-            <span class="team-card__spacer" aria-hidden="true"></span>
-            <span class="team-card__enter">{{ t('teams.list.enter') }}</span>
-            <span class="team-card__arrow" aria-hidden="true">→</span>
           </div>
         </article>
       </div>
@@ -257,7 +254,7 @@ onMounted(load)
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 18px;
+  gap: 16px;
   min-height: 240px;
   align-content: start;
 }
@@ -268,24 +265,23 @@ onMounted(load)
   min-height: 300px;
 }
 
-/* ---- 团队卡片：头像左上 / 角色徽标右上 / 名称其下 / 描述两行截断 /
-        成员数元信息 / 虚线footer（创建时间 + 进入引导） ---- */
+/* ---- 团队卡片：单行头部（头像 + 名称 + 右侧角色点标），纯平面极简 ---- */
 .team-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px;
+  gap: 12px;
+  padding: 18px 18px 16px;
   border: 1px solid var(--app-border);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--app-card-bg, #fff);
   cursor: pointer;
-  transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease;
+  transition: border-color 0.15s ease;
 }
 .team-card:hover {
-  border-color: var(--app-primary);
-  box-shadow: 0 4px 14px rgb(0 0 0 / 6%);
+  border-color: var(--app-text-muted);
+}
+.team-card:hover .team-card__title {
+  color: var(--app-primary);
 }
 .team-card:focus-visible {
   outline: 2px solid var(--app-primary);
@@ -293,14 +289,14 @@ onMounted(load)
 }
 .team-card__top {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 .team-card__avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
   object-fit: cover;
   border: 1px solid var(--app-border);
   flex-shrink: 0;
@@ -310,29 +306,55 @@ onMounted(load)
   align-items: center;
   justify-content: center;
   background: var(--app-muted-bg);
+  border: 1px solid var(--app-border);
   color: var(--app-text-secondary);
-  font-size: 20px;
-  font-weight: 700;
-}
-.team-card__badges {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-}
-.team-card__title {
-  margin: 0;
   font-size: 15px;
   font-weight: 650;
-  line-height: 1.35;
+}
+.team-card__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
   color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 0.15s ease;
+}
+/* 角色 = 色点 + 文本（不单一靠颜色，文本承载语义）；创建者 / 管理员 / 成员三级 */
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--app-text-secondary);
+}
+.role-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--app-text-muted);
+}
+.role-chip--creator {
+  color: var(--app-warning);
+}
+.role-chip--creator .role-chip__dot {
+  background: var(--app-warning);
+}
+.role-chip--admin {
+  color: var(--app-info);
+}
+.role-chip--admin .role-chip__dot {
+  background: var(--app-info);
 }
 /* 描述固定两行高度：无描述也占位，保证同排卡片底部对齐 */
 .team-card__desc {
-  margin: -4px 0 0;
+  margin: 0;
   min-height: 37px;
   color: var(--app-text-secondary);
   font-size: 12px;
@@ -344,7 +366,6 @@ onMounted(load)
   overflow: hidden;
 }
 .team-card__desc--empty {
-  color: var(--app-text-secondary);
   opacity: 0.55;
 }
 .team-card__meta {
@@ -363,38 +384,13 @@ onMounted(load)
 .team-card__footer {
   margin-top: auto;
   padding-top: 10px;
-  border-top: 1px dashed var(--app-border);
+  border-top: 1px solid var(--app-border);
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 11px;
   color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
-}
-.team-card__spacer {
-  flex: 1;
-}
-/* 进入引导：悬停时主色点亮，暗示可点击 */
-.team-card__enter {
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  opacity: 0.65;
-  transition: opacity 0.18s ease;
-}
-.team-card__arrow {
-  opacity: 0.55;
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
-}
-.team-card:hover .team-card__enter {
-  opacity: 1;
-  color: var(--app-primary);
-}
-.team-card:hover .team-card__arrow {
-  opacity: 1;
-  color: var(--app-primary);
-  transform: translateX(2px);
 }
 .pager {
   display: flex;

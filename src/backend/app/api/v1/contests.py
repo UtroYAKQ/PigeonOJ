@@ -267,6 +267,7 @@ async def unfreeze_contest_board(
     """手动解冻榜单（admin/tutor）：从 submissions 权威重算并回填封榜期间结果（仅赛后）。"""
     summary = await service.unfreeze(user, contest_id)
     await db.commit()  # 显式提交：确保数据持久化
+    await service.invalidate_board_cache(contest_id)  # commit 后补失效，消除回填旧榜竞态
     return ok(summary)
 
 

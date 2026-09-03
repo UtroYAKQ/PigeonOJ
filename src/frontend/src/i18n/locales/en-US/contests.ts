@@ -61,7 +61,6 @@
       problems: 'Problems',
       notVisible: 'Problems are visible after the contest starts (registration required)',
       submitDisabled: 'Contest not started',
-      boardFrozenTag: 'Frozen',
       manage: 'Manage contest',
       unfreeze: 'Unfreeze board',
       unfreezeConfirm:

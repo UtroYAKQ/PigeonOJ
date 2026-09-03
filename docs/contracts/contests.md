@@ -82,6 +82,9 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 
 ## 数据所有权
 
+- **单一所有权模型**：比赛管理权限（编辑 / 编排 / 公告 / 解榜 / 滚榜数据 / 比赛提交记录随时可见 / 赛前题目可见）
+  按「`admin` 管理全站比赛，其余管理角色（`tutor`）仅管理本人创建的比赛」判定；
+  非创建者、非 admin 管理他人比赛一律 2003。创建入口为角色门（admin/tutor）
 - 比赛中心仅展示公开比赛（`contest_type='public'`）；团队比赛仅在所属团队空间内展示（按 `team_id` 过滤）
 - 用户只能查看自己所在团队的比赛；团队比赛仅允许团队成员报名
 - 比赛题目访问与提交均校验身份与报名（见下方「关键流程」越权规则）
@@ -94,6 +97,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | GET | /contests | public | 比赛中心列表（公开） | 分页/状态/keyword（名称模糊） | contest[] |
+| GET | /admin/contests | admin/tutor | 比赛管理视图：admin 全量、tutor 仅本人创建（单一所有权模型，全部状态） | 分页/状态/keyword（名称模糊） | contest[] |
 | GET | /contests/{id} | public/owner | 比赛详情（题目/规则/报名状态） | - | contest |
 | GET | /contests/{id}/problems | auth（已报名 + 时间窗口） | 比赛题目列表 | - | problem[] |
 | GET | /contests/{id}/problems/search | admin/tutor（require_manage） | **编排页题目搜索（统一入口）**：已发布且（全站公开 或 本人私有）题目，标题模糊；仅比赛管理角色可调 | 分页/keyword | problem[]（problem_id/title/difficulty） |

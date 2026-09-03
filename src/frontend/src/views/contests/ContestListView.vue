@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
  * 比赛中心（卡片流）：状态过滤 + 刷新；整卡点击进入比赛详情。
- * 卡片布局：左上比赛头像（无头像回退渐变底 + 首字）、右上状态与封榜徽标、
- * 下方比赛名称、两行说明、赛制 / 题数 / 报名数元信息、底部时间窗。
+ * 卡片范式（与团队列表一致）：单行头部（头像 + 标题 + 右侧状态点标）、
+ * 两行说明、赛制 / 题数 / 报名数元信息、底部时间窗；
+ * 悬停仅边框加深 + 标题主色，无位移 / 阴影 / 动画。
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NTag } from 'naive-ui'
 
 import RefreshButton from '@/components/RefreshButton.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
@@ -69,10 +69,10 @@ const statusValue = computed({
   },
 })
 
-const statusMeta = computed(() => ({
-  running: { label: t('contests.statusRunning'), type: 'success' as const },
-  scheduled: { label: t('contests.statusScheduled'), type: 'info' as const },
-  finished: { label: t('contests.statusFinished'), type: 'default' as const },
+const statusLabel = computed<Record<string, string>>(() => ({
+  running: t('contests.statusRunning'),
+  scheduled: t('contests.statusScheduled'),
+  finished: t('contests.statusFinished'),
 }))
 
 function initialOf(row: ContestSummary): string {
@@ -122,34 +122,44 @@ function openContest(row: ContestSummary) {
           @keyup.enter="openContest(row)"
         >
           <div class="contest-card__top">
-            <img v-if="row.logo" :src="row.logo" alt="logo" class="contest-card__logo" />
-            <div v-else class="contest-card__logo contest-card__logo--fallback">
+            <img v-if="row.logo" :src="row.logo" alt="" class="contest-card__logo" />
+            <div
+              v-else
+              class="contest-card__logo contest-card__logo--fallback"
+              aria-hidden="true"
+            >
               {{ initialOf(row) }}
             </div>
-            <div class="contest-card__badges">
-              <NTag size="small" round :bordered="false" :type="statusMeta[row.status].type">
-                {{ statusMeta[row.status].label }}
-              </NTag>
-              <NTag v-if="row.board_frozen" size="small" round type="warning" :bordered="false">
-                {{ t('contests.boardFrozenTag') }}
-              </NTag>
-            </div>
+            <h3 class="contest-card__title" :title="row.title">{{ row.title }}</h3>
+            <span class="state-chip" :class="`state-chip--${row.status}`">
+              <span class="state-chip__dot" aria-hidden="true" />
+              {{ statusLabel[row.status] }}
+            </span>
+            <span
+              v-if="row.board_frozen"
+              class="state-chip state-chip--frozen"
+              :title="t('contests.frozenHint')"
+            >
+              <span class="state-chip__dot" aria-hidden="true" />
+              {{ t('contests.boardFrozenTag') }}
+            </span>
           </div>
 
-          <h3 class="contest-card__title" :title="row.title">{{ row.title }}</h3>
-          <p v-if="row.description" class="contest-card__desc">{{ row.description }}</p>
+          <p class="contest-card__desc" :class="{ 'contest-card__desc--empty': !row.description }">
+            {{ row.description ?? '—' }}
+          </p>
 
           <div class="contest-card__meta">
             <span class="contest-card__rule">{{ row.rule_type }}</span>
-            <span class="contest-card__dot" aria-hidden="true">·</span>
+            <span class="contest-card__sep" aria-hidden="true">·</span>
             <span>{{ t('contests.list.problemCount', { count: row.problem_count }) }}</span>
-            <span class="contest-card__dot" aria-hidden="true">·</span>
+            <span class="contest-card__sep" aria-hidden="true">·</span>
             <span>{{ t('contests.list.registeredCount', { count: row.registered_count }) }}</span>
           </div>
 
           <div class="contest-card__footer">
             <span>{{ formatDateTime(row.start_time) }}</span>
-            <span class="contest-card__arrow" aria-hidden="true">→</span>
+            <span class="contest-card__range" aria-hidden="true">→</span>
             <span>{{ formatDateTime(row.end_time) }}</span>
           </div>
         </article>
@@ -199,8 +209,9 @@ function openContest(row: ContestSummary) {
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 18px;
+  gap: 16px;
   min-height: 240px;
+  align-content: start;
 }
 .cards-empty {
   display: flex;
@@ -209,23 +220,23 @@ function openContest(row: ContestSummary) {
   min-height: 300px;
 }
 
-/* ---- 卡片：头像左上 / 徽标右上 / 名称其下 / 元信息与时间窗收尾 ---- */
+/* ---- 卡片：单行头部（头像 + 标题 + 右侧状态点标），纯平面极简 ---- */
 .contest-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px;
+  gap: 12px;
+  padding: 18px 18px 16px;
   border: 1px solid var(--app-border);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--app-card-bg, #fff);
   cursor: pointer;
-  transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease;
+  transition: border-color 0.15s ease;
 }
 .contest-card:hover {
-  border-color: var(--app-primary);
-  box-shadow: 0 4px 14px rgb(0 0 0 / 6%);
+  border-color: var(--app-text-muted);
+}
+.contest-card:hover .contest-card__title {
+  color: var(--app-primary);
 }
 .contest-card:focus-visible {
   outline: 2px solid var(--app-primary);
@@ -233,14 +244,14 @@ function openContest(row: ContestSummary) {
 }
 .contest-card__top {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 .contest-card__logo {
-  width: 52px;
-  height: 52px;
-  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
   object-fit: cover;
   border: 1px solid var(--app-border);
   flex-shrink: 0;
@@ -252,27 +263,57 @@ function openContest(row: ContestSummary) {
   background: var(--app-muted-bg);
   border: 1px solid var(--app-border);
   color: var(--app-text-secondary);
-  font-size: 20px;
-  font-weight: 700;
-}
-.contest-card__badges {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-}
-.contest-card__title {
-  margin: 0;
   font-size: 15px;
   font-weight: 650;
-  line-height: 1.35;
+}
+.contest-card__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
   color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 0.15s ease;
 }
+/* 状态 = 色点 + 文本（不单一靠颜色，文本承载语义） */
+.state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--app-text-secondary);
+}
+.state-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--app-text-muted);
+}
+.state-chip--running .state-chip__dot {
+  background: var(--app-success);
+}
+.state-chip--scheduled .state-chip__dot {
+  background: var(--app-info);
+}
+.state-chip--finished .state-chip__dot {
+  background: var(--app-text-muted);
+}
+.state-chip--frozen {
+  color: var(--app-warning);
+}
+.state-chip--frozen .state-chip__dot {
+  background: var(--app-warning);
+}
+/* 描述固定两行高度：无描述也占位，保证同排卡片底部对齐 */
 .contest-card__desc {
-  margin: -4px 0 0;
+  margin: 0;
+  min-height: 37px;
   color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 1.55;
@@ -281,6 +322,9 @@ function openContest(row: ContestSummary) {
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.contest-card__desc--empty {
+  opacity: 0.55;
 }
 .contest-card__meta {
   display: flex;
@@ -291,16 +335,17 @@ function openContest(row: ContestSummary) {
 }
 .contest-card__rule {
   color: var(--app-primary);
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.5px;
+  letter-spacing: 1px;
 }
-.contest-card__dot {
-  opacity: 0.5;
+.contest-card__sep {
+  opacity: 0.45;
 }
 .contest-card__footer {
   margin-top: auto;
   padding-top: 10px;
-  border-top: 1px dashed var(--app-border);
+  border-top: 1px solid var(--app-border);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -308,7 +353,7 @@ function openContest(row: ContestSummary) {
   color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
 }
-.contest-card__arrow {
+.contest-card__range {
   opacity: 0.55;
 }
 .pager {

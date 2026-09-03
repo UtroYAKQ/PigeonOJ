@@ -59,7 +59,6 @@
       problems: '比赛题目',
       notVisible: '比赛开始后可见题目（需报名）',
       submitDisabled: '比赛未开始',
-      boardFrozenTag: '已封榜',
       manage: '管理比赛',
       unfreeze: '解冻榜单',
       unfreezeConfirm: '解冻将从提交记录重算榜单并回填封榜期间结果，确定解冻？',

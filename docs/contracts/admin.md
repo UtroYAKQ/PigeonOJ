@@ -114,7 +114,7 @@ ORDER BY r.created_at DESC, r.id DESC
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | GET | /admin/users | admin | 用户列表 | 分页/关键字/状态 | user[] |
-| PUT | /admin/users/{id}/roles | admin | 全局角色授权（写 `user_roles` scope='global'） | role_ids | - |
+| PUT | /admin/users/{id}/roles | admin | 全局角色授权（**单一角色模型**：整体替换该用户唯一全局角色，写 `user_roles` scope='global'） | role_id | - |
 | POST | /admin/users/{id}/ban | admin | 封禁（违规 / 异常，仅可人工解封） | reason | - |
 | POST | /admin/users/{id}/unban | admin | 解封 | - | - |
 | POST | /admin/users/{id}/freeze | admin | 冻结（立即拦截登录；人工解冻） | reason | - |
@@ -142,7 +142,7 @@ ORDER BY r.created_at DESC, r.id DESC
 
 ## 关键流程 / 验收条件
 
-1. **全局角色授权**：`PUT /admin/users/{id}/roles` 写 `user_roles`（`scope='global'`、`object_id=NULL`）；全局角色部分唯一索引兜底防重复。
+1. **全局角色授权**：`PUT /admin/users/{id}/roles` 写 `user_roles`（`scope='global'`、`object_id=NULL`）；**单一角色模型**——每个用户恰好持有一个全局角色（`admin` / `tutor` / `user`），授权为整体替换而非叠加；唯一索引兜底防重复。
 2. **封禁 / 解封、冻结 / 解冻**：写 `users.status`（`banned` / `frozen`），均立即拦截登录；`frozen` 可到期自动解冻，`banned` 仅人工解封。
 3. **系统配置**：按 `category` 分域读写 `system_configs`；修改人记录 `updated_by`。业务侧实时读库（无缓存），保存后立即生效；已接线消费方：`auth_email` 验证码策略 / 注册邮箱验证开关 / SMTP 发信、`sandbox` 冷却 / 并发、`site.register_enabled` 注册开关、`site` 公开展示字段（经 `/site-config`）。
 4. **日志**：`request_logs`（含沙箱子记录）、`login_logs`、`exception_logs` 按条件查询 / 导出。

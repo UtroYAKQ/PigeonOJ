@@ -211,7 +211,7 @@ async def test_update_set_meta(client: httpx.AsyncClient) -> None:
 
 
 async def test_admin_manage_list(client: httpx.AsyncClient, user_headers) -> None:
-    """/admin/problem-sets 管理视图：admin/tutor 可见全量（含私有、已下线）；普通用户 2003。"""
+    """/admin/problem-sets 管理视图：admin 全量（含私有、已下线）；tutor 仅本人创建；普通用户 2003。"""
     tutor = await _tutor_headers(client)
     pub = (
         await client.post("/api/v1/problem-sets", json={"title": "管理公开"}, headers=tutor)
@@ -238,13 +238,31 @@ async def test_admin_manage_list(client: httpx.AsyncClient, user_headers) -> Non
     items = resp.json()["data"]["items"]
     assert items and all(it["status"] == "archived" for it in items)
 
-    # admin 同样可见全量
+    # 单一所有权模型：admin 创建的私有题单对 tutor 不可见、不可编辑
     admin_token = await api_login(client, "admin@pigeonoj.dev", "Admin@123")
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    admin_set = (
+        await client.post(
+            "/api/v1/problem-sets",
+            json={"title": "管理员私有题单", "visibility": "private"},
+            headers=admin_headers,
+        )
+    ).json()["data"]["id"]
+    resp = await client.get("/api/v1/admin/problem-sets", headers=tutor)
+    assert resp.json()["code"] == 0
+    titles = {it["title"] for it in resp.json()["data"]["items"]}
+    assert "管理员私有题单" not in titles
+    resp = await client.put(
+        f"/api/v1/problem-sets/{admin_set}", json={"title": "越权改名"}, headers=tutor
+    )
+    assert resp.json()["code"] == 2003
+
+    # admin 全量（tutor 的 2 个 + admin 的 1 个）
     resp = await client.get(
         "/api/v1/admin/problem-sets", headers={"Authorization": f"Bearer {admin_token}"}
     )
     assert resp.json()["code"] == 0
-    assert resp.json()["data"]["total"] == 2
+    assert resp.json()["data"]["total"] == 3
 
 
 async def test_set_submission(client: httpx.AsyncClient, user_headers) -> None:

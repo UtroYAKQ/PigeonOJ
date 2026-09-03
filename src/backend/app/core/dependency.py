@@ -128,6 +128,11 @@ async def is_manager(db: AsyncSession, user: User) -> bool:
     return bool(MANAGER_ROLE_CODES.intersection(codes))
 
 
+async def is_admin(db: AsyncSession, user: User) -> bool:
+    """检查用户是否为 admin（单一所有权模型：admin 管理全站资源，其余角色仅本人资源）。"""
+    return "admin" in await get_user_role_codes(db, user.id)
+
+
 async def require_manager_role(db: AsyncSession, user: User) -> None:
     """要求用户为管理角色，否则抛出权限错误。"""
     if not await is_manager(db, user):

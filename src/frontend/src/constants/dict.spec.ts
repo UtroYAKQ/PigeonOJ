@@ -22,6 +22,15 @@ describe('constants/dict（随 locale 动态翻译）', () => {
     expect(ROLE_NAME.user).toBe('普通用户')
   })
 
+  it('Proxy 字典可被 Object.keys 枚举（视图下拉 / 勾选选项依赖）', () => {
+    expect(Object.keys(ROLE_NAME)).toEqual(['admin', 'tutor', 'user'])
+    expect(Object.keys(REPORT_TYPE)).toEqual(['problem', 'solution', 'post', 'comment', 'user'])
+    expect(Object.keys(REPORT_STATUS)).toEqual(['pending', 'handled', 'ignored'])
+    expect(Object.keys(LOG_LEVEL)).toEqual(['error', 'warning', 'fatal'])
+    expect(Object.keys(SANDBOX_STATUS)).toEqual(['online', 'offline'])
+    expect(Object.keys(USER_STATUS)).toEqual(['active', 'frozen', 'banned', 'deleted'])
+  })
+
   it('用户状态映射含标签色', () => {
     expect(USER_STATUS.active).toEqual({ label: '正常', tag: 'success' })
     expect(USER_STATUS.frozen.tag).toBe('warning')

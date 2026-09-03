@@ -63,10 +63,13 @@ class ProblemSetRepository:
         return rows, int(total)
 
     async def list_all(
-        self, *, page: int, page_size: int, keyword: str | None, status: str | None
+        self, *, page: int, page_size: int, keyword: str | None, status: str | None,
+        owner_id: uuid.UUID | None = None,
     ) -> tuple[list[ProblemSet], int]:
-        """管理视图（admin/tutor）：全量题单（含私有与已下线），可叠加状态过滤。"""
+        """管理视图题单：含私有与已下线；owner_id 非 None 时仅该创建者（单一所有权模型）。"""
         conditions = []
+        if owner_id is not None:
+            conditions.append(ProblemSet.owner_id == owner_id)
         if keyword:
             conditions.append(ProblemSet.title.ilike(f"%{keyword}%"))
         if status is not None:

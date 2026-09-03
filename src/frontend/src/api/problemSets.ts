@@ -18,13 +18,6 @@ export function listProblemSets(
   return apiRequest('GET', `/problem-sets${buildQuery(query)}`)
 }
 
-/** 题单管理视图（admin/tutor）：全量题单，含私有与已下线，可叠加状态过滤 */
-export function adminListProblemSets(
-  query: ProblemSetListQuery & { status?: 'active' | 'archived' } = {},
-): Promise<PageResult<ProblemSetSummary>> {
-  return apiRequest('GET', `/admin/problem-sets${buildQuery(query)}`)
-}
-
 export function getProblemSet(id: string): Promise<ProblemSetDetail> {
   return apiRequest('GET', `/problem-sets/${id}`)
 }

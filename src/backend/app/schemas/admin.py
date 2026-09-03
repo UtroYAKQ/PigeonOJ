@@ -20,7 +20,9 @@ class ConfigUpdateRequest(BaseModel):
 
 
 class RoleUpdateRequest(BaseModel):
-    role_ids: list[str] = Field(min_length=1)
+    """全局角色授权（单一角色模型：一个用户恰好持有一个全局角色）。"""
+
+    role_id: str
 
 
 class StatusReasonRequest(BaseModel):

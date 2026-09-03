@@ -26,7 +26,7 @@ const query = reactive({
 })
 const roleModal = ref(false)
 const roleTarget = ref<User | null>(null)
-const roleIds = ref<GlobalRoleCode[]>([])
+const roleId = ref<GlobalRoleCode | null>(null)
 const roleSaving = ref(false)
 
 /** 封禁 / 冻结原因弹窗（可选输入，替代原 prompt） */
@@ -83,18 +83,18 @@ const roleOptions = computed(() =>
 
 function openRoleDialog(user: User) {
   roleTarget.value = user
-  roleIds.value = [...(user.roles ?? [])]
+  roleId.value = (user.roles && user.roles[0]) || null
   roleModal.value = true
 }
 async function saveRoles() {
   if (!roleTarget.value) return
-  if (!roleIds.value.length) {
-    message.warning(t('admin.users.keepRole'))
+  if (!roleId.value) {
+    message.warning(t('admin.users.pickRole'))
     return
   }
   roleSaving.value = true
   try {
-    await adminApi.adminSetRoles(roleTarget.value.id, roleIds.value)
+    await adminApi.adminSetRole(roleTarget.value.id, roleId.value)
     message.success(t('admin.users.rolesUpdated'))
     roleModal.value = false
     await load()
@@ -308,18 +308,18 @@ const columns = computed<DataTableColumns<User>>(() => [
       "
     />
 
-    <!-- 角色设置 -->
+    <!-- 角色设置（单一角色：单选） -->
     <n-modal v-model:show="roleModal" preset="card" style="width: min(420px, 92vw)">
-      <n-checkbox-group v-model:value="roleIds">
+      <n-radio-group v-model:value="roleId">
         <div class="role-options">
-          <n-checkbox
+          <n-radio
             v-for="opt in roleOptions"
             :key="opt.value"
             :value="opt.value"
             :label="opt.label"
           />
         </div>
-      </n-checkbox-group>
+      </n-radio-group>
       <template #footer>
         <ModalFooter
           :loading="roleSaving"

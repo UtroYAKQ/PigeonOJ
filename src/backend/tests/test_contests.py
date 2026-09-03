@@ -187,6 +187,91 @@ async def test_create_requires_manager_role(client: httpx.AsyncClient, user_head
     assert resp.json()["code"] == 1001
 
 
+async def test_tutor_cannot_manage_others_contests(client: httpx.AsyncClient, admin_headers) -> None:
+    """单一所有权模型（docs/security.md）：tutor 仅能管理本人创建的比赛——
+
+    admin 创建的比赛对 tutor：编辑 / 公告 / 编排搜索 → 2003，详情 can_manage=false；
+    tutor 创建的比赛自身可正常编辑。
+    """
+    tutor = await _tutor_headers(client)
+    p1 = await _seed_problem("他人比赛题")
+
+    # admin 建赛
+    resp = await client.post(
+        "/api/v1/contests", json=_contest_payload(problems=[{"problem_id": p1}]), headers=admin_headers
+    )
+    assert resp.json()["code"] == 0, resp.text
+    admin_cid = resp.json()["data"]["id"]
+
+    # tutor：详情 can_manage=false（赛前题目不可见）
+    detail = (await client.get(f"/api/v1/contests/{admin_cid}", headers=tutor)).json()["data"]
+    assert detail["can_manage"] is False
+    # 编辑 / 公告 / 编排搜索 → 2003
+    resp = await client.put(
+        f"/api/v1/contests/{admin_cid}",
+        json=_contest_payload(problems=[{"problem_id": p1}]),
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 2003
+    resp = await client.put(
+        f"/api/v1/contests/{admin_cid}/announcement", json={"announcement": "越权公告"}, headers=tutor
+    )
+    assert resp.json()["code"] == 2003
+    resp = await client.get(
+        f"/api/v1/contests/{admin_cid}/problems/search?keyword=x", headers=tutor
+    )
+    assert resp.json()["code"] == 2003
+
+    # tutor 建自己的比赛后可正常编辑
+    resp = await client.post(
+        "/api/v1/contests", json=_contest_payload(problems=[{"problem_id": p1}]), headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    own_cid = resp.json()["data"]["id"]
+    resp = await client.put(
+        f"/api/v1/contests/{own_cid}/announcement", json={"announcement": "导师公告"}, headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    detail = (await client.get(f"/api/v1/contests/{own_cid}", headers=tutor)).json()["data"]
+    assert detail["can_manage"] is True
+
+
+async def test_admin_manage_list(client: httpx.AsyncClient, user_headers, admin_headers) -> None:
+    """GET /admin/contests 管理视图：admin 全量；tutor 仅本人创建；普通用户 2003。"""
+    tutor = await _tutor_headers(client)
+    p1 = await _seed_problem("管理视图题")
+
+    resp = await client.post(
+        "/api/v1/contests", json=_contest_payload(problems=[{"problem_id": p1}]), headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    own_cid = resp.json()["data"]["id"]
+    resp = await client.post(
+        "/api/v1/contests", json=_contest_payload(problems=[{"problem_id": p1}]), headers=admin_headers
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    # 普通用户 → 2003
+    resp = await client.get("/api/v1/admin/contests", headers=user_headers)
+    assert resp.json()["code"] == 2003
+
+    # tutor：仅本人创建
+    resp = await client.get("/api/v1/admin/contests", headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    data = resp.json()["data"]
+    assert data["total"] == 1
+    assert data["items"][0]["id"] == own_cid
+
+    # admin：全量（本测试共 2 场）
+    resp = await client.get("/api/v1/admin/contests", headers=admin_headers)
+    assert resp.json()["code"] == 0
+    assert resp.json()["data"]["total"] == 2
+
+    # keyword 过滤
+    resp = await client.get("/api/v1/admin/contests?keyword=测试比赛", headers=admin_headers)
+    assert resp.json()["data"]["total"] == 2
+
+
 async def test_register_window(client: httpx.AsyncClient, user_headers) -> None:
     """报名窗口：未开始/已截止 → 3002；窗口内 → 0；重复 → 3003。"""
     p1 = await _seed_problem("报名题")
@@ -494,6 +579,99 @@ async def test_ioi_ranking_takes_max_score(client: httpx.AsyncClient, user_heade
             await db2.commit()
     resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
     assert resp.json()["data"]["rows"][0]["total_score"] == 80
+
+
+async def test_board_cache_and_invalidation(client: httpx.AsyncClient, user_headers) -> None:
+    """榜单 Redis 读缓存：命中不回源；判题回写 / 封榜 / 解冻主动失效；TTL 按场景分级。"""
+    from app.core.redis import RANK_CONTEST_KEY_PREFIX, get_redis
+
+    p1 = await _seed_problem("缓存榜题")
+    tutor = await _tutor_headers(client)
+    payload = _contest_payload(
+        problems=[{"problem_id": p1, "score": 100}],
+        start_offset=-7200, end_offset=3600, reg_start_offset=-10800, reg_end_offset=-5400,
+        rule="IOI",
+    )
+    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    cid = uuid_mod.UUID(resp.json()["data"]["id"])
+    async with SessionLocal() as db:
+        uid = (await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))).scalar_one().id
+        db.add(ContestRegistration(contest_id=cid, user_id=uid))
+        await db.commit()
+
+    from app.services.contest import ContestService
+
+    # 首次回写（缓存尚不存在，失效为无操作）
+    async with SessionLocal() as db2:
+        s = Submission(
+            user_id=uid, problem_id=uuid_mod.UUID(p1), language="cpp17", code="x",
+            submit_type="contest", contest_id=cid, status="wrong_answer", score=80,
+        )
+        db2.add(s)
+        await db2.flush()
+        await ContestService(db2).update_ranking_on_result(s, "wrong_answer")
+        await db2.commit()
+
+    r = await get_redis()
+    key = f"{RANK_CONTEST_KEY_PREFIX}{cid}"
+
+    # 进行中：未命中回源并回填短 TTL
+    resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
+    board = resp.json()["data"]
+    assert board["rows"][0]["total_score"] == 80
+    ttl = await r.ttl(key)
+    assert 0 < ttl <= 5, f"running ttl={ttl}"
+
+    # 绕过服务直改数据库（无失效）→ 缓存命中返回旧值
+    async with SessionLocal() as db:
+        row = (await db.execute(select(ContestRanking).where(ContestRanking.contest_id == cid))).scalar_one()
+        row.score = 100
+        await db.commit()
+    resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
+    assert resp.json()["data"]["rows"][0]["total_score"] == 80
+
+    # 判题回写主动失效 → 回源取到新值（IOI 取历史最高分）
+    async with SessionLocal() as db2:
+        s2 = Submission(
+            user_id=uid, problem_id=uuid_mod.UUID(p1), language="cpp17", code="x",
+            submit_type="contest", contest_id=cid, status="wrong_answer", score=90,
+        )
+        db2.add(s2)
+        await db2.flush()
+        await ContestService(db2).update_ranking_on_result(s2, "wrong_answer")
+        await db2.commit()
+    resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
+    assert resp.json()["data"]["rows"][0]["total_score"] == 100
+
+    # 封榜（transition）主动失效，缓存 TTL 升级为 60s
+    async with SessionLocal() as db:
+        row = await db.get(Contest, cid)
+        row.freeze_time = datetime.now(timezone.utc)
+        await db.commit()
+    async with SessionLocal() as db:
+        await ContestService(db).transition()
+        await db.commit()
+    resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
+    assert resp.json()["data"]["board_frozen"] is True
+    ttl = await r.ttl(key)
+    assert 50 < ttl <= 60, f"frozen ttl={ttl}"
+
+    # 完赛 + 手动解冻（重算回填）→ 缓存永久（TTL=-1）
+    async with SessionLocal() as db:
+        row = await db.get(Contest, cid)
+        row.end_time = datetime.now(timezone.utc) - timedelta(seconds=1)
+        row.freeze_time = row.end_time  # 约束：freeze_time <= end_time
+        await db.commit()
+    async with SessionLocal() as db:
+        await ContestService(db).transition()
+        await db.commit()
+    resp = await client.post(f"/api/v1/contests/{cid}/unfreeze", headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
+    board = resp.json()["data"]
+    assert board["board_frozen"] is False
+    assert await r.ttl(key) == -1
 
 
 async def test_contest_rule_type_snapshot_and_after_contest(

@@ -10,8 +10,10 @@ from sqlalchemy import select, text
 
 from app.models.judge import Submission, SubmissionTestCaseResult
 from app.models.problem import Problem, TestCase
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.core.database import SessionLocal
+
+from .conftest import api_login, register_user
 
 
 async def _create_problem(client, admin_headers, **overrides) -> dict:
@@ -48,6 +50,62 @@ async def _apply_pending(client, admin_headers, pid: str) -> None:
         f"/api/v1/problems/{pid}/test-cases/apply", headers=admin_headers
     )
     assert resp.json()["code"] == 0, resp.text
+
+
+async def _tutor_headers(client) -> dict[str, str]:
+    """注册一个 tutor 账号并返回认证头（题目管理角色，单一所有权模型用例）。"""
+    email = "tutor@pigeonoj.dev"
+    await register_user(client, email)
+    async with SessionLocal() as db:
+        user = (await db.execute(select(User).where(User.email == email))).scalar_one()
+        db.add(
+            UserRole(
+                user_id=user.id,
+                role_id="22222222-2222-2222-2222-222222222222",
+                scope="global",
+                object_id=None,
+            )
+        )
+        await db.commit()
+    token = await api_login(client, email, "Pass@123")
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.mark.asyncio
+async def test_tutor_cannot_manage_others_problems(client, admin_headers):
+    """单一所有权模型（docs/security.md）：tutor 仅能管理本人创建的题目——
+
+    admin 创建的题目对 tutor 不可见（草稿 2003）、不可编辑（2003）、不在 scope=mine 列表；
+    tutor 仍可创建并管理自己的题目。
+    """
+    tutor = await _tutor_headers(client)
+    admin_problem = await _create_problem(client, admin_headers, title="管理员的题目")
+
+    # 草稿详情：非创建者、非 admin → 2003
+    resp = await client.get(f"/api/v1/problems/{admin_problem['id']}", headers=tutor)
+    assert resp.json()["code"] == 2003
+    # 编辑 → 2003
+    resp = await client.put(
+        f"/api/v1/problems/{admin_problem['id']}", json={"title": "越权改名"}, headers=tutor
+    )
+    assert resp.json()["code"] == 2003
+    # 不在 tutor 的 scope=mine 列表
+    resp = await client.get("/api/v1/problems?scope=mine", headers=tutor)
+    assert resp.json()["code"] == 0
+    titles = {it["title"] for it in resp.json()["data"]["items"]}
+    assert "管理员的题目" not in titles
+
+    # tutor 创建自己的题目后可正常编辑
+    own = await _create_problem(client, tutor, title="导师的题目")
+    resp = await client.put(
+        f"/api/v1/problems/{own['id']}", json={"title": "导师改过"}, headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    assert resp.json()["data"]["title"] == "导师改过"
+    # tutor 的 scope=mine 含自己的题目
+    resp = await client.get("/api/v1/problems?scope=mine", headers=tutor)
+    titles = {it["title"] for it in resp.json()["data"]["items"]}
+    assert "导师改过" in titles
 
 
 @pytest.mark.asyncio

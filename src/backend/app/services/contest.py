@@ -6,14 +6,18 @@
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependency import get_user_role_codes
+from app.core.dependency import get_user_role_codes, is_admin
 from app.core.exceptions import APIError, AUTH_FORBIDDEN, PARAM_FORMAT_INVALID, RESOURCE_DUPLICATE, RESOURCE_NOT_FOUND, RESOURCE_STATE_CONFLICT
+from app.core.redis import RANK_CONTEST_KEY_PREFIX, get_redis
 from app.enums import (
     ContestStatus,
     ContestType,
@@ -58,6 +62,19 @@ CONTEST_MANAGER_ROLES: set[str] = {"admin", "tutor"}
 ANNOUNCEMENT_EDITABLE_FIELDS: set[str] = {"announcement"}
 # ACM 罚时系数默认值（分钟；system_configs contest.penalty_factor_minutes 可覆盖）
 DEFAULT_PENALTY_FACTOR_MINUTES = 20
+# 榜单缓存 TTL 分级（秒）：进行中 3 秒、封榜 60 秒、已结束 24 小时（永久级别）
+BOARD_CACHE_TTL_RUNNING = 3
+BOARD_CACHE_TTL_FROZEN = 60
+BOARD_CACHE_TTL_FINISHED = 24 * 3600
+# 缓存击穿重建锁
+BOARD_CACHE_LOCK_TTL_SECONDS = 10
+BOARD_CACHE_LOCK_WAIT_SECONDS = 3
+
+logger = logging.getLogger(__name__)
+
+
+def _board_cache_key(contest_id: uuid.UUID) -> str:
+    return f"{RANK_CONTEST_KEY_PREFIX}{contest_id}"
 
 
 def _aware(value: datetime) -> datetime:
@@ -275,17 +292,43 @@ class ContestService:
         self.config = ConfigService(db)
         self._submitter = submitter
 
-    async def _can_manage(self, user: User | None) -> bool:
+    async def _is_contest_manager(self, user: User | None) -> bool:
+        """比赛管理角色门（创建入口 / 管理后台列表）：admin / tutor。"""
         if user is None:
             return False
         codes = await get_user_role_codes(self.db, user.id)
         return bool(CONTEST_MANAGER_ROLES.intersection(codes))
 
+    async def require_manager(self, user: User) -> None:
+        """断言当前用户为比赛管理角色（管理后台列表入口用）。"""
+        if not await self._is_contest_manager(user):
+            raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
+
+    async def list_manage(
+        self, *, user: User, page: int, page_size: int, status: str | None,
+        keyword: str | None = None,
+    ) -> tuple[list[ContestSummary], int]:
+        """管理视图：admin 全量比赛；tutor 仅本人创建（单一所有权模型），全部状态。"""
+        owner_id = None if await is_admin(self.db, user) else user.id
+        rows, total = await self.repo.list_manage(
+            page=page, page_size=page_size, status=status, keyword=keyword, owner_id=owner_id
+        )
+        return [await self._to_summary(self.repo, row) for row in rows], total
+
+    async def _can_manage(self, user: User | None, contest: Contest | None = None) -> bool:
+        """单个比赛的管理权限（单一所有权模型，docs/security.md）：admin 管理全站比赛；
+        其余管理角色（tutor）仅可管理本人创建的比赛。团队比赛权限随 teams 模块接入。"""
+        if user is None:
+            return False
+        if await is_admin(self.db, user):
+            return True
+        return contest is not None and user.id == contest.owner_id
+
     async def require_manage(self, contest_id: uuid.UUID, user: User) -> Contest:
         contest = await self.repo.get_by_id(contest_id)
         if contest is None:
             raise APIError(RESOURCE_NOT_FOUND, "比赛不存在", 404)
-        if not await self._can_manage(user):
+        if not await self._can_manage(user, contest):
             raise APIError(AUTH_FORBIDDEN, "无权限管理该比赛", 403)
         return contest
 
@@ -306,8 +349,8 @@ class ContestService:
         return registration is not None and registration.status == RegistrationStatus.REGISTERED
 
     async def _ensure_submissions_visible(self, contest: Contest, user: User) -> None:
-        """提交记录窗口：管理角色随时可见；比赛期间对参赛者隐藏，赛后开放已报名用户。"""
-        if await self._can_manage(user):
+        """提交记录窗口：比赛管理者（admin / 创建者）随时可见；比赛期间对参赛者隐藏，赛后开放已报名用户。"""
+        if await self._can_manage(user, contest):
             return
         if _now() < _aware(contest.end_time):
             raise APIError(AUTH_FORBIDDEN, "比赛期间提交记录不可见，结束后开放查看", 403)
@@ -409,8 +452,8 @@ class ContestService:
         )
         my_status = registration.status if registration else None
         registered = my_status == RegistrationStatus.REGISTERED
-        can_manage = await self._can_manage(viewer)
-        # 题目可见性：开赛后报名者 / 结束后所有人可见；管理角色赛前即可见（编排需要）
+        can_manage = await self._can_manage(viewer, contest)
+        # 题目可见性：开赛后报名者 / 结束后所有人可见；比赛管理者赛前即可见（编排需要）
         can_view_problems = (start <= now and (registered or now >= end)) or can_manage
         items: list[ContestProblemItemOut] = []
         if can_view_problems:
@@ -629,7 +672,7 @@ class ContestService:
     # ---------------- 创建 / 编辑 ----------------
 
     async def create(self, user: User, body: ContestCreate) -> ContestSummary:
-        if not await self._can_manage(user):
+        if not await self._is_contest_manager(user):
             raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
         self._validate_times(
             body.start_time, body.end_time, body.register_start_time, body.register_end_time
@@ -737,10 +780,87 @@ class ContestService:
     # ---------------- 榜单 ----------------
 
     async def board(self, contest_id: uuid.UUID) -> BoardOut:
-        """榜单：按赛制排序（ACM 通过数↓罚时↑；IOI 总分↓通过数↑），封榜展示冻结快照。"""
+        """榜单：Redis 读缓存（rank:contest:<id>，docs/operations.md「Redis 约定」）优先。
+
+        缓存未命中才全量计算（contest_rankings 为权威）并回填，TTL 按场景分级：
+        进行中 3s / 封榜 60s / 已结束 24h；写路径（判题回写、封榜、解冻）主动失效。
+        并发未命中以 Redis SETNX 重建锁防击穿，Redis 异常一律降级直查数据库。
+        """
+        cache_key = _board_cache_key(contest_id)
+        cached = await self._load_board_cache(cache_key)
+        if cached is not None:
+            return cached
+
         contest = await self._get_contest(contest_id)
+        lock_key = f"{cache_key}:lock"
+        acquired = False
+        try:
+            try:
+                acquired = bool(
+                    await get_redis().set(lock_key, "1", nx=True, ex=BOARD_CACHE_LOCK_TTL_SECONDS)
+                )
+            except Exception:
+                acquired = True  # Redis 异常：放弃互斥，正确性优先直算
+
+            if not acquired:
+                # 等待持锁者回填缓存，期间轮询重读；超时则自行回源兜底
+                deadline = asyncio.get_running_loop().time() + BOARD_CACHE_LOCK_WAIT_SECONDS
+                while asyncio.get_running_loop().time() < deadline:
+                    await asyncio.sleep(0.1)
+                    cached = await self._load_board_cache(cache_key)
+                    if cached is not None:
+                        return cached
+                return await self._compute_board(contest)
+
+            result = await self._compute_board(contest)
+            await self._store_board_cache(contest, result)
+            return result
+        finally:
+            if acquired:
+                try:
+                    await get_redis().delete(lock_key)
+                except Exception:
+                    pass
+
+    async def _load_board_cache(self, cache_key: str) -> BoardOut | None:
+        try:
+            raw = await get_redis().get(cache_key)
+        except Exception:
+            return None  # Redis 瞬断：降级直查数据库
+        if raw is None:
+            return None
+        try:
+            return BoardOut.model_validate_json(raw)
+        except ValidationError:
+            logger.warning("榜单缓存载荷损坏，回源重算 key=%s", cache_key)
+            return None
+
+    async def _store_board_cache(self, contest: Contest, result: BoardOut) -> None:
+        if contest.status == ContestStatus.FINISHED:
+            ttl = BOARD_CACHE_TTL_FINISHED if contest.board_frozen else None  # 永久
+        elif contest.board_frozen:
+            ttl = BOARD_CACHE_TTL_FROZEN
+        else:
+            ttl = BOARD_CACHE_TTL_RUNNING
+        try:
+            await get_redis().set(_board_cache_key(contest.id), result.model_dump_json(), ex=ttl)
+        except Exception:
+            logger.warning("榜单缓存回填失败 contest_id=%s（不影响本次返回）", contest.id, exc_info=True)
+
+    async def invalidate_board_cache(self, contest_id: uuid.UUID) -> None:
+        """公开失效端口：外部（API 层 commit 后）补一次失效，消除「先删缓存后提交」竞态。"""
+        await self._invalidate_board_cache(contest_id)
+
+    async def _invalidate_board_cache(self, contest_id: uuid.UUID) -> None:
+        """写路径主动失效榜单缓存（Redis 异常仅告警，短 TTL 兜底最终一致）。"""
+        try:
+            await get_redis().delete(_board_cache_key(contest_id))
+        except Exception:
+            logger.warning("榜单缓存失效失败 contest_id=%s（等待 TTL 兜底）", contest_id, exc_info=True)
+
+    async def _compute_board(self, contest: Contest) -> BoardOut:
+        """全量计算榜单：按赛制排序（ACM 通过数↓罚时↑；IOI 总分↓通过数↑），封榜展示冻结快照。"""
         contest_problems = await self.repo.list_contest_problems(contest.id)
-        problem_meta = {cp.problem_id: cp for cp, _ in contest_problems}
         rows = await self.rankings.list_rows_with_users(contest.id)
 
         grouped: dict[uuid.UUID, list[ContestRanking]] = {}
@@ -856,6 +976,7 @@ class ContestService:
             )
             if status != SubmissionStatus.ACCEPTED:
                 await self.rankings.increment_attempts(contest.id, user_id, problem_id)
+        await self._invalidate_board_cache(contest.id)
 
     # ---------------- 封榜 / 解冻 / 状态推进 ----------------
 
@@ -873,6 +994,7 @@ class ContestService:
         await self._recompute_rankings(contest)
         contest.board_frozen = False
         await self.db.flush()
+        await self._invalidate_board_cache(contest.id)
         return await self._to_summary(self.repo, contest)
 
     async def update_announcement(
@@ -1032,3 +1154,6 @@ class ContestService:
         # 结束（不自动解冻：真实榜单回填由人工解冻触发）
         await self.repo.finish_due_contests(now)
         await self.db.commit()
+        # 封榜改变 board_frozen 快照标记，commit 后失效对应榜单缓存（并发读不可见未提交数据）
+        for contest in freezing:
+            await self._invalidate_board_cache(contest.id)

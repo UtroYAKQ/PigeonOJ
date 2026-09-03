@@ -15,7 +15,7 @@ import RefreshButton from '@/components/RefreshButton.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import { listContests } from '@/api/contests'
+import { adminListContests } from '@/api/admin'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
@@ -32,9 +32,10 @@ async function load() {
   const seq = beginLoad()
   loading.value = true
   try {
-    const result: PageResult<ContestSummary> = await listContests({
+    const result: PageResult<ContestSummary> = await adminListContests({
       page: page.value,
       page_size: pageSize.value,
+      keyword: keyword.value || undefined,
     })
     if (!isCurrent(seq)) return
     rows.value = result.items

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import (
     AdminConfigServiceDep,
+    ContestServiceDep,
     LogServiceDep,
     ProblemSetServiceDep,
     ReportServiceDep,
@@ -20,6 +21,8 @@ from app.api.deps import (
     UserServiceDep,
 )
 from app.models.user import User
+from app.enums import ContestStatus, ProblemSetStatus
+from app.schemas.contest import ContestSummary
 from app.schemas.admin import (
     ConfigItemOut,
     ConfigUpdateRequest,
@@ -36,7 +39,6 @@ from app.schemas.problem import TagCreate, TagOut, TagUpdate
 from app.schemas.problem_set import ProblemSetSummary
 from app.schemas.user import UserPublic
 from app.core.dependency import get_current_admin, get_current_user
-from app.enums import ProblemSetStatus
 from app.utils.pagination import PaginatedResponse
 from app.utils.response import ApiResponse, ok
 
@@ -66,7 +68,7 @@ async def set_roles(
     service: UserServiceDep,
     admin: User = _admin,
 ) -> ApiResponse[None]:
-    await service.admin_set_roles(user_id, body.role_ids)
+    await service.admin_set_roles(user_id, body.role_id)
     return ok(None)
 
 
@@ -222,6 +224,24 @@ async def archive_tag(
     return ok(TagOut.model_validate(tag))
 
 
+# ---- 比赛管理视图（单一所有权模型：admin 全量、tutor 仅本人创建，docs/contracts/contests.md） ----
+@router.get("/contests", response_model=ApiResponse[PaginatedResponse[ContestSummary]])
+async def admin_list_contests(
+    service: ContestServiceDep,
+    user: User = Depends(get_current_user),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status: ContestStatus | None = Query(default=None),
+    keyword: str | None = Query(default=None, max_length=128),
+) -> ApiResponse[PaginatedResponse[ContestSummary]]:
+    """比赛管理视图：admin 全量比赛、其余管理角色仅本人创建（含全部状态）。"""
+    await service.require_manager(user)
+    items, total = await service.list_manage(
+        user=user, page=page, page_size=page_size, status=status, keyword=keyword
+    )
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
 # ---- 题单管理（docs/contracts/problem-sets.md；管理角色 admin/tutor，非 admin 专属） ----
 
 
@@ -234,9 +254,9 @@ async def admin_list_problem_sets(
     status: ProblemSetStatus | None = Query(default=None),
     user: User = Depends(get_current_user),
 ) -> ApiResponse[PaginatedResponse[ProblemSetSummary]]:
-    """题单管理视图：全量题单（含私有与已下线），供管理后台编排维护。"""
+    """题单管理视图：admin 全量；其余管理角色仅本人创建（单一所有权模型）。"""
     await service.require_manager(user)
     rows, total = await service.list_manage(
-        page=page, page_size=page_size, keyword=keyword, status=status
+        user=user, page=page, page_size=page_size, keyword=keyword, status=status
     )
     return ok(PaginatedResponse(items=rows, total=total, page=page, page_size=page_size))

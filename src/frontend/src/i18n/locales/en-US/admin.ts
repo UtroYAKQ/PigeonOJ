@@ -36,7 +36,7 @@
       registered: 'Registered',
       empty: 'No matching users',
       rolesUpdated: 'Roles updated',
-      keepRole: 'Keep at least one role',
+      pickRole: 'Select a role first',
       roleTitle: 'Set roles: {name}',
       reasonPrompt: 'Enter a reason for {action} (optional):',
       reasonTooLong: 'Reason is too long',

@@ -8,10 +8,14 @@ import { buildQuery } from '@/utils/query'
 import type {
   AdminUserQuery,
   ConfigCategory,
+  ContestListQuery,
+  ContestSummary,
   GlobalRoleCode,
   LogQuery,
   LogType,
   PageResult,
+  ProblemSetListQuery,
+  ProblemSetSummary,
   ProblemTagItem,
   Report,
   ReportStatus,
@@ -20,6 +24,20 @@ import type {
   User,
 } from '@/types'
 
+// ---------------- 管理列表（单一所有权模型：admin 全量、tutor 等仅本人创建） ----------------
+
+/** GET /admin/contests — 比赛管理视图（admin 全量、tutor 仅本人创建，全部状态） */
+export function adminListContests(query: ContestListQuery = {}) {
+  return apiRequest<PageResult<ContestSummary>>('GET', `/admin/contests${buildQuery(query)}`)
+}
+
+/** GET /admin/problem-sets — 题单管理视图（admin 全量、tutor 仅本人创建，含私有与已下线） */
+export function adminListProblemSets(
+  query: ProblemSetListQuery & { status?: 'active' | 'archived' } = {},
+) {
+  return apiRequest<PageResult<ProblemSetSummary>>('GET', `/admin/problem-sets${buildQuery(query)}`)
+}
+
 // ---------------- 用户管理 ----------------
 
 /** GET /admin/users — 用户列表 */
@@ -27,9 +45,9 @@ export function adminListUsers(query: AdminUserQuery = {}) {
   return apiRequest<PageResult<User>>('GET', `/admin/users${buildQuery(query)}`)
 }
 
-/** PUT /admin/users/:id/roles — 全局角色授权（scope='global'） */
-export function adminSetRoles(userId: string, roleIds: GlobalRoleCode[]) {
-  return apiRequest<null>('PUT', `/admin/users/${userId}/roles`, { role_ids: roleIds })
+/** PUT /admin/users/:id/roles — 全局角色授权（单一角色模型，scope='global'） */
+export function adminSetRole(userId: string, roleId: GlobalRoleCode) {
+  return apiRequest<null>('PUT', `/admin/users/${userId}/roles`, { role_id: roleId })
 }
 
 /** POST /admin/users/:id/ban — 封禁 */

@@ -38,7 +38,7 @@ from app.core.redis import (
     redis_set_json,
 )
 from app.core.storage import get_storage
-from app.core.dependency import is_manager
+from app.core.dependency import is_admin, is_manager
 from app.models.problem import (
     Problem,
     ProblemCounter,
@@ -185,8 +185,9 @@ class ProblemService:
         self, query: ProblemQuery, viewer: object | None = None,
     ) -> tuple[list[Problem], int]:
         viewer_id = getattr(viewer, "id", None)
-        manager = viewer is not None and await is_manager(self.db, viewer)
-        return await self.problems.list_published(query, viewer_id, manager)
+        # scope=mine 全量视图仅 admin；其余管理角色（tutor 等）只看本人创建
+        see_all = viewer is not None and await is_admin(self.db, viewer)
+        return await self.problems.list_published(query, viewer_id, see_all)
 
     async def verification_flags(self, problem_ids: list[uuid.UUID]) -> dict[uuid.UUID, bool]:
         """返回 {problem_id: needs_reverification} 用于 scope=mine 列表。
@@ -737,7 +738,9 @@ class ProblemService:
 
 
 async def _can_manage(db: AsyncSession, user: object, problem: Problem) -> bool:
-    if await is_manager(db, user):
+    """题目管理权限（单一所有权模型，docs/security.md）：admin 管理全站题目；
+    其余管理角色（tutor / team_creator）仅可管理本人创建的题目。"""
+    if await is_admin(db, user):
         return True
     return problem.owner_id == user.id
 

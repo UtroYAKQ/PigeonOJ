@@ -80,11 +80,12 @@ class ProblemRepository:
             ).all()
         )
 
-    async def list_published(self, query: ProblemQuery, viewer_id: uuid.UUID | None, is_manager: bool) -> tuple[list[Problem], int]:
-        """题库列表：scope=all 仅 published+public；scope=mine 为创建者/管理角色的管理视图。"""
+    async def list_published(self, query: ProblemQuery, viewer_id: uuid.UUID | None, see_all: bool) -> tuple[list[Problem], int]:
+        """题库列表：scope=all 仅 published+public；scope=mine 为管理视图
+        （admin 见全量，其余用户仅本人创建，docs/contracts/problems.md 数据所有权）。"""
         conditions = []
         if query.scope == ProblemScope.MINE:
-            if not is_manager and viewer_id is not None:
+            if not see_all and viewer_id is not None:
                 conditions.append(Problem.owner_id == viewer_id)
             if query.status:
                 conditions.append(Problem.status == query.status)

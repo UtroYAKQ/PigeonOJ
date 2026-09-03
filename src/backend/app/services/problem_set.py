@@ -5,7 +5,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependency import get_user_role_codes
+from app.core.dependency import get_user_role_codes, is_admin
 from app.core.exceptions import APIError, AUTH_FORBIDDEN, PARAM_FORMAT_INVALID, RESOURCE_DUPLICATE, RESOURCE_NOT_FOUND
 from app.enums import ProblemSetStatus, ProblemSetVisibility
 from app.models.problem_set import ProblemSet, ProblemSetItem
@@ -31,12 +31,21 @@ class ProblemSetService:
         self.db = db
         self.repo = ProblemSetRepository(db)
 
-    async def _can_manage(self, user: User | None, problem_set: ProblemSet) -> bool:
-        """管理权限：admin/tutor 管理全站题单；团队题单权限随 teams 模块接入。"""
+    async def _is_set_manager(self, user: User | None) -> bool:
+        """题单管理角色门（创建 / 管理后台入口）：admin / tutor。"""
         if user is None:
             return False
         codes = await get_user_role_codes(self.db, user.id)
         return bool(SET_MANAGER_ROLES.intersection(codes))
+
+    async def _can_manage(self, user: User | None, problem_set: ProblemSet | None) -> bool:
+        """单个题单的管理权限（单一所有权模型，docs/security.md）：admin 管理全站题单；
+        其余管理角色（tutor）仅可管理本人创建的题单。团队题单权限随 teams 模块接入。"""
+        if user is None:
+            return False
+        if await is_admin(self.db, user):
+            return True
+        return problem_set is not None and user.id == problem_set.owner_id
 
     async def _get_visible(self, set_id: uuid.UUID, viewer: User | None) -> ProblemSet:
         """按可见性取题单：不存在 → 3001；私有 / 已下线对无权限者 → 2003。"""
@@ -65,7 +74,7 @@ class ProblemSetService:
 
     async def require_manager(self, user: User) -> None:
         """断言当前用户为题单管理角色（admin/tutor；管理后台列表入口用）。"""
-        if not await self._can_manage(user, None):
+        if not await self._is_set_manager(user):
             raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
 
     async def ensure_set_problem(
@@ -100,11 +109,12 @@ class ProblemSetService:
         return [to_summary(row, counts.get(row.id, 0)) for row in rows], total
 
     async def list_manage(
-        self, *, page: int, page_size: int, keyword: str | None, status: str | None
+        self, *, user: User, page: int, page_size: int, keyword: str | None, status: str | None
     ) -> tuple[list[ProblemSetSummary], int]:
-        """管理视图（admin/tutor）：全量题单，含私有与已下线。"""
+        """管理视图：admin 全量题单；tutor 仅本人创建（单一所有权模型），含私有与已下线。"""
+        owner_id = None if await is_admin(self.db, user) else user.id
         rows, total = await self.repo.list_all(
-            page=page, page_size=page_size, keyword=keyword, status=status
+            page=page, page_size=page_size, keyword=keyword, status=status, owner_id=owner_id
         )
         counts = await self.repo.count_items([row.id for row in rows])
         return [to_summary(row, counts.get(row.id, 0)) for row in rows], total
@@ -130,8 +140,8 @@ class ProblemSetService:
     # ---------------- 管理 ----------------
 
     async def create(self, user: User, body: ProblemSetCreate) -> ProblemSetSummary:
-        """创建题单：全站题单（team_id 为空）由 admin/tutor 创建。"""
-        if not await self._can_manage(user, None):
+        """创建题单：全站题单（team_id 为空）由 admin/tutor 创建（角色门，创建后按所有权管理）。"""
+        if not await self._is_set_manager(user):
             raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
         problem_set = await self.repo.create(
             ProblemSet(

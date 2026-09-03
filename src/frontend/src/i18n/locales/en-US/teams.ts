@@ -9,7 +9,6 @@ export default {
       totalCount: '{count} teams in total',
       empty: 'You have not joined any team yet',
       create: 'Create team',
-      enter: 'Open team',
       loadFailed: 'Failed to load teams',
       search: 'Search by team name',
     },
@@ -36,6 +35,7 @@ export default {
       editInfo: 'Edit info',
       more: 'More actions',
       descEmpty: 'This team has no description yet',
+      teamId: 'Team ID',
       exit: 'Leave team',
       exitConfirm: 'Leaving removes your membership and related permissions. Leave this team?',
       exitSuccess: 'Left the team',
@@ -52,6 +52,12 @@ export default {
       sets: 'Team problem sets',
       contests: 'Team contests',
       comingSoon: 'This module is coming soon — stay tuned',
+      problemsHint:
+        'Build a private problem pool for the team, with per-member visibility and archiving.',
+      setsHint:
+        'Group problems into topics or training plans, assign them to the whole team and track progress.',
+      contestsHint:
+        'Run internal contests and tryouts with automatic standings, board freeze and penalty rules.',
     },
     members: {
       user: 'Member',

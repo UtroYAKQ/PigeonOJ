@@ -64,6 +64,34 @@ class ContestRepository:
         )
         return rows, int(total)
 
+    async def list_manage(
+        self, *, page: int, page_size: int, status: str | None, keyword: str | None = None,
+        owner_id: uuid.UUID | None = None,
+    ) -> tuple[list[Contest], int]:
+        """管理视图：全部状态比赛；owner_id 非 None 时仅该创建者（单一所有权模型）。"""
+        conditions = [Contest.contest_type == ContestType.PUBLIC]
+        if owner_id is not None:
+            conditions.append(Contest.owner_id == owner_id)
+        if status:
+            conditions.append(Contest.status == status)
+        if keyword:
+            conditions.append(Contest.title.ilike(f"%{keyword}%"))
+        total = (
+            await self.db.scalar(select(func.count()).select_from(Contest).where(*conditions))
+        ) or 0
+        rows = list(
+            (
+                await self.db.execute(
+                    select(Contest)
+                    .where(*conditions)
+                    .order_by(Contest.start_time.desc())
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            ).scalars()
+        )
+        return rows, int(total)
+
     async def count_registrations(self, contest_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
         if not contest_ids:
             return {}

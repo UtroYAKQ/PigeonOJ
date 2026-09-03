@@ -294,6 +294,10 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
     # 2. 比赛上下文：榜单条件更新（封榜期 / 补题 / system_error 不计）
     await contest_service.on_submission_finalized(submission, outcome.status or SubmissionStatus.SYSTEM_ERROR)
     await db.commit()
+    # 3. commit 后失效榜单缓存：服务层失效发生在事务提交前，并发读可能在删除与提交
+    #    之间回填旧榜单；结束后为永久缓存，必须补删保证最终一致
+    if submission.submit_type == SubmitType.CONTEST and submission.contest_id is not None:
+        await contest_service.invalidate_board_cache(submission.contest_id)
     return True
 
 

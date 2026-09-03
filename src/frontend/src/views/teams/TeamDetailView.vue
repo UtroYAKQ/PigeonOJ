@@ -19,7 +19,6 @@ import {
 } from '@element-plus/icons-vue'
 import {
   NAvatar,
-  NAvatarGroup,
   NButton,
   NDropdown,
   NDrawer,
@@ -27,7 +26,6 @@ import {
   NEmpty,
   NForm,
   NFormItem,
-  NGradientText,
   NIcon,
   NInput,
   NModal,
@@ -81,14 +79,33 @@ const moduleMeta = computed(() => {
   const items: Array<{
     key: TeamModule
     labelKey: string
+    hintKey?: string
     icon: typeof Collection
     adminOnly?: boolean
     placeholder?: boolean
   }> = [
     { key: 'members', labelKey: 'teams.detail.tabMembers', icon: Setting },
-    { key: 'problems', labelKey: 'teams.modules.problems', icon: Collection, placeholder: true },
-    { key: 'sets', labelKey: 'teams.modules.sets', icon: Document, placeholder: true },
-    { key: 'contests', labelKey: 'teams.modules.contests', icon: Trophy, placeholder: true },
+    {
+      key: 'problems',
+      labelKey: 'teams.modules.problems',
+      hintKey: 'teams.modules.problemsHint',
+      icon: Collection,
+      placeholder: true,
+    },
+    {
+      key: 'sets',
+      labelKey: 'teams.modules.sets',
+      hintKey: 'teams.modules.setsHint',
+      icon: Document,
+      placeholder: true,
+    },
+    {
+      key: 'contests',
+      labelKey: 'teams.modules.contests',
+      hintKey: 'teams.modules.contestsHint',
+      icon: Trophy,
+      placeholder: true,
+    },
     {
       key: 'applications',
       labelKey: 'teams.detail.tabApplications',
@@ -98,6 +115,15 @@ const moduleMeta = computed(() => {
   ]
   return items.filter((item) => !item.adminOnly || isAdmin.value)
 })
+
+/** 规划中的模块：并排成能力卡展示，避免逐 tab 切换才能看到全貌 */
+const placeholderModules = computed(() =>
+  moduleMeta.value.flatMap((item) =>
+    item.placeholder && item.hintKey
+      ? [{ key: item.key, labelKey: item.labelKey, hintKey: item.hintKey, icon: item.icon }]
+      : [],
+  ),
+)
 
 // ---------------- 团队信息 ----------------
 
@@ -245,6 +271,16 @@ async function onCreateInvite() {
 const inviteLink = computed(() =>
   invite.token ? `${window.location.origin}/teams/invites/${invite.token}` : '',
 )
+
+/** 复制团队 ID（统计行）：显示前 8 位，复制完整 ID */
+async function copyTeamId() {
+  try {
+    await navigator.clipboard.writeText(teamId)
+    message.success(t('problems.detail.copied'))
+  } catch {
+    message.error(t('common.operationFailed'))
+  }
+}
 
 async function copyInviteLink() {
   try {
@@ -395,6 +431,7 @@ onMounted(load)
       <section v-if="team" class="hero">
           <div class="hero__banner" aria-hidden="true">
             <span class="hero__orb"></span>
+            <span class="hero__ring"></span>
           </div>
           <div class="hero__body">
             <img v-if="team.avatar_url" :src="team.avatar_url" alt="" class="hero__avatar" />
@@ -404,19 +441,28 @@ onMounted(load)
 
             <div class="hero__main">
               <div class="hero__title-row">
-                <h1 class="hero__title">
-                  <NGradientText type="primary" :font-size="26">
-                    {{ team.name }}
-                  </NGradientText>
-                </h1>
+                <h1 class="hero__title">{{ team.name }}</h1>
               </div>
               <p class="hero__desc" :class="{ 'hero__desc--empty': !team.description }">
                 {{ team.description ?? t('teams.detail.descEmpty') }}
               </p>
+              <!-- 统计行：成员数 / 创建时间 / 团队 ID（点击复制完整 ID） -->
               <div class="hero__meta">
-                <span>{{ t('teams.list.memberCount') }} {{ team.member_count }}</span>
+                <span>
+                  {{ t('teams.list.memberCount') }}
+                  <strong class="hero__meta-num">{{ team.member_count }}</strong>
+                </span>
                 <span class="hero__dot" aria-hidden="true">·</span>
                 <span>{{ t('teams.list.createdAt') }} {{ formatDateTime(team.created_at) }}</span>
+                <span class="hero__dot" aria-hidden="true">·</span>
+                <button
+                  type="button"
+                  class="hero__id"
+                  :title="t('teams.detail.teamId')"
+                  @click="copyTeamId"
+                >
+                  {{ t('teams.detail.teamId') }} {{ teamId.slice(0, 8) }}
+                </button>
               </div>
             </div>
 
@@ -467,24 +513,6 @@ onMounted(load)
             >
               <!-- 成员 -->
               <template v-if="moduleItem.key === 'members'">
-                <div class="members-head">
-                  <NAvatarGroup :max="10" :size="38" class="members-head__wall">
-                    <NAvatar
-                      v-for="member in members.slice(0, 10)"
-                      :key="member.user_id"
-                      :src="member.avatar_url || undefined"
-                      round
-                      :style="{ color: 'var(--app-text-secondary)', fontSize: '14px' }"
-                    >
-                      {{ initialOf(member.nickname) }}
-                    </NAvatar>
-                  </NAvatarGroup>
-                  <span class="members-head__count">
-                    {{ t('teams.list.memberCount') }}
-                    <strong>{{ team.member_count }}</strong>
-                  </span>
-                </div>
-
                 <div class="pane-scroll">
                   <NSpin :show="membersLoading" class="pane-spin">
                     <ul v-if="members.length" class="member-grid">
@@ -528,6 +556,7 @@ onMounted(load)
                         </NTag>
                         <NDropdown
                           v-if="memberActions(member).length"
+                          class="member-cell__ops"
                           trigger="click"
                           :options="memberActions(member)"
                           @select="(action: MemberAction) => onMemberAction(action, member)"
@@ -577,14 +606,22 @@ onMounted(load)
                 </div>
               </template>
 
-              <!-- 预留占位：团队题库 / 题单 / 比赛 -->
+              <!-- 规划中模块：三张能力卡并排，写清各自将提供什么 -->
               <template v-else-if="moduleItem.placeholder">
-                <div class="module-placeholder">
-                  <span class="module-placeholder__icon" aria-hidden="true">
-                    <NIcon :size="42" :component="moduleItem.icon" />
-                  </span>
-                  <h3 class="module-placeholder__title">{{ t(moduleItem.labelKey) }}</h3>
-                  <p class="module-placeholder__hint">{{ t('teams.modules.comingSoon') }}</p>
+                <div class="module-grid">
+                  <div
+                    v-for="mod in placeholderModules"
+                    :key="mod.key"
+                    class="module-card"
+                    :class="{ 'module-card--active': mod.key === moduleItem.key }"
+                  >
+                    <span class="module-card__icon" aria-hidden="true">
+                      <NIcon :size="26" :component="mod.icon" />
+                    </span>
+                    <h3 class="module-card__title">{{ t(mod.labelKey) }}</h3>
+                    <p class="module-card__hint">{{ t(mod.hintKey) }}</p>
+                    <span class="module-card__badge">{{ t('teams.modules.comingSoon') }}</span>
+                  </div>
                 </div>
               </template>
 
@@ -743,19 +780,26 @@ onMounted(load)
     calc(-1 * var(--n-padding-bottom, 24px));
 }
 
-/* ======== Hero：渐变横幅从壳顶通铺 ======== */
+/* ======== Hero：中性底 + 主色几何 ========
+   规则同 ContestDetailView 的 Hero：主色仅小面积点缀，不大面积铺色。
+   底色比卡片深一档（surface-muted），主色只以「被裁切的圆」出现：
+   右上实心巨弧 + 右下描边环，画面内不留完整圆形。 */
 .hero {
   position: relative;
   flex-shrink: 0;
   border-bottom: 1px solid var(--app-border);
   background:
-    linear-gradient(
-      115deg,
-      color-mix(in srgb, var(--app-primary) 10%, transparent) 0%,
-      color-mix(in srgb, var(--app-info) 7%, transparent) 55%,
-      transparent 100%
+    radial-gradient(
+      90% 220% at 97% 112%,
+      color-mix(in srgb, var(--app-primary) 6%, transparent) 0%,
+      transparent 62%
     ),
-    var(--app-card-bg, #fff);
+    radial-gradient(
+      120% 180% at 0% 0%,
+      color-mix(in srgb, var(--app-primary) 5%, transparent) 0%,
+      transparent 52%
+    ),
+    var(--app-surface-muted, #f7f7fa);
   overflow: hidden;
 }
 .hero--skeleton {
@@ -773,14 +817,31 @@ onMounted(load)
 .hero__avatar--skeleton {
   margin: -44px 0 0 28px;
 }
+/* 巨圆：圆心落在上沿外 252px，只露出底部一弧；
+   填充用径向渐变（20% → 5% → 0），边缘化开，避免出现生硬的色块边界 */
 .hero__orb {
   position: absolute;
-  width: 320px;
-  height: 320px;
+  width: 340px;
+  height: 340px;
   border-radius: 999px;
-  right: 6%;
-  top: -220px;
-  background: color-mix(in srgb, var(--app-primary) 10%, transparent);
+  right: 7%;
+  top: -252px;
+  background: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--app-primary) 20%, transparent) 0%,
+    color-mix(in srgb, var(--app-primary) 5%, transparent) 58%,
+    transparent 74%
+  );
+}
+/* 描边环：被右侧与底部各裁一截，与上方实心弧形成一虚一实 */
+.hero__ring {
+  position: absolute;
+  width: 228px;
+  height: 228px;
+  border-radius: 999px;
+  right: -104px;
+  bottom: -120px;
+  border: 1px solid color-mix(in srgb, var(--app-primary) 24%, transparent);
 }
 .hero__body {
   position: relative;
@@ -828,6 +889,9 @@ onMounted(load)
 .hero__title {
   margin: 0;
   line-height: 1.2;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--app-text);
 }
 .hero__desc {
   margin: 0;
@@ -855,6 +919,25 @@ onMounted(load)
 }
 .hero__dot {
   opacity: 0.5;
+}
+.hero__meta-num {
+  font-weight: 600;
+  color: var(--app-text);
+}
+/* 团队 ID：点击复制完整 ID，常态是弱化的文字而不是按钮 */
+.hero__id {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px dashed var(--app-border-strong);
+  transition: color 0.15s ease;
+}
+.hero__id:hover {
+  color: var(--app-primary);
 }
 /* 动作区：预留扩展位，后续按钮直接追加；窄屏自动换行 */
 .hero__actions {
@@ -971,6 +1054,18 @@ onMounted(load)
   gap: 6px;
   flex-shrink: 0;
 }
+/* 行内「更多」操作：指针设备下 hover 才浮现，减少每行常驻图标的噪音；
+   触屏（无 hover）与键盘 focus 时保持可见，不影响可操作性 */
+@media (hover: hover) {
+  .member-cell__ops {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .member-cell:hover .member-cell__ops,
+  .member-cell:focus-within .member-cell__ops {
+    opacity: 1;
+  }
+}
 
 /* 分页钉底 */
 .pane-pager {
@@ -982,33 +1077,60 @@ onMounted(load)
   border-top: 1px solid var(--app-border);
 }
 
-/* 预留占位板块（垂直居中撑满） */
-.module-placeholder {
+/* 规划中模块：能力卡并排（不再是「一个图标 + 敬请期待」的死路） */
+.module-grid {
   flex: 1;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 10px;
   min-height: 280px;
+  align-content: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
 }
-.module-placeholder__icon {
-  width: 72px;
-  height: 72px;
-  border-radius: 14px;
+.module-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 18px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-card-bg);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 4%);
+}
+.module-card--active {
+  border-color: color-mix(in srgb, var(--app-primary) 40%, var(--app-border));
+}
+.module-card__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
   background: var(--app-muted-bg);
   color: var(--app-text-secondary);
 }
-.module-placeholder__title {
-  margin: 6px 0 0;
-  font-size: 17px;
+.module-card--active .module-card__icon {
+  background: color-mix(in srgb, var(--app-primary) 10%, transparent);
+  color: var(--app-primary);
+}
+.module-card__title {
+  margin: 4px 0 0;
+  font-size: 15px;
   font-weight: 700;
 }
-.module-placeholder__hint {
+.module-card__hint {
   margin: 0;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+.module-card__badge {
+  justify-self: start;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--app-text-secondary);
+  background: var(--app-muted-bg);
 }
 
 /* ======== 邀请弹窗 ======== */

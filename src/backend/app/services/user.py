@@ -216,20 +216,16 @@ class UserService:
             user_list.append(public)
         return PaginatedResponse[UserPublic](items=user_list, total=total, page=page, page_size=page_size)
 
-    async def admin_set_roles(self, user_id: uuid.UUID, role_codes: list[str]) -> None:
-        """全局角色授权：写 user_roles（scope='global'、object_id=NULL），见 docs/contracts/admin.md。"""
+    async def admin_set_roles(self, user_id: uuid.UUID, role_code: str) -> None:
+        """全局角色授权（单一角色模型）：整体替换该用户唯一全局角色
+        （写 user_roles，scope='global'、object_id=NULL），见 docs/contracts/admin.md。"""
         target = await self.users.get_by_id(user_id)
         if target is None:
             raise APIError(RESOURCE_NOT_FOUND, "用户不存在", 404)
-        if not role_codes:
-            raise APIError(PARAM_FORMAT_INVALID, "角色列表不能为空", 400)
-        role_ids = []
-        for code in role_codes:
-            role = await self.roles.get_by_code(code)
-            if role is None:
-                raise APIError(PARAM_FORMAT_INVALID, f"角色不存在：{code}", 400)
-            role_ids.append(role.id)
-        await self.roles.replace_global_roles(user_id, role_ids)
+        role = await self.roles.get_by_code(role_code)
+        if role is None:
+            raise APIError(PARAM_FORMAT_INVALID, f"角色不存在：{role_code}", 400)
+        await self.roles.replace_global_roles(user_id, [role.id])
 
     async def _set_status(self, user_id: uuid.UUID, status: UserStatus, action_label: str) -> None:
         target = await self.users.get_by_id(user_id)

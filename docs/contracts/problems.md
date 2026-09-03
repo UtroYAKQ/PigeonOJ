@@ -124,10 +124,13 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 ## 数据所有权
 
+- **单一所有权模型**：题目管理权限（编辑 / 测试点 / 样例 / 验题发起 / 发布 / 归档 / 提交列表查看）
+  按「`admin` 管理全站题目，其余管理角色（`tutor` / `team_creator` / `team_admin`）仅管理本人创建的题目」判定；
+  非创建者、非 admin 访问或编辑他人题目一律 2003
 - 题目按 `status + visibility` 双重控制访问（见下方可见性）；所有查询必须带可见性过滤
 - 题目草稿（`status='draft'`）仅创建者本人可见
-- 官方题解 `solution` 仅题目管理角色（`admin/tutor/team_creator/team_admin`）与创建者可见
-- 测试点文件仅题目管理角色（`admin/tutor/team_creator/team_admin`）可读写；管理角色读详情时回读测试点内容用于编辑；判题读取走服务端内部链路，不向前端暴露下载 / 预签名 URL
+- 官方题解 `solution` 仅题目的管理者（admin 或创建者，按单一所有权模型）可见
+- 测试点文件仅题目的管理者可读写；读详情时回读测试点内容用于编辑；判题读取走服务端内部链路，不向前端暴露下载 / 预签名 URL
 - 提交结果不返回测试点期望输出（`expected_output`）
 
 ## 可见性设计
@@ -147,7 +150,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：创建者见自己全部题目，管理角色（admin/tutor/team_creator）见可管理范围全量，可叠加 `status` 过滤；列表项恒带 `needs_reverification` 字段（存在待验证测试点，或样例晚于最近验题通过时间；仅 `scope=mine` 视图有意义，其他场景恒为 `false`）；支持难度分闭区间筛选（未评分题目不落入任何区间，min>max 返回 1001）；列表项带 `difficulty` 与 `submission_count` / `accepted_count` | 分页/标签/关键字/scope/status/difficulty_min/difficulty_max | problem[] |
+| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：**admin 见全量题目，其余用户（含 tutor / team_creator）仅见本人创建**，可叠加 `status` 过滤；列表项恒带 `needs_reverification` 字段（存在待验证测试点，或样例晚于最近验题通过时间；仅 `scope=mine` 视图有意义，其他场景恒为 `false`）；支持难度分闭区间筛选（未评分题目不落入任何区间，min>max 返回 1001）；列表项带 `difficulty` 与 `submission_count` / `accepted_count` | 分页/标签/关键字/scope/status/difficulty_min/difficulty_max | problem[] |
 | GET | /problems/tags | public | 激活标签列表（打标选择器与列表筛选用，仅 `status='active'`） | - | tag[]（id/name/color） |
 | GET | /admin/tags | admin | 标签管理全量列表（含已归档） | - | tag[] |
 | POST | /admin/tags | admin | 新增标签（name 唯一，重复返回 1001） | name/color? | tag |

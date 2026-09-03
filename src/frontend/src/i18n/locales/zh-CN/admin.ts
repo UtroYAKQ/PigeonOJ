@@ -1,4 +1,4 @@
-export default {
+﻿export default {
   config: {
     key: '配置键',
     value: '配置值',
@@ -36,7 +36,7 @@ export default {
       registered: '注册时间',
       empty: '暂无符合条件的用户',
       rolesUpdated: '角色已更新',
-      keepRole: '至少保留一个角色',
+      pickRole: '请选择一个角色',
       roleTitle: '设置角色：{name}',
       reasonPrompt: '请输入{action}原因（可选）：',
       reasonTooLong: '原因过长',
