@@ -180,6 +180,30 @@ async def test_detail_items_limits_and_solve_status(
     assert all(i["solved"] is None for i in resp.json()["data"]["items"])
 
 
+async def test_center_mine_shows_own_private(client: httpx.AsyncClient) -> None:
+    """题单中心 mine=true：仅本人未下线题单（含私有）；匿名 401；默认列表仍仅公开。"""
+    tutor = await _tutor_headers(client)
+    priv = (
+        await client.post(
+            "/api/v1/problem-sets",
+            json={"title": "我的私有题单", "visibility": "private"},
+            headers=tutor,
+        )
+    ).json()["data"]["id"]
+
+    # 创建者：mine=true 可见私有题单
+    resp = await client.get("/api/v1/problem-sets?mine=true", headers=tutor)
+    assert [i["id"] for i in resp.json()["data"]["items"]] == [priv]
+
+    # 默认中心列表：私有题单不出现
+    resp = await client.get("/api/v1/problem-sets", headers=tutor)
+    assert resp.json()["data"]["items"] == []
+
+    # 匿名：mine=true → 401
+    resp = await client.get("/api/v1/problem-sets?mine=true")
+    assert resp.status_code == 401
+
+
 async def test_replace_items_validation_and_ordering(client: httpx.AsyncClient) -> None:
     """编排题目：已发布公开题方可加入；同题单内重复 → 3003；按 sort_order 展示。"""
     tutor = await _tutor_headers(client)

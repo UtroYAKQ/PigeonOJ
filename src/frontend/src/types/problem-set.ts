@@ -56,4 +56,6 @@ export interface ProblemSetListQuery {
   page?: number
   page_size?: number
   keyword?: string
+  /** 题单中心「我的」勾选：仅本人未下线题单（含私有；须登录） */
+  mine?: boolean
 }

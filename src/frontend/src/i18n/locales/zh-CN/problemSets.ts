@@ -13,6 +13,8 @@
       visibility: '可见性',
       visibilityPublic: '公开',
       visibilityPrivate: '私有',
+      mineOnly: '我的题单',
+      privateTag: '私有',
       active: '进行中',
       status: '状态',
       createdAt: '创建时间',

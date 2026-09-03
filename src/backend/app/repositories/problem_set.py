@@ -39,11 +39,16 @@ class ProblemSetRepository:
         return problem_set
 
     async def list_public(
-        self, *, page: int, page_size: int, keyword: str | None
+        self, *, page: int, page_size: int, keyword: str | None,
+        viewer_id: uuid.UUID | None = None, mine: bool = False,
     ) -> tuple[list[ProblemSet], int]:
-        """题单中心：仅 visibility=public 且 status=active 的全站题单。"""
-        conditions = [ProblemSet.visibility == ProblemSetVisibility.PUBLIC,
-                      ProblemSet.status == ProblemSetStatus.ACTIVE]
+        """题单中心：仅 visibility=public 且 status=active 的全站题单；
+        mine=true（须登录）改为仅本人创建的未下线题单（含私有，题单中心「我的」勾选）。"""
+        conditions = [ProblemSet.status == ProblemSetStatus.ACTIVE]
+        if mine and viewer_id is not None:
+            conditions.append(ProblemSet.owner_id == viewer_id)
+        else:
+            conditions.append(ProblemSet.visibility == ProblemSetVisibility.PUBLIC)
         if keyword:
             conditions.append(ProblemSet.title.ilike(f"%{keyword}%"))
         total = (

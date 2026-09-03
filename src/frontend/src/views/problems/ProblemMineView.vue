@@ -89,12 +89,9 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
     key: 'title',
     minWidth: 260,
     render(row) {
-      const bits = [`#${(row.id || '').slice(0, 8)}`]
-      if (row.visibility && row.visibility !== 'public')
-        bits.push(t(`problems.visibility.${row.visibility}`))
       return h('div', { class: 'problem-name' }, [
         h('strong', null, row.title),
-        h('span', null, bits.join(' · ')),
+        h('span', null, `#${(row.id || '').slice(0, 8)}`),
       ])
     },
   },
@@ -107,6 +104,23 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
         NTag,
         { size: 'small', bordered: false, type: problemStatusTagType(row.status) },
         { default: () => t(problemStatusLabelKey[row.status] ?? row.status) },
+      )
+    },
+  },
+  {
+    title: t('problems.list.visibility'),
+    key: 'visibility',
+    width: 90,
+    render(row) {
+      // 可见性色彩语义：公开=蓝（info）/ 私有=红（error）；其余可见性随 teams 模块扩展
+      return h(
+        NTag,
+        {
+          size: 'small',
+          bordered: false,
+          type: row.visibility === 'private' ? 'error' : 'info',
+        },
+        { default: () => t(`problems.visibility.${row.visibility ?? 'public'}`) },
       )
     },
   },
@@ -248,7 +262,7 @@ function rowProps(row: ProblemSummary) {
       v-model:page-size="pageSize"
       :page-sizes="[20, 50, 100]"
       :empty-text="t('problems.mine.empty')"
-      :table-props="{ scrollX: 980, rowProps }"
+      :table-props="{ scrollX: 1080, rowProps }"
       @update:page="
         (p: number) => {
           changePage(p)

@@ -42,6 +42,7 @@ async def list_problems(
     tag: str | None = Query(default=None, max_length=64),
     scope: str = Query(default="all"),
     status: str | None = Query(default=None),
+    mine: bool = Query(default=False),
     difficulty_min: int | None = Query(default=None, ge=0),
     difficulty_max: int | None = Query(default=None, ge=0),
     user: User | None = Depends(get_optional_user),
@@ -49,11 +50,13 @@ async def list_problems(
     try:
         query = ProblemQuery(
             page=page, page_size=page_size, keyword=keyword, tag=tag, scope=scope, status=status,
-            difficulty_min=difficulty_min, difficulty_max=difficulty_max,
+            mine=mine, difficulty_min=difficulty_min, difficulty_max=difficulty_max,
         )
     except Exception as exc:  # pydantic 校验失败转 1001 信封
         raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
     if query.scope == "mine" and user is None:
+        raise APIError(AUTH_NOT_LOGGED_IN, "查看我的题目需要登录", 401)
+    if query.mine and user is None:
         raise APIError(AUTH_NOT_LOGGED_IN, "查看我的题目需要登录", 401)
     rows, total = await service.list_published(query, viewer=user)
     flags = (

@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependency import get_user_role_codes, is_admin
-from app.core.exceptions import APIError, AUTH_FORBIDDEN, PARAM_FORMAT_INVALID, RESOURCE_DUPLICATE, RESOURCE_NOT_FOUND
+from app.core.exceptions import APIError, AUTH_FORBIDDEN, AUTH_NOT_LOGGED_IN, PARAM_FORMAT_INVALID, RESOURCE_DUPLICATE, RESOURCE_NOT_FOUND
 from app.enums import ProblemSetStatus, ProblemSetVisibility
 from app.models.problem_set import ProblemSet, ProblemSetItem
 from app.models.user import User
@@ -102,10 +102,16 @@ class ProblemSetService:
     # ---------------- 查询 ----------------
 
     async def list_center(
-        self, *, page: int, page_size: int, keyword: str | None
+        self, *, page: int, page_size: int, keyword: str | None,
+        viewer: User | None = None, mine: bool = False,
     ) -> tuple[list[ProblemSetSummary], int]:
-        """题单中心：仅公开且未下线的全站题单。"""
-        rows, total = await self.repo.list_public(page=page, page_size=page_size, keyword=keyword)
+        """题单中心：仅公开且未下线的全站题单；mine=true（须登录）改为仅本人未下线题单（含私有）。"""
+        if mine and viewer is None:
+            raise APIError(AUTH_NOT_LOGGED_IN, "查看我的题单需要登录", 401)
+        rows, total = await self.repo.list_public(
+            page=page, page_size=page_size, keyword=keyword,
+            viewer_id=getattr(viewer, "id", None), mine=mine,
+        )
         counts = await self.repo.count_items([row.id for row in rows])
         return [to_summary(row, counts.get(row.id, 0)) for row in rows], total
 

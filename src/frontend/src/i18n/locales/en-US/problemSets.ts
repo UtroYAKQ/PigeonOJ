@@ -13,6 +13,8 @@
       visibility: 'Visibility',
       visibilityPublic: 'Public',
       visibilityPrivate: 'Private',
+      mineOnly: 'My sets',
+      privateTag: 'Private',
       active: 'Active',
       status: 'Status',
       createdAt: 'Created at',

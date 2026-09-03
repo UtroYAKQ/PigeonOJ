@@ -77,6 +77,7 @@ class ProblemQuery(BaseModel):
     scope=all：题库中心，仅 published + public；
     scope=mine：我的题目管理视图（须登录）——创建者看自己的全部题目，
     管理角色（admin/tutor/team_creator）可管理范围内全量；可叠加 status 过滤。
+    mine=true（题库中心「我的」勾选，须登录）：仅本人已发布题目（任意可见性，含私有已发布）。
     """
 
     page: int = Field(default=1, ge=1)
@@ -85,6 +86,8 @@ class ProblemQuery(BaseModel):
     tag: str | None = Field(default=None, max_length=64)
     scope: ProblemScope = ProblemScope.ALL
     status: ProblemStatus | None = None
+    # 题库中心「我的」勾选：仅本人已发布（任意可见性）；仅 scope=all 分支生效
+    mine: bool = False
     # 难度分闭区间筛选（未评分题目不落在任何区间内）
     difficulty_min: int | None = Field(default=None, ge=0)
     difficulty_max: int | None = Field(default=None, ge=0)

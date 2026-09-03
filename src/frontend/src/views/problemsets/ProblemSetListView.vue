@@ -2,6 +2,7 @@
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import RefreshButton from '@/components/RefreshButton.vue'
@@ -11,6 +12,7 @@ import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import { listProblemSets } from '@/api/problemSets'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
+import { useUserStore } from '@/stores/user'
 import type { PageResult, ProblemSetSummary } from '@/types'
 
 const router = useRouter()
@@ -20,6 +22,10 @@ const sets = ref<ProblemSetSummary[]>([])
 const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
   usePagination()
 const keyword = ref('')
+/** 「我的」勾选仅对题单管理角色（admin/tutor）开放：只看本人未下线题单（含私有） */
+const userStore = useUserStore()
+const isManager = computed(() => userStore.isAdmin || userStore.hasAnyRole(['tutor']))
+const mineOnly = ref(false)
 
 async function load() {
   const seq = beginLoad()
@@ -29,6 +35,7 @@ async function load() {
       page: page.value,
       page_size: pageSize.value,
       keyword: keyword.value || undefined,
+      mine: mineOnly.value,
     })
     if (!isCurrent(seq)) return
     sets.value = result.items
@@ -55,7 +62,12 @@ const columns = computed<DataTableColumns<ProblemSetSummary>>(() => [
     minWidth: 280,
     render(row) {
       return h('div', { class: 'set-name' }, [
-        h('strong', null, row.title),
+        h('div', { class: 'set-name__row' }, [
+          h('strong', null, row.title),
+          row.visibility === 'private'
+            ? h(NTag, { size: 'small', bordered: false, type: 'error' }, { default: () => t('problemSets.list.privateTag') })
+            : null,
+        ]),
         row.description ? h('span', null, row.description) : null,
       ])
     },
@@ -93,6 +105,9 @@ function rowProps(row: ProblemSetSummary) {
       @reset="onSearch"
     >
       <template #actions>
+        <n-checkbox v-if="isManager" v-model:checked="mineOnly" @update:checked="onSearch">
+          {{ t('problemSets.list.mineOnly') }}
+        </n-checkbox>
         <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
       </template>
     </SearchFilterBar>
@@ -131,6 +146,11 @@ function rowProps(row: ProblemSetSummary) {
 .set-name {
   display: grid;
   gap: 4px;
+}
+.set-name__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .set-name strong {
   font-size: 14px;

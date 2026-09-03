@@ -111,6 +111,8 @@ export interface ProblemListQuery {
   tag?: string
   /** mine = 我的题目管理视图（创建者看全部自己的题目；管理角色看可管理范围） */
   scope?: 'all' | 'mine'
+  /** 题库中心「我的」勾选：仅本人已发布题目（任意可见性，含私有已发布；须登录） */
+  mine?: boolean
   status?: 'draft' | 'published' | 'archived'
   /** 难度分闭区间筛选（未评分题目不落入任何区间） */
   difficulty_min?: number

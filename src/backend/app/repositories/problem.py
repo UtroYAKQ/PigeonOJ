@@ -125,6 +125,12 @@ class ProblemRepository:
                 conditions.append(Problem.owner_id == viewer_id)
             if query.status:
                 conditions.append(Problem.status == query.status)
+        elif query.mine and viewer_id is not None:
+            # 题库中心「我的」勾选：仅本人已发布题目（任意可见性，含私有已发布；草稿/归档走管理视图）
+            conditions.extend([
+                Problem.owner_id == viewer_id,
+                Problem.status == ProblemStatus.PUBLISHED,
+            ])
         else:
             conditions.extend([Problem.status == ProblemStatus.PUBLISHED, Problem.visibility == ProblemVisibility.PUBLIC])
         if query.keyword:

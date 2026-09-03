@@ -55,7 +55,7 @@ CHECK (
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| GET | /problem-sets | public | 题单中心列表：仅公开且未下线的全站题单 | 分页/keyword | problem_set[]（含 item_count） |
+| GET | /problem-sets | public / auth | 题单中心列表：仅公开且未下线的全站题单；`mine=true`（题单中心「我的」勾选，须登录，匿名 401）改为仅本人未下线题单（含私有） | 分页/keyword/mine | problem_set[]（含 item_count） |
 | POST | /problem-sets | admin/tutor | 创建题单（team_id 为空；`visibility='team'` 随 teams 模块开放，当前返回 1001） | title/description?/visibility | problem_set |
 | GET | /problem-sets/{id} | public/owner | 题单详情：条目按 `sort_order` 展示，携带题目元信息（title / difficulty / time_limit_ms / memory_limit_mb）；登录请求条目带 `solved` 作答状态（`true`=已通过 / `false`=已尝试未通过 / `null`=未提交过，未登录恒 `null`，口径与题库列表一致）；私有 / 已下线题单仅创建者与管理角色可见（2003），`can_manage` 标记管理入口 | - | problem_set_detail |
 | GET | /admin/problem-sets | admin/tutor | 题单管理视图：admin 全量、tutor 仅本人创建（含私有与已下线），供管理后台编排维护 | 分页/keyword/status | problem_set[]（含 item_count） |

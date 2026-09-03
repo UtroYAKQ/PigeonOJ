@@ -2,12 +2,14 @@
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import RefreshButton from '@/components/RefreshButton.vue'
 import { listActiveTags, listProblems } from '@/api/problems'
 import { message } from '@/utils/feedback'
 import { renderSolveMark } from '@/utils/solveMark'
+import { useUserStore } from '@/stores/user'
 import { usePagination } from '@/composables/usePagination'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
@@ -27,6 +29,10 @@ const tagOptions = ref<Array<{ label: string; value: string }>>([])
 /** 难度分闭区间筛选（null = 不限） */
 const difficultyMin = ref<number | null>(null)
 const difficultyMax = ref<number | null>(null)
+/** 「我的」勾选仅对题库管理角色（admin/tutor）开放：只看本人已发布题目（含私有已发布） */
+const userStore = useUserStore()
+const isManager = computed(() => userStore.isAdmin || userStore.hasAnyRole(['tutor']))
+const mineOnly = ref(false)
 
 async function load() {
   const seq = beginLoad()
@@ -37,6 +43,7 @@ async function load() {
       page_size: pageSize.value,
       keyword: keyword.value || undefined,
       tag: tag.value || undefined,
+      mine: mineOnly.value,
       difficulty_min: difficultyMin.value ?? undefined,
       difficulty_max: difficultyMax.value ?? undefined,
     })
@@ -96,7 +103,12 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
     minWidth: 280,
     render(row) {
       return h('div', { class: 'problem-name' }, [
-        h('strong', null, row.title),
+        h('div', { class: 'problem-name__row' }, [
+          h('strong', null, row.title),
+          row.visibility === 'private'
+            ? h(NTag, { size: 'small', bordered: false, type: 'error' }, { default: () => t('problems.list.privateTag') })
+            : null,
+        ]),
         h('span', null, `#${(row.id || '').slice(0, 8)}`),
       ])
     },
@@ -173,6 +185,9 @@ function rowProps(row: ProblemSummary) {
         />
       </div>
       <template #actions>
+        <n-checkbox v-if="isManager" v-model:checked="mineOnly" @update:checked="onSearch">
+          {{ t('problems.list.mineOnly') }}
+        </n-checkbox>
         <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
       </template>
     </SearchFilterBar>
@@ -212,6 +227,11 @@ function rowProps(row: ProblemSummary) {
 .problem-name {
   display: grid;
   gap: 4px;
+}
+.problem-name__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .problem-name strong {
   font-size: 14px;

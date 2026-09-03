@@ -31,9 +31,13 @@ async def list_problem_sets(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     keyword: str | None = Query(default=None, max_length=128),
+    mine: bool = Query(default=False),
+    viewer: User | None = Depends(get_optional_user),
 ) -> ApiResponse[PaginatedResponse[ProblemSetSummary]]:
-    """题单中心：公开且未下线的全站题单（public）。"""
-    rows, total = await service.list_center(page=page, page_size=page_size, keyword=keyword)
+    """题单中心：公开且未下线的全站题单；mine=true 仅本人未下线题单（含私有，须登录）。"""
+    rows, total = await service.list_center(
+        page=page, page_size=page_size, keyword=keyword, viewer=viewer, mine=mine
+    )
     return ok(PaginatedResponse(items=rows, total=total, page=page, page_size=page_size))
 
 

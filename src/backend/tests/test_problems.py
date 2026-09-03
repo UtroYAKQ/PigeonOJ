@@ -260,6 +260,37 @@ async def test_list_problems_solve_status(client, admin_headers, user_headers):
 
 
 @pytest.mark.asyncio
+async def test_list_problems_mine_published(client, admin_headers, user_headers):
+    """题库中心 mine=true：仅本人已发布题目（含私有已发布）；匿名 401；非本人不可见。"""
+    data = await _create_problem(client, admin_headers, title="My Private Published")
+    async with SessionLocal() as db:
+        row = await db.get(Problem, uuid.UUID(data["id"]))
+        row.status = "published"
+        row.visibility = "private"
+        row.verified_at = datetime.now()
+        row.published_at = datetime.now()
+        await db.commit()
+
+    # 创建者：mine=true 可见（私有已发布）
+    resp = await client.get("/api/v1/problems?mine=true", headers=admin_headers)
+    titles = [i["title"] for i in resp.json()["data"]["items"]]
+    assert "My Private Published" in titles
+    assert resp.json()["data"]["items"][0]["visibility"] == "private"
+
+    # 默认中心列表：私有题不出现
+    resp = await client.get("/api/v1/problems", headers=admin_headers)
+    assert all(i["title"] != "My Private Published" for i in resp.json()["data"]["items"])
+
+    # 非本人：mine=true 也看不到别人的私有题
+    resp = await client.get("/api/v1/problems?mine=true", headers=user_headers)
+    assert all(i["title"] != "My Private Published" for i in resp.json()["data"]["items"])
+
+    # 匿名：401
+    resp = await client.get("/api/v1/problems?mine=true")
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_publish_blocked_when_cases_changed_after_verification(client, admin_headers, fake_storage):
     data = await _create_problem(client, admin_headers)
     pid = data["id"]
