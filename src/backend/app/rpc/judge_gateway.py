@@ -412,7 +412,7 @@ async def maintenance_loop(interval: int | None = None) -> None:
     while True:
         try:
             await asyncio.sleep(scan_interval)
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             async with SessionLocal() as db:
                 stale = (
                     await db.execute(
