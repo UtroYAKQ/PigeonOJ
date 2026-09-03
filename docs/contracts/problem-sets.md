@@ -57,7 +57,7 @@ CHECK (
 | --- | --- | --- | --- | --- | --- |
 | GET | /problem-sets | public | 题单中心列表：仅公开且未下线的全站题单 | 分页/keyword | problem_set[]（含 item_count） |
 | POST | /problem-sets | admin/tutor | 创建题单（team_id 为空；`visibility='team'` 随 teams 模块开放，当前返回 1001） | title/description?/visibility | problem_set |
-| GET | /problem-sets/{id} | public/owner | 题单详情：条目按 `sort_order` 展示，携带题目元信息（title / difficulty）；私有 / 已下线题单仅创建者与管理角色可见（2003），`can_manage` 标记管理入口 | - | problem_set_detail |
+| GET | /problem-sets/{id} | public/owner | 题单详情：条目按 `sort_order` 展示，携带题目元信息（title / difficulty / time_limit_ms / memory_limit_mb）；登录请求条目带 `solved` 作答状态（`true`=已通过 / `false`=已尝试未通过 / `null`=未提交过，未登录恒 `null`，口径与题库列表一致）；私有 / 已下线题单仅创建者与管理角色可见（2003），`can_manage` 标记管理入口 | - | problem_set_detail |
 | GET | /admin/problem-sets | admin/tutor | 题单管理视图：admin 全量、tutor 仅本人创建（含私有与已下线），供管理后台编排维护 | 分页/keyword/status | problem_set[]（含 item_count） |
 | GET | /problem-sets/{id}/problems/{pid} | public/owner | **题单内题目详情（统一入口）**：题单可见 + 题目属于该题单校验（题目不属于该题单 3001）后，返回与 `GET /problems/{id}` 完全一致的详情装配；题单上下文内前端只调本端点 | - | problem |
 | POST | /problem-sets/{id}/problems/{pid}/submissions | auth | 题单内交题：题单须可见（私有 / 已下线按可见性拦截 2003）、题目必须属于该题单（否则 3001）；落库 / 派发 / 计分与 `POST /submissions` 完全一致（`submit_type='practice'`） | language/code（≤64KB） | submission_id / status |

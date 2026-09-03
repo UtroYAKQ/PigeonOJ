@@ -14,6 +14,7 @@ import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import { getProblemSet } from '@/api/problemSets'
 import { message } from '@/utils/feedback'
+import { renderSolveMark } from '@/utils/solveMark'
 import type { ProblemSetDetail, ProblemSetItem } from '@/types'
 
 const route = useRoute()
@@ -43,10 +44,22 @@ const columns = computed<DataTableColumns<ProblemSetItem>>(() => [
     render: (row) => String(row.sort_order + 1),
   },
   {
+    title: '',
+    key: 'solved',
+    width: 72,
+    render: (row) => renderSolveMark(t, row.solved),
+  },
+  {
     title: t('problemSets.detail.problems'),
     key: 'title',
     minWidth: 300,
     render: (row) => h('strong', null, row.title),
+  },
+  {
+    title: t('problems.list.limits'),
+    key: 'limits',
+    width: 220,
+    render: (row) => `${row.time_limit_ms ?? '--'} ms / ${row.memory_limit_mb ?? '--'} MB`,
   },
   {
     title: t('problemSets.detail.difficulty'),

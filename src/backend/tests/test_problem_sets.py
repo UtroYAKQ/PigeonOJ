@@ -11,6 +11,7 @@ import httpx
 from sqlalchemy import select
 
 from app.core.database import SessionLocal
+from app.models.judge import Submission
 from app.models.problem import Problem
 from app.models.user import User, UserRole
 
@@ -130,6 +131,53 @@ async def test_detail_visibility(client: httpx.AsyncClient, user_headers) -> Non
     # 不存在的题单 → 3001
     resp = await client.get(f"/api/v1/problem-sets/{uuid_mod.uuid4()}")
     assert resp.json()["code"] == 3001
+
+
+async def test_detail_items_limits_and_solve_status(
+    client: httpx.AsyncClient, user_headers
+) -> None:
+    """题单详情条目带题目限制与登录用户作答状态（三态）；匿名 solved 恒 null。"""
+    tutor = await _tutor_headers(client)
+    sid = (
+        await client.post("/api/v1/problem-sets", json={"title": "限制与状态"}, headers=tutor)
+    ).json()["data"]["id"]
+    p1 = await _seed_problem("状态一")
+    p2 = await _seed_problem("状态二")
+    p3 = await _seed_problem("状态三")
+    await client.put(
+        f"/api/v1/problem-sets/{sid}/items",
+        json={"items": [{"problem_id": p1}, {"problem_id": p2}, {"problem_id": p3}]},
+        headers=tutor,
+    )
+
+    # 用户 p1 AC、p2 仅 WA、p3 未提交
+    async with SessionLocal() as db:
+        user = (
+            await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))
+        ).scalar_one()
+        for pid, status in ((p1, "accepted"), (p2, "wrong_answer")):
+            db.add(
+                Submission(
+                    user_id=user.id,
+                    problem_id=uuid_mod.UUID(pid),
+                    language="cpp17",
+                    code="c",
+                    status=status,
+                )
+            )
+        await db.commit()
+
+    resp = await client.get(f"/api/v1/problem-sets/{sid}", headers=user_headers)
+    items = {i["problem_id"]: i for i in resp.json()["data"]["items"]}
+    assert items[p1]["solved"] is True
+    assert items[p2]["solved"] is False
+    assert items[p3]["solved"] is None
+    assert items[p1]["time_limit_ms"] > 0
+    assert items[p1]["memory_limit_mb"] > 0
+
+    # 匿名：solved 恒 null
+    resp = await client.get(f"/api/v1/problem-sets/{sid}")
+    assert all(i["solved"] is None for i in resp.json()["data"]["items"])
 
 
 async def test_replace_items_validation_and_ordering(client: httpx.AsyncClient) -> None:

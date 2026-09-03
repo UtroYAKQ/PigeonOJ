@@ -218,6 +218,18 @@ class ProblemService:
                 item.submission_count = counter.submission_count
                 item.accepted_count = counter.accepted_count
 
+    async def attach_solve_status(self, summaries: list, viewer: object | None) -> None:
+        """按 viewer 批量回填题库列表作答状态（未提交过的题保持 None=未提交过；API 层调用）。"""
+        viewer_id = getattr(viewer, "id", None)
+        if viewer_id is None or not summaries:
+            return
+        status_map = await self.problems.solve_status_map(
+            viewer_id, [item.id for item in summaries]
+        )
+        for item in summaries:
+            if item.id in status_map:
+                item.solved = status_map[item.id]
+
     async def create(self, user: object, body: ProblemCreate) -> Problem:
         if not await is_manager(self.db, user):
             raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)

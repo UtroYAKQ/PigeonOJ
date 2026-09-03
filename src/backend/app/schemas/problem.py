@@ -244,6 +244,8 @@ class ProblemSummary(BaseModel):
     difficulty: int | None = None
     submission_count: int = 0
     accepted_count: int = 0
+    # 当前用户作答状态（登录请求回填）：True=已通过 / False=已尝试未通过 / None=未提交过或未登录
+    solved: bool | None = None
 
 
 class TestCaseOut(BaseModel):

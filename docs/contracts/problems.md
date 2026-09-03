@@ -153,7 +153,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：**admin 见全量题目，其余用户（含 tutor / team_creator）仅见本人创建**，可叠加 `status` 过滤；列表项恒带 `needs_reverification` 字段（存在待验证测试点，或样例晚于最近验题通过时间；仅 `scope=mine` 视图有意义，其他场景恒为 `false`）；支持难度分闭区间筛选（未评分题目不落入任何区间，min>max 返回 1001）；列表项带 `difficulty` 与 `submission_count` / `accepted_count` | 分页/标签/关键字/scope/status/difficulty_min/difficulty_max | problem[] |
+| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：**admin 见全量题目，其余用户（含 tutor / team_creator）仅见本人创建**，可叠加 `status` 过滤；列表项恒带 `needs_reverification` 字段（存在待验证测试点，或样例晚于最近验题通过时间；仅 `scope=mine` 视图有意义，其他场景恒为 `false`）；支持难度分闭区间筛选（未评分题目不落入任何区间，min>max 返回 1001）；列表项带 `difficulty` 与 `submission_count` / `accepted_count`；登录请求列表项带 `solved` 作答状态（`true`=已通过：存在 AC 提交；`false`=已尝试未通过；`null`=未提交过；未登录恒 `null`；验题提交不计入口径，与 `problem_counters` 一致） | 分页/标签/关键字/scope/status/difficulty_min/difficulty_max | problem[] |
 | GET | /problems/tags | public | 激活标签列表（打标选择器与列表筛选用，仅 `status='active'`） | - | tag[]（id/name/color） |
 | GET | /admin/tags | admin | 标签管理全量列表（含已归档） | - | tag[] |
 | POST | /admin/tags | admin | 新增标签（name 唯一，重复返回 1001） | name/color? | tag |

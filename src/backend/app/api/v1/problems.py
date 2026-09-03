@@ -65,6 +65,7 @@ async def list_problems(
         item.needs_reverification = flags.get(row.id, False)
         items.append(item)
     await service.attach_counters(items)
+    await service.attach_solve_status(items, user)
     return ok(PaginatedResponse(items=items, total=total, page=query.page, page_size=query.page_size))
 
 

@@ -7,6 +7,7 @@ import type { DataTableColumns } from 'naive-ui'
 import RefreshButton from '@/components/RefreshButton.vue'
 import { listActiveTags, listProblems } from '@/api/problems'
 import { message } from '@/utils/feedback'
+import { renderSolveMark } from '@/utils/solveMark'
 import { usePagination } from '@/composables/usePagination'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
@@ -83,6 +84,12 @@ onMounted(() => {
 })
 
 const columns = computed<DataTableColumns<ProblemSummary>>(() => [
+  {
+    title: '',
+    key: 'solved',
+    width: 72,
+    render: (row) => renderSolveMark(t, row.solved),
+  },
   {
     title: t('problems.list.name'),
     key: 'title',

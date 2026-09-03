@@ -7,7 +7,16 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import ProblemScope, ProblemStatus, ProblemVisibility, TagStatus, VerificationStatus
+from app.enums import (
+    ProblemScope,
+    ProblemStatus,
+    ProblemVisibility,
+    SubmissionStatus,
+    SubmitType,
+    TagStatus,
+    VerificationStatus,
+)
+from app.models.judge import Submission
 from app.models.problem import (
     Problem,
     ProblemCounter,
@@ -62,6 +71,33 @@ class ProblemRepository:
             )
         ).scalars()
         return {row.problem_id: row for row in rows}
+
+    async def solve_status_map(
+        self, user_id: uuid.UUID, problem_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, bool]:
+        """按题批量返回当前用户作答状态（题库列表 solved 标识）。
+
+        True=已通过（存在 AC 提交）；False=已尝试未通过；用户未提交过的题不在返回中。
+        验题提交为管理动作不计入（与 problem_counters 口径一致）；
+        走 ix_submissions_user_problem_created (user_id, problem_id) 前缀，页大小 ≤100 毫秒级。
+        """
+        if not problem_ids:
+            return {}
+        rows = (
+            await self.db.execute(
+                select(
+                    Submission.problem_id,
+                    func.bool_or(Submission.status == SubmissionStatus.ACCEPTED).label("solved"),
+                )
+                .where(
+                    Submission.user_id == user_id,
+                    Submission.problem_id.in_(problem_ids),
+                    Submission.submit_type != SubmitType.VERIFY,
+                )
+                .group_by(Submission.problem_id)
+            )
+        ).all()
+        return {row.problem_id: bool(row.solved) for row in rows}
 
     async def verification_snapshot_fields(self, problem_ids: list[uuid.UUID]) -> list:
         """批量取重验判定所需字段（id / verified_at / samples_updated_at / pending_case_ids）。"""

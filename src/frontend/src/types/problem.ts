@@ -29,6 +29,8 @@ export interface ProblemSummary {
   /** 通过率统计计数（problem_counters；排除 verify / system_error） */
   submission_count?: number
   accepted_count?: number
+  /** 当前用户作答状态（登录请求回填）：true=已通过 / false=已尝试未通过 / null|缺省=未提交过（未登录恒缺省） */
+  solved?: boolean | null
 }
 
 export interface ProblemSample {

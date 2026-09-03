@@ -226,6 +226,40 @@ async def test_list_pagination_and_filters(client, admin_headers):
 
 
 @pytest.mark.asyncio
+async def test_list_problems_solve_status(client, admin_headers, user_headers):
+    """题库列表 solved 三态：已通过 / 已尝试未通过 / 未提交过；未登录恒缺省。"""
+    pids: list[uuid.UUID] = []
+    for title in ("Solve OK", "Solve Fail", "Solve Never"):
+        data = await _create_problem(client, admin_headers, title=title)
+        async with SessionLocal() as db:
+            row = await db.get(Problem, uuid.UUID(data["id"]))
+            row.status = "published"
+            row.verified_at = datetime.now()
+            row.published_at = datetime.now()
+            await db.commit()
+        pids.append(uuid.UUID(data["id"]))
+
+    # 用户 p1 AC、p2 仅 WA、p3 未提交
+    async with SessionLocal() as db:
+        user = (
+            await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))
+        ).scalar_one()
+        db.add(Submission(user_id=user.id, problem_id=pids[0], language="cpp17", code="ac", status="accepted"))
+        db.add(Submission(user_id=user.id, problem_id=pids[1], language="cpp17", code="wa", status="wrong_answer"))
+        await db.commit()
+
+    resp = await client.get("/api/v1/problems", headers=user_headers)
+    solved = {i["title"]: i["solved"] for i in resp.json()["data"]["items"]}
+    assert solved["Solve OK"] is True
+    assert solved["Solve Fail"] is False
+    assert solved["Solve Never"] is None
+
+    # 未登录：所有题 solved 恒为 null
+    resp = await client.get("/api/v1/problems")
+    assert all(i["solved"] is None for i in resp.json()["data"]["items"])
+
+
+@pytest.mark.asyncio
 async def test_publish_blocked_when_cases_changed_after_verification(client, admin_headers, fake_storage):
     data = await _create_problem(client, admin_headers)
     pid = data["id"]

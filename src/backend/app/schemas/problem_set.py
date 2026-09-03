@@ -60,6 +60,11 @@ class ProblemSetItemOut(BaseModel):
     problem_id: uuid.UUID
     title: str
     difficulty: int | None = None
+    # 题目限制（详情页直接渲染，与题库列表口径一致）
+    time_limit_ms: int
+    memory_limit_mb: int
+    # 当前用户作答状态（登录请求回填）：True=已通过 / False=已尝试未通过 / None=未提交过或未登录
+    solved: bool | None = None
     sort_order: int
 
 

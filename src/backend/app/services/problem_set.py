@@ -10,6 +10,7 @@ from app.core.exceptions import APIError, AUTH_FORBIDDEN, PARAM_FORMAT_INVALID, 
 from app.enums import ProblemSetStatus, ProblemSetVisibility
 from app.models.problem_set import ProblemSet, ProblemSetItem
 from app.models.user import User
+from app.repositories.problem import ProblemRepository
 from app.repositories.problem_set import ProblemSetRepository, to_summary
 from app.schemas.problem import ProblemDetail
 from app.schemas.problem_set import (
@@ -120,9 +121,16 @@ class ProblemSetService:
         return [to_summary(row, counts.get(row.id, 0)) for row in rows], total
 
     async def get_detail(self, set_id: uuid.UUID, viewer: User | None) -> ProblemSetDetail:
-        """题单详情：匿名可看公开题单；条目按 sort_order 展示。"""
+        """题单详情：匿名可看公开题单；条目按 sort_order 展示；登录请求带 per-user 作答状态。"""
         problem_set = await self._get_visible(set_id, viewer)
         rows = await self.repo.list_items_with_problem(problem_set.id)
+        solved_map = (
+            await ProblemRepository(self.db).solve_status_map(
+                viewer.id, [problem.id for _, problem in rows]
+            )
+            if viewer is not None and rows
+            else {}
+        )
         return ProblemSetDetail(
             **to_summary(problem_set, len(rows)).model_dump(),
             items=[
@@ -130,7 +138,10 @@ class ProblemSetService:
                     problem_id=problem.id,
                     title=problem.title,
                     difficulty=problem.difficulty,
+                    time_limit_ms=problem.time_limit_ms,
+                    memory_limit_mb=problem.memory_limit_mb,
                     sort_order=item.sort_order,
+                    solved=solved_map.get(problem.id),
                 )
                 for item, problem in rows
             ],

@@ -8,6 +8,11 @@ export interface ProblemSetItem {
   problem_id: string
   title: string
   difficulty?: number | null
+  /** 题目限制（与题库列表口径一致） */
+  time_limit_ms?: number
+  memory_limit_mb?: number
+  /** 当前用户作答状态（登录请求回填）：true=已通过 / false=已尝试未通过 / null|缺省=未提交过（未登录恒缺省） */
+  solved?: boolean | null
   sort_order: number
 }
 
