@@ -66,6 +66,7 @@ export default {
       verifyPublish: '验题与发布',
       prev: '上一步',
       next: '保存并下一步',
+      saveExit: '保存并退出',
       needStatement: '请填写标题、题目背景与题面后继续',
       stepNeedCases: '请至少配置一个正式测试点；输入与输出不能同时为空',
     },

@@ -109,9 +109,9 @@ function validate(): boolean {
   return true
 }
 
-/** 下一步：持久化题面（新建则先建草稿），成功后进入「样例与测试点」页 */
-async function goNext() {
-  if (!validate()) return
+/** 持久化题面（新建则先建草稿），成功返回题目 id，失败返回 null */
+async function persist(): Promise<string | null> {
+  if (!validate()) return null
   saving.value = true
   try {
     const payload = () => ({
@@ -129,27 +129,36 @@ async function goNext() {
       memory_limit_mb: form.memory_limit_mb,
       difficulty: form.difficulty,
     })
-    let targetId: string
     if (isEdit.value) {
-      targetId = String(route.params.id)
-      await updateProblem(targetId, payload())
-    } else {
-      const created = await createProblem(payload() as Parameters<typeof createProblem>[0])
-      targetId = created.id
+      const id = String(route.params.id)
+      await updateProblem(id, payload())
+      message.success(t('problems.create.saved'))
+      return id
     }
+    const created = await createProblem(payload() as Parameters<typeof createProblem>[0])
     message.success(t('problems.create.saved'))
-    // 新建用 replace：浏览器后退不会回到 /new 造成重复建草稿
-    const target = `/admin/problems/${targetId}/edit/cases`
-    await (isEdit.value ? router.push(target) : router.replace(target))
+    return created.id
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.saveFailed'))
+    return null
   } finally {
     saving.value = false
   }
 }
 
-function cancelEdit() {
-  router.push('/admin/problems')
+/** 下一步：持久化题面后进入「样例与测试点」页 */
+async function goNext() {
+  const id = await persist()
+  if (!id) return
+  // 新建用 replace：浏览器后退不会回到 /new 造成重复建草稿
+  const target = `/admin/problems/${id}/edit/cases`
+  await (isEdit.value ? router.push(target) : router.replace(target))
+}
+
+/** 保存并退出：持久化题面后返回题目管理列表 */
+async function saveAndExit() {
+  if (!(await persist())) return
+  await router.push('/admin/problems')
 }
 
 onMounted(() => {
@@ -174,7 +183,9 @@ const visibilityOptions = computed(() => [
           <n-button type="primary" size="small" :loading="saving" @click="goNext">
             {{ t('problems.wizard.next') }}
           </n-button>
-          <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
+          <n-button size="small" quaternary :disabled="saving" @click="saveAndExit">
+            {{ t('problems.wizard.saveExit') }}
+          </n-button>
         </template>
 
         <n-form label-placement="top" class="wizard-body">

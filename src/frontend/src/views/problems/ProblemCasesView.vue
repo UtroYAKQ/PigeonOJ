@@ -180,8 +180,11 @@ function goNext() {
 function goPrev() {
   router.push(`/admin/problems/${problemId}/edit/statement`)
 }
-function cancelEdit() {
-  router.push('/admin/problems')
+/** 保存并退出：持久化样例与测试点后返回题目管理列表 */
+function saveAndExit() {
+  void save().then((ok) => {
+    if (ok) router.push('/admin/problems')
+  })
 }
 
 onMounted(loadExisting)
@@ -198,7 +201,9 @@ onMounted(loadExisting)
           <n-button type="primary" size="small" :loading="saving" @click="goNext">
             {{ t('problems.wizard.next') }}
           </n-button>
-          <n-button size="small" quaternary @click="cancelEdit">{{ t('action.cancel') }}</n-button>
+          <n-button size="small" quaternary :disabled="saving" @click="saveAndExit">
+            {{ t('problems.wizard.saveExit') }}
+          </n-button>
         </template>
 
         <div class="wizard-body">

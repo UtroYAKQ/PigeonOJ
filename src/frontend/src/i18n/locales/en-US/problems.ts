@@ -70,6 +70,7 @@ export default {
       verifyPublish: 'Verify & publish',
       prev: 'Previous',
       next: 'Save & continue',
+      saveExit: 'Save & exit',
       needStatement: 'Title, background and statement are required',
       stepNeedCases: 'Add at least one formal test case; input and output cannot both be empty',
     },
