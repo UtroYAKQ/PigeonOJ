@@ -96,6 +96,22 @@ async def test_update_profile(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 400
     assert resp.json()["code"] == 1001
 
+    # 头像形态（docs/contracts/users.md）：拒绝裸 oss_id 与越权站内 URL，接受本人站内 URL
+    uid = data["id"]
+    resp = await client.put("/api/v1/users/me", json={"avatar_url": f"users/{uid}/avatar/abc"}, headers=headers)
+    assert resp.status_code == 400 and resp.json()["code"] == 1001
+    resp = await client.put(
+        "/api/v1/users/me",
+        json={"avatar_url": "/api/v1/files/users/00000000-0000-0000-0000-000000000000/avatar/abc"},
+        headers=headers,
+    )
+    assert resp.status_code == 400 and resp.json()["code"] == 1001
+    resp = await client.put(
+        "/api/v1/users/me", json={"avatar_url": f"/api/v1/files/users/{uid}/avatar/abc"}, headers=headers
+    )
+    assert resp.json()["code"] == 0
+    assert resp.json()["data"]["avatar_url"] == f"/api/v1/files/users/{uid}/avatar/abc"
+
 
 async def test_soft_delete(client: httpx.AsyncClient) -> None:
     await register_user(client, "delete@pigeonoj.dev")

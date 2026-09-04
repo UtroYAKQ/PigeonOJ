@@ -32,7 +32,9 @@
     users: {
       title: 'Users',
       search: 'Search nickname / email',
+      avatar: 'Avatar',
       user: 'User',
+      email: 'Email',
       role: 'Role',
       status: 'Status',
       lastLogin: 'Last login',

@@ -27,9 +27,6 @@ watch(
   { immediate: true },
 )
 watch(form, () => (saved.value = false))
-function avatarSrc(ossId: string) {
-  return ossId ? `/api/v1/files/${ossId}` : undefined
-}
 async function onAvatarChosen(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -43,7 +40,7 @@ async function onAvatarChosen(event: Event) {
   uploadingAvatar.value = true
   try {
     const result = await uploadAvatar(file)
-    form.avatar_url = result.oss_id
+    form.avatar_url = result.url
     message.success(t('profile.uploadSuccess'))
   } catch (e) {
     message.error(e instanceof Error ? e.message : t('profile.uploadFailed'))
@@ -80,8 +77,8 @@ async function onSave() {
     <div class="profile-grid">
       <n-card :bordered="false">
         <div class="identity-avatar">
-          <n-avatar round :size="104" :src="avatarSrc(form.avatar_url)">
-            {{ (form.nickname || '?').slice(0, 1) }}
+          <n-avatar round :size="104" :src="form.avatar_url || undefined">
+            <template v-if="!form.avatar_url">{{ (form.nickname || '?').slice(0, 1) }}</template>
           </n-avatar>
           <n-button :loading="uploadingAvatar" @click="avatarInput?.click()">
             {{ form.avatar_url ? t('action.change') : t('action.upload') }}

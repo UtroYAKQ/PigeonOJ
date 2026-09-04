@@ -527,7 +527,7 @@ onMounted(load)
                             flexShrink: 0,
                           }"
                         >
-                          {{ initialOf(member.nickname) }}
+                          <template v-if="!member.avatar_url">{{ initialOf(member.nickname) }}</template>
                         </NAvatar>
                         <div class="member-cell__main">
                           <span class="member-cell__name" :title="member.nickname">
@@ -846,11 +846,11 @@ onMounted(load)
 .hero__body {
   position: relative;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 18px;
-  padding: 96px 32px 20px;
+  padding: 56px 32px;
   flex-wrap: wrap;
-  max-width: 1280px;
+  max-width: 1680px;
   margin: 0 auto;
   width: 100%;
   box-sizing: border-box;
@@ -862,7 +862,6 @@ onMounted(load)
   object-fit: cover;
   border: 3px solid var(--app-card-bg, #fff);
   box-shadow: 0 2px 12px rgb(0 0 0 / 8%);
-  margin-top: -56px;
   flex-shrink: 0;
   background: var(--app-muted-bg);
 }
@@ -1215,12 +1214,11 @@ onMounted(load)
     width: 100%;
   }
   .hero__body {
-    padding: 88px 16px 16px;
+    padding: 40px 16px;
   }
   .hero__avatar {
     width: 72px;
     height: 72px;
-    margin-top: -48px;
   }
   .module-tabs :deep(.n-tabs-nav),
   .module-tabs :deep(.n-tab-pane) {

@@ -5,18 +5,16 @@ from pydantic import BaseModel
 
 
 class AvatarUploadResult(BaseModel):
-    """头像上传响应。"""
+    """头像上传响应：url 为站内文件 URL，供 avatar_url 直接存储/渲染。"""
 
-    oss_id: str
     url: str
     content_type: str
     size: int
 
 
 class ImageUploadResult(BaseModel):
-    """公共图片上传响应（题面插图等 Markdown 引用场景）。"""
+    """公共图片上传响应（题面插图等 Markdown 引用场景）：url 为站内文件 URL。"""
 
-    oss_id: str
     url: str
     content_type: str
     size: int

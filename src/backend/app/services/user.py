@@ -149,13 +149,16 @@ class UserService:
             if len(patch.signature) > 255:
                 raise APIError(PARAM_FORMAT_INVALID, "个性签名过长（≤255）", 400)
             user.signature = patch.signature
-        if "avatar_url" in patch.model_fields_set:
-            if patch.avatar_url is not None:
-                expected_prefix = f"users/{user.id}/avatar/"
-                if not (patch.avatar_url.startswith(expected_prefix) or patch.avatar_url.startswith(("http://", "https://"))):
-                    raise APIError(PARAM_FORMAT_INVALID, "头像必须使用当前用户上传的 MinIO 文件或可信外链", 400)
-                if len(patch.avatar_url) > 512:
-                    raise APIError(PARAM_FORMAT_INVALID, "头像地址过长（≤512）", 400)
+        if patch.avatar_url is not None:
+            # 统一形态：当前用户站内头像文件 URL 或可信外链；拒绝裸 oss_id 与越权路径（docs/contracts/users.md）
+            site_prefix = f"/api/v1/files/users/{user.id}/avatar/"
+            if not (
+                patch.avatar_url.startswith(site_prefix)
+                or patch.avatar_url.startswith(("http://", "https://"))
+            ):
+                raise APIError(PARAM_FORMAT_INVALID, "头像必须使用当前用户上传的站内文件 URL 或可信外链", 400)
+            if len(patch.avatar_url) > 512:
+                raise APIError(PARAM_FORMAT_INVALID, "头像地址过长（≤512）", 400)
             user.avatar_url = patch.avatar_url
         if patch.theme is not None:
             if patch.theme not in VALID_THEMES:

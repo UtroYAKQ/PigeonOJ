@@ -11,7 +11,7 @@
 | id | UUID | PK | |
 | name | VARCHAR(64) | NOT NULL | 团队名称 |
 | description | TEXT | NULL | 团队简介 |
-| avatar_url | VARCHAR(512) | NULL | 团队头像（MinIO ossId 或外链） |
+| avatar_url | VARCHAR(512) | NULL | 团队头像：站内完整文件 URL（`/api/v1/files/users/{uid}/images/{uuid}`，即 `POST /files/upload/image` 返回的 `url`）或可信外链 `http(s)://…`；前端直接渲染 |
 | creator_id | UUID | NOT NULL, FK → users.id | 创建人，自动成为团队创建者 |
 | status | VARCHAR(16) | NOT NULL DEFAULT 'active' | `active` / `disbanded` 已解散 |
 | disbanded_at | TIMESTAMPTZ | NULL | 解散时间 |

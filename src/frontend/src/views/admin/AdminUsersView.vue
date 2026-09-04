@@ -150,22 +150,31 @@ function confirmState(action: 'unban' | 'unfreeze', user: User) {
 
 const columns = computed<DataTableColumns<User>>(() => [
   {
-    title: t('admin.users.user'),
-    key: 'user',
-    minWidth: 200,
+    title: t('admin.users.avatar'),
+    key: 'avatar_url',
+    width: 70,
+    align: 'center',
     render(row) {
-      return h('div', { class: 'cell-user' }, [
-        h(
-          NAvatar,
-          { size: 32, round: true, src: row.avatar_url ?? undefined },
-          { default: () => (row.nickname ?? '?').slice(0, 1) },
-        ),
-        h('div', { class: 'cell-user__meta' }, [
-          h('div', null, row.nickname),
-          h('div', { class: 'cell-user__email' }, row.email),
-        ]),
-      ])
+      return h(
+        NAvatar,
+        { size: 32, round: true, src: row.avatar_url || undefined },
+        row.avatar_url ? {} : { default: () => (row.nickname ?? '?').slice(0, 1) },
+      )
     },
+  },
+  {
+    title: t('admin.users.user'),
+    key: 'nickname',
+    minWidth: 140,
+    ellipsis: { tooltip: true },
+    render: (row) => row.nickname ?? '—',
+  },
+  {
+    title: t('admin.users.email'),
+    key: 'email',
+    minWidth: 200,
+    ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'cell-email' }, row.email),
   },
   {
     title: t('admin.users.role'),
@@ -293,7 +302,7 @@ const columns = computed<DataTableColumns<User>>(() => [
       v-model:page-size="pageSize"
       :page-sizes="[10, 20, 50]"
       :empty-text="t('admin.users.empty')"
-      :table-props="{ scrollX: 1000 }"
+      :table-props="{ scrollX: 1100 }"
       @update:page="
         (p: number) => {
           changePage(p)
@@ -363,14 +372,8 @@ const columns = computed<DataTableColumns<User>>(() => [
 </template>
 
 <style scoped>
-.cell-user {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.cell-user__meta .cell-user__email {
+.cell-email {
   color: var(--app-text-secondary);
-  font-size: 12px;
 }
 .role-options {
   display: flex;

@@ -13,13 +13,6 @@ const userStore = useUserStore()
 /** 后台空间内头像菜单提供「回到前台」，前台则对管理员提供「管理后台」入口 */
 const isAdminArea = computed(() => route.path.startsWith('/admin'))
 const avatarText = computed(() => (userStore.user?.nickname ?? '?').slice(0, 1))
-const avatarSrc = computed(() => {
-  const value = userStore.user?.avatar_url
-  if (!value) return undefined
-  return value.startsWith('http://') || value.startsWith('https://')
-    ? value
-    : `/api/v1/files/${value}`
-})
 
 interface DropdownOption {
   label: string
@@ -62,7 +55,9 @@ function go(path: string) {
       <n-dropdown trigger="click" placement="bottom-end" :options="options" @select="onSelect">
         <button type="button" class="user-menu__trigger">
           <span class="user-menu__name">{{ userStore.user.nickname }}</span>
-          <n-avatar round :size="30" :src="avatarSrc">{{ avatarText }}</n-avatar>
+          <n-avatar round :size="30" :src="userStore.user?.avatar_url || undefined">
+            <template v-if="!userStore.user?.avatar_url">{{ avatarText }}</template>
+          </n-avatar>
         </button>
       </n-dropdown>
     </template>

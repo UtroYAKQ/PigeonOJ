@@ -172,8 +172,8 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 | POST | /problems/{id}/publish | admin/tutor/team_creator/team_admin | 发布（须验题通过 + active 测试点 ≥ 1 + `pending_case_ids` 为 NULL；存在暂存改动或样例晚于 verified_at 时返回 3002，须重新验题） | - | problem |
 | POST | /problems/{id}/archive | admin/tutor/team_creator/team_admin | 下线归档 | - | problem |
 | GET | /teams/{team_id}/problems | admin/tutor/team_creator/team_admin | 团队题库列表（随 teams 模块实现） | 分页/可见性 | problem[] |
-| POST | /files/upload/avatar | auth（头像） | 头像上传（multipart → ossId） | file | ossId |
-| POST | /files/upload/image | auth（公共图片，登录用户可用） | 题面插图上传（multipart → url），Markdown 编辑器以 `![](url)` 引用；详见 admin.md files 表 | file（≤5MB，JPG/PNG/WEBP/GIF） | ossId |
+| POST | /files/upload/avatar | auth（头像） | 头像上传（multipart → 站内文件 URL） | file | url |
+| POST | /files/upload/image | auth（公共图片，登录用户可用） | 题面插图上传（multipart → 站内文件 URL），Markdown 编辑器以 `![](url)` 引用；详见 admin.md files 表 | file（≤5MB，JPG/PNG/WEBP/GIF） | url |
 
 > 测试点与样例均不走独立上传接口：`PUT /problems/{id}/test-cases` 接收 UTF-8 的 `input` / `expected_output` 内容（每项 ≤5MB），由后端生成对象 key 并分别上传 `problems/{problem_id}/cases/{case_id}/input` 与 `/output`，回填双 ossId，**写入暂存集（验题通过后晋升生效）**；样例经 `PUT /problems/{id}/samples` 直接存库（≤10 组、单项各 ≤64KB），不上传 MinIO。不生成测试点归档 ZIP，前端 ZIP 只在浏览器内解压为内容。
 

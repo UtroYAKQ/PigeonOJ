@@ -82,7 +82,6 @@ async def _store_image(object_key: str, content_type: str, content: bytes, resul
     except (OSError, S3Error) as exc:
         raise APIError(SYSTEM_UPSTREAM_FAILURE, "文件存储失败，请稍后重试", 503) from exc
     return result_cls(
-        oss_id=stored.object_key,
         url=f"/api/v1/files/{stored.object_key}",
         content_type=stored.content_type,
         size=stored.size,

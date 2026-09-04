@@ -3,7 +3,6 @@
  */
 
 export interface UploadResult {
-  oss_id: string
   url: string
   content_type: string
   size: number

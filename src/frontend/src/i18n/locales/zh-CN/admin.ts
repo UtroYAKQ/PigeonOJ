@@ -32,7 +32,9 @@
     users: {
       title: '用户管理',
       search: '搜索昵称 / 邮箱',
+      avatar: '头像',
       user: '用户',
+      email: '邮箱',
       role: '角色',
       status: '状态',
       lastLogin: '最近登录',

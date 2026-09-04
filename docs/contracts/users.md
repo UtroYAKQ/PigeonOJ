@@ -13,7 +13,7 @@
 | email_verified | BOOLEAN | NOT NULL DEFAULT false | 注册邮箱是否已验证 |
 | password | VARCHAR(255) | NOT NULL | 密码（bcrypt/argon2 哈希存储，不存明文） |
 | nickname | VARCHAR(64) | NOT NULL | 昵称 |
-| avatar_url | VARCHAR(512) | NULL | 头像（MinIO ossId 或外链） |
+| avatar_url | VARCHAR(512) | NULL | 头像：站内完整文件 URL（`/api/v1/files/users/{uid}/avatar/{uuid}`，即 `POST /files/upload/avatar` 返回的 `url`）或可信外链 `http(s)://…`；前端直接渲染，无需再拼接前缀 |
 | signature | VARCHAR(255) | NULL | 个性签名 |
 | theme | VARCHAR(32) | NOT NULL DEFAULT 'light' | 页面主题样式偏好 |
 | status | VARCHAR(16) | NOT NULL DEFAULT 'active' | `active` 正常 / `frozen` 冻结 / `banned` 封禁 / `deleted` 已注销 |
@@ -83,8 +83,8 @@
 | POST | /auth/change-password | auth | 修改密码 | old_password, new_password | - |
 | POST | /auth/change-email | auth | 换绑邮箱 | new_email, code | - |
 | GET | /users/me | auth | 当前用户 | - | user |
-| PUT | /users/me | auth | 更新资料 | nickname/signature/theme/avatar（头像必须为当前用户 MinIO `oss_id`） | user |
-| POST | /files/upload/avatar | auth | 上传头像 | multipart file，≤2MB，JPG/PNG/WEBP/GIF | oss_id / url |
+| PUT | /users/me | auth | 更新资料 | nickname/signature/theme/avatar_url（头像存站内完整文件 URL `/api/v1/files/users/{uid}/avatar/…`——前端直接使用 `POST /files/upload/avatar` 返回的 `url`——或可信外链 `http(s)://…`；不接受裸 `oss_id`） | user |
+| POST | /files/upload/avatar | auth | 上传头像 | multipart file，≤2MB，JPG/PNG/WEBP/GIF | url（站内文件 URL） |
 | DELETE | /users/me | auth | 注销账号（软注销） | password | - |
 | GET | /users/me/sessions | auth | 会话列表 | - | session[] |
 | DELETE | /users/me/sessions/{sid} | owner | 注销指定会话 | - | - |
