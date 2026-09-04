@@ -2,8 +2,8 @@
 /**
  * 系统日志（admin）—— 请求 / 登录 / 异常（docs/contracts/admin.md）。
  * 结构刻意从简：每类日志一个独立模板分支（不用 n-tabs），切换用 n-select 下拉框；
- * 无标题头部，切换 / 筛选 / 动作统一在工具栏；表格 flex-height 撑满剩余高度，
- * 分页置底；不经过 PaginatedDataTable。
+ * 无标题头部，切换 / 筛选 / 动作统一在工具栏；表格自然高度、整页滚动到底
+ * （不锁定一屏，不用 flex-height / PaginatedDataTable）。
  */
 import { computed, h, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -379,12 +379,13 @@ const searchPlaceholder = computed(() =>
       </div>
     </div>
 
-    <div class="table-fill">
+    <!-- 表格自然高度、整页滚动到底（本页不锁定一屏，区别于 table-fill 工作台）；
+         空态独立占位在剩余空间居中（与 PaginatedDataTable 同款 v-show 分流） -->
+    <div class="logs-body">
       <!-- 请求日志 -->
       <n-data-table
         v-if="type === 'request'"
-        class="logs-table"
-        flex-height
+        v-show="loading || rows.length"
         size="small"
         :columns="requestColumns"
         :data="(rows as RequestLogRow[])"
@@ -397,8 +398,7 @@ const searchPlaceholder = computed(() =>
       <!-- 登录日志 -->
       <n-data-table
         v-else-if="type === 'login'"
-        class="logs-table"
-        flex-height
+        v-show="loading || rows.length"
         size="small"
         :columns="loginColumns"
         :data="(rows as LoginLogRow[])"
@@ -410,8 +410,7 @@ const searchPlaceholder = computed(() =>
       <!-- 异常日志 -->
       <n-data-table
         v-else
-        class="logs-table"
-        flex-height
+        v-show="loading || rows.length"
         size="small"
         :columns="exceptionColumns"
         :data="(rows as ExceptionLogRow[])"
@@ -420,18 +419,21 @@ const searchPlaceholder = computed(() =>
         :row-key="(r: ExceptionLogRow) => r.id"
         :empty="emptyText"
       />
-
-      <n-pagination
-        class="logs-pager"
-        :page="page"
-        :page-size="pageSize"
-        :item-count="total"
-        show-size-picker
-        :page-sizes="[10, 20, 50]"
-        @update:page="changePage"
-        @update:page-size="changeSize"
-      />
+      <div v-show="!loading && !rows.length" class="logs-empty">
+        <n-empty size="large" :description="emptyText" />
+      </div>
     </div>
+
+    <n-pagination
+      class="logs-pager"
+      :page="page"
+      :page-size="pageSize"
+      :item-count="total"
+      show-size-picker
+      :page-sizes="[10, 20, 50]"
+      @update:page="changePage"
+      @update:page-size="changeSize"
+    />
 
     <!-- 异常堆栈详情 -->
     <n-modal
@@ -465,14 +467,22 @@ const searchPlaceholder = computed(() =>
   gap: 8px;
   margin-left: auto;
 }
-.logs-table {
+.logs-body {
   flex: 1;
-  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.logs-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
 }
 .logs-pager {
   display: flex;
   justify-content: flex-end;
-  margin-top: 12px;
+  /* 沉底：内容不足一屏时分页贴卡片底部；超出时随内容滚到底 */
+  margin-top: auto;
+  padding-top: 12px;
 }
 .tb-message {
   margin: 0 0 8px;

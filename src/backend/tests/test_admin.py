@@ -1,6 +1,7 @@
 """管理 / 运维模块集成测试（docs/contracts/admin.md）：权限 / 用户管理 / 配置 / 日志 / 举报。"""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta
 
@@ -265,10 +266,11 @@ async def test_admin_clear_logs(
 async def test_request_log_records_forwarded_ip_and_request_id(
     client: httpx.AsyncClient, admin_headers: dict[str, str]
 ) -> None:
-    """经代理请求：XFF 公网段落库为 ip_address，响应头回传 X-Request-Id 可关联日志行。"""
-    marker = f"/api/v1/site-config?xff-probe={uuid.uuid4().hex[:12]}"
+    """经代理请求：XFF 公网段落库为 ip_address，响应头回传 X-Request-Id；
+    认证请求（GET /users/me）的 user_id / nickname 落库关联。"""
+    request_id = None
     resp = await client.get(
-        marker,
+        "/api/v1/admin/configs",
         headers={
             **admin_headers,
             "X-Forwarded-For": "8.8.8.8, 10.0.0.2",
@@ -289,6 +291,70 @@ async def test_request_log_records_forwarded_ip_and_request_id(
     # 认证请求的 user_id 落库（中间件经 request.state 读取），nickname 关联显示
     assert row["user_id"] is not None
     assert row["nickname"], "登录请求的日志行应关联出用户昵称"
+
+
+async def test_record_get_logs_switch(
+    client: httpx.AsyncClient, admin_headers: dict[str, str]
+) -> None:
+    """log.record_get_logs 开关：关闭后 GET 不落日志，POST 仍记录，恢复后 GET 恢复记录。
+
+    断言口径：keyword 匹配落库 path（不含 query string），用前后计数对比；
+    中间件开关有 10s 进程内缓存，先触发一次 GET 使缓存刷新为关闭值。
+    """
+    from app.models.system_config import SystemConfig
+
+    # 找到开关行并关闭（PUT /admin/configs 按行 id 更新）
+    configs = (await client.get("/api/v1/admin/configs?category=log", headers=admin_headers)).json()["data"]
+    switch_row = next(c for c in configs if c["config_key"] == "log.record_get_logs")
+    resp = await client.put(
+        "/api/v1/admin/configs",
+        json={"items": [{"id": switch_row["id"], "config_value": False}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    async def total_of(keyword: str) -> int:
+        resp = await client.get(
+            f"/api/v1/admin/logs/request?keyword={keyword}", headers=admin_headers
+        )
+        return resp.json()["data"]["total"]
+
+    # 重置中间件 10s 开关缓存（模块级状态，上一用例可能残留 True 缓存）
+    import app.core.middlewares as _mw
+
+    _mw._record_get_cache[1] = 0.0
+
+    # 触发一次 GET 使缓存刷新为「关闭」
+    await client.get("/api/v1/site-config")
+    get_total_before = await total_of("site-config")
+    post_total_before = await total_of("email-code")
+
+    # 关闭态：GET 不记录
+    await client.get("/api/v1/site-config")
+    # 关闭态：POST 仍记录（写操作不受开关影响）
+    await client.post(
+        "/api/v1/auth/email-code",
+        json={"email": f"probe-{uuid.uuid4().hex[:8]}@t.local", "purpose": "register"},
+    )
+
+    assert await total_of("site-config") == get_total_before, "关闭开关后 GET 不应新增记录"
+    assert await total_of("email-code") >= post_total_before + 1, "写操作始终记录"
+
+    # 恢复开启：把配置写回 true，并重置中间件缓存让后续用例立即可见
+    resp = await client.put(
+        "/api/v1/admin/configs",
+        json={"items": [{"id": switch_row["id"], "config_value": True}]},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+    _mw._record_get_cache[1] = 0.0
+    async with SessionLocal() as db:
+        row = (
+            await db.execute(
+                select(SystemConfig).where(SystemConfig.config_key == "log.record_get_logs")
+            )
+        ).scalar_one()
+        assert row.config_value is True
 
 async def test_admin_logs_deep_pagination(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:
     """深分页延迟关联：跨页无重叠、总数正确、同 created_at 行全序稳定（不重复 / 不漏行）。"""

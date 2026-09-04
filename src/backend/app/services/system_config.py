@@ -74,6 +74,10 @@ class ConfigService:
             return default
         return row.config_value
 
+    async def should_record_get_logs(self) -> bool:
+        """是否记录 GET 请求日志（log.record_get_logs，默认记录；写操作不受影响）。"""
+        return bool(await self.get_value("log", "log.record_get_logs", True))
+
     async def get_email_code_policy(self) -> EmailCodePolicy:
         """获取邮箱验证码安全策略（过期时间、重发间隔、最大尝试次数）。"""
         category = "auth_email"

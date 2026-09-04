@@ -36,6 +36,7 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 
 - 筛选 / 搜索 / 导出放工具栏（允许换行）；表格 `n-data-table`（columns 数组 + render，列文案随 locale 翻译）；行内操作 `text` 按钮；分页底部分页器
 - 复用 `components/PaginatedDataTable.vue` + `composables/usePagination.ts`（含空态垂直居中 + 底部分页条，页面不得手写同构样板）
+- 工作台高度两种模式：**默认锁定一屏**——表格接 `table-fill`（或 `flex-height`），表体内部滚动，筛选栏 / 分页条恒可见；**自然高度**——表格随内容增长、整页滚动到底（如系统日志页），空态独立占位在剩余空间居中、分页条 `margin-top: auto` 沉底，两种模式均不得让短页面塌陷或出现双重滚动条
 - 外壳复用 `components/WorkbenchShell.vue`（page-fill 视口锁定 + 无边框卡片；支持 `title` / `header` / `header-extra` 插槽），页面不得手写 `.page-fill` + `n-card` 样板；表格区 `table-fill`，空态经 `table-fill-empty` 居中
 - 字典层标签类型（`TagType`）渲染到 `n-tag` 时须经 `toNaiveTagType()` 映射（danger → error）
 

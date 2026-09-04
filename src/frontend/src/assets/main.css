@@ -77,7 +77,9 @@ body {
 }
 
 /* 列表工作台撑满内容画布：视口高 - 顶栏 60px - 内容区上下内边距 28px。
-   卡片纵向 flex 且 flex:1 撑满容器；表格区 flex:1，无数据时空态在区域内垂直居中。 */
+   卡片纵向 flex 且 flex:1 撑满容器；表格区 flex:1，无数据时空态在区域内垂直居中。
+   默认锁定一屏（表体内部滚动）；表格自然高度 + 分页 margin-top:auto 的页面
+   （如系统日志）整页滚动到底，内容不足一屏时分页沉底。 */
 .page-fill {
   display: flex;
   flex-direction: column;

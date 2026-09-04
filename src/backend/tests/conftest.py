@@ -78,6 +78,7 @@ CONFIG_SEEDS = [
     ("sandbox", "sandbox.judge_concurrency", 8, "全局判题并发上限"),
     ("sandbox", "sandbox.cooldown_seconds", 10, "提交冷却时长（秒）"),
     ("log", "log.retention_days", 30, "日志保留天数"),
+    ("log", "log.record_get_logs", True, "是否记录 GET 请求日志（关闭后仅记录写操作）"),
     ("community", "community.feature_switches", {"solution": True, "post": True, "comment": True}, "社区功能开关"),
 ]
 

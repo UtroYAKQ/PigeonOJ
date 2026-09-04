@@ -12,9 +12,33 @@ from app.enums import LogLevel
 from app.repositories.audit import write_exception_log, write_request_log
 from app.core.database import SessionLocal
 from app.core.dependency import REQUEST_STATE_USER_ID
+from app.services.system_config import ConfigService
 from app.utils.request_meta import resolve_client_ip
 
 logger = logging.getLogger(__name__)
+
+# GET 日志降噪开关的缓存（秒）：避免每个请求都查一次 system_configs
+_RECORD_GET_CACHE_TTL = 10
+_record_get_cache: list = [True, 0.0]  # [开关值, 过期时间戳]
+
+
+async def _should_record_get() -> bool:
+    """读取 log.record_get_logs 开关（10 秒进程内缓存，读多写少的配置项）。"""
+    import time as _time
+
+    now = _time.perf_counter()
+    if now < _record_get_cache[1]:
+        return bool(_record_get_cache[0])
+    try:
+        async with SessionLocal() as db:
+            value = await ConfigService(db).should_record_get_logs()
+        _record_get_cache[0] = value
+        _record_get_cache[1] = now + _RECORD_GET_CACHE_TTL
+        return value
+    except Exception:  # noqa: BLE001 - 配置读取失败按默认记录处理
+        logger.exception("record_get_logs 配置读取失败")
+        _record_get_cache[1] = now + _RECORD_GET_CACHE_TTL
+        return True
 
 
 async def request_logging_middleware(request: Request, call_next):
@@ -46,6 +70,9 @@ async def request_logging_middleware(request: Request, call_next):
     finally:
         try:
             duration_ms = int((time.perf_counter() - start) * 1000)
+            # GET 日志可由 log.record_get_logs 降噪关闭；写操作始终记录（审计需要）
+            if request.method == "GET" and not await _should_record_get():
+                return response
             path = request.url.path
             if len(path) > 512:
                 path = path[:512]

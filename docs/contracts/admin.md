@@ -34,7 +34,7 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | team | `team.apply.review_rule` | 加入审批规则 |
 | contest | `contest.freeze_default_seconds` / `contest.penalty_factor_minutes` | 封榜 / 罚时系数默认 |
 | sandbox | `sandbox.judge_concurrency` / `sandbox.cooldown_seconds` | 全局并发上限 / 提交冷却 |
-| log | `log.retention_days` | 日志保留时间 |
+| log | `log.retention_days` / `log.record_get_logs` | 日志保留时间；是否记录 GET 请求日志（默认 true，关闭后中间件跳过 GET 只记写操作；10s 进程内缓存） |
 | community | `community.feature_switches` | 社区功能开关 |
 
 ### `request_logs` — 请求日志表
