@@ -90,6 +90,11 @@ export function adminListLogs(type: LogType, query: LogQuery = {}) {
   return apiRequest<PageResult<unknown>>('GET', `/admin/logs/${type}${buildQuery(query)}`)
 }
 
+/** DELETE /admin/logs/:type — 一键清空指定类型日志（admin 危险操作） */
+export function adminClearLogs(type: LogType) {
+  return apiRequest<null>('DELETE', `/admin/logs/${type}`)
+}
+
 // ---------------- 沙箱状态 ----------------
 
 /** GET /admin/sandbox/status — 沙箱节点状态（读 Redis 热数据） */

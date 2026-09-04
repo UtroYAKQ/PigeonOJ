@@ -15,6 +15,7 @@ from app.enums import LoginAction, Theme, UserStatus, UserRoleScope
 from app.models.user import User, UserRole
 from app.repositories.user import UserRepository, SessionRepository, RoleRepository
 from app.repositories.audit import write_login_log
+from app.utils.geolocation import lookup_location
 from app.utils.pagination import PaginatedResponse
 from app.schemas.user import (
     ChangeEmailRequest,
@@ -400,6 +401,7 @@ class AuthService:
         await self.sessions.create(
             user_id=user.id, token_hash=token_hash, expires_at=expires_at,
             device_info=None, ip_address=ip, user_agent=user_agent,
+            location=lookup_location(ip),
         )
         # Redis 热点缓存（deps.py 校验使用）
         ttl = int((expires_at - now).total_seconds())

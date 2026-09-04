@@ -24,9 +24,13 @@ from app.core.exceptions import (
     APIError,
 )
 from app.core.redis import SESSION_KEY_PREFIX, redis_get, redis_set
+from app.enums import UserStatus
 from app.utils.security import hash_token
 
 _SESSION_CACHE_TTL_BUFFER = 60  # 秒；缓存 TTL 略长于数据库过期时间，避免边界竞态
+
+# 认证成功后 user_id 在 request.state 上的键名（写：_load_user；读：请求日志中间件落库）
+REQUEST_STATE_USER_ID = "log_user_id"
 
 # 题目管理角色集合（docs/contracts/problems.md 端点表）
 # admin: 系统管理员
@@ -54,8 +58,12 @@ def get_bearer_token(request: Request) -> str | None:
     return None
 
 
-async def _load_user(db: AsyncSession, raw_token: str) -> User:
-    """加载并验证用户会话（Redis 热点缓存 → 数据库回源）。"""
+async def _load_user(request: Request, db: AsyncSession, raw_token: str) -> User:
+    """加载并验证用户会话（Redis 热点缓存 → 数据库回源）。
+
+    认证成功时把 user_id 写入 request.state：请求日志中间件落库时读取，
+    使 request_logs.user_id 与操作人关联（匿名请求保持 NULL）。
+    """
     token_hash = hash_token(raw_token)
 
     # 1) Redis 热点缓存命中
@@ -78,9 +86,10 @@ async def _load_user(db: AsyncSession, raw_token: str) -> User:
         raise APIError(AUTH_NOT_LOGGED_IN, "用户不存在", 401)
 
     # 账号状态拦截（frozen / banned / deleted 语义见 docs/contracts/users.md「账号状态语义」）
-    if user.status != "active":
+    if user.status != UserStatus.ACTIVE:
         raise APIError(AUTH_FORBIDDEN, "账号状态异常，请联系管理员", 403)
 
+    setattr(request.state, REQUEST_STATE_USER_ID, user.id)
     return user
 
 
@@ -92,7 +101,7 @@ async def get_current_user(
     raw_token = get_bearer_token(request)
     if not raw_token:
         raise APIError(AUTH_NOT_LOGGED_IN, "未登录", 401)
-    return await _load_user(db, raw_token)
+    return await _load_user(request, db, raw_token)
 
 
 async def get_optional_user(
@@ -103,7 +112,7 @@ async def get_optional_user(
     raw_token = get_bearer_token(request)
     if not raw_token:
         return None
-    return await _load_user(db, raw_token)
+    return await _load_user(request, db, raw_token)
 
 
 async def get_current_admin(

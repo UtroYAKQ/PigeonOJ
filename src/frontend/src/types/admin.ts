@@ -25,10 +25,17 @@ export interface RequestLogRow {
   id: string
   request_id: string
   user_id: string | null
+  /** 用户昵称（后端批量 JOIN 回填） */
+  nickname: string | null
   method: string
   path: string
   status_code: number
   ip_address: string | null
+  /** ip2region 离线解析：「中国 浙江省 杭州市 阿里云」；内网「内网IP」；null=解析失败 */
+  location: string | null
+  user_agent: string | null
+  /** extra.device：{browser, os, device}，由后端 UA 解析生成 */
+  device: { browser: string | null; os: string | null; device: string | null } | null
   duration_ms: number | null
   created_at: string
 }
@@ -36,9 +43,12 @@ export interface RequestLogRow {
 export interface LoginLogRow {
   id: string
   user_id: string | null
+  nickname: string | null
   email: string | null
   action: string
   ip_address: string | null
+  location: string | null
+  user_agent: string | null
   success: boolean
   reason: string | null
   created_at: string
@@ -58,6 +68,8 @@ export interface LogQuery {
   page?: number
   page_size?: number
   keyword?: string
+  /** 昵称模糊过滤（关联 users.nickname） */
+  nickname?: string
   start?: string
   end?: string
 }

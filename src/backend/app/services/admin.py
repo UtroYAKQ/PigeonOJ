@@ -6,9 +6,11 @@ import logging
 import uuid
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import ReportStatus
+from app.models.audit import ExceptionLog, LoginLog, RequestLog
 from app.models.user import User
 from app.repositories.admin import ReportRepository
 from app.repositories.user import UserRepository
@@ -32,6 +34,16 @@ from app.core.exceptions import (
 from app.core.redis import SANDBOX_NODE_KEY_PREFIX, get_redis
 
 logger = logging.getLogger(__name__)
+
+# 日志类型 → ORM 模型映射（list / clear 共用；键与 /admin/logs/{type} path 参数一致）
+LOG_TYPE_REQUEST = "request"
+LOG_TYPE_LOGIN = "login"
+LOG_TYPE_EXCEPTION = "exception"
+LOG_MODELS: dict[str, type] = {
+    LOG_TYPE_REQUEST: RequestLog,
+    LOG_TYPE_LOGIN: LoginLog,
+    LOG_TYPE_EXCEPTION: ExceptionLog,
+}
 
 # 敏感配置键后缀：列表返回时掩码，更新时该值表示「保持原值」
 _PASSWORD_KEY_SUFFIX = ".password"
@@ -89,35 +101,52 @@ class LogService:
         self.db = db
         self.repo = LogRepository(db)
 
+    async def _nickname_map(self, user_ids: list) -> dict:
+        """页内 user_id → 昵称批量映射（无 user_id 的行自然缺失）。"""
+        ids = [uid for uid in user_ids if uid]
+        if not ids:
+            return {}
+        rows = await self.db.execute(select(User.id, User.nickname).where(User.id.in_(ids)))
+        return {uid: nickname for uid, nickname in rows.all()}
+
     async def list(
-        self, log_type: str, page: int, page_size: int, keyword: str | None, start: str | None, end: str | None,
+        self, log_type: str, page: int, page_size: int, keyword: str | None,
+        nickname: str | None, start: str | None, end: str | None,
     ) -> PaginatedResponse[RequestLogOut] | PaginatedResponse[LoginLogOut] | PaginatedResponse[ExceptionLogOut]:
-        if log_type == "request":
-            rows, total = await self.repo.list_request_logs(page, page_size, keyword, start, end)
+        if log_type == LOG_TYPE_REQUEST:
+            rows, total = await self.repo.list_request_logs(page, page_size, keyword, nickname, start, end)
+            nicknames = await self._nickname_map([r.user_id for r in rows])
             items = [
                 RequestLogOut(
                     id=str(r.id), request_id=r.request_id,
                     user_id=str(r.user_id) if r.user_id else None,
+                    nickname=nicknames.get(r.user_id),
                     method=r.method, path=r.path, status_code=r.status_code,
-                    ip_address=r.ip_address, duration_ms=r.duration_ms,
+                    ip_address=r.ip_address, location=r.location,
+                    user_agent=r.user_agent,
+                    device=(r.extra or {}).get("device"),
+                    duration_ms=r.duration_ms,
                     created_at=r.created_at.isoformat(),
                 )
                 for r in rows
             ]
             return PaginatedResponse[RequestLogOut](items=items, total=total, page=page, page_size=page_size)
-        if log_type == "login":
-            rows, total = await self.repo.list_login_logs(page, page_size, keyword, start, end)
+        if log_type == LOG_TYPE_LOGIN:
+            rows, total = await self.repo.list_login_logs(page, page_size, keyword, nickname, start, end)
+            nicknames = await self._nickname_map([r.user_id for r in rows])
             items = [
                 LoginLogOut(
                     id=str(r.id), user_id=str(r.user_id) if r.user_id else None,
+                    nickname=nicknames.get(r.user_id),
                     email=r.email, action=r.action, ip_address=r.ip_address,
+                    location=r.location, user_agent=r.user_agent,
                     success=r.success, reason=r.reason, created_at=r.created_at.isoformat(),
                 )
                 for r in rows
             ]
             return PaginatedResponse[LoginLogOut](items=items, total=total, page=page, page_size=page_size)
-        if log_type == "exception":
-            rows, total = await self.repo.list_exception_logs(page, page_size, keyword, start, end)
+        if log_type == LOG_TYPE_EXCEPTION:
+            rows, total = await self.repo.list_exception_logs(page, page_size, keyword, nickname, start, end)
             items = [
                 ExceptionLogOut(
                     id=str(r.id), level=r.level, message=r.message,
@@ -129,6 +158,13 @@ class LogService:
             ]
             return PaginatedResponse[ExceptionLogOut](items=items, total=total, page=page, page_size=page_size)
         raise APIError(RESOURCE_NOT_FOUND, "日志类型不存在", 404)
+
+    async def clear(self, log_type: str) -> None:
+        """一键清空指定类型日志（全表删除，admin 危险操作）。"""
+        model = LOG_MODELS.get(log_type)
+        if model is None:
+            raise APIError(RESOURCE_NOT_FOUND, "日志类型不存在", 404)
+        await self.repo.clear(model)
 
 
 class SandboxService:

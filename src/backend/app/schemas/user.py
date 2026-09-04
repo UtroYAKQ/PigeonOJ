@@ -60,6 +60,7 @@ class SessionOut(BaseModel):
     id: uuid.UUID
     device_info: str | None = None
     ip_address: str | None = None
+    location: str | None = None
     user_agent: str | None = None
     expires_at: datetime
     revoked_at: datetime | None = None

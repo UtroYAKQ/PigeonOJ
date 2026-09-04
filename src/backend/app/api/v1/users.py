@@ -10,7 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, Request
 
 from app.api.deps import AuthServiceDep, UserServiceDep
-from app.core.dependency import get_bearer_token, get_current_user, parse_client_ip
+from app.core.dependency import get_bearer_token, get_current_user
 from app.models.user import User
 from app.schemas.user import (
     ChangeEmailRequest,
@@ -25,6 +25,7 @@ from app.schemas.user import (
     SessionOut,
     UserPublic,
 )
+from app.utils.request_meta import resolve_client_ip
 from app.utils.security import hash_token
 from app.utils.response import ApiResponse, ok
 
@@ -34,7 +35,7 @@ _users = APIRouter(prefix="/users", tags=["users"])
 
 
 def _client_meta(request: Request) -> tuple[str | None, str | None]:
-    return parse_client_ip(request.client.host if request.client else None), request.headers.get("user-agent")
+    return resolve_client_ip(request), request.headers.get("user-agent")
 
 
 # ---- 认证 ----

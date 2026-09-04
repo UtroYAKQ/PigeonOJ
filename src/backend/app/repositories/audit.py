@@ -4,10 +4,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, false, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit import ExceptionLog, LoginLog, RequestLog
+from app.models.user import User
+from app.utils.geolocation import lookup_location
+from app.utils.request_meta import parse_user_agent
 
 
 async def write_login_log(
@@ -20,7 +23,7 @@ async def write_login_log(
     user_agent: str | None = None,
     reason: str | None = None,
 ) -> None:
-    """写入登录日志（在请求级会话中使用 flush，依赖外层 commit）。"""
+    """写入登录日志（在请求级会话中使用 flush，依赖外层 commit）；location 同步入库。"""
     db.add(
         LoginLog(
             user_id=user_id,
@@ -28,6 +31,7 @@ async def write_login_log(
             action=action,
             ip_address=ip_address,
             user_agent=user_agent,
+            location=lookup_location(ip_address),
             success=success,
             reason=reason,
         )
@@ -46,7 +50,10 @@ async def write_request_log(
     user_agent: str | None,
     duration_ms: int,
 ) -> None:
-    """写入请求日志（在独立会话中使用 commit，确保异常时也能持久化）。"""
+    """写入请求日志（在独立会话中使用 commit，确保异常时也能持久化）。
+
+    extra 携带 UA 解析结果（browser / os / device），location 由 ip2region 离线解析。
+    """
     db.add(
         RequestLog(
             request_id=request_id,
@@ -56,7 +63,9 @@ async def write_request_log(
             user_id=user_id,
             ip_address=ip_address,
             user_agent=user_agent,
+            location=lookup_location(ip_address),
             duration_ms=duration_ms,
+            extra={"device": parse_user_agent(user_agent)},
         )
     )
     await db.commit()
@@ -98,31 +107,48 @@ class LogRepository:
             conditions.append(column <= datetime.fromisoformat(end))
         return conditions
 
+    async def _user_ids_by_nickname(self, nickname: str) -> list[uuid.UUID]:
+        """按昵称模糊匹配的用户 ID 列表（无命中返回空 → 日志结果为空）。"""
+        rows = await self.db.execute(select(User.id).where(User.nickname.ilike(f"%{nickname}%")))
+        return list(rows.scalars().all())
+
     async def list_request_logs(
-        self, page: int, page_size: int, keyword: str | None, start: str | None, end: str | None
+        self, page: int, page_size: int, keyword: str | None, nickname: str | None,
+        start: str | None, end: str | None
     ) -> tuple[list[RequestLog], int]:
         conditions = self._range_filter(RequestLog.created_at, start, end)
         if keyword:
             kw = f"%{keyword}%"
             conditions.append(RequestLog.request_id.ilike(kw) | RequestLog.path.ilike(kw))
+        if nickname:
+            user_ids = await self._user_ids_by_nickname(nickname)
+            conditions.append(RequestLog.user_id.in_(user_ids) if user_ids else false())
         return await self._page(RequestLog, RequestLog.created_at, page, page_size, conditions)
 
     async def list_login_logs(
-        self, page: int, page_size: int, keyword: str | None, start: str | None, end: str | None
+        self, page: int, page_size: int, keyword: str | None, nickname: str | None,
+        start: str | None, end: str | None
     ) -> tuple[list[LoginLog], int]:
         conditions = self._range_filter(LoginLog.created_at, start, end)
         if keyword:
             kw = f"%{keyword}%"
             conditions.append(LoginLog.email.ilike(kw) | LoginLog.action.ilike(kw))
+        if nickname:
+            user_ids = await self._user_ids_by_nickname(nickname)
+            conditions.append(LoginLog.user_id.in_(user_ids) if user_ids else false())
         return await self._page(LoginLog, LoginLog.created_at, page, page_size, conditions)
 
     async def list_exception_logs(
-        self, page: int, page_size: int, keyword: str | None, start: str | None, end: str | None
+        self, page: int, page_size: int, keyword: str | None, nickname: str | None,
+        start: str | None, end: str | None
     ) -> tuple[list[ExceptionLog], int]:
         conditions = self._range_filter(ExceptionLog.created_at, start, end)
         if keyword:
             kw = f"%{keyword}%"
             conditions.append(ExceptionLog.message.ilike(kw) | ExceptionLog.traceback.ilike(kw))
+        if nickname:
+            user_ids = await self._user_ids_by_nickname(nickname)
+            conditions.append(ExceptionLog.user_id.in_(user_ids) if user_ids else false())
         return await self._page(ExceptionLog, ExceptionLog.created_at, page, page_size, conditions)
 
     async def _page(self, model, order_col, page: int, page_size: int, conditions: list) -> tuple[list, int]:
@@ -146,3 +172,7 @@ class LogRepository:
         )
         rows = list((await self.db.execute(stmt)).scalars().all())
         return rows, int(total)
+
+    async def clear(self, model) -> None:
+        """清空指定日志表全表（admin 一键清空端点使用；调用方负责 commit）。"""
+        await self.db.execute(delete(model))

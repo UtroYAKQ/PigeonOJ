@@ -11,4 +11,14 @@ if __name__ == "__main__":
     ] = '%(asctime)s - %(levelname)s - %(client_addr)s - "%(request_line)s" %(status_code)s'
     LOGGING_CONFIG["formatters"]["access"]["datefmt"] = "%Y-%m-%d %H:%M:%S"
 
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True, log_config=LOGGING_CONFIG)
+    # proxy_headers：开发态本地直连无反代也无碍——XFF 不存在时 client.host 即真实地址；
+    # forwarded_allow_ips 限定仅本机回环可作为可信代理来源
+    uvicorn.run(
+        "app:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=True,
+        log_config=LOGGING_CONFIG,
+        proxy_headers=True,
+        forwarded_allow_ips="127.0.0.1",
+    )

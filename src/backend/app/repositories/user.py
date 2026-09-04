@@ -76,6 +76,7 @@ class SessionRepository:
         device_info: str | None,
         ip_address: str | None,
         user_agent: str | None,
+        location: str | None = None,
     ) -> UserSession:
         session = UserSession(
             user_id=user_id,
@@ -84,6 +85,7 @@ class SessionRepository:
             device_info=device_info,
             ip_address=ip_address,
             user_agent=user_agent,
+            location=location,
             last_active_at=datetime.now(),
         )
         self.db.add(session)

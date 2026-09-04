@@ -49,15 +49,19 @@ class ConfigItemOut(BaseModel):
 
 
 class RequestLogOut(BaseModel):
-    """请求日志输出。"""
+    """请求日志输出（user_agent 原文 / location / device 为 extra 内 UA 解析结果）。"""
 
     id: str
     request_id: str
     user_id: str | None
+    nickname: str | None = None
     method: str
     path: str
     status_code: int
     ip_address: str | None
+    location: str | None = None
+    user_agent: str | None = None
+    device: dict | None = None
     duration_ms: int | None
     created_at: str
 
@@ -72,9 +76,12 @@ class LoginLogOut(BaseModel):
 
     id: str
     user_id: str | None
+    nickname: str | None = None
     email: str | None
     action: LoginAction
     ip_address: str | None
+    location: str | None = None
+    user_agent: str | None = None
     success: bool
     reason: str | None
     created_at: str

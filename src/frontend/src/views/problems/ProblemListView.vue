@@ -108,8 +108,7 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
           row.visibility === 'private'
             ? h(NTag, { size: 'small', bordered: false, type: 'error' }, { default: () => t('problems.list.privateTag') })
             : null,
-        ]),
-        h('span', null, `#${(row.id || '').slice(0, 8)}`),
+        ])      
       ])
     },
   },

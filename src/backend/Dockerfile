@@ -20,4 +20,6 @@ EXPOSE 8000
 # 生产默认启动命令（判题 gRPC 网关随应用 lifespan 启动）；
 # ENTRYPOINT 先执行数据库迁移（fail fast），再 exec 本 CMD
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# proxy-headers：nginx 反代后用 X-Forwarded-For 重写 client.host；
+# forwarded-allow-ips=all 限定 compose 内网（容器网络不可公网直达）
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

@@ -29,6 +29,8 @@ class RequestLog(Base):
     status_code: Mapped[int] = mapped_column(Integer, nullable=False)
     ip_address: Mapped[str | None] = mapped_column(INET)
     user_agent: Mapped[str | None] = mapped_column(Text)
+    # 离线解析（ip2region xdb）：「中国 浙江省 杭州市 阿里云」；内网记「内网IP」；NULL=解析失败
+    location: Mapped[str | None] = mapped_column(String(128))
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     extra: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -54,6 +56,8 @@ class LoginLog(Base):
     action: Mapped[str] = mapped_column(String(32), nullable=False)
     ip_address: Mapped[str | None] = mapped_column(INET)
     user_agent: Mapped[str | None] = mapped_column(Text)
+    # 离线解析（ip2region xdb）：「中国 北京 北京市 移动」；内网记「内网IP」；NULL=解析失败
+    location: Mapped[str | None] = mapped_column(String(128))
     success: Mapped[bool] = mapped_column(Boolean, nullable=False)
     reason: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

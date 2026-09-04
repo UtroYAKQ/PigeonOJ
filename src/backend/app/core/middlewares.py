@@ -11,7 +11,8 @@ from fastapi import Request
 from app.enums import LogLevel
 from app.repositories.audit import write_exception_log, write_request_log
 from app.core.database import SessionLocal
-from app.core.dependency import parse_client_ip
+from app.core.dependency import REQUEST_STATE_USER_ID
+from app.utils.request_meta import resolve_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,8 @@ async def request_logging_middleware(request: Request, call_next):
     try:
         response = await call_next(request)
         status_code = response.status_code
+        # request_id 回传响应头：客户端反馈 / 服务端排障按此关联 request_logs
+        response.headers["X-Request-Id"] = request_id
     except Exception as exc:  # noqa: BLE001 - 需记录全部未处理异常
         # 落库异常日志（不阻塞响应）
         try:
@@ -46,6 +49,8 @@ async def request_logging_middleware(request: Request, call_next):
             path = request.url.path
             if len(path) > 512:
                 path = path[:512]
+            # 认证依赖（_load_user）成功时写入 request.state；匿名请求无此属性 → None
+            log_user_id = getattr(request.state, REQUEST_STATE_USER_ID, None)
             async with SessionLocal() as db:
                 await write_request_log(
                     db,
@@ -53,8 +58,8 @@ async def request_logging_middleware(request: Request, call_next):
                     method=request.method,
                     path=path,
                     status_code=status_code,
-                    user_id=None,
-                    ip_address=parse_client_ip(request.client.host if request.client else None),
+                    user_id=log_user_id,
+                    ip_address=resolve_client_ip(request),
                     user_agent=request.headers.get("user-agent"),
                     duration_ms=duration_ms,
                 )

@@ -22,6 +22,9 @@ protobuf==7.36.0       # 生成的 judge_pb2*.py 依赖 google.protobuf
 # ============ 安全 ============
 bcrypt==5.0.0          # 密码哈希
 
+# ============ IP 地理位置（离线 xdb，省市级；数据文件 app/data/ip2region.xdb 随仓库分发）============
+py-ip2region==3.0.4
+
 # ============ 对象存储 ============
 minio==7.2.20          # MinIO SDK（生产部署）
 python-multipart==0.0.32   # FastAPI multipart/form-data 上传

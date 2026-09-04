@@ -140,10 +140,24 @@ async def list_logs(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     keyword: str | None = None,
+    nickname: str | None = None,
     start: str | None = None,
     end: str | None = None,
 ) -> ApiResponse[LogPage]:
-    return ok(await service.list(log_type, page, page_size, keyword, start, end))
+    return ok(await service.list(log_type, page, page_size, keyword, nickname, start, end))
+
+
+@router.delete("/logs/{log_type}", response_model=ApiResponse[None])
+async def clear_logs(
+    log_type: str,
+    service: LogServiceDep,
+    db: SessionDep,
+    admin: User = _admin,
+) -> ApiResponse[None]:
+    """一键清空指定类型日志（admin 危险操作；清的是全表，不做时间过滤）。"""
+    await service.clear(log_type)
+    await db.commit()  # 显式提交：删除持久化后再返回
+    return ok(None)
 
 
 @router.get("/sandbox/status", response_model=ApiResponse[list[SandboxNodeOut]])

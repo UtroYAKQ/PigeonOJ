@@ -33,6 +33,8 @@ export interface UserSession {
   id: string
   device_info: string | null
   ip_address: string | null
+  /** 登录地（ip2region 离线解析：「中国 北京 北京市 移动」；内网「内网IP」；null=解析失败） */
+  location: string | null
   user_agent: string | null
   expires_at: string
   revoked_at: string | null

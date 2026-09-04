@@ -41,7 +41,7 @@ ROLE_SEEDS = [
 # 系统配置种子（docs/contracts/admin.md system_configs 配置项举例）
 CONFIG_SEEDS = [
     ("site", "site.name", "PigeonOJ", "站点名称"),
-    ("site", "site.logo", "", "站点 Logo（MinIO ossId 或外链）"),
+    ("site", "site.logo", "", "站点 Logo"),
     ("site", "site.icp", "", "ICP 备案号"),
     ("site", "site.default_theme", "light", "默认主题样式"),
     ("site", "site.register_enabled", True, "是否开放注册"),

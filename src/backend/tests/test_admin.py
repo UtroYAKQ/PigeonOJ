@@ -180,6 +180,116 @@ async def test_admin_logs(client: httpx.AsyncClient, admin_headers: dict[str, st
     assert resp.json()["code"] == 3001
 
 
+async def test_admin_logs_nickname_filter(
+    client: httpx.AsyncClient, admin_headers: dict[str, str]
+) -> None:
+    """nickname 参数按 users.nickname 模糊过滤三类日志；与 keyword 叠加生效。"""
+    from app.models.audit import LoginLog, RequestLog
+
+    marker = uuid.uuid4().hex[:12]
+    # 匿名请求日志行（user_id 为空，nickname 过滤应排除）
+    async with SessionLocal() as db:
+        db.add(RequestLog(request_id=f"anon-{marker}", method="GET",
+                          path=f"/anon/{marker}", status_code=200, created_at=datetime.now()))
+        db.add(LoginLog(email=f"anon-{marker}@t.local", action="login", success=False,
+                        reason="anon", created_at=datetime.now()))
+        await db.commit()
+
+    # 管理员（昵称「管理员」）触发认证请求日志 → user_id 落库
+    await client.get(f"/api/v1/admin/configs?probe={marker}", headers=admin_headers)
+
+    # 昵称模糊命中：返回行全部带该昵称
+    for log_type in ("request", "login"):
+        resp = await client.get(
+            f"/api/v1/admin/logs/{log_type}?nickname=管理", headers=admin_headers
+        )
+        body = resp.json()
+        assert body["code"] == 0, body
+        items = body["data"]["items"]
+        assert items, f"{log_type} 应能按昵称查到日志"
+        assert all(item["nickname"] == "管理员" for item in items)
+
+    # 匿名行被昵称过滤排除（不带 user_id 的行不命中）
+    resp = await client.get(
+        f"/api/v1/admin/logs/request?nickname=管理&keyword=anon-{marker}", headers=admin_headers
+    )
+    assert resp.json()["data"]["total"] == 0
+
+    # 无命中昵称 → 空结果
+    resp = await client.get(
+        f"/api/v1/admin/logs/request?nickname=no-such-user-{marker}", headers=admin_headers
+    )
+    assert resp.json()["data"]["total"] == 0
+
+
+async def test_admin_clear_logs(
+    client: httpx.AsyncClient, admin_headers: dict[str, str], user_headers: dict[str, str]
+) -> None:
+    """一键清空：旧行删除；非 admin 403；非法类型 3001。
+
+    注意：GET 查询自身的请求也会被中间件记录，因此用清空前种下的唯一标记行
+    断言「旧行已删」，而非断言 total == 0。
+    """
+    from app.models.audit import ExceptionLog, LoginLog, RequestLog
+
+    marker = uuid.uuid4().hex[:12]
+    async with SessionLocal() as db:
+        db.add(RequestLog(request_id=f"clr-{marker}", method="GET", path=f"/clr/{marker}",
+                          status_code=200, created_at=datetime.now()))
+        db.add(LoginLog(email=f"clr-{marker}@t.local", action="login", success=False,
+                        reason="clr", created_at=datetime.now()))
+        db.add(ExceptionLog(level="error", message=f"clr-{marker}", created_at=datetime.now()))
+        await db.commit()
+
+    # 非 admin → 403
+    r = await client.delete("/api/v1/admin/logs/request", headers=user_headers)
+    assert r.status_code == 403, r.text
+
+    # 非法类型 → 3001
+    r = await client.delete("/api/v1/admin/logs/unknown", headers=admin_headers)
+    assert r.json()["code"] == 3001
+
+    # 清空：标记行消失（查询自身的日志行除外，不算失败）
+    for log_type in ("request", "login", "exception"):
+        r = await client.delete(f"/api/v1/admin/logs/{log_type}", headers=admin_headers)
+        assert r.json()["code"] == 0, r.text
+        after = (
+            await client.get(
+                f"/api/v1/admin/logs/{log_type}?keyword=clr-{marker}", headers=admin_headers
+            )
+        ).json()
+        assert after["data"]["total"] == 0
+        assert after["data"]["items"] == []
+
+
+async def test_request_log_records_forwarded_ip_and_request_id(
+    client: httpx.AsyncClient, admin_headers: dict[str, str]
+) -> None:
+    """经代理请求：XFF 公网段落库为 ip_address，响应头回传 X-Request-Id 可关联日志行。"""
+    marker = f"/api/v1/site-config?xff-probe={uuid.uuid4().hex[:12]}"
+    resp = await client.get(
+        marker,
+        headers={
+            **admin_headers,
+            "X-Forwarded-For": "8.8.8.8, 10.0.0.2",
+        },
+    )
+    assert resp.status_code == 200
+    request_id = resp.headers.get("x-request-id")
+    assert request_id
+
+    resp = await client.get(
+        f"/api/v1/admin/logs/request?keyword={request_id}", headers=admin_headers
+    )
+    items = resp.json()["data"]["items"]
+    assert items, "按 request_id 应能查到本次请求日志"
+    row = items[0]
+    assert row["request_id"] == request_id
+    assert row["ip_address"] == "8.8.8.8"
+    # 认证请求的 user_id 落库（中间件经 request.state 读取），nickname 关联显示
+    assert row["user_id"] is not None
+    assert row["nickname"], "登录请求的日志行应关联出用户昵称"
+
 async def test_admin_logs_deep_pagination(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:
     """深分页延迟关联：跨页无重叠、总数正确、同 created_at 行全序稳定（不重复 / 不漏行）。"""
     from uuid import uuid4

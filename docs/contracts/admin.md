@@ -55,7 +55,7 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 
 索引：INDEX(`user_id`, `created_at`)、INDEX(`path`, `created_at`)、INDEX(`created_at`, `id`)
 
-> 沙箱执行日志（判题 / 编译 / 运行）作为请求链路的子记录写入 `extra`，以 `request_id` 关联归入同一请求行，不单独建沙箱日志表。本表以 `created_at` 为前导列，按时间分页 / 保留清理。
+> 沙箱执行日志（判题 / 编译 / 运行）作为请求链路的子记录写入 `extra`，以 `request_id` 关联归入同一请求行，不单独建沙箱日志表。本表以 `created_at` 为前导列，按时间分页 / 保留清理。`ip_address` 为解析后的真实客户端 IP（X-Forwarded-For 左起首个公网段，见 `docs/operations.md`）；每条响应回传 `X-Request-Id` 响应头供排障关联。
 
 ### `login_logs` — 登录日志表
 
@@ -125,7 +125,8 @@ ORDER BY r.created_at DESC, r.id DESC
 | POST | /files/upload/image | auth | 公共图片上传（题面插图等 Markdown 引用场景，登录用户可用），存 MinIO `users/{uid}/images/` | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | oss_id / url |
 | POST | /files/upload/site-logo | admin | 站点 Logo 上传（站点配置 `site.logo` 引用），存 MinIO `site/logo/` | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | oss_id / url |
 | GET | /files/{object_key} | public | 读取头像 / 公共图片 / 站点 Logo 等公开文件；不允许读取测试点 | object_key（仅 `users/` 或 `site/logo/` 前缀） | binary |
-| GET | /admin/logs/{type} | admin | 日志查询 / 筛选 / 导出 | 时间范围/条件 | log[] |
+| GET | /admin/logs/{type} | admin | 日志查询 / 筛选 / 导出（keyword：request=请求号/路径，login=邮箱/动作，exception=消息/堆栈；nickname：按用户昵称模糊过滤，经 `users.nickname` 关联，与 keyword 可叠加） | 分页/keyword/nickname/时间范围 | log[] |
+| DELETE | /admin/logs/{type} | admin | 一键清空指定类型日志（全表删除，危险操作；type ∈ request / login / exception，非法值 3001） | - | - |
 | GET | /admin/sandbox/status | admin | 沙箱状态展示（读 Redis `sandbox:node:<id>`；指标由网关心跳写入） | - | nodes[{id, name, status, channel, load, cpu_usage, memory_usage, running_tasks, capacity, version, last_heartbeat_at}] |
 | GET | /admin/reports | admin | 举报列表 / 处理 | 分页/状态 | report[] |
 

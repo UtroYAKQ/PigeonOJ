@@ -54,7 +54,10 @@ function onRevoke(session: UserSession) {
               <span class="session-device__icon"><n-icon :component="Monitor" /></span>
               <div class="session-device__meta">
                 <strong>{{ session.device_info ?? t('common.unknownDevice') }}</strong>
-                <small>{{ session.ip_address }}</small>
+                <small>
+                  {{ session.ip_address ?? '--' }}
+                  <template v-if="session.location"> · {{ session.location }}</template>
+                </small>
               </div>
               <n-tag v-if="session.current" size="small" type="success" round>
                 {{ t('common.current') }}

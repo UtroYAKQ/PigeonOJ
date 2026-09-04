@@ -59,6 +59,13 @@ docker compose --env-file .env.node --project-directory . -f docker/docker-compo
 
 部署在已有 Nginx 后：保持前端 `8080:80` 不变，由宿主机反代。
 
+### 真实客户端 IP（X-Forwarded-For）
+
+反代场景下后端 uvicorn 以 `--proxy-headers --forwarded-allow-ips="*"` 启动（仅 compose 内网可达，容器网络不暴露公网）；
+应用层从 `X-Forwarded-For` 取**左起第一个公网地址**为客户端 IP（伪造值只能污染私有段左侧），全私有段取最左合法值，再回退
+`X-Real-IP`、直连 peer（`app/utils/request_meta.py` 的 `resolve_client_ip`，中间件与 auth 路由统一走此函数）。
+每条响应回传 `X-Request-Id`，与 `request_logs.request_id` 一一对应，客户端反馈问题可据此检索日志。
+
 ## 后端配置
 
 配置主文件 `src/backend/backend.toml`，`src/backend/app/settings/config.py` 只负责加载。优先级：进程环境变量 → `.env` → `backend.toml`。

@@ -61,6 +61,8 @@ class UserSession(Base):
     device_info: Mapped[str | None] = mapped_column(String(255))
     ip_address: Mapped[str | None] = mapped_column(INET)
     user_agent: Mapped[str | None] = mapped_column(Text)
+    # 离线解析（ip2region xdb）：登录地「中国 北京 北京市 移动」；内网记「内网IP」；NULL=解析失败
+    location: Mapped[str | None] = mapped_column(String(128))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
