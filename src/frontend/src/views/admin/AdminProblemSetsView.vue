@@ -14,7 +14,6 @@ import RefreshButton from '@/components/RefreshButton.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import ProblemSetEditModal from '@/components/problemsets/ProblemSetEditModal.vue'
 import { adminListProblemSets } from '@/api/admin'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
@@ -83,10 +82,7 @@ const columns = computed<DataTableColumns<ProblemSetSummary>>(() => [
     key: 'title',
     minWidth: 240,
     render(row) {
-      return h('div', { class: 'set-name' }, [
-        h('strong', null, row.title),
-        row.description ? h('span', null, row.description) : null,
-      ])
+      return h('strong', null, row.title)
     },
   },
   {
@@ -147,10 +143,9 @@ function rowProps(row: ProblemSetSummary) {
   }
 }
 
-/** 新建题单弹窗（problemSet=null 表示新建） */
-const editorShow = ref(false)
+/** 新建走独立页面（表单含 Markdown 介绍）；编辑入口在题单详情页 */
 function openCreate() {
-  editorShow.value = true
+  router.push('/admin/problem-sets/new')
 }
 </script>
 
@@ -210,21 +205,9 @@ function openCreate() {
         <span class="pager__total">{{ t('problemSets.list.totalCount', { count: total }) }}</span>
       </template>
     </PaginatedDataTable>
-
-    <ProblemSetEditModal v-model:show="editorShow" :problem-set="null" @saved="load" />
   </WorkbenchShell>
 </template>
 
 <style scoped>
-.set-name {
-  display: grid;
-  gap: 4px;
-}
-.set-name strong {
-  font-size: 14px;
-}
-.set-name span {
-  color: var(--app-text-secondary);
-  font-size: 12px;
-}
+/* 列表标题列纯标题：简介只在详情页展示 */
 </style>

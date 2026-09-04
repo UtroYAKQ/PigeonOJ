@@ -89,6 +89,8 @@ class ProblemSetDetail(ProblemSetSummary):
 
     items: list[ProblemSetItemOut] = Field(default_factory=list)
     can_manage: bool = False
+    # 创建人昵称（详情页展示；列表不携带）
+    owner_name: str = ""
 
 
 class ProblemSetSubmissionCreate(BaseModel):

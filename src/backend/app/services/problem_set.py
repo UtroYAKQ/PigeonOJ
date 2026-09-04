@@ -96,7 +96,11 @@ class ProblemSetService:
         """题单内题目详情（统一入口）：归属校验通过后复用题库详情装配，
         结构与可见性门控与 GET /problems/{id} 完全一致（docs/contracts/problem-sets.md）。"""
         await self.ensure_set_problem(set_id, problem_id, viewer)
-        detail = await ProblemService(self.db).get_detail(problem_id, viewer)
+        # 私有题豁免：题单可见 + 归属校验即题目访问门（bypass_visibility），
+        # 创建者把私有题编入题单即视为通过题单分发
+        detail = await ProblemService(self.db).get_detail(
+            problem_id, viewer, bypass_visibility=True
+        )
         return to_problem_detail(detail)
 
     # ---------------- 查询 ----------------
@@ -137,6 +141,7 @@ class ProblemSetService:
             if viewer is not None and rows
             else {}
         )
+        owner = await self.db.get(User, problem_set.owner_id)
         return ProblemSetDetail(
             **to_summary(problem_set, len(rows)).model_dump(),
             items=[
@@ -152,6 +157,7 @@ class ProblemSetService:
                 for item, problem in rows
             ],
             can_manage=await self._can_manage(viewer, problem_set),
+            owner_name=owner.nickname if owner else "",
         )
 
     # ---------------- 管理 ----------------
@@ -191,7 +197,8 @@ class ProblemSetService:
     async def replace_items(
         self, set_id: uuid.UUID, user: User, body: ProblemSetItemsUpdate
     ) -> None:
-        """全量替换题单内题目：题目须为已发布的全站公开题；同一题单内不得重复。"""
+        """全量替换题单内题目：题目须为已发布，且（全站公开 或 创建者本人的私有题；
+        admin 同权）；同一题单内不得重复。"""
         problem_set = await self.require_manage(set_id, user)
 
         seen: set[uuid.UUID] = set()
@@ -200,9 +207,12 @@ class ProblemSetService:
                 raise APIError(RESOURCE_DUPLICATE, "题目在题单中重复", 409)
             seen.add(item.problem_id)
 
+        see_all = await is_admin(self.db, user)
         found = {
             problem.id: problem
-            for problem in await self.repo.list_accessible_problems(list(seen))
+            for problem in await self.repo.list_accessible_problems(
+                list(seen), viewer_id=user.id, see_all=see_all
+            )
         }
         missing = seen - set(found)
         if missing:

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import ProblemStatus, RuleType, SubmissionStatus, SubmitType
+from app.enums import ProblemStatus, ProblemVisibility, RuleType, SubmissionStatus, SubmitType
 from app.core.exceptions import (
     APIError,
     AUTH_FORBIDDEN,
@@ -68,8 +68,14 @@ class SelfTestService:
     async def create_order(self, user: object, problem_id: uuid.UUID, body: SelfTestRequest) -> SelfTestOrder:
         """校验并组装自测派发载荷：404 / 403（可见性）/ 1001（语言白名单）。"""
         problem = await get_problem(self.db, problem_id)
-        # 与题目详情页同一访问规则：已发布 或 具备管理权限（docs/contracts/judge.md 用户自测）
+        # 与题目详情页同一访问规则：已发布 或 具备管理权限；私有题额外要求创建者 / admin
+        # （题库裸路径严格校验；题单 / 比赛上下文经各自门控豁免）
         if problem.status != ProblemStatus.PUBLISHED and not await can_manage_problem(self.db, user, problem):
+            raise APIError(AUTH_FORBIDDEN, "无权限", 403)
+        if (
+            problem.visibility != ProblemVisibility.PUBLIC
+            and not await can_manage_problem(self.db, user, problem)
+        ):
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         config = await self.db.scalar(select(SandboxConfig).where(SandboxConfig.language == body.language))
         if config is None or not config.is_enabled:
@@ -107,10 +113,20 @@ class SubmissionService:
         self.test_cases = TestCaseRepository(db)
         self.judge = JudgeRepository()
 
-    async def create(self, user: object, body: SubmissionCreate) -> Submission:
+    async def create(
+        self, user: object, body: SubmissionCreate, *, bypass_visibility: bool = False
+    ) -> Submission:
         problem = await get_problem(self.db, body.problem_id)
         if problem.status != ProblemStatus.PUBLISHED:
             raise APIError(AUTH_FORBIDDEN, "题目未发布，不可提交", 403)
+        # 题库直提门控：私有题仅创建者 / admin（私有题的对外分发走题单 / 比赛上下文，
+        # 各自经 ensure_set_problem / 比赛可见窗口门控，docs/contracts/problems.md 可见性表）
+        if (
+            not bypass_visibility
+            and problem.visibility != ProblemVisibility.PUBLIC
+            and not await can_manage_problem(self.db, user, problem)
+        ):
+            raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         submission = Submission(
             user_id=user.id,
             problem_id=body.problem_id,

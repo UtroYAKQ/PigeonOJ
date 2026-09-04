@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
@@ -126,23 +126,34 @@ class ProblemSetRepository:
         self.db.add_all(items)
         await self.db.flush()
 
-    async def list_accessible_problems(self, problem_ids: list[uuid.UUID]) -> list[Problem]:
-        """按 id 批量取已发布的全站公开题目（题单条目候选校验）。
+    async def list_accessible_problems(
+        self,
+        problem_ids: list[uuid.UUID],
+        viewer_id: uuid.UUID | None = None,
+        see_all: bool = False,
+    ) -> list[Problem]:
+        """按 id 批量取可加入题单的题目（编排候选校验）。
 
-        团队题目（team_id）随 teams 模块引入后，此处需排除团队题库题目。
+        规则：须为已发布，且（全站公开 或 创建者本人的私有题）；admin 不受可见性限制。
+        未发布（草稿）/ 已归档的题目一律不可加入。
         """
         if not problem_ids:
             return []
-        return list(
-            (
-                await self.db.execute(
-                    select(Problem).where(
-                        Problem.id.in_(problem_ids),
-                        Problem.status == ProblemStatus.PUBLISHED,
-                        Problem.visibility == ProblemVisibility.PUBLIC,
-                    )
+        conditions: list = [
+            Problem.id.in_(problem_ids),
+            Problem.status == ProblemStatus.PUBLISHED,
+        ]
+        if not see_all:
+            if viewer_id is None:
+                return []
+            conditions.append(
+                or_(
+                    Problem.visibility == ProblemVisibility.PUBLIC,
+                    Problem.owner_id == viewer_id,
                 )
-            ).scalars()
+            )
+        return list(
+            (await self.db.execute(select(Problem).where(*conditions))).scalars()
         )
 
 

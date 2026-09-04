@@ -172,6 +172,32 @@ export const adminRoutes: RouteRecordRaw[] = [
             },
           },
           {
+            path: 'new',
+            name: 'problem-set-create',
+            component: () => import('@/views/admin/AdminProblemSetFormView.vue'),
+            meta: {
+              title: '新建题单',
+              titleKey: 'problemSets.list.createTitle',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemSetsManage', path: '/admin/problem-sets' },
+            },
+          },
+          {
+            path: ':id/edit',
+            name: 'problem-set-edit',
+            component: () => import('@/views/admin/AdminProblemSetFormView.vue'),
+            meta: {
+              title: '编辑题单',
+              titleKey: 'problemSets.detail.editTitle',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemSetsManage', path: '/admin/problem-sets' },
+            },
+          },
+          {
             path: ':id',
             name: 'admin-problem-set-detail',
             component: () => import('@/views/admin/AdminProblemSetDetailView.vue'),

@@ -1,100 +1,248 @@
 <script setup lang="ts">
 /**
- * 题单详情（管理后台，admin/tutor）：题单元信息 + 题单内题目编排视图。
- * 「编排题目」按钮打开共享编排弹窗；编辑信息 / 下线同样收敛在本页。
- * 点击题目跳转前台题单上下文写题页（/problem-sets/:setId/problems/:problemId）。
+ * 题单详情（管理后台，admin/tutor）：点进来即编排。
+ * 左 4/12：题单标题 / 元信息 / Markdown 说明；右 8/12：题目列表
+ * （行内上移 / 下移 / 移除即时保存，「添加题目」打开题库选择器弹窗）。
  */
 import { computed, h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NTag } from 'naive-ui'
+import { NButton, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
+import MarkdownView from '@/components/MarkdownView.vue'
+import ProblemPicker from '@/components/problemsets/ProblemPicker.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import ProblemSetArrangeModal from '@/components/problemsets/ProblemSetArrangeModal.vue'
-import ProblemSetEditModal from '@/components/problemsets/ProblemSetEditModal.vue'
-import { archiveProblemSet, getProblemSet } from '@/api/problemSets'
+import {
+  archiveProblemSet,
+  getProblemSet,
+  replaceProblemSetItems,
+} from '@/api/problemSets'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
-import { formatDateTime } from '@/utils/format'
-import type { ProblemSetDetail, ProblemSetItem, ProblemSetSummary } from '@/types'
+import type { ProblemSetDetail, ProblemSetItem, ProblemSummary } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 
+const setId = String(route.params.id)
 const loading = ref(false)
 const detail = ref<ProblemSetDetail | null>(null)
-
-const editorShow = ref(false)
-const arrangeShow = ref(false)
+/** 编排操作瞬时保存中（行内 ops 与添加按钮共用，避免并发写） */
+const arranging = ref(false)
+const pickerShow = ref(false)
 
 async function load() {
   loading.value = true
   try {
-    detail.value = await getProblemSet(String(route.params.id))
+    detail.value = await getProblemSet(setId)
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.loadFailed'))
+    router.push('/admin/problem-sets')
   } finally {
     loading.value = false
   }
 }
 onMounted(load)
 
-/** 共享弹窗消费的列表契约模型（编排弹窗按 id 拉详情） */
-const asSummary = computed<ProblemSetSummary | null>(() => {
-  if (!detail.value) return null
-  const { items: _items, can_manage: _can_manage, ...summary } = detail.value
-  return summary
-})
-
-const columns = computed<DataTableColumns<ProblemSetItem>>(() => [
-  {
-    title: t('problemSets.detail.orderLabel'),
-    key: 'sort_order',
-    width: 80,
-    render: (row) => String(row.sort_order + 1),
-  },
-  {
-    title: t('problemSets.detail.problems'),
-    key: 'title',
-    minWidth: 300,
-    render: (row) => h('strong', null, row.title),
-  },
-  {
-    title: t('problemSets.detail.difficulty'),
-    key: 'difficulty',
-    width: 100,
-    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
-  },
-])
-
-function goProblem(row: ProblemSetItem) {
-  if (!detail.value) return
-  // 题单管理内点击题目：只读预览（不进入写题页、不跳题库；契约约定）
-  router.push(`/admin/problem-sets/${detail.value.id}/problems/${row.problem_id}/preview`)
-}
-
-function rowProps(row: ProblemSetItem) {
-  return {
-    style: 'cursor: pointer;',
-    onClick: () => goProblem(row),
+/** 行内编排落库：以当前列表全量替换（含 sort_order），成功后刷新基线 */
+async function persistItems(items: ProblemSetItem[]) {
+  arranging.value = true
+  try {
+    await replaceProblemSetItems(setId, {
+      items: items.map((it, i) => ({ problem_id: it.problem_id, sort_order: i })),
+    })
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.saveFailed'))
+    await load() // 失败回滚到服务器权威状态
+  } finally {
+    arranging.value = false
   }
 }
 
-function doArchive() {
+function onPicked(problem: ProblemSummary) {
   if (!detail.value) return
+  if (detail.value.items.some((it) => it.problem_id === problem.id)) return
+  const items = [
+    ...detail.value.items,
+    {
+      problem_id: problem.id,
+      title: problem.title,
+      difficulty: problem.difficulty ?? null,
+      time_limit_ms: problem.time_limit_ms,
+      memory_limit_mb: problem.memory_limit_mb,
+      sort_order: detail.value.items.length,
+    },
+  ]
+  detail.value = { ...detail.value, items }
+  void persistItems(items)
+}
+
+function removeItem(row: ProblemSetItem) {
+  if (!detail.value) return
+  const items = detail.value.items.filter((it) => it.problem_id !== row.problem_id)
+  detail.value = { ...detail.value, items }
+  void persistItems(items)
+}
+
+function moveItem(index: number, delta: -1 | 1) {
+  if (!detail.value) return
+  const target = index + delta
+  if (target < 0 || target >= detail.value.items.length) return
+  const items = [...detail.value.items]
+  ;[items[index], items[target]] = [items[target], items[index]]
+  detail.value = { ...detail.value, items: items.map((it, i) => ({ ...it, sort_order: i })) }
+  void persistItems(detail.value.items)
+}
+
+/** 拖拽排序（原生 HTML5 DnD，零依赖）：dragover 高亮目标行，drop 后整体重排并落库 */
+const dragIndex = ref<number | null>(null)
+const overIndex = ref<number | null>(null)
+
+function onDragStart(index: number, event: DragEvent) {
+  dragIndex.value = index
+  if (event.dataTransfer) {
+    // dataTransfer 必须写入数据，否则 Firefox 不触发 dragover/drop
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(index))
+  }
+}
+
+function onDragOver(index: number, event: DragEvent) {
+  if (dragIndex.value === null) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  if (overIndex.value !== index) overIndex.value = index
+}
+
+function onDrop(index: number) {
+  if (dragIndex.value === null || !detail.value) return resetDragState()
+  const from = dragIndex.value
+  if (from !== index) {
+    const items = [...detail.value.items]
+    const [moved] = items.splice(from, 1)
+    items.splice(index, 0, moved)
+    detail.value = { ...detail.value, items: items.map((it, i) => ({ ...it, sort_order: i })) }
+    void persistItems(detail.value.items)
+  }
+  resetDragState()
+}
+
+function resetDragState() {
+  dragIndex.value = null
+  overIndex.value = null
+}
+
+function rowProps(row: ProblemSetItem, index: number) {
+  return {
+    draggable: !arranging.value,
+    class:
+      dragIndex.value === index
+        ? 'row-dragging'
+        : overIndex.value === index && dragIndex.value !== null
+          ? 'row-drop-target'
+          : '',
+    onDragstart: (event: DragEvent) => onDragStart(index, event),
+    onDragover: (event: DragEvent) => onDragOver(index, event),
+    onDrop: () => onDrop(index),
+    onDragend: resetDragState,
+  }
+}
+
+function goEdit() {
+  router.push(`/admin/problem-sets/${setId}/edit`)
+}
+
+function doArchive() {
   confirmAsyncDialog({
     title: t('problemSets.detail.archive'),
     content: t('problemSets.detail.archiveConfirm'),
     positiveText: t('problemSets.detail.archive'),
-    action: () => archiveProblemSet(detail.value!.id),
+    action: () => archiveProblemSet(setId),
     successMessage: t('common.success'),
     onAfterSuccess: () => {
       router.push('/admin/problem-sets')
     },
   })
 }
+
+function rowKey(row: ProblemSetItem) {
+  return row.problem_id
+}
+
+const columns = computed<DataTableColumns<ProblemSetItem>>(() => [
+  {
+    title: t('problemSets.detail.orderLabel'),
+    key: 'order',
+    width: 52,
+    render: (_row, index) => h('span', { class: 'item-order' }, String(index + 1)),
+  },
+  {
+    title: t('problemSets.list.titleLabel'),
+    key: 'title',
+    minWidth: 200,
+    render: (row) => h('span', { class: 'item-title' }, row.title),
+  },
+  {
+    title: t('problemSets.detail.difficulty'),
+    key: 'difficulty',
+    width: 80,
+    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
+  },
+  {
+    title: t('problems.list.limits'),
+    key: 'limits',
+    width: 150,
+    render: (row) => `${row.time_limit_ms ?? '--'} ms / ${row.memory_limit_mb ?? '--'} MB`,
+  },
+  {
+    title: '',
+    key: 'actions',
+    width: 150,
+    render(row) {
+      const index = detail.value?.items.findIndex((it) => it.problem_id === row.problem_id) ?? -1
+      const last = (detail.value?.items.length ?? 0) - 1
+      return h('div', { class: 'item-ops' }, [
+        h(
+          NButton,
+          {
+            text: true,
+            size: 'tiny',
+            disabled: index === 0 || arranging.value,
+            'aria-label': 'up',
+            onClick: () => moveItem(index, -1),
+          },
+          { default: () => '↑' },
+        ),
+        h(
+          NButton,
+          {
+            text: true,
+            size: 'tiny',
+            disabled: index === last || arranging.value,
+            'aria-label': 'down',
+            onClick: () => moveItem(index, 1),
+          },
+          { default: () => '↓' },
+        ),
+        h(
+          NButton,
+          {
+            text: true,
+            size: 'tiny',
+            type: 'error',
+            disabled: arranging.value,
+            onClick: () => removeItem(row),
+          },
+          { default: () => t('problemSets.detail.remove') },
+        ),
+      ])
+    },
+  },
+])
+
+const chosenIds = computed(() => new Set((detail.value?.items ?? []).map((it) => it.problem_id)))
 </script>
 
 <template>
@@ -104,6 +252,20 @@ function doArchive() {
         <strong class="detail-head__title">{{
           detail?.title ?? t('problemSets.detail.title')
         }}</strong>
+        <n-tag
+          v-if="detail"
+          size="small"
+          :bordered="false"
+          :type="detail.visibility === 'public' ? 'info' : 'error'"
+        >
+          {{
+            t(
+              detail.visibility === 'public'
+                ? 'problemSets.list.visibilityPublic'
+                : 'problemSets.list.visibilityPrivate',
+            )
+          }}
+        </n-tag>
         <n-tag v-if="detail?.status === 'archived'" type="warning" size="small">
           {{ t('problemSets.detail.archived') }}
         </n-tag>
@@ -111,10 +273,7 @@ function doArchive() {
     </template>
     <template #header-extra>
       <div v-if="detail" class="detail-actions">
-        <n-button type="primary" size="small" @click="arrangeShow = true">
-          {{ t('problemSets.detail.arrange') }}
-        </n-button>
-        <n-button size="small" @click="editorShow = true">
+        <n-button size="small" @click="goEdit">
           {{ t('problemSets.detail.edit') }}
         </n-button>
         <n-button
@@ -131,67 +290,58 @@ function doArchive() {
     </template>
 
     <n-spin :show="loading">
-      <div v-if="detail" class="detail-body">
-        <n-descriptions :column="3" size="small" label-placement="left" bordered>
-          <n-descriptions-item :label="t('problemSets.list.visibility')">
-            <n-tag
+      <div v-if="detail" class="detail-grid">
+        <!-- 左框：题单介绍（内部滚动）+ 元信息钉底 -->
+        <section class="panel">
+          <div class="panel__head">
+            <span>{{ t('problemSets.list.descLabel') }}</span>
+          </div>
+          <div class="panel__body panel__body--scroll">
+            <MarkdownView v-if="detail.description" :source="detail.description" />
+            <n-empty
+              v-else
               size="small"
-              :bordered="false"
-              :type="detail.visibility === 'public' ? 'success' : 'default'"
-            >
-              {{
-                t(
-                  detail.visibility === 'public'
-                    ? 'problemSets.list.visibilityPublic'
-                    : 'problemSets.list.visibilityPrivate',
-                )
-              }}
-            </n-tag>
-          </n-descriptions-item>
-          <n-descriptions-item :label="t('problemSets.list.status')">
-            <n-tag
-              size="small"
-              :bordered="false"
-              :type="detail.status === 'active' ? 'info' : 'warning'"
-            >
-              {{
-                t(
-                  detail.status === 'active'
-                    ? 'problemSets.list.active'
-                    : 'problemSets.detail.archived',
-                )
-              }}
-            </n-tag>
-          </n-descriptions-item>
-          <n-descriptions-item :label="t('problemSets.detail.problems')">
-            {{ t('problemSets.list.itemCount', { count: detail.item_count }) }}
-          </n-descriptions-item>
-          <n-descriptions-item :label="t('problemSets.list.descLabel')" :span="2">
-            {{ detail.description || '--' }}
-          </n-descriptions-item>
-          <n-descriptions-item :label="t('problemSets.list.createdAt')">
-            {{ formatDateTime(detail.created_at) }}
-          </n-descriptions-item>
-        </n-descriptions>
+              :description="t('problemSets.detail.noDescription')"
+              class="panel-empty"
+            />
+          </div>
+        </section>
 
-        <div class="detail-section__title">{{ t('problemSets.detail.problems') }}</div>
-        <n-data-table
-          v-if="detail.items.length"
-          :columns="columns"
-          :data="detail.items"
-          :loading="loading"
-          :bordered="false"
-          :bottom-bordered="false"
-          :row-props="rowProps"
-        />
-        <div v-else class="detail-empty">
-          <n-empty size="large" :description="t('problemSets.detail.empty')" />
-        </div>
+        <!-- 右框：题目列表（点进来即编排，表体内部滚动） -->
+        <section class="panel">
+          <div class="panel__head">
+            <span>{{ t('problemSets.detail.problems') }} · {{ detail.items.length }}</span>
+            <n-button
+              type="primary"
+              size="small"
+              :disabled="detail.status === 'archived' || arranging"
+              @click="pickerShow = true"
+            >
+              {{ t('problemSets.form.pickAdd') }}
+            </n-button>
+          </div>
+          <div class="panel__body panel__body--flush">
+            <n-data-table
+              size="small"
+              :columns="columns"
+              :data="detail.items"
+              :loading="loading"
+              :bordered="false"
+              :bottom-bordered="false"
+              :row-key="rowKey"
+              :row-props="rowProps"
+              :empty="t('problemSets.detail.empty')"
+            />
+          </div>
+        </section>
       </div>
     </n-spin>
 
-    <ProblemSetEditModal v-model:show="editorShow" :problem-set="asSummary" @saved="load" />
-    <ProblemSetArrangeModal v-model:show="arrangeShow" :problem-set="asSummary" @saved="load" />
+    <ProblemPicker
+      v-model:show="pickerShow"
+      :chosen-ids="chosenIds"
+      @add="onPicked"
+    />
   </WorkbenchShell>
 </template>
 
@@ -209,20 +359,83 @@ function doArchive() {
   gap: 8px;
   margin-right: 8px;
 }
-.detail-body {
+/* 布局思路（与前台题单详情同款）：固定部分自然排列，双框显式定高
+   calc(100dvh - 220px)（预算：顶栏 60 + 页面内边距 28 + 卡片头 ~60 + 卡片内边距 ~40
+   + 面板头/脚余量 ~32），不依赖 n-spin 内部结构传 flex 高度；
+   超出内容在框内滚动，页面级不出滚动条。 */
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  gap: 20px;
+  height: calc(100dvh - 190px);
+  min-height: 360px;
+}
+.panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  min-height: 240px;
+  min-height: 0;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-card-bg);
+  overflow: hidden; /* 圆角裁切内部滚动区 */
 }
-.detail-section__title {
-  font-weight: 600;
-  font-size: 14px;
-}
-.detail-empty {
+.panel__head {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 200px;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 12px 16px 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.panel__body {
+  flex: 1;
+  min-height: 0;
+}
+.panel__body--scroll {
+  overflow: auto;
+  padding: 4px 16px 12px;
+}
+.panel__body--flush {
+  overflow: auto;
+}
+.panel-empty {
+  padding: 32px 0;
+  display: grid;
+  place-items: center;
+}
+.item-order {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+/* 拖拽排序视觉：拖起行半透明，目标行顶部插入线指示落点 */
+.item-order {
+  cursor: grab;
+}
+:deep(.row-dragging) {
+  opacity: 0.45;
+}
+:deep(.row-drop-target) td {
+  box-shadow: inset 0 2px 0 0 var(--app-primary);
+}
+.item-title {
+  font-size: 13px;
+}
+.item-ops {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 960px) {
+  /* 窄屏：单列，两框自适应高度，不锁视口 */
+  .detail-grid {
+    height: auto;
+    grid-template-columns: 1fr;
+  }
+  .panel__body--scroll,
+  .panel__body--flush {
+    overflow: visible;
+  }
 }
 </style>

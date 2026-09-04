@@ -139,6 +139,7 @@ async def create_problem_set_submission(
     submission = await submission_service.create(
         user,
         SubmissionCreate(problem_id=problem_id, language=body.language, code=body.code),
+        bypass_visibility=True,  # 私有题豁免：题单门控（可见+归属）已通过
     )
     await db.commit()  # 显式提交：确保 submission 已持久化，dispatch_submission 才能找到它
     await dispatch_submission(submission.id)

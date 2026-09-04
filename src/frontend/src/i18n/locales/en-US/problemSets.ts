@@ -19,6 +19,18 @@
       status: 'Status',
       createdAt: 'Created at',
     },
+    form: {
+      basicTitle: 'Basics',
+      titlePlaceholder: 'Name your problem set',
+      visibilityTip: 'Public sets appear in the center; private sets are visible to the creator and managers only',
+      descPlaceholder: 'Write the introduction in Markdown: audience, suggestions, difficulty spread…',
+      createAction: 'Create set',
+      added: 'Added',
+      pickAdd: 'Add problems',
+    },
+    picker: {
+      title: 'Add problems from the pool',
+    },
     detail: {
       title: 'Problem set detail',
       problems: 'Problems',
@@ -36,7 +48,14 @@
       orderLabel: 'Order',
       difficulty: 'Difficulty',
       noResult: 'No matching problems',
+      noDescription: 'No introduction yet',
       backToSet: 'Back to set',
+      tabInfo: 'Info',
+      infoTitle: 'Set info',
+      ownerLabel: 'Created by {name}',
+      ownerLabelPlain: 'Created by',
+      progressTitle: 'My progress',
+      progressText: '{done} / {total} solved',
     },
   },
 }

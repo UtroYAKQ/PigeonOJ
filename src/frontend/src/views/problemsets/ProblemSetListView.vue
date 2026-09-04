@@ -61,14 +61,11 @@ const columns = computed<DataTableColumns<ProblemSetSummary>>(() => [
     key: 'title',
     minWidth: 280,
     render(row) {
-      return h('div', { class: 'set-name' }, [
-        h('div', { class: 'set-name__row' }, [
-          h('strong', null, row.title),
-          row.visibility === 'private'
-            ? h(NTag, { size: 'small', bordered: false, type: 'error' }, { default: () => t('problemSets.list.privateTag') })
-            : null,
-        ]),
-        row.description ? h('span', null, row.description) : null,
+      return h('div', { class: 'set-name__row' }, [
+        h('strong', null, row.title),
+        row.visibility === 'private'
+          ? h(NTag, { size: 'small', bordered: false, type: 'error' }, { default: () => t('problemSets.list.privateTag') })
+          : null,
       ])
     },
   },

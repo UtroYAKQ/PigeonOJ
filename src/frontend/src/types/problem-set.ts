@@ -32,6 +32,8 @@ export interface ProblemSetSummary {
 export interface ProblemSetDetail extends ProblemSetSummary {
   items: ProblemSetItem[]
   can_manage: boolean
+  /** 创建人昵称（详情页展示；列表不携带） */
+  owner_name: string
 }
 
 export interface ProblemSetCreatePayload {

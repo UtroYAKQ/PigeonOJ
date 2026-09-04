@@ -513,7 +513,9 @@ class ContestService:
             raise APIError(AUTH_FORBIDDEN, "比赛尚未开始，题目不可见", 403)
         if await self.repo.get_contest_problem(contest.id, problem_id) is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不在该比赛中", 404)
-        detail = await ProblemService(self.db).get_detail(problem_id, user)
+        detail = await ProblemService(self.db).get_detail(
+            problem_id, user, bypass_visibility=True
+        )
         return to_problem_detail(detail)
 
     async def submit_problem(

@@ -21,12 +21,13 @@ TUTOR_ROLE_ID = uuid_mod.UUID("22222222-2222-2222-2222-222222222222")
 
 
 async def _seed_problem(
-    title: str, *, status: str = "published", visibility: str = "public"
+    title: str, *, status: str = "published", visibility: str = "public",
+    owner_email: str = "admin@pigeonoj.dev",
 ) -> str:
     """种子题目：published 需带 verified_at（CHECK 约束）。"""
     async with SessionLocal() as db:
         uid = (
-            await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))
+            await db.execute(select(User).where(User.email == owner_email))
         ).scalar_one().id
         problem = Problem(
             title=title,
@@ -202,6 +203,72 @@ async def test_center_mine_shows_own_private(client: httpx.AsyncClient) -> None:
     # 匿名：mine=true → 401
     resp = await client.get("/api/v1/problem-sets?mine=true")
     assert resp.status_code == 401
+
+
+async def test_private_problem_context_access_control(
+    client: httpx.AsyncClient, user_headers, admin_headers
+) -> None:
+    """私有已发布题访问矩阵：创建者经题单上下文可看可交；他人题单内可看可交
+    （创建者编入即视为经题单分发）；题库裸路径一律 403（直访 / 直提 / 提交列表 / 自测）。"""
+    tutor = await _tutor_headers(client)
+    pid = await _seed_problem(
+        "上下文私有题", visibility="private", owner_email="tutor@pigeonoj.dev"
+    )
+
+    sid = (
+        await client.post("/api/v1/problem-sets", json={"title": "上下文公开题单"}, headers=tutor)
+    ).json()["data"]["id"]
+    resp = await client.put(
+        f"/api/v1/problem-sets/{sid}/items", json={"items": [{"problem_id": pid}]}, headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text  # 创建者可把自己的私有题编入题单
+
+    # ---- 创建者（tutor）：题库裸路径放行 ----
+    assert (await client.get(f"/api/v1/problems/{pid}", headers=tutor)).json()["code"] == 0
+    r = await client.post(
+        "/api/v1/submissions",
+        json={"problem_id": pid, "language": "cpp17", "code": "int main(){}"},
+        headers=tutor,
+    )
+    assert r.json()["code"] == 0
+
+    # ---- 他人（user）：题单上下文放行 ----
+    assert (
+        await client.get(f"/api/v1/problem-sets/{sid}/problems/{pid}", headers=user_headers)
+    ).json()["code"] == 0
+    r = await client.post(
+        f"/api/v1/problem-sets/{sid}/problems/{pid}/submissions",
+        json={"language": "cpp17", "code": "int main(){}"},
+        headers=user_headers,
+    )
+    assert r.json()["code"] == 0, r.text
+
+    # ---- 他人（user）：题库裸路径一律 403 ----
+    r = await client.get(f"/api/v1/problems/{pid}", headers=user_headers)
+    assert r.status_code == 403, r.text
+    r = await client.post(
+        "/api/v1/submissions",
+        json={"problem_id": pid, "language": "cpp17", "code": "int main(){}"},
+        headers=user_headers,
+    )
+    assert r.status_code == 403, r.text
+    r = await client.get(f"/api/v1/problems/{pid}/submissions", headers=user_headers)
+    assert r.json()["code"] == 2003
+    r = await client.post(
+        f"/api/v1/problems/{pid}/run-code",
+        json={"language": "cpp17", "code": "int main(){}", "input": ""},
+        headers=user_headers,
+    )
+    assert r.status_code == 403, r.text
+
+    # 未发布（草稿）不可加入题单（任何角色）
+    draft = await _seed_problem("草稿题2", status="draft")
+    resp = await client.put(
+        f"/api/v1/problem-sets/{sid}/items",
+        json={"items": [{"problem_id": pid}, {"problem_id": draft}]},
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 1001
 
 
 async def test_replace_items_validation_and_ordering(client: httpx.AsyncClient) -> None:

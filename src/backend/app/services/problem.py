@@ -252,12 +252,23 @@ class ProblemService:
             await self._sync_tags(problem.id, body.tags)
         return problem
 
-    async def get_detail(self, problem_id: uuid.UUID, user: object | None) -> ProblemDetailData:
+    async def get_detail(
+        self, problem_id: uuid.UUID, user: object | None, *, bypass_visibility: bool = False
+    ) -> ProblemDetailData:
         problem = await self.problems.get_by_id(problem_id)
         if problem is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不存在", 404)
         can_manage = user is not None and await _can_manage(self.db, user, problem)
         if not can_manage and problem.status != ProblemStatus.PUBLISHED:
+            raise APIError(AUTH_FORBIDDEN, "无权限", 403)
+        # 私有题仅创建者 / admin 可见（docs/contracts/problems.md 可见性表）；
+        # 题单 / 比赛等引用上下文经各自门控（题单可见 + 归属 / 比赛可见窗口）传入
+        # bypass_visibility=True，题库裸路径（直访 / 交题 / 自测）一律严格校验。
+        if (
+            not bypass_visibility
+            and not can_manage
+            and problem.visibility != ProblemVisibility.PUBLIC
+        ):
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         tags = await self.verifications.tag_names(problem_id)
         tag_names = sorted(tags)
@@ -287,12 +298,14 @@ class ProblemService:
         updated_at = await self.test_cases.max_updated_at(problem_id, ids)
         return TestCaseListOut(cases=cases, updated_at=updated_at)
 
-    async def get_detail_view(self, problem_id: uuid.UUID, user: object | None) -> ProblemDetail:
+    async def get_detail_view(
+        self, problem_id: uuid.UUID, user: object | None, *, bypass_visibility: bool = False
+    ) -> ProblemDetail:
         """路由侧装配：详情聚合 + 契约模型转换一步到位。
 
         路由层经 app/api/deps.py 注入本服务后无需再引用模块级装配函数。
         """
-        return to_problem_detail(await self.get_detail(problem_id, user))
+        return to_problem_detail(await self.get_detail(problem_id, user, bypass_visibility=bypass_visibility))
 
     async def on_submission_finalized(self, submission: Submission, status: str) -> None:
         """判题终态回写端口：通过率计数 + 验题状态机推进（judge 上下文唯一入口）。

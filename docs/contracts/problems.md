@@ -140,12 +140,12 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 | 题目类型 | `team_id` | 可用 `visibility` | 题库中心可见？ | 说明 |
 | --- | --- | --- | --- | --- |
-| 全站题目 | NULL | `private` / `public` | 仅 `public` | `private` 仅创建者可见 |
+| 全站题目 | NULL | `private` / `public` | 仅 `public` | `private` 仅创建者可见（admin 同权）；题库裸路径（直访详情 / 直提 / 提交列表 / 自测）按本表严格校验 |
 | 团队题目 | 非空 | `admin_visible`（默认）/ `team_visible` | 否 | 团队题库内按可见性展示；不提供进入题库中心的通道 |
 
 - 生命周期（`status`）与可见性（`visibility`）正交：草稿 / 发布 / 归档由 `status` 表达，私有 / 管理可见 / 团队可见 / 全站公开由 `visibility` 表达
 - 题目被题单 / 比赛引用时不物理删除，下线走 `status='archived'`；引用后不自动改变题目在题库中心的可见性
-- 用户在题单或比赛中访问题目时，按题单或比赛本身的访问权限展示题面
+- 用户在题单或比赛中访问题目时，按题单或比赛本身的访问权限展示题面；创建者把私有题编入题单 / 比赛即视为经该上下文分发——引用上下文内（详情 / 交题）放行，题库裸路径仍按可见性门控（见 `problem-sets.md` / `contests.md` 编排规则）
 
 ## 端点
 

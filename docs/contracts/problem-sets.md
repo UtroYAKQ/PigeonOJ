@@ -62,7 +62,7 @@ CHECK (
 | GET | /problem-sets/{id}/problems/{pid} | public/owner | **题单内题目详情（统一入口）**：题单可见 + 题目属于该题单校验（题目不属于该题单 3001）后，返回与 `GET /problems/{id}` 完全一致的详情装配；题单上下文内前端只调本端点 | - | problem |
 | POST | /problem-sets/{id}/problems/{pid}/submissions | auth | 题单内交题：题单须可见（私有 / 已下线按可见性拦截 2003）、题目必须属于该题单（否则 3001）；落库 / 派发 / 计分与 `POST /submissions` 完全一致（`submit_type='practice'`） | language/code（≤64KB） | submission_id / status |
 | PUT | /problem-sets/{id} | admin/tutor | 编辑题单元信息（title / description / visibility，缺省不动） | title?/description?/visibility? | problem_set |
-| PUT | /problem-sets/{id}/items | admin/tutor/team_creator/team_admin | 编排题目：全量替换题单内列表；题目须为已发布的全站公开题目（草稿 / 私有 / 团队题目返回 1001），同一题单内重复返回 3003 | items[{problem_id, sort_order}] | - |
+| PUT | /problem-sets/{id}/items | admin/tutor/team_creator/team_admin | 编排题目：全量替换题单内列表；可编排题目 = 已发布且（全站公开 **或 本人私有**，admin 同权；与比赛编排同规则，草稿 / 归档 / 他人私有返回 1001）；同一题单内重复返回 3003 | items[{problem_id, sort_order}] | - |
 | POST | /problem-sets/{id}/archive | admin/tutor | 下线题单（`status='archived'`，退出题单中心；创建者 / 管理角色仍可直接访问详情） | - | problem_set |
 
 > 团队题单端点（`GET /teams/{team_id}/problem-sets` 等）随 teams 模块一并实现；
@@ -89,7 +89,7 @@ CHECK (
 ## 关键流程 / 验收条件
 
 1. **创建题单**：公开题单由 `admin/tutor` 创建（`team_id` 为空）；团队题单由团队创建者 / 管理员创建（`team_id` 必填，`visibility='team'`）。
-2. **编排题目**：`PUT /problem-sets/{id}/items` 全量替换题目列表；题目从可访问题目中选择（团队题单可选公开题库或团队题库题目）。
+2. **编排题目**：`PUT /problem-sets/{id}/items` 全量替换题目列表；可编排题目 = 已发布且（全站公开 或 本人私有，admin 同权，与比赛编排规则一致）。私有题编入题单即视为经题单分发：题单上下文（`GET /problem-sets/{id}/problems/{pid}` 与题单内交题）凭题单可见 + 归属校验放行（bypass 题目可见性）；题库裸路径（直访详情 / `POST /submissions` 直提 / 提交列表 / 自测）仍按题目可见性严格校验——私有题仅创建者与 admin 可从题库侧访问。
 3. **刷题**：题单内题目按 `sort_order` 展示，但刷题不强制按顺序完成；题单上下文写题页经
    题单交题接口提交（题目归属校验通过后复用统一判题链路），评测结果在题单路由内查看。
 4. **管理端题目访问约束（契约级）**：管理后台 `/admin/problem-sets/:setId`（题单详情）内点击题目
