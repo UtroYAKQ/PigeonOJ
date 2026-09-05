@@ -5,6 +5,7 @@
  */
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { NTag } from 'naive-ui'
 
 import { problemStatusLabelKey, problemStatusTagType } from '@/constants/problemStatus'
 import type { ProblemDetail } from '@/types'
@@ -68,7 +69,17 @@ const passRate = computed(() => {
       >
         {{ t('problems.preview.needsReverification') }}
       </n-tag>
-      <n-tag v-for="tag in problem.tags" :key="tag" size="small" round>{{ tag }}</n-tag>
+    </div>
+    <div v-if="problem.tags?.length" class="problem-meta-bar__tags problem-meta-bar__tags--standalone">
+      <n-tag
+        v-for="tag in problem.tags"
+        :key="tag.id"
+        size="small"
+        :bordered="false"
+        :color="tag.color ? { color: tag.color, textColor: '#fff' } : undefined"
+      >
+        {{ tag.name }}
+      </n-tag>
     </div>
   </div>
 </template>
@@ -88,6 +99,9 @@ const passRate = computed(() => {
   font-size: 12px;
 }
 .problem-meta-bar__title + .problem-meta-bar__tags {
+  margin-top: 8px;
+}
+.problem-meta-bar__tags--standalone {
   margin-top: 8px;
 }
 </style>

@@ -28,6 +28,12 @@ class TagService:
         """激活标签（公开：打标选择器与题库筛选用）。"""
         return await self.repo.list_active()
 
+    async def list_page(
+        self, keyword: str | None, page: int, page_size: int
+    ) -> tuple[list[ProblemTag], int]:
+        """激活标签分页列表（支持 keyword 搜索）。"""
+        return await self.repo.list_page(keyword, page, page_size)
+
     async def list_all(self) -> list[ProblemTag]:
         """管理全量列表：激活在前，归档在后，组内按名称排序。"""
         return await self.repo.list_all()

@@ -249,6 +249,8 @@ class ProblemSummary(BaseModel):
     accepted_count: int = 0
     # 当前用户作答状态（登录请求回填）：True=已通过 / False=已尝试未通过 / None=未提交过或未登录
     solved: bool | None = None
+    # 标签列表（含 id/name/color，用于前端渲染彩色标签）
+    tags: list[TagPublic] = Field(default_factory=list)
 
 
 class TestCaseOut(BaseModel):
@@ -310,7 +312,7 @@ class ProblemDetail(BaseModel):
     submission_count: int = 0
     accepted_count: int = 0
     samples: list[SampleOut] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list)
+    tags: list[TagPublic] = Field(default_factory=list)
     can_manage: bool = False
     needs_reverification: bool = False
     case_status: str | None = None
@@ -338,7 +340,7 @@ class VerificationInviteOut(BaseModel):
     input_description: str | None
     output_description: str | None
     note: str | None = None
-    tags: list[str]
+    tags: list[TagPublic] = Field(default_factory=list)
     time_limit_ms: int
     memory_limit_mb: int
     samples: list[SampleOut]

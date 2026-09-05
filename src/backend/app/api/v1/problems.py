@@ -69,6 +69,7 @@ async def list_problems(
         items.append(item)
     await service.attach_counters(items)
     await service.attach_solve_status(items, user)
+    await service.attach_tags(items)
     return ok(PaginatedResponse(items=items, total=total, page=query.page, page_size=query.page_size))
 
 
@@ -83,15 +84,36 @@ async def create_problem(
     await db.commit()  # 显式提交：确保数据持久化后再返回（get_db 会再次 commit，但无害）
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
+    await service.attach_tags([summary])
     return ok(summary)
 
 
-@router.get("/problems/tags", response_model=ApiResponse[list[TagPublic]])
-async def list_active_tags(service: TagServiceDep) -> ApiResponse[list[TagPublic]]:
+@router.get("/problems/tags")
+async def list_active_tags(
+    service: TagServiceDep,
+    keyword: str | None = Query(default=None, max_length=64),
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=100),
+) -> ApiResponse[list[TagPublic] | PaginatedResponse[TagPublic]]:
     """激活标签列表（public：打标选择器与题库筛选；docs/contracts/problems.md 端点表）。
 
     注意必须先于 /problems/{problem_id} 注册，否则 tags 会被当作 uuid 解析。
+
+    无 keyword / page / page_size：返回全量激活标签（向后兼容旧前端）。
+    传入 page（同时传 page_size）：返回分页结果（带 keyword 搜索）。
     """
+    if page is not None:
+        # 分页模式：支持搜索
+        if page_size is None:
+            page_size = 20
+        rows, total = await service.list_page(keyword, page, page_size)
+        return ok(PaginatedResponse(
+            items=[TagPublic.model_validate(row) for row in rows],
+            total=total,
+            page=page,
+            page_size=page_size,
+        ))
+    # 兼容模式：返回全量激活标签
     rows = await service.list_active()
     return ok([TagPublic.model_validate(row) for row in rows])
 
@@ -116,6 +138,7 @@ async def update_problem(
     await db.commit()  # 显式提交：确保数据持久化
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
+    await service.attach_tags([summary])
     return ok(summary)
 
 
@@ -172,6 +195,7 @@ async def apply_test_cases(
     await db.commit()
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
+    await service.attach_tags([summary])
     return ok(summary)
 
 
@@ -198,6 +222,7 @@ async def publish_problem(
     await db.commit()  # 显式提交：确保数据持久化
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
+    await service.attach_tags([summary])
     return ok(summary)
 
 
@@ -212,6 +237,7 @@ async def archive_problem(
     await db.commit()  # 显式提交：确保数据持久化
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
+    await service.attach_tags([summary])
     return ok(summary)
 
 

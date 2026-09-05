@@ -113,9 +113,32 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
     },
   },
   {
+    title: t('problems.list.tags'),
+    key: 'tags',
+    width: 200,
+    render(row) {
+      const tags = row.tags ?? []
+      if (tags.length === 0) return null
+      return h('div', { class: 'problem-tags' }, [
+        h(NTag,
+          {
+            size: 'small',
+            round: true,
+            bordered: false,
+            color: tags[0].color ? { color: tags[0].color, textColor: '#fff' } : undefined,
+          },
+          { default: () => tags[0].name },
+        ),
+        tags.length > 1
+          ? h(NTag, { size: 'small', round: true, bordered: false }, { default: () => `+${tags.length - 1}` })
+          : null,
+      ])
+    },
+  },
+  {
     title: t('problems.list.limits'),
     key: 'limits',
-    width: 220,
+    width: 180,
     render: (row) => `${row.time_limit_ms} ms / ${row.memory_limit_mb} MB`,
   },
   {
@@ -250,5 +273,10 @@ function rowProps(row: ProblemSummary) {
 }
 .difficulty-filter__sep {
   color: var(--app-text-secondary);
+}
+.problem-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 </style>
