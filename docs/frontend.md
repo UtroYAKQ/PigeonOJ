@@ -38,6 +38,7 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 - 复用 `components/PaginatedDataTable.vue` + `composables/usePagination.ts`（含空态垂直居中 + 底部分页条，页面不得手写同构样板）
 - 工作台高度两种模式：**默认锁定一屏**——表格接 `table-fill`（或 `flex-height`），表体内部滚动，筛选栏 / 分页条恒可见；**自然高度**——表格随内容增长、整页滚动到底（如系统日志页），空态独立占位在剩余空间居中、分页条 `margin-top: auto` 沉底，两种模式均不得让短页面塌陷或出现双重滚动条
 - 外壳复用 `components/WorkbenchShell.vue`（page-fill 视口锁定 + 无边框卡片；支持 `title` / `header` / `header-extra` 插槽），页面不得手写 `.page-fill` + `n-card` 样板；表格区 `table-fill`，空态经 `table-fill-empty` 居中
+- **空态样板（卡片墙等非表格内容区同样适用）**：空态 div 必须是内容区的**兄弟节点**（卡片内容 flex 列的直接子元素）并使用全局类 `table-fill-empty`（`flex: 1 + grid place-items: center`，main.css），与内容区以 `v-show` 互斥切换（v-if 分支锚点增删会触发 Vue patch 崩溃）；内容区外包 `n-spin` 时挂 `class="table-fill"` 并以 `content-style="height: 100%; overflow: auto"` 打通高度链——**不得**把空态嵌进 `n-spin` 内部、也不得依赖 scoped / `:deep` 规则命中 naive-ui 内部 DOM（组件内部节点不带页面 scope 属性，样式静默失效、空态贴顶不居中）
 - 字典层标签类型（`TagType`）渲染到 `n-tag` 时须经 `toNaiveTagType()` 映射（danger → error）
 
 ### 按钮与表单

@@ -122,8 +122,16 @@ onMounted(load)
       </template>
     </SearchFilterBar>
 
-    <n-spin :show="loading" class="cards-fill">
-      <div v-if="list.length" class="cards">
+    <!-- 与题库 / 题单（PaginatedDataTable）同构：spin 只渲染卡片墙（全局类 table-fill 吃满），
+         空态为其兄弟节点、用全局类 table-fill-empty 拉伸居中；
+         v-show 而非 v-if（分支锚点增删会触发 Vue patch 崩溃，同 PaginatedDataTable 注释） -->
+    <n-spin
+      v-show="loading || list.length"
+      :show="loading"
+      class="table-fill"
+      content-style="height: 100%; overflow: auto"
+    >
+      <div class="cards">
         <article
           v-for="team in list"
           :key="team.id"
@@ -169,16 +177,10 @@ onMounted(load)
           </div>
         </article>
       </div>
-      <div v-else-if="!loading" class="cards-empty">
-        <n-empty size="large" :description="t('teams.list.empty')">
-          <template #extra>
-            <n-button v-if="canCreate" type="primary" size="small" @click="showCreate = true">
-              {{ t('teams.list.create') }}
-            </n-button>
-          </template>
-        </n-empty>
-      </div>
     </n-spin>
+    <div v-show="!loading && !list.length" class="table-fill-empty">
+      <n-empty size="large" :description="t('teams.list.empty')" />
+    </div>
 
     <div v-if="total > 0" class="pager">
       <span class="pager__total">{{ t('teams.list.totalCount', { count: total }) }}</span>
@@ -241,28 +243,14 @@ onMounted(load)
 </template>
 
 <style scoped>
-/* 视口锁定高度链：page-fill 的直接子元素需吃满剩余高度，分页器才能钉底 */
-.cards-fill {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-.cards-fill :deep(.n-spin-container),
-.cards-fill :deep(.n-spin-content) {
-  height: 100%;
-}
+/* 空态与高度链由全局类 table-fill / table-fill-empty 承载（main.css），
+   与题库 / 题单列表同一机制 */
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
   min-height: 240px;
   align-content: start;
-}
-.cards-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
 }
 
 /* ---- 团队卡片：单行头部（头像 + 名称 + 右侧角色点标），纯平面极简 ---- */

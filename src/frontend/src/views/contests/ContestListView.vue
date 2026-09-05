@@ -110,8 +110,16 @@ function openContest(row: ContestSummary) {
       </template>
     </SearchFilterBar>
 
-    <n-spin :show="loading" class="cards-fill">
-      <div v-if="rows.length" class="cards">
+    <!-- 与题库 / 题单（PaginatedDataTable）同构：spin 只渲染卡片墙（全局类 table-fill 吃满），
+         空态为其兄弟节点、用全局类 table-fill-empty 拉伸居中；
+         v-show 而非 v-if（分支锚点增删会触发 Vue patch 崩溃，同 PaginatedDataTable 注释） -->
+    <n-spin
+      v-show="loading || rows.length"
+      :show="loading"
+      class="table-fill"
+      content-style="height: 100%; overflow: auto"
+    >
+      <div class="cards">
         <article
           v-for="row in rows"
           :key="row.id"
@@ -164,10 +172,10 @@ function openContest(row: ContestSummary) {
           </div>
         </article>
       </div>
-      <div v-else-if="!loading" class="cards-empty">
-        <n-empty size="large" :description="t('contests.list.empty')" />
-      </div>
     </n-spin>
+    <div v-show="!loading && !rows.length" class="table-fill-empty">
+      <n-empty size="large" :description="t('contests.list.empty')" />
+    </div>
 
     <div v-if="total > 0" class="pager">
       <span class="pager__total">{{ t('contests.list.totalCount', { count: total }) }}</span>
@@ -196,28 +204,14 @@ function openContest(row: ContestSummary) {
 </template>
 
 <style scoped>
-/* 视口锁定高度链：page-fill 的直接子元素需吃满剩余高度，分页器才能钉底 */
-.cards-fill {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-.cards-fill :deep(.n-spin-container),
-.cards-fill :deep(.n-spin-content) {
-  height: 100%;
-}
+/* 空态与高度链由全局类 table-fill / table-fill-empty 承载（main.css），
+   与题库 / 题单列表同一机制 */
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
   min-height: 240px;
   align-content: start;
-}
-.cards-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
 }
 
 /* ---- 卡片：单行头部（头像 + 标题 + 右侧状态点标），纯平面极简 ---- */
