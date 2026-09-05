@@ -115,6 +115,7 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 | `judge:cooldown:<user_id>:<problem_id>` | 提交冷却 | 冷却时长 |
 | `judge:selftest:<user_id>:<problem_id>` | 用户自测冷却 | 复用冷却配置 |
 | `judge:requeue:<submission_id>` | 维护循环重派互斥锁 | 重派窗口 |
+| `upload:rate:<kind>:<user_id>` | 文件上传固定窗口计数（kind = avatar / image / site_logo） | 窗口（1 小时） |
 
 ### 缓存一致性
 

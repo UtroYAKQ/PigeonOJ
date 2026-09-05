@@ -83,8 +83,8 @@
 | POST | /auth/change-password | auth | 修改密码 | old_password, new_password | - |
 | POST | /auth/change-email | auth | 换绑邮箱 | new_email, code | - |
 | GET | /users/me | auth | 当前用户 | - | user |
-| PUT | /users/me | auth | 更新资料 | nickname/signature/theme/avatar_url（头像存站内完整文件 URL `/api/v1/files/users/{uid}/avatar/…`——前端直接使用 `POST /files/upload/avatar` 返回的 `url`——或可信外链 `http(s)://…`；不接受裸 `oss_id`） | user |
-| POST | /files/upload/avatar | auth | 上传头像 | multipart file，≤2MB，JPG/PNG/WEBP/GIF | url（站内文件 URL） |
+| PUT | /users/me | auth | 更新资料 | nickname/signature/theme/avatar_url（头像存站内完整文件 URL `/api/v1/files/users/{uid}/avatar/…`——前端直接使用 `POST /files/upload/avatar` 返回的 `url`——或可信外链 `http(s)://…`；不接受裸 `oss_id`；替换时 best-effort 删除被替换的站内旧头像对象） | user |
+| POST | /files/upload/avatar | auth | 上传头像（频控 ≤10 次/小时/用户，超次 4002） | multipart file，≤2MB，JPG/PNG/WEBP/GIF | url（站内文件 URL） |
 | DELETE | /users/me | auth | 注销账号（软注销） | password | - |
 | GET | /users/me/sessions | auth | 会话列表 | - | session[] |
 | DELETE | /users/me/sessions/{sid} | owner | 注销指定会话 | - | - |

@@ -8,6 +8,7 @@ Key 约定见 docs/operations.md「Redis 约定」：
 - `login:lock:<email>`            登录临时锁定标记（TTL 到期自动恢复，不改动账号状态）
 - `rank:contest:<id>`             榜单读缓存（权威在 contest_rankings，写路径主动失效）
 - `sandbox:node:<id>`             沙箱节点运行时状态
+- `upload:rate:<kind>:<user_id>`  文件上传固定窗口计数（频控）
 
 客户端按事件循环隔离：API 进程单循环、Judge Worker 每个任务 asyncio.run 独立循环、
 心跳线程另有循环；aioredis 连接绑定创建时的循环，跨循环复用会报

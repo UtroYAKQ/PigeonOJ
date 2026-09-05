@@ -57,6 +57,7 @@ from app.utils.security import generate_token, hash_password, hash_token, verify
 from app.utils.validation import validate_email, validate_nickname, validate_password
 from app.services.system_config import ConfigService
 from app.settings.config import get_settings
+from app.core.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,15 @@ SESSION_TTL_DAYS = 30  # 会话有效期（天）
 LOGIN_FAIL_WINDOW_SECONDS = 900  # 登录失败计数窗口（15 分钟）
 LOGIN_FAIL_MAX = 5  # 触发临时锁定的失败次数
 LOGIN_LOCK_SECONDS = 900  # 临时锁定时长（15 分钟，到期自动恢复）
+
+
+async def _delete_site_avatar(avatar_url: str) -> None:
+    """删除被替换的站内旧头像对象（best-effort：存储失败只记日志，不影响资料更新）。"""
+    object_key = avatar_url.removeprefix("/api/v1/files/")
+    try:
+        await get_storage().delete(object_key)
+    except Exception:  # noqa: BLE001 - 清理失败（含 MinIO 瞬断）不影响资料更新
+        logger.warning("旧头像对象清理失败（忽略）：%s", object_key)
 
 
 def _smtp_send(cfg: SMTPConfig, message: EmailMessage) -> None:
@@ -159,7 +169,11 @@ class UserService:
                 raise APIError(PARAM_FORMAT_INVALID, "头像必须使用当前用户上传的站内文件 URL 或可信外链", 400)
             if len(patch.avatar_url) > 512:
                 raise APIError(PARAM_FORMAT_INVALID, "头像地址过长（≤512）", 400)
+            old_avatar = user.avatar_url
             user.avatar_url = patch.avatar_url
+            # 换头像时清理被替换的站内旧头像对象，防孤儿对象无限累积
+            if old_avatar and old_avatar != patch.avatar_url and old_avatar.startswith(site_prefix):
+                await _delete_site_avatar(old_avatar)
         if patch.theme is not None:
             if patch.theme not in VALID_THEMES:
                 raise APIError(PARAM_FORMAT_INVALID, "主题仅支持 light / dark", 400)

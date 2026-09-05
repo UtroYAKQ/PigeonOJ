@@ -6,7 +6,8 @@ from typing import TypeVar
 
 from fastapi import UploadFile
 
-from app.core.exceptions import APIError, PARAM_FORMAT_INVALID, SYSTEM_UPSTREAM_FAILURE
+from app.core.exceptions import APIError, PARAM_FORMAT_INVALID, RATE_LIMITED, SYSTEM_UPSTREAM_FAILURE
+from app.core.redis import redis_incr
 from app.core.storage import S3Error, get_storage
 from app.schemas.file import AvatarUploadResult, ImageUploadResult
 
@@ -14,7 +15,22 @@ _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 _MAX_AVATAR_BYTES = 2 * 1024 * 1024
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
+# 上传频控（docs/security.md「上传与文件安全」）：按用户 Redis 固定窗口计数，
+# 防止循环上传垃圾对象耗尽对象存储；仅通过类型/大小校验、即将写入存储的请求消耗配额
+_UPLOAD_QUOTAS = {
+    "avatar": (10, 3600),   # (窗口内次数上限, 窗口秒数)
+    "image": (30, 3600),
+    "site_logo": (10, 3600),
+}
+
 R = TypeVar("R", AvatarUploadResult, ImageUploadResult)
+
+
+async def _ensure_upload_quota(user_id: uuid.UUID, kind: str) -> None:
+    limit, window = _UPLOAD_QUOTAS[kind]
+    count = await redis_incr(f"upload:rate:{kind}:{user_id}", ttl_seconds=window)
+    if count > limit:
+        raise APIError(RATE_LIMITED, "上传过于频繁，请稍后再试", 429)
 
 
 class FileService:
@@ -26,6 +42,7 @@ class FileService:
             size_error="头像大小不能超过 2MB",
             empty_error="头像文件不能为空",
         )
+        await _ensure_upload_quota(user_id, "avatar")
 
         object_key = f"users/{user_id}/avatar/{uuid.uuid4().hex}"
         return await _store_image(object_key, content_type, content, AvatarUploadResult)
@@ -39,11 +56,12 @@ class FileService:
             size_error="图片大小不能超过 5MB",
             empty_error="图片文件不能为空",
         )
+        await _ensure_upload_quota(user_id, "image")
 
         object_key = f"users/{user_id}/images/{uuid.uuid4().hex}"
         return await _store_image(object_key, content_type, content, ImageUploadResult)
 
-    async def upload_site_logo(self, file: UploadFile) -> ImageUploadResult:
+    async def upload_site_logo(self, user_id: uuid.UUID, file: UploadFile) -> ImageUploadResult:
         """站点 Logo 上传：仅 admin，供站点配置 site.logo 引用。"""
         content_type, content = await _validate_image(
             file,
@@ -52,6 +70,7 @@ class FileService:
             size_error="站点 Logo 大小不能超过 5MB",
             empty_error="站点 Logo 文件不能为空",
         )
+        await _ensure_upload_quota(user_id, "site_logo")
 
         object_key = f"site/logo/{uuid.uuid4().hex}"
         return await _store_image(object_key, content_type, content, ImageUploadResult)

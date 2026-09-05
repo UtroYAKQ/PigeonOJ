@@ -40,10 +40,10 @@ async def upload_image(
 async def upload_site_logo(
     service: FileServiceDep,
     file: UploadFile = File(...),
-    _admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ) -> ApiResponse[ImageUploadResult]:
     """站点 Logo 上传（仅 admin）：用于站点配置 site.logo。"""
-    return ok(await service.upload_site_logo(file))
+    return ok(await service.upload_site_logo(admin.id, file))
 
 
 @router.get("/{object_key:path}")

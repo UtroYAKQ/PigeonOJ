@@ -161,6 +161,7 @@ def fake_storage(monkeypatch) -> FakeStorage:
     storage = FakeStorage()
     for target in (
         "app.services.file.get_storage",
+        "app.services.user.get_storage",
         "app.api.v1.files.get_storage",
         "app.services.problem.get_storage",
         "app.services.judge.get_storage",

@@ -121,9 +121,9 @@ ORDER BY r.created_at DESC, r.id DESC
 | POST | /admin/users/{id}/unfreeze | admin | 解冻 | - | - |
 | GET/PUT | /admin/configs | admin | 系统配置（分域） | - | - |
 | GET | /site-config | public | 公开站点配置（白名单字段：name / logo / icp / default_theme / register_enabled / email_verify_enabled；前端壳层与注册页消费） | - | siteConfig |
-| POST | /files/upload/avatar | auth | 上传当前用户头像到 MinIO | multipart file（≤2MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL，供 `avatar_url` 直接存储/渲染） |
-| POST | /files/upload/image | auth | 公共图片上传（题面插图等 Markdown 引用场景，登录用户可用），存 MinIO `users/{uid}/images/` | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
-| POST | /files/upload/site-logo | admin | 站点 Logo 上传（站点配置 `site.logo` 引用），存 MinIO `site/logo/` | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
+| POST | /files/upload/avatar | auth | 上传当前用户头像到 MinIO（频控：≤10 次/小时/用户，超次 4002） | multipart file（≤2MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL，供 `avatar_url` 直接存储/渲染） |
+| POST | /files/upload/image | auth | 公共图片上传（题面插图等 Markdown 引用场景，登录用户可用），存 MinIO `users/{uid}/images/`（频控：≤30 次/小时/用户） | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
+| POST | /files/upload/site-logo | admin | 站点 Logo 上传（站点配置 `site.logo` 引用），存 MinIO `site/logo/`（频控：≤10 次/小时/用户） | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
 | GET | /files/{object_key} | public | 读取头像 / 公共图片 / 站点 Logo 等公开文件；不允许读取测试点 | object_key（仅 `users/` 或 `site/logo/` 前缀） | binary |
 | GET | /admin/logs/{type} | admin | 日志查询 / 筛选 / 导出（keyword：request=请求号/路径，login=邮箱/动作，exception=消息/堆栈；nickname：按用户昵称模糊过滤，经 `users.nickname` 关联，与 keyword 可叠加） | 分页/keyword/nickname/时间范围 | log[] |
 | DELETE | /admin/logs/{type} | admin | 一键清空指定类型日志（全表删除，危险操作；type ∈ request / login / exception，非法值 3001） | - | - |
@@ -151,6 +151,7 @@ ORDER BY r.created_at DESC, r.id DESC
 
 ## 明确不做
 
-- 文件上传由服务端校验类型 / 大小并生成对象 key；头像对象使用 `users/{user_id}/avatar/{uuid}`，站点 Logo 使用 `site/logo/{uuid}`，测试点对象不暴露下载 / 预签名 URL（判题内部链路）
+- 文件上传由服务端校验类型 / 大小并生成对象 key；头像对象使用 `users/{user_id}/avatar/{uuid}`，站点 Logo 使用 `site/logo/{uuid}`，测试点对象不暴露下载 / 预签名 URL（判题内部链路）；
+  上传按用户 Redis 固定窗口频控（见 docs/security.md「上传与文件安全」），换头像时 best-effort 删除被替换的站内旧头像对象
 - 日志请求体不回传明文（脱敏摘要）
 - Token 用量仅统计、不做额度控制
