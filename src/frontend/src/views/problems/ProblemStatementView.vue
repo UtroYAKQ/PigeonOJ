@@ -2,11 +2,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { NTag } from 'naive-ui'
 
 import { createProblem, getProblem, listActiveTags, updateProblem } from '@/api/problems'
 import { message } from '@/utils/feedback'
 import WizardShell from '@/components/WizardShell.vue'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
+import TagPicker from '@/components/problem/TagPicker.vue'
 import type { ProblemDetail, ProblemTagItem } from '@/types'
 
 const route = useRoute()
@@ -33,7 +35,8 @@ const form = reactive({
   /** 难度分（手动填写；null = 未评分） */
   difficulty: null as number | null,
 })
-const tagOptions = ref<Array<{ label: string; value: string }>>([])
+const showTagPicker = ref(false)
+const tagOptions = ref<ProblemTagItem[]>([])
 /** 官方题解编辑器懒挂载：首次展开折叠面板时才创建编辑器实例 */
 const solutionMounted = ref(false)
 /** 题面说明（可选）：与官方题解同款折叠交互 */
@@ -53,10 +56,23 @@ function toggleSolution() {
 async function loadTagOptions() {
   try {
     const tags: ProblemTagItem[] = await listActiveTags()
-    tagOptions.value = tags.map((item) => ({ label: item.name, value: item.name }))
+    tagOptions.value = tags
   } catch {
     /* 标签加载失败不阻塞题面编辑 */
   }
+}
+
+/** 从 TagPicker 选择标签 */
+function onSelectTag(tag: ProblemTagItem) {
+  if (form.tags.length >= 8) return
+  if (!form.tags.includes(tag.name)) {
+    form.tags.push(tag.name)
+  }
+}
+
+/** 移除已选标签 */
+function removeTag(tagName: string) {
+  form.tags = form.tags.filter((t) => t !== tagName)
 }
 
 async function loadExisting() {
@@ -73,7 +89,8 @@ async function loadExisting() {
       output_description: loaded.output_description ?? '',
       note: loaded.note ?? '',
       solution: loaded.solution ?? '',
-      tags: [...(loaded.tags ?? [])],
+      // loaded.tags 是 ProblemTagItem[]（含 id/name/color），form.tags 需 string[]（仅标签名）
+      tags: (loaded.tags ?? []).map((tag) => tag.name),
       visibility: loaded.visibility ?? 'public',
       time_limit_ms: loaded.time_limit_ms,
       memory_limit_mb: loaded.memory_limit_mb,
@@ -90,11 +107,6 @@ async function loadExisting() {
   } finally {
     loading.value = false
   }
-}
-
-/** 标签上限 8：超出部分截断（契约 docs/contracts/problems.md） */
-function onTagsChange(value: string[]) {
-  form.tags = value.slice(0, 8)
 }
 
 function validate(): boolean {
@@ -161,6 +173,16 @@ async function saveAndExit() {
   await router.push('/admin/problems')
 }
 
+const chosenTagNames = computed(() => new Set(form.tags))
+
+const tagColorMap = computed(() => {
+  const map = new Map<string, string>()
+  for (const tag of tagOptions.value) {
+    if (tag.color) map.set(tag.name, tag.color)
+  }
+  return map
+})
+
 onMounted(() => {
   loadTagOptions()
   loadExisting()
@@ -174,6 +196,12 @@ const visibilityOptions = computed(() => [
 
 <template>
   <div class="page-stack">
+    <TagPicker
+      :show="showTagPicker"
+      :chosen-names="chosenTagNames"
+      @update:show="showTagPicker = $event"
+      @select="onSelectTag"
+    />
     <n-spin :show="loading">
       <WizardShell
         :step="1"
@@ -198,15 +226,31 @@ const visibilityOptions = computed(() => [
           </n-form-item>
           <div class="meta-grid">
             <n-form-item :label="t('problems.create.tags')">
-              <n-select
-                :value="form.tags"
-                multiple
-                clearable
-                filterable
-                :options="tagOptions"
-                :placeholder="t('problems.create.tagsPlaceholder')"
-                @update:value="onTagsChange"
-              />
+              <div class="tag-selector">
+                <div class="tag-selector__chips">
+                  <NTag
+                    v-for="tagName in form.tags"
+                    :key="tagName"
+                    size="small"
+                    closable
+                    :color="tagColorMap.get(tagName) ? { color: tagColorMap.get(tagName)!, textColor: '#fff' } : undefined"
+                    @close="removeTag(tagName)"
+                  >
+                    {{ tagName }}
+                  </NTag>
+                  <span v-if="!form.tags.length" class="tag-selector__empty">
+                    {{ t('problems.create.tagsPlaceholder') }}
+                  </span>
+                </div>
+                <n-button
+                  size="small"
+                  secondary
+                  :disabled="form.tags.length >= 8"
+                  @click="showTagPicker = true"
+                >
+                  {{ t('problems.create.addTag') }}
+                </n-button>
+              </div>
             </n-form-item>
             <n-form-item :label="t('problems.create.visibility')">
               <n-select v-model:value="form.visibility" :options="visibilityOptions" />
@@ -281,6 +325,22 @@ const visibilityOptions = computed(() => [
 <style scoped>
 .wizard-body {
   min-height: 320px;
+}
+.tag-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tag-selector__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 24px;
+}
+.tag-selector__empty {
+  color: var(--app-text-secondary);
+  font-size: 13px;
 }
 .form-hint {
   margin-bottom: 4px;

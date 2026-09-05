@@ -206,6 +206,27 @@ class TagRepository:
             ).scalars()
         )
 
+    async def list_page(
+        self, keyword: str | None, page: int, page_size: int
+    ) -> tuple[list[ProblemTag], int]:
+        """激活标签分页列表（支持 keyword 搜索）。"""
+        where = [ProblemTag.status == TagStatus.ACTIVE]
+        if keyword:
+            where.append(ProblemTag.name.ilike(f"%{keyword}%"))
+        total = await self.db.scalar(select(func.count()).where(*where)) or 0
+        rows = list(
+            (
+                await self.db.execute(
+                    select(ProblemTag)
+                    .where(*where)
+                    .order_by(ProblemTag.name)
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            ).scalars()
+        )
+        return rows, total
+
     async def list_all(self) -> list[ProblemTag]:
         return list(
             (
@@ -258,3 +279,35 @@ class VerificationRepository:
                 )
             ).scalars()
         )
+
+    async def tags_for(self, problem_id: uuid.UUID) -> list[ProblemTag]:
+        """返回题目标签 ORM 对象列表（id/name/color）。"""
+        rows = (
+            await self.db.execute(
+                select(ProblemTag)
+                .join(ProblemTagRelation, ProblemTagRelation.tag_id == ProblemTag.id)
+                .where(ProblemTagRelation.problem_id == problem_id)
+                .order_by(ProblemTag.name)
+            )
+        ).scalars()
+        return list(rows)
+
+    async def tags_for_problems(self, problem_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[ProblemTag]]:
+        """批量返回题目的标签 ORM 对象列表。
+
+        返回 {problem_id: [ProblemTag, ...]}；无标签的题目不在返回字典中。
+        """
+        if not problem_ids:
+            return {}
+        rows = (
+            await self.db.execute(
+                select(ProblemTag, ProblemTagRelation.problem_id)
+                .join(ProblemTagRelation, ProblemTagRelation.tag_id == ProblemTag.id)
+                .where(ProblemTagRelation.problem_id.in_(problem_ids))
+                .order_by(ProblemTag.name)
+            )
+        ).all()
+        result: dict[uuid.UUID, list[ProblemTag]] = {}
+        for tag, pid in rows:
+            result.setdefault(pid, []).append(tag)
+        return result

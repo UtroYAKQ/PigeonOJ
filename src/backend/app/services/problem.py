@@ -57,6 +57,7 @@ from app.schemas.problem import (
     ProblemUpdate,
     SampleOut,
     SamplesUpdate,
+    TagPublic,
     TestCaseListOut,
     TestCaseOut,
     TestCasesPatch,
@@ -138,7 +139,7 @@ class ProblemDetailData:
 
     problem: Problem
     samples: list[SampleOut]
-    tags: list[str]
+    tags: list[TagPublic]
     can_manage: bool
     needs_reverification: bool
     # 通过率计数（problem_counters，无记录按 0）
@@ -230,6 +231,16 @@ class ProblemService:
             if item.id in status_map:
                 item.solved = status_map[item.id]
 
+    async def attach_tags(self, summaries: list) -> None:
+        """按 id 批量回填标签（含 color）到 ProblemSummary；API 层调用。"""
+        ids = {item.id for item in summaries}
+        if not ids:
+            return
+        tags_map = await self.verifications.tags_for_problems(list(ids))
+        for item in summaries:
+            tags = tags_map.get(item.id, [])
+            item.tags = [TagPublic.model_validate(t) for t in tags]
+
     async def create(self, user: object, body: ProblemCreate) -> Problem:
         if not await is_manager(self.db, user):
             raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
@@ -270,14 +281,14 @@ class ProblemService:
             and problem.visibility != ProblemVisibility.PUBLIC
         ):
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
-        tags = await self.verifications.tag_names(problem_id)
-        tag_names = sorted(tags)
+        tags = await self.verifications.tags_for(problem_id)
+        tag_list = [TagPublic.model_validate(t) for t in tags]
         samples = self._samples_view(problem)
         counter = await self.db.get(ProblemCounter, problem_id)
         return ProblemDetailData(
             problem=problem,
             samples=samples,
-            tags=tag_names,
+            tags=tag_list,
             can_manage=can_manage,
             needs_reverification=(
                 needs_reverification(problem) if problem.verified_at and problem.is_verified else False
@@ -730,6 +741,7 @@ class ProblemService:
         problem = await self.problems.get_by_id(problem_id)
         if problem is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不存在", 404)
+        tags = await self.verifications.tags_for(problem.id)
         return VerificationInviteOut(
             problem_id=str(problem.id),
             problem_title=problem.title,
@@ -741,7 +753,7 @@ class ProblemService:
             input_description=problem.input_description,
             output_description=problem.output_description,
             note=problem.note,
-            tags=await self.verifications.tag_names(problem.id),
+            tags=[TagPublic.model_validate(t) for t in tags],
             time_limit_ms=problem.time_limit_ms,
             memory_limit_mb=problem.memory_limit_mb,
             samples=self._samples_view(problem),
