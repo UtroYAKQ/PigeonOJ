@@ -759,12 +759,12 @@ async def test_board_cache_and_invalidation(client: httpx.AsyncClient, user_head
     r = await get_redis()
     key = f"{RANK_CONTEST_KEY_PREFIX}{cid}"
 
-    # 进行中：未命中回源并回填短 TTL
+    # 进行中：未命中回源并回填进行中 TTL（须 > 前端 15s 轮询间隔，令轮询命中缓存）
     resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
     board = resp.json()["data"]
     assert board["rows"][0]["total_score"] == 80
     ttl = await r.ttl(key)
-    assert 0 < ttl <= 5, f"running ttl={ttl}"
+    assert 15 < ttl <= 20, f"running ttl={ttl}"
 
     # 绕过服务直改数据库（无失效）→ 缓存命中返回旧值
     async with SessionLocal() as db:

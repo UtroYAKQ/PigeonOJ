@@ -113,6 +113,28 @@ async def test_send_job_claims_and_pushes(client, admin_headers, fake_storage):
 
 
 @pytest.mark.asyncio
+async def test_send_job_carries_case_metadata_only(client, admin_headers, fake_storage):
+    """回归（性能）：派发不得从 MinIO 读测试点数据本体——数据由节点经
+    FetchProblemData 按 data_version 拉取；对象缺失时作业仍可构建、消息仅含元数据。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    fake_storage.store.clear()  # 任何 get_bytes 都会抛 OSError
+    conn = _add_node("gw-meta")
+
+    resp = await client.post(
+        "/api/v1/submissions",
+        json={"problem_id": pid, "language": "cpp17", "code": "int main(){}"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    sid = resp.json()["data"]["submission_id"]
+
+    msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+    assert msg.job.submission_id == sid
+    assert len(msg.job.cases) == 1
+    assert msg.job.cases[0].test_case_id and msg.job.cases[0].name
+
+
+@pytest.mark.asyncio
 async def test_send_job_rejects_non_pending(client, admin_headers):
     """非 pending 提交（如已完成）不允许重复派发。"""
     uid = uuid_mod.UUID(await _any_user_id())

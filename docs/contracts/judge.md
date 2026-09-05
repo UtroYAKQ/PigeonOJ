@@ -25,7 +25,7 @@
 | is_after_contest | BOOLEAN | NOT NULL DEFAULT false | 是否赛后补题提交 |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
-索引：INDEX(`user_id`, `problem_id`, `created_at DESC`)、INDEX(`contest_id`, `user_id`)、INDEX(`verification_id`)、INDEX(`problem_id`, `status`)、INDEX(`status`)
+索引：INDEX(`user_id`, `problem_id`, `created_at DESC`)、INDEX(`contest_id`, `created_at`)（比赛提交记录 / 榜单重算 / 本场作答状态主查询）、INDEX(`verification_id`)、INDEX(`status`)
 
 CHECK 约束：
 

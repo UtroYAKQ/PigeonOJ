@@ -354,12 +354,11 @@ async def send_job(node_id: str, submission_id: uuid.UUID) -> bool:
     conn = REGISTRY.get(node_id)
     if conn is None:
         return False
-    storage = get_storage()
     sid_str = str(submission_id)
     # 残留簿记清理：重复派发的正确性由 build_job_bundle 的原子认领保证
     conn.inflight.discard(sid_str)
     async with SessionLocal() as db:
-        bundle = await jobs.build_job_bundle(db, submission_id, storage=storage)
+        bundle = await jobs.build_job_bundle(db, submission_id)
         if bundle is None:
             return False
         job_msg = judge_pb2.SubmitJob(

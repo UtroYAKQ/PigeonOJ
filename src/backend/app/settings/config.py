@@ -56,6 +56,10 @@ class Settings(BaseSettings):
 
     # ---- PostgreSQL ----
     database_url: str
+    # 连接池：常驻池 + 突发溢出上限（默认按百人并发判题轮询留量；生产可按 env 覆盖，
+    # 需与 PostgreSQL max_connections 及后端副本数匹配）
+    db_pool_size: int = 20
+    db_max_overflow: int = 30
 
     # ---- Redis ----
     redis_url: str

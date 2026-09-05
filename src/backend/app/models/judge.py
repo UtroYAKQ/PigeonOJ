@@ -75,6 +75,7 @@ class Submission(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     __table_args__ = (
         Index("ix_submissions_user_problem_created", "user_id", "problem_id", "created_at"),
+        Index("ix_submissions_contest_created", "contest_id", "created_at"),
         Index("ix_submissions_status", "status"),
         Index("ix_submissions_verification", "verification_id"),
         CheckConstraint(

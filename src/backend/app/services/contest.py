@@ -63,8 +63,12 @@ CONTEST_MANAGER_ROLES: set[str] = {"admin", "tutor"}
 ANNOUNCEMENT_EDITABLE_FIELDS: set[str] = {"announcement"}
 # ACM 罚时系数默认值（分钟；system_configs contest.penalty_factor_minutes 可覆盖）
 DEFAULT_PENALTY_FACTOR_MINUTES = 20
-# 榜单缓存 TTL 分级（秒）：进行中 3 秒、封榜 60 秒、已结束 24 小时（永久级别）
-BOARD_CACHE_TTL_RUNNING = 3
+# 榜单缓存 TTL 分级（秒）：进行中 20 秒、封榜 60 秒、已结束 24 小时（永久级别）。
+# 进行中 TTL 必须 > 前端榜单轮询间隔（ContestDetailView 15s）：用户可感知的刷新节奏
+# 本就是轮询间隔，TTL 小于它只会让每次轮询都 miss 重算而无新鲜度收益；活跃判题期的
+# 新鲜度由写路径主动失效保证（update_ranking_on_result → _invalidate_board_cache），
+# TTL 仅为「失效丢失」兜底最终一致（见 docs/operations.md「缓存一致性」）。
+BOARD_CACHE_TTL_RUNNING = 20
 BOARD_CACHE_TTL_FROZEN = 60
 BOARD_CACHE_TTL_FINISHED = 24 * 3600
 # 缓存击穿重建锁
@@ -917,16 +921,22 @@ class ContestService:
         contest_problems = await self.repo.list_contest_problems(contest.id)
         rows = await self.rankings.list_rows_with_users(contest.id)
 
-        grouped: dict[uuid.UUID, list[ContestRanking]] = {}
-        for row, _user in rows:
-            grouped.setdefault(row.user_id, []).append(row)
+        # 预建索引：(user, problem) → 榜单行、user → 昵称、user 出现顺序
+        # 避免逐格 next() 线性扫描（旧实现 O(users × rows) 嵌套，随规模二次增长）
+        cell_by_key: dict[tuple[uuid.UUID, uuid.UUID], ContestRanking] = {}
+        nickname_by_user: dict[uuid.UUID, str] = {}
+        user_order: list[uuid.UUID] = []
+        for row, user in rows:
+            cell_by_key[(row.user_id, row.problem_id)] = row
+            if row.user_id not in nickname_by_user:
+                nickname_by_user[row.user_id] = user.nickname
+                user_order.append(row.user_id)
 
         board_rows: list[BoardRow] = []
-        for user_id, user_rows in grouped.items():
-            nickname = next(u.nickname for r, u in rows if r.user_id == user_id)
+        for user_id in user_order:
             cells: list[BoardCell] = []
             for cp, _problem in contest_problems:
-                rank_row = next((r for r in user_rows if r.problem_id == cp.problem_id), None)
+                rank_row = cell_by_key.get((user_id, cp.problem_id))
                 cells.append(
                     BoardCell(
                         problem_id=cp.problem_id,
@@ -944,7 +954,7 @@ class ContestService:
                 BoardRow(
                     rank=0,
                     user_id=user_id,
-                    nickname=nickname,
+                    nickname=nickname_by_user[user_id],
                     solved=sum(1 for c in cells if c.accepted),
                     total_penalty=sum(c.penalty for c in cells),
                     total_score=sum(c.score for c in cells),

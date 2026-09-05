@@ -1,6 +1,7 @@
 """判题域服务：提交创建、历史查询、详情、用户自测。"""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 
@@ -38,6 +39,10 @@ from app.services.system_config import ConfigService
 
 # 自测冷却 Redis Key 前缀（docs/operations.md Redis 约定；存在即冷却中）
 _SELFTEST_COOLDOWN_KEY_PREFIX = "judge:selftest:"
+
+# 提交详情逐测试点程序输出并发拉取上限（对象存储往返；串行随测试点数线性恶化，
+# 限并发既压平延迟又避免瞬时打满 MinIO 连接）
+_CASE_OUTPUT_CONCURRENCY = 8
 
 
 @dataclass(frozen=True)
@@ -257,16 +262,22 @@ class SubmissionService:
             if case_ids
             else {}
         )
-        cases = []
-        for r in results:
-            output = None
-            if r.output:
+        # 逐点程序输出并发拉取（受限并发）：串行 await 使详情延迟随测试点数线性增长
+        semaphore = asyncio.Semaphore(_CASE_OUTPUT_CONCURRENCY)
+
+        async def _fetch_output(key: str | None) -> str | None:
+            if not key:
+                return None
+            async with semaphore:
                 try:
-                    raw, _ = await storage.get_bytes(r.output)
-                    output = raw.decode("utf-8", errors="replace")
+                    raw, _ = await storage.get_bytes(key)
+                    return raw.decode("utf-8", errors="replace")
                 except Exception:
-                    output = None
-            cases.append(TestCaseResult(
+                    return None
+
+        outputs = await asyncio.gather(*(_fetch_output(r.output) for r in results))
+        cases = [
+            TestCaseResult(
                 id=r.id,
                 case_name=name_by_id.get(r.test_case_id),
                 status=r.status,
@@ -274,7 +285,9 @@ class SubmissionService:
                 memory_used_kb=r.memory_used_kb,
                 score=r.score,
                 output=output,
-            ))
+            )
+            for r, output in zip(results, outputs, strict=True)
+        ]
         detail = SubmissionDetailOut.model_validate(submission)
         detail.cases = cases
         return detail

@@ -88,7 +88,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 - 比赛中心仅展示公开比赛（`contest_type='public'`）；团队比赛仅在所属团队空间内展示（按 `team_id` 过滤）
 - 用户只能查看自己所在团队的比赛；团队比赛仅允许团队成员报名
 - 比赛题目访问与提交校验身份与报名（赛中限报名者，赛后向所有登录用户开放看题 / 补题；见下方「关键流程」越权规则）
-- 榜单按 `(contest_id, user_id)` 聚合展示；Redis `rank:contest:<id>` 仅作读缓存（TTL 分级：进行中 3s / 封榜 60s / 完赛已解冻永久），权威数据在 `contest_rankings`，判题回写 / 封榜 / 解冻时主动失效（含 commit 后补删，见 docs/operations.md「缓存一致性」）
+- 榜单按 `(contest_id, user_id)` 聚合展示；Redis `rank:contest:<id>` 仅作读缓存（TTL 分级：进行中 20s / 封榜 60s / 完赛已解冻永久；进行中 TTL 取大于前端 15s 轮询间隔，令轮询命中缓存、新鲜度靠写失效保证），权威数据在 `contest_rankings`，判题回写 / 封榜 / 解冻时主动失效（含 commit 后补删，见 docs/operations.md「缓存一致性」）
 
 ## 端点
 

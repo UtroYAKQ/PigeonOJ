@@ -204,6 +204,8 @@ function startTimers() {
   clockTimer = window.setInterval(() => {
     nowTick.value = Date.now()
   }, 30_000)
+  // 进行中榜单 15s 轮询；须 < 后端 BOARD_CACHE_TTL_RUNNING（contest.py，当前 20s），
+  // 使轮询命中读缓存而非每次回源重算（改此值需同步后端 TTL）
   pollTimer = window.setInterval(() => {
     if (
       activeTab.value === 'board' &&

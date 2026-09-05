@@ -1,7 +1,8 @@
 """判题作业的构建与结果落库（远程 gRPC 节点共用）。
 
-- build_job_bundle：读取提交/题目/测试点，换算有效限制，从 MinIO 取数据本体，
-  原子认领（pending→judging），产出 JobBundle 作业描述（含 data_version 指纹）。
+- build_job_bundle：读取提交/题目/测试点（仅元数据），换算有效限制，
+  原子认领（pending→judging），产出 JobBundle 作业描述（含 data_version 指纹）；
+  测试点数据本体由节点经 FetchProblemData 拉取（stream_problem_data）。
 - apply_job_result：把节点回传的判题结果写回 DB 与 MinIO（幂等，可重复应用）。
 
 data_version 指纹 = sha256(测试点数量 | 最大 updated_at)，按**判定集**计算：
@@ -51,11 +52,10 @@ class ResourceLimits:
 
 @dataclass(frozen=True)
 class TestCaseFile:
-    """单个测试点的派发文件（数据本体已从 MinIO 读出）。"""
+    """单个测试点的派发元数据（数据本体不进作业描述：节点经 FetchProblemData
+    按 data_version 拉取并本地缓存，见 stream_problem_data / docs/contracts/judge.md）。"""
     test_case_id: str
     name: str
-    input: bytes
-    expected_output: bytes
 
 
 @dataclass(frozen=True)
@@ -143,8 +143,8 @@ async def compute_data_version(db, problem, *, verify: bool = False) -> tuple[st
     return hashlib.sha256(raw.encode()).hexdigest()[:32], rows
 
 
-async def build_job_bundle(db, submission_id: uuid.UUID, *, storage) -> JobBundle | None:
-    """构建作业描述并原子认领（pending→judging）。
+async def build_job_bundle(db, submission_id: uuid.UUID) -> JobBundle | None:
+    """构建作业描述（测试点仅元数据）并原子认领（pending→judging）。
 
     返回 None 表示提交不存在 / 已被其他执行方认领 / 前置校验失败（校验失败会直接落 system_error）。
     """
@@ -191,18 +191,11 @@ async def build_job_bundle(db, submission_id: uuid.UUID, *, storage) -> JobBundl
         and submission.contest_id is not None
         and submission.rule_type == RuleType.ACM
     )
-    case_files: list[TestCaseFile] = []
-    for case in cases:
-        input_bytes, _ = await storage.get_bytes(case.input_oss_id)
-        expected_bytes, _ = await storage.get_bytes(case.expected_output_oss_id)
-        case_files.append(
-            TestCaseFile(
-                test_case_id=str(case.id),
-                name=case.name or str(case.sort_order),
-                input=input_bytes,
-                expected_output=expected_bytes,
-            )
-        )
+    # 仅携带元数据；测试点数据本体由节点经 FetchProblemData 拉取（本地缓存按 data_version）
+    case_files = tuple(
+        TestCaseFile(test_case_id=str(case.id), name=case.name or str(case.sort_order))
+        for case in cases
+    )
 
     await db.commit()
     return JobBundle(
@@ -213,7 +206,7 @@ async def build_job_bundle(db, submission_id: uuid.UUID, *, storage) -> JobBundl
         compile_limits=compile_limits,
         problem_id=str(submission.problem_id),
         data_version=data_version,
-        cases=tuple(case_files),
+        cases=case_files,
         stop_on_failure=stop_on_failure,
     )
 
