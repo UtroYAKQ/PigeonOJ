@@ -15,10 +15,12 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // 本地开发：/api 反代到后端，前端相对路径 /api/v1 即可直连，避免跨域
+    // 本地开发：/api 反代到后端，前端相对路径 /api/v1 即可直连，避免跨域；
+    // 端口与后端配置链（.env SERVER_PORT / backend.toml [server] port）联动，
+    // run-local.bat 启动时导出 SERVER_PORT，手动 npm run dev 回落后默认 8000
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: `http://localhost:${process.env.SERVER_PORT ?? '8000'}`,
         changeOrigin: true,
       },
     },

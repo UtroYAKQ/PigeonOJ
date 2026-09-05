@@ -7,6 +7,9 @@ environment = "development"                    # development / production
 secret_key = "change-me-to-a-random-string"    # 会话 / 加密主密钥（生产必改）
 log_level = "INFO"
 
+[server]
+port = 8000                                    # 本地开发 HTTP 监听端口（run.py / run-local.bat）；生产容器 CMD 固定 8000，不受此项影响
+
 [database]
 url = "postgresql+asyncpg://pigeonoj:pigeonoj@localhost:5432/pigeonoj"
 

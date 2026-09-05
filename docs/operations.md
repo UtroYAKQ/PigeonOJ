@@ -4,7 +4,7 @@
 
 ## 一键启动（Windows）
 
-双击 `run-local.bat`：自动启动 PostgreSQL / MinIO / Redis 容器，构建判题节点镜像并启动 1 个本地节点，执行数据库迁移与演示账号引导，随后弹出后端（8000）与前端（5173）窗口。
+双击 `run-local.bat`：自动启动 PostgreSQL / MinIO / Redis 容器，检测并安装缺失的前后端依赖（`pip install -r requirements.txt` / `npm install`），判题节点镜像缺失时才构建（已有则直接复用），并在独立窗口启动 1 个本地节点（`compose up`，日志可见，无需人工补 `--env-file`），执行数据库迁移与演示账号引导，随后弹出后端与前端（5173）窗口。后端端口取配置链（进程环境变量 > `.env` 的 `SERVER_PORT` > `backend.toml` `[server] port`，默认 8000），脚本据此导出 `SERVER_PORT` 供前端 vite 代理联动。
 
 ## 本地运行（不用 Docker）
 
@@ -18,7 +18,7 @@ cd src/backend && pip install -r requirements.txt && alembic upgrade head && pyt
 cd src/frontend && npm install && npm run dev
 ```
 
-- 后端 `http://localhost:8000`（API `/api/v1`）；前端 `http://localhost:5173`（vite 代理 `/api` 到 8000）
+- 后端 `http://localhost:8000`（API `/api/v1`；端口可经 `.env` 的 `SERVER_PORT` 覆盖）；前端 `http://localhost:5173`（vite 代理 `/api` 到后端，代理目标读 `SERVER_PORT`，默认 8000）
 - `vite.config.ts` 是唯一生效的 vite 配置，`vue-tsc -b` 产物已重定向到 `node_modules/.vite-config/`
 
 ## Docker 运行
@@ -31,7 +31,7 @@ docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 # 判题节点镜像
 docker build -t pigeonoj/judge-node src/judge
 
-# 判题节点容器（改 SERVER_ADDRESS 为后端公网地址；.env.node.example → .env.node）
+# 判题节点容器（.env.node.example → .env.node，填 SERVER_HOST + SERVER_GRPC_PORT 或整体 SERVER_ADDRESS）
 docker compose --env-file .env.node --project-directory . -f docker/docker-compose-node.yml up -d --build
 ```
 
@@ -45,7 +45,7 @@ docker compose --env-file .env.node --project-directory . -f docker/docker-compo
 ### 判题节点与沙箱
 
 - **后端进程不执行任何用户代码**；代码执行只发生在 `pigeonoj/judge-node` 容器内；后端仅提供 gRPC 网关（`:50051`）
-- 组网三选一：同机（`SERVER_ADDRESS=backend:50051`）、单域名路径复用 443（边缘 nginx 按 `/pigeonoj.judge.v1.JudgeGateway/` `grpc_pass`）、直连（改绑 `"50051:50051"`）
+- 组网三选一：同机（`SERVER_HOST=backend` + `SERVER_GRPC_PORT=50051`）、单域名路径复用 443（边缘 nginx 按 `/pigeonoj.judge.v1.JudgeGateway/` `grpc_pass`）、直连（改绑 `"50051:50051"`）；节点侧端口经 `.env.node` 的 `SERVER_GRPC_PORT` 配置，须与后端 `JUDGE_GRPC_PORT` 一致（也可整体用 `SERVER_ADDRESS` 覆盖）
 - 节点需要 `privileged: true`（nsjail 嵌套 namespace）；出站连接网关，无入站端口
 - `/cache` 上限默认 `JUDGE_CACHE_MAX_MB=512`，节点定时回收超限按 LRU（判题中目录保护）
 - 支持入口与执行规范见 `docs/contracts/judge.md`
@@ -79,6 +79,7 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 | `ENVIRONMENT` | 运行环境 | `development` / `production` |
 | `SECRET_KEY` | 会话 / 加密主密钥（生产必改） | 随机长字符串 |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
+| `SERVER_PORT` | 后端 HTTP 监听端口（本地 run.py / run-local.bat；生产容器 CMD 固定 8000） | `8000` |
 | `POSTGRES_USER/PASSWORD/DB` | PostgreSQL（仅 docker compose 基础设施） | `pigeonoj` |
 | `DATABASE_URL` | PostgreSQL 连接串 | `postgresql+asyncpg://pigeonoj:pigeonoj@localhost:5432/pigeonoj` |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | 后端连接池常驻 / 突发溢出上限（总连接 = 两者之和，需匹配 PG `max_connections` × 副本数） | `20` / `30` |
@@ -88,7 +89,7 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 | `MINIO_BUCKET` | MinIO 存储桶 | `pigeonoj` |
 | `MINIO_SECURE` | HTTPS（生产置 true） | `false` |
 | `JUDGE_GATEWAY_TOKENS` | 节点注册令牌（逗号分隔）；为空网关不启动 | — |
-| `JUDGE_GRPC_HOST/PORT` | 网关监听地址/端口 | `0.0.0.0` / `50051` |
+| `JUDGE_GRPC_HOST/PORT` | 网关监听地址/端口（节点侧 `.env.node` 的 `SERVER_GRPC_PORT` 须与之一致） | `0.0.0.0` / `50051` |
 | `TEST_DATABASE_URL` | 测试库连接串 | `postgresql+asyncpg://...@localhost:5432/pigeonoj_test` |
 | `BOOTSTRAP_ADMIN_EMAIL/PASSWORD` | 初始管理员引导 | `admin@example.com` |
 

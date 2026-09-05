@@ -14,7 +14,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      SERVER_ADDRESS: ${SERVER_ADDRESS:?请在 .env.node 设置后端网关地址}
+      # SERVER_ADDRESS 完整覆盖优先；否则由 SERVER_HOST + SERVER_GRPC_PORT 拼装（默认 50051）
+      SERVER_ADDRESS: ${SERVER_ADDRESS:-${SERVER_HOST:-host.docker.internal}:${SERVER_GRPC_PORT:-50051}}
       SERVER_TOKEN: ${SERVER_TOKEN:?请在 .env.node 设置注册令牌}
       SERVER_TLS: ${SERVER_TLS:-false}
       JUDGE_NODE_ID: ${JUDGE_NODE_ID:-}

@@ -2,9 +2,10 @@
 rem ============================================================
 rem  PigeonOJ local one-click startup script for Windows
 rem  - Starts PostgreSQL / MinIO / Redis infra containers (no pull)
-rem  - Builds the judge-node image (with the nsjail sandbox) and runs 1 judge node by default
+rem  - Auto-installs missing backend (pip) / frontend (npm) dependencies
+rem  - Builds the judge-node image only when missing (nsjail sandbox), runs 1 judge node in its own window
 rem  - Runs DB migrations + demo user initialization
-rem  - Starts the backend (8000) and the frontend (5173)
+rem  - Starts the backend (port from .env SERVER_PORT, default 8000) and the frontend (5173)
 rem  Note: This script never executes user code; judging runs only inside the judge node's sandbox.
 rem  Note: This is a batch file. Save it as ANSI/GBK (do NOT save as UTF-8).
 rem ============================================================
@@ -19,7 +20,7 @@ echo   PigeonOJ local one-click startup
 echo ============================================
 
 rem ---------- 1. Check Docker ----------
-echo [1/7] Checking Docker...
+echo [1/8] Checking Docker...
 docker info >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Docker is not installed. Please install Docker Desktop before running this script.
@@ -68,8 +69,34 @@ if errorlevel 1 (
     echo Redis is already running, port 6379 is occupied, reusing the existing instance
 )
 
-rem ---------- 2. Prepare the judge-node image (pre-build the nsjail sandbox; first build takes time) ----------
-echo [2/7] Preparing judge-node image...
+rem ---------- 2. Auto-install missing backend / frontend dependencies ----------
+echo [2/8] Preparing dependencies...
+cd /d "%~dp0src\backend"
+python -c "import fastapi,uvicorn,alembic,sqlalchemy,redis,asyncpg,pydantic_settings,bcrypt,grpc,multipart,google.protobuf,ip2region,minio" >nul 2>&1
+if errorlevel 1 (
+    echo Backend python dependencies missing, running "pip install -r requirements.txt"...
+    python -m pip install -r requirements.txt
+    if errorlevel 1 ( echo [ERROR] Backend dependency install failed & pause & exit /b 1 )
+) else (
+    echo Backend python dependencies already installed
+)
+where npm >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] npm not found. Please install Node.js 18+ before running this script.
+    pause
+    exit /b 1
+)
+cd /d "%~dp0src\frontend"
+if not exist "node_modules\" (
+    echo Frontend node_modules missing, running "npm install"...
+    call npm install
+    if errorlevel 1 ( echo [ERROR] Frontend dependency install failed & pause & exit /b 1 )
+) else (
+    echo Frontend node_modules already present
+)
+
+rem ---------- 3. Prepare the judge-node image (pre-build the nsjail sandbox; first build takes time) ----------
+echo [3/8] Preparing judge-node image...
 docker image inspect pigeonoj/judge-node:latest >nul 2>&1
 if errorlevel 1 (
     echo Judge-node image pigeonoj/judge-node not found, building...
@@ -79,8 +106,8 @@ if errorlevel 1 (
     echo Judge-node image already exists
 )
 
-rem ---------- 3. Wait for PostgreSQL to be ready ----------
-echo [3/7] Waiting for PostgreSQL to be ready...
+rem ---------- 4. Wait for PostgreSQL to be ready ----------
+echo [4/8] Waiting for PostgreSQL to be ready...
 set /a attempts=0
 :wait_db
 set /a attempts+=1
@@ -96,8 +123,8 @@ if errorlevel 1 (
 )
 echo PostgreSQL is ready
 
-rem ---------- 4. Migrate DB + init demo users + prepare backend ----------
-echo [4/7] Running DB migration and demo user init...
+rem ---------- 5. Migrate DB + init demo users + prepare backend ----------
+echo [5/8] Running DB migration and demo user init...
 cd /d "%~dp0src\backend"
 rem Variables set via "set K=V" so values carry into the started child consoles
 rem (trailing spaces on values would break DB/MinIO connection strings, so no trailing spaces).
@@ -112,15 +139,25 @@ if errorlevel 1 (
 )
 python -m scripts.bootstrap_demo_users
 
-rem ---------- 5. Start backend, wait for :50051 gateway (needed for judge node registration) ----------
-echo [5/7] Starting backend...
+rem ---------- 6. Start backend, wait for :50051 gateway (needed for judge node registration) ----------
+echo [6/8] Starting backend...
 
-netstat -ano | findstr /c:":8000 " | findstr /c:"LISTENING" >nul 2>&1
+rem Resolve the effective HTTP port through the real config chain
+rem (process env > .env SERVER_PORT > backend.toml [server] port; fallback 8000),
+rem then export SERVER_PORT so backend run.py and the frontend vite proxy share one value.
+cd /d "%~dp0src\backend"
+set "BE_PORT=8000"
+for /f "delims=" %%p in ('python -c "from app.settings.config import get_settings; print(get_settings().server_port)" 2^>nul') do set "BE_PORT=%%p"
+echo !BE_PORT!| findstr /r "^[0-9][0-9]*$" >nul 2>&1 || set "BE_PORT=8000"
+set "SERVER_PORT=!BE_PORT!"
+echo Backend port: !SERVER_PORT!
+
+netstat -ano | findstr /c:":!SERVER_PORT! " | findstr /c:"LISTENING" >nul 2>&1
 if errorlevel 1 (
     cd /d "%~dp0src\backend"
     start "PigeonOJ Backend" cmd /k "python run.py"
 ) else (
-    echo [WARN] Port 8000 is occupied, backend may already be running; to restart, close the old window first
+    echo [WARN] Port !SERVER_PORT! is occupied, backend may already be running; to restart, close the old window first
 )
 
 rem Wait for the backend health endpoint (up to 30 tries) so the gRPC gateway is registered
@@ -133,25 +170,23 @@ if !hb! gtr 30 (
     pause
     exit /b 1
 )
-powershell -NoProfile -Command "try{Invoke-WebRequest -Uri 'http://127.0.0.1:8000/health' -UseBasicParsing -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
+powershell -NoProfile -Command "try{Invoke-WebRequest -Uri 'http://127.0.0.1:!SERVER_PORT!/health' -UseBasicParsing -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
 if errorlevel 1 (
     timeout /t 1 /nobreak >nul
     goto wait_be
 )
 echo Backend is ready
 
-rem ---------- 6. Start judge node container (1 by default; copy .env.node.example to .env.node) ----------
-echo [6/7] Starting judge node...
+rem ---------- 7. Start judge node in a dedicated window (copy .env.node.example to .env.node) ----------
+echo [7/8] Starting judge node...
 if not exist "%~dp0.env.node" copy /y "%~dp0.env.node.example" "%~dp0.env.node" >nul
-docker compose --env-file "%~dp0.env.node" --project-directory "%~dp0." -f "%~dp0docker\docker-compose-node.yml" up -d --build 1>nul 2>&1
-if errorlevel 1 (
-    echo [WARN] Judge node failed to start, please check .env.node and Docker logs; other services are unaffected, you can start it manually later
-) else (
-    start "PigeonOJ Judge Node" cmd /k "docker compose --env-file %~dp0.env.node --project-directory %~dp0. -f %~dp0docker\docker-compose-node.yml logs -f"
-)
+rem Visible window: startup errors and node logs show there, so the node never needs a manual
+rem "docker compose up" (which easily forgets --env-file .env.node).
+rem No --build: reuse the image prepared in step 3; compose builds it only when the image is missing.
+start "PigeonOJ Judge Node" cmd /k "docker compose --env-file %~dp0.env.node --project-directory %~dp0. -f %~dp0docker\docker-compose-node.yml up"
 
-rem ---------- 7. Start frontend ----------
-echo [7/7] Starting frontend...
+rem ---------- 8. Start frontend ----------
+echo [8/8] Starting frontend...
 
 netstat -ano | findstr /c:":5173 " | findstr /c:"LISTENING" >nul 2>&1
 if errorlevel 1 (
@@ -168,8 +203,8 @@ echo.
 echo ============================================
 echo   Startup complete!
 echo   Frontend:  http://localhost:5173
-echo   Backend:   http://127.0.0.1:8000  API docs at /docs
-echo   Judge node: Judge Node started, gRPC registration at :50051
+echo   Backend:   http://127.0.0.1:!SERVER_PORT!  API docs at /docs
+echo   Judge node: running in the "PigeonOJ Judge Node" window, gRPC registration at :50051
 echo   Demo user:  admin@pigeonoj.dev / Admin@123
 echo   Close the corresponding window to stop each service
 echo ============================================

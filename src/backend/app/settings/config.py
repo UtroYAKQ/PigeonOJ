@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     secret_key: str  # 生产环境必改
     log_level: str
 
+    # ---- HTTP 服务（本地开发 run.py；生产容器 CMD 固定 8000）----
+    server_port: int = 8000
+
     # ---- PostgreSQL ----
     database_url: str
     # 连接池：常驻池 + 突发溢出上限（默认按百人并发判题轮询留量；生产可按 env 覆盖，
