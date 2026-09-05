@@ -46,6 +46,15 @@ export function getProblemSubmission(problemId: string, submissionId: string): P
 export function listActiveTags(): Promise<ProblemTagItem[]> {
   return apiRequest('GET', '/problems/tags')
 }
+
+/** 激活标签分页列表（支持 keyword 搜索） */
+export function listActiveTagsPaged(query: {
+  page: number
+  page_size: number
+  keyword?: string
+}): Promise<PageResult<ProblemTagItem>> {
+  return apiRequest('GET', `/problems/tags${buildQuery({ ...query, page_size: query.page_size })}`)
+}
 export function getProblem(id: string): Promise<ProblemDetail> {
   return apiRequest('GET', `/problems/${id}`)
 }
