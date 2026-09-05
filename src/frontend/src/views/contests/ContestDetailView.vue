@@ -3,7 +3,7 @@
  * 比赛详情：主页（hero + 倒计时条 + 数据瓦片 + 时间轴 + 说明）/ 题目 / 榜单 / 提交记录 四个 tab。
  * 题目进入比赛上下文写题页（统一入口交题）；榜单封榜展示冻结快照，
  * 解冻为 admin/tutor 手动操作（重算回填封榜期结果）；进行中榜单 15s 轮询。
- * 提交记录比赛期间仅管理角色（can_manage）可见，赛后对参赛者开放（行点击进上下文内评测结果页）。
+ * 提交记录比赛期间仅管理角色（can_manage）可见，赛后对所有登录用户开放（行点击进上下文内评测结果页）。
  */
 import { computed, h, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -26,6 +26,7 @@ import { message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
 import { renderSolveMark } from '@/utils/solveMark'
 import { usePagination } from '@/composables/usePagination'
+import { useUserStore } from '@/stores/user'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import { languageOptions } from '@/constants/languages'
 import type {
@@ -39,13 +40,14 @@ import type {
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const userStore = useUserStore()
 
 const loading = ref(false)
 const detail = ref<ContestDetail | null>(null)
 const registering = ref(false)
 const activeTab = ref<'home' | 'problems' | 'board' | 'submissions'>('home')
 
-// ---- 提交记录（tab 激活时懒加载；比赛期间仅管理角色可见，赛后开放参赛者） ----
+// ---- 提交记录（tab 激活时懒加载；比赛期间仅管理角色可见，赛后对所有登录用户开放） ----
 const submissions = ref<ContestSubmissionItem[]>([])
 const subsLoading = ref(false)
 const {
@@ -76,10 +78,14 @@ const subsLocked = computed(
     !detail.value.can_manage &&
     Date.now() < new Date(detail.value.end_time).getTime(),
 )
-/** 赛后仅参赛者与管理角色可见 */
+/** 赛后向所有登录用户开放（含未报名者）；管理角色随时可见 */
 const subsAllowed = computed(() => {
   const d = detail.value
-  return !!d && (d.my_registration === 'registered' || d.can_manage)
+  return (
+    !!d &&
+    (d.can_manage ||
+      (userStore.isLoggedIn && Date.now() >= new Date(d.end_time).getTime()))
+  )
 })
 
 async function loadSubmissions(silent = false) {
@@ -940,7 +946,7 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
               {{ t('contests.submissions.hiddenDuringContest') }}
             </n-alert>
             <n-alert v-else-if="!subsAllowed" type="info" :bordered="false" class="subs-hint">
-              {{ t('contests.submissions.needsRegistration') }}
+              {{ t('contests.submissions.loginRequired') }}
             </n-alert>
             <template v-else>
               <SearchFilterBar

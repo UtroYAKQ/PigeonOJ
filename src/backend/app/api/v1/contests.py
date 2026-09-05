@@ -100,7 +100,7 @@ async def list_contest_submissions(
     problem_id: uuid.UUID | None = Query(default=None),
     user: User = Depends(get_current_user),
 ) -> ApiResponse[PaginatedResponse[ContestSubmissionItem]]:
-    """比赛提交记录（管理角色随时可见，参赛者赛后开放）。
+    """比赛提交记录（管理角色随时可见，赛后向所有登录用户开放）。
 
     keyword 模糊匹配提交人昵称；language / status / problem_id 精确过滤。
     """

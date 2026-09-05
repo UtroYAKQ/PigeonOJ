@@ -496,7 +496,7 @@ async def test_contest_after_end_open_to_unregistered(
 
 async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_headers) -> None:
     """提交记录窗口（第 7 条）：管理角色随时可见（含比赛期间）；
-    参赛者比赛期间隐藏、赛后开放；未报名用户不可见。"""
+    比赛期间对其他人隐藏、赛后向所有登录用户开放（含未报名者）。"""
     p1 = await _seed_problem("记录窗口题")
     tutor = await _tutor_headers(client)
     payload = _contest_payload(
@@ -530,7 +530,7 @@ async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_he
     resp = await client.get(f"/api/v1/contests/{cid}/submissions/{submission_id}", headers=user_headers)
     assert resp.json()["code"] == 2003
 
-    # 赛后：已报名可见列表与详情；未报名用户仍不可见
+    # 赛后：已报名与未报名的登录用户均可见列表与详情
     async with SessionLocal() as db:
         row = await db.get(Contest, uuid_mod.UUID(cid))
         row.end_time = datetime.now(timezone.utc) - timedelta(seconds=60)
@@ -543,14 +543,16 @@ async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_he
     assert resp.json()["code"] == 0
     resp = await client.get(f"/api/v1/contests/{cid}/submissions", headers=tutor)
     assert resp.json()["code"] == 0
-    # 未报名（新注册用户）→ 2003
+    # 未报名（新注册用户）→ 赛后可见
     other = None
     email = "outsider@pigeonoj.dev"
     await register_user(client, email)
     other_token = await api_login(client, email, "Pass@123")
     other = {"Authorization": f"Bearer {other_token}"}
     resp = await client.get(f"/api/v1/contests/{cid}/submissions", headers=other)
-    assert resp.json()["code"] == 2003
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get(f"/api/v1/contests/{cid}/submissions/{submission_id}", headers=other)
+    assert resp.json()["code"] == 0, resp.text
 
     # 筛选：昵称关键字 / 语言 / 状态 / 题目
     resp = await client.get(
@@ -1025,12 +1027,12 @@ async def test_board_cell_accepted_submissions(client: httpx.AsyncClient, user_h
     assert resp.json()["code"] == 0, resp.text
     items = resp.json()["data"]
     assert len(items) == 1 and items[0]["id"] == ac_id and items[0]["letter"] == "A"
-    # 未报名用户 → 2003
+    # 未报名用户 → 赛后可见
     email = "celloutsider@pigeonoj.dev"
     await register_user(client, email)
     token = await api_login(client, email, "Pass@123")
     resp = await client.get(base, headers={"Authorization": f"Bearer {token}"})
-    assert resp.json()["code"] == 2003
+    assert resp.json()["code"] == 0, resp.text
     # 题目不在该比赛 → 404
     other_p = await _seed_problem("不在赛内的题")
     resp = await client.get(

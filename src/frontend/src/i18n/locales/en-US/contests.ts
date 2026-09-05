@@ -126,8 +126,7 @@
       empty: 'No submissions yet',
       hiddenDuringContest:
         'Submissions are hidden during the contest and become available after it ends',
-      needsRegistration:
-        'After the contest, submissions are visible to participants and staff only',
+      loginRequired: 'Log in to view submissions after the contest',
       backToContest: 'Back to contest',
       search: 'Search by submitter nickname',
       allProblems: 'All problems',

@@ -348,13 +348,11 @@ class ContestService:
         return registration is not None and registration.status == RegistrationStatus.REGISTERED
 
     async def _ensure_submissions_visible(self, contest: Contest, user: User) -> None:
-        """提交记录窗口：比赛管理者（admin / 创建者）随时可见；比赛期间对参赛者隐藏，赛后开放已报名用户。"""
+        """提交记录窗口：比赛管理者（admin / 创建者）随时可见；比赛期间对其他人隐藏，赛后向所有登录用户开放。"""
         if await self._can_manage(user, contest):
             return
         if _now() < _aware(contest.end_time):
             raise APIError(AUTH_FORBIDDEN, "比赛期间提交记录不可见，结束后开放查看", 403)
-        if not await self._is_registered(contest, user):
-            raise APIError(AUTH_FORBIDDEN, "未报名该比赛，无权查看提交记录", 403)
 
     async def _ensure_problems_visible(self, contest: Contest, user: User) -> None:
         """看题窗口（docs/contracts/contests.md 第 2 条）：赛前不开放；赛中仅报名者；
@@ -633,7 +631,7 @@ class ContestService:
         keyword: str | None = None, language: str | None = None,
         status: str | None = None, problem_id: uuid.UUID | None = None,
     ) -> tuple[list[ContestSubmissionItem], int]:
-        """比赛提交记录列表（管理角色随时可见；参赛者赛后开放）。
+        """比赛提交记录列表（管理角色随时可见；赛后向所有登录用户开放）。
 
         keyword 模糊匹配提交人昵称；language / status / problem_id 精确过滤。
         """
@@ -677,7 +675,7 @@ class ContestService:
     async def cell_submissions(
         self, user: User, contest_id: uuid.UUID, cell_user_id: uuid.UUID, problem_id: uuid.UUID
     ) -> list[ContestSubmissionItem]:
-        """榜单单格成功提交：该 (选手, 题目) 比赛内的 AC 提交（不含补题），赛后按提交记录窗口开放。"""
+        """榜单单格成功提交：该 (选手, 题目) 比赛内的 AC 提交（不含补题），赛后向所有登录用户开放。"""
         contest = await self._get_contest(contest_id)
         await self._ensure_submissions_visible(contest, user)
         contest_problem = await self.repo.get_contest_problem(contest.id, problem_id)
