@@ -170,13 +170,8 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
         :bordered="false"
         :bottom-bordered="false"
         :row-key="rowKey"
+        :empty="t('problemSets.detail.noResult')"
         class="picker-table"
-      />
-      <n-empty
-        v-if="!items.length"
-        size="small"
-        :description="t('problemSets.detail.noResult')"
-        class="picker-empty"
       />
       <div class="picker-pager">
         <n-pagination
@@ -207,9 +202,6 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
 }
 .picker-table {
   min-height: 220px;
-}
-.picker-empty {
-  padding: 12px 0;
 }
 .picker-pager {
   display: flex;

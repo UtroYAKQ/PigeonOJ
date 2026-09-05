@@ -172,14 +172,14 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
     </SearchFilterBar>
 
     <n-data-table
-      v-if="loading || list.length"
+      v-show="loading || list.length"
       class="table-fill"
       :columns="columns"
       :data="list"
       :loading="loading"
       :bordered="false"
     />
-    <div v-else class="table-fill-empty">
+    <div v-show="!loading && !list.length" class="table-fill-empty">
       <n-empty size="large" :description="t('admin.tags.empty')" />
     </div>
 

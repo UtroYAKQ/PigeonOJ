@@ -35,6 +35,7 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 ### 表格工作台
 
 - 筛选 / 搜索 / 导出放工具栏（允许换行）；表格 `n-data-table`（columns 数组 + render，列文案随 locale 翻译）；行内操作 `text` 按钮；分页底部分页器
+- **搜索统一手动触发**：`SearchFilterBar` 固定渲染「查询」主按钮——输入只同步关键词、不自动查询，点击按钮或回车触发，关键词清空（X）按空关键词立即重查；工具栏不使用「重置」按钮，重新拉取统一用 RefreshButton（见「交互习惯」）
 - 复用 `components/PaginatedDataTable.vue` + `composables/usePagination.ts`（含空态垂直居中 + 底部分页条，页面不得手写同构样板）
 - 工作台高度两种模式：**默认锁定一屏**——表格接 `table-fill`（或 `flex-height`），表体内部滚动，筛选栏 / 分页条恒可见；**自然高度**——表格随内容增长、整页滚动到底（如系统日志页），空态独立占位在剩余空间居中、分页条 `margin-top: auto` 沉底，两种模式均不得让短页面塌陷或出现双重滚动条
 - 外壳复用 `components/WorkbenchShell.vue`（page-fill 视口锁定 + 无边框卡片；支持 `title` / `header` / `header-extra` 插槽），页面不得手写 `.page-fill` + `n-card` 样板；表格区 `table-fill`，空态经 `table-fill-empty` 居中

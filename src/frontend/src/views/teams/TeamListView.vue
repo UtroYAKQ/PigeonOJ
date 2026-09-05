@@ -103,6 +103,7 @@ onMounted(load)
     <SearchFilterBar
       :keyword="keyword"
       :placeholder="t('teams.list.search')"
+      search-width="300px"
       @update:keyword="
         (v: string) => {
           keyword = v
@@ -247,7 +248,7 @@ onMounted(load)
    与题库 / 题单列表同一机制 */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
   min-height: 240px;
   align-content: start;
@@ -258,9 +259,8 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 18px 18px 16px;
+  padding: 20px 20px 18px;
   border: 1px solid var(--app-border);
-  border-radius: 10px;
   background: var(--app-card-bg, #fff);
   cursor: pointer;
   transition: border-color 0.15s ease;
@@ -282,8 +282,8 @@ onMounted(load)
   min-width: 0;
 }
 .team-card__avatar {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 8px;
   object-fit: cover;
   border: 1px solid var(--app-border);
@@ -296,14 +296,14 @@ onMounted(load)
   background: var(--app-muted-bg);
   border: 1px solid var(--app-border);
   color: var(--app-text-secondary);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 650;
 }
 .team-card__title {
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.4;
   color: var(--app-text);

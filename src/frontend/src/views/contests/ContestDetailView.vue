@@ -876,15 +876,20 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
             <n-alert v-if="!detail.can_view_problems" type="info" :bordered="false">
               {{ t('contests.detail.notVisible') }}
             </n-alert>
+            <!-- 空态样板（frontend.md）：与内容区 v-show 互斥切换，空态用全局
+                 table-fill-empty 在 tab 纵向剩余空间内拉伸居中 -->
             <n-data-table
-              v-else-if="detail.problems.length"
+              v-show="detail.can_view_problems && detail.problems.length"
               :columns="problemColumns"
               :data="detail.problems"
               :bordered="false"
               :bottom-bordered="false"
               :row-props="problemRowProps"
             />
-            <div v-else class="detail-empty">
+            <div
+              v-show="detail.can_view_problems && !detail.problems.length"
+              class="table-fill-empty detail-empty"
+            >
               <n-empty size="large" :description="t('contests.list.problemsEmpty')" />
             </div>
           </n-tab-pane>
@@ -902,7 +907,7 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
               </n-alert>
             </div>
             <n-data-table
-              v-if="boardRows.length"
+              v-show="boardRows.length"
               class="board-table"
               :columns="boardColumns"
               :data="boardRows"
@@ -913,7 +918,7 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
               flex-height
               :pagination="{ pageSize: 20, showSizePicker: true, pageSizes: [10, 20, 50] }"
             />
-            <div v-else class="detail-empty">
+            <div v-show="!boardRows.length" class="table-fill-empty detail-empty">
               <n-empty size="large" :description="t('contests.board.empty')" />
             </div>
 
@@ -1413,11 +1418,9 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   font-weight: 650;
 }
 
+/* 空态：全局 table-fill-empty 拉伸居中；tab 纵向有界，去掉 320px 下限 */
 .detail-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 200px;
+  min-height: 0;
 }
 .board-toolbar {
   display: flex;

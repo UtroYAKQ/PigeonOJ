@@ -47,7 +47,10 @@ function onRevoke(session: UserSession) {
         </div>
       </template>
 
-      <n-list v-if="sessions.length" hoverable clickable>
+      <!-- 空态样板（frontend.md）：列表与空态 v-show 互斥（v-if 分支会在空态时卸载整个列表），
+           空态用全局 table-fill-empty 拉伸居中 -->
+      <n-spin :show="loading">
+        <n-list v-show="sessions.length" hoverable clickable>
         <n-list-item v-for="session in sessions" :key="session.id">
           <div class="session-row">
             <div class="session-device">
@@ -81,8 +84,9 @@ function onRevoke(session: UserSession) {
           </div>
         </n-list-item>
       </n-list>
-      <n-spin v-else :show="loading">
-        <n-empty :description="t('sessions.empty')" />
+        <div v-show="!sessions.length && !loading" class="table-fill-empty">
+          <n-empty :description="t('sessions.empty')" />
+        </div>
       </n-spin>
     </n-card>
   </div>

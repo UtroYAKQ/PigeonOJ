@@ -56,7 +56,8 @@ function loadColor(load: number): string {
     </template>
 
     <n-spin :show="loading" class="sandbox-spin">
-      <div v-if="nodes.length" class="node-grid">
+      <!-- 空态样板（frontend.md）：内容区与空态 v-show 互斥，空态 table-fill-empty 拉伸居中 -->
+      <div v-show="nodes.length" class="node-grid">
         <n-card v-for="node in nodes" :key="node.name" size="small" class="node-card" embedded>
           <div class="node-head">
             <code>{{ node.name }}</code>
@@ -89,7 +90,9 @@ function loadColor(load: number): string {
           </div>
         </n-card>
       </div>
-      <n-empty v-else-if="!loading" :description="t('admin.sandbox.empty')" />
+      <div v-show="!nodes.length && !loading" class="table-fill-empty sandbox-empty">
+        <n-empty :description="t('admin.sandbox.empty')" />
+      </div>
     </n-spin>
   </WorkbenchShell>
 </template>

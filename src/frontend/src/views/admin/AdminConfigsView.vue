@@ -208,18 +208,18 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
     <n-tabs v-model:value="activeCategory" type="line" animated>
       <n-tab-pane v-for="c in categories" :key="c.value" :name="c.value" :tab="c.label">
         <n-spin :show="loading">
-          <!-- 表格内部滚动：max-height = 视口 - 顶栏60 - 内容区padding - tab行与卡片内距余量 -->
+          <!-- 空态样板（frontend.md）：表格 v-show 隐藏（否则与下方空态双重渲染），
+               空态用全局 table-fill-empty 拉伸居中 -->
           <n-data-table
+            v-show="loading || items.length"
             :columns="columns"
             :data="items"
             :bordered="false"
             max-height="calc(100dvh - 300px)"
           />
-          <n-empty
-            v-if="!loading && !items.length"
-            class="configs-empty"
-            :description="t('config.empty')"
-          />
+          <div v-show="!loading && !items.length" class="table-fill-empty configs-empty">
+            <n-empty :description="t('config.empty')" />
+          </div>
         </n-spin>
       </n-tab-pane>
     </n-tabs>
@@ -320,7 +320,7 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
 
 <style scoped>
 .configs-empty {
-  padding: 24px 0;
+  min-height: 280px;
 }
 .configs__desc {
   margin: 0 0 14px;

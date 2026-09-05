@@ -142,7 +142,10 @@ function goPrev() {
         <div class="arrange-page">
           <div class="arrange-page__panel">
             <div class="arrange-page__panel-title">{{ t('contests.list.problems') }}</div>
-            <div class="arrange-page__list">
+            <!-- 空态样板（frontend.md）：空态是内容区兄弟节点，全局 table-fill-empty 拉伸居中，
+                 与内容区 v-show 互斥切换（v-if 锚点增删会触发 patch 崩溃）；
+                 min-height: 0 覆盖全局 320px 下限，适配面板有界高度链 -->
+            <div v-show="draftProblems.length" class="arrange-page__list">
               <div
                 v-for="(item, index) in draftProblems"
                 :key="item.problem_id"
@@ -175,10 +178,9 @@ function goPrev() {
                   </n-button>
                 </span>
               </div>
-              <n-empty
-                v-if="!draftProblems.length"
-                :description="t('contests.list.problemsEmpty')"
-              />
+            </div>
+            <div v-show="!draftProblems.length" class="table-fill-empty arrange-page__empty">
+              <n-empty :description="t('contests.list.problemsEmpty')" />
             </div>
           </div>
           <div class="arrange-page__panel">
@@ -331,6 +333,10 @@ function goPrev() {
 .arrange-page__noresult {
   color: var(--app-text-secondary);
   font-size: 12px;
+}
+/* 空态吃满面板剩余空间并居中（全局 table-fill-empty），无 320px 下限（面板有界） */
+.arrange-page__empty {
+  min-height: 0;
 }
 @media (max-width: 900px) {
   .arrange-page {

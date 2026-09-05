@@ -12,6 +12,7 @@ import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import ModalFooter from '@/components/ModalFooter.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
+import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
@@ -58,12 +59,6 @@ async function load() {
 }
 onMounted(load)
 function onSearch() {
-  resetPage()
-  load()
-}
-function onReset() {
-  query.keyword = ''
-  query.status = null
   resetPage()
   load()
 }
@@ -277,7 +272,7 @@ const columns = computed<DataTableColumns<User>>(() => [
         }
       "
       @search="onSearch"
-      @reset="onReset"
+      @reset="onSearch"
     >
       <n-select
         v-model:value="query.status"
@@ -288,8 +283,7 @@ const columns = computed<DataTableColumns<User>>(() => [
         @update:value="onSearch"
       />
       <template #actions>
-        <n-button type="primary" @click="onSearch">{{ t('action.search') }}</n-button>
-        <n-button secondary @click="onReset">{{ t('action.reset') }}</n-button>
+        <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="onSearch" />
       </template>
     </SearchFilterBar>
 

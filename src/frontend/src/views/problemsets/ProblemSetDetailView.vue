@@ -150,7 +150,7 @@ function rowKey(row: ProblemSetItem) {
                   v-else
                   size="small"
                   :description="t('problemSets.detail.noDescription')"
-                  class="info-main__empty"
+                  class="table-fill-empty info-main__empty"
                 />
               </div>
 
@@ -183,10 +183,12 @@ function rowKey(row: ProblemSetItem) {
             </div>
           </n-tab-pane>
 
-          <!-- 题目列表 tab -->
+          <!-- 题目列表 tab：空态样板（frontend.md）——表格 v-show 隐藏（避免与空态双重渲染），
+               空态用全局 table-fill-empty 在固定高 pane 内拉伸居中 -->
           <n-tab-pane name="problems" :tab="t('problemSets.detail.problems')">
             <div class="pane-fill problems-scroll">
               <n-data-table
+                v-show="detail.items.length"
                 size="medium"
                 :columns="columns"
                 :data="detail.items"
@@ -195,12 +197,9 @@ function rowKey(row: ProblemSetItem) {
                 :row-props="rowProps"
                 :row-key="rowKey"
               />
-              <n-empty
-                v-if="!detail.items.length"
-                size="large"
-                :description="t('problemSets.detail.empty')"
-                class="problems-empty"
-              />
+              <div v-show="!detail.items.length" class="table-fill-empty problems-empty">
+                <n-empty size="large" :description="t('problemSets.detail.empty')" />
+              </div>
             </div>
           </n-tab-pane>
         </n-tabs>
@@ -267,9 +266,12 @@ function rowKey(row: ProblemSetItem) {
   overflow: auto;
   min-height: 0;
   padding-right: 8px;
+  display: flex;
+  flex-direction: column;
 }
+/* 空态拉伸居中（全局 table-fill-empty）；格子有界，去掉 320px 下限 */
 .info-main__empty {
-  padding: 48px 0;
+  min-height: 0;
 }
 .info-aside {
   overflow: auto;
@@ -310,12 +312,14 @@ function rowKey(row: ProblemSetItem) {
   color: var(--app-text-secondary);
 }
 
-/* 题目列表 tab：表格内部滚动 */
+/* 题目列表 tab：表格内部滚动；空态 flex 拉伸居中 */
 .problems-scroll {
   overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 .problems-empty {
-  padding: 40px 0;
+  min-height: 0;
 }
 .item-order {
   color: var(--app-text-secondary);

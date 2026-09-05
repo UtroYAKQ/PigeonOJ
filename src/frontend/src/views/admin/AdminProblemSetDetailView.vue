@@ -302,7 +302,7 @@ const chosenIds = computed(() => new Set((detail.value?.items ?? []).map((it) =>
               v-else
               size="small"
               :description="t('problemSets.detail.noDescription')"
-              class="panel-empty"
+              class="table-fill-empty panel-empty"
             />
           </div>
         </section>
@@ -396,14 +396,15 @@ const chosenIds = computed(() => new Set((detail.value?.items ?? []).map((it) =>
 .panel__body--scroll {
   overflow: auto;
   padding: 4px 16px 12px;
+  display: flex;
+  flex-direction: column;
 }
 .panel__body--flush {
   overflow: auto;
 }
+/* 空态拉伸居中（全局 table-fill-empty）；面板有界，去掉 320px 下限 */
 .panel-empty {
-  padding: 32px 0;
-  display: grid;
-  place-items: center;
+  min-height: 0;
 }
 .item-order {
   color: var(--app-text-secondary);

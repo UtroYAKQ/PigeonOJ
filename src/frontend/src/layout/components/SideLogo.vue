@@ -31,18 +31,18 @@ const logoUrl = computed(() =>
   text-decoration: none;
 }
 .side-logo__mark {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border-radius: 6px;
-  font-size: 20px;
+  font-size: 24px;
   color: var(--app-primary);
   background: var(--app-muted-bg);
 }
 .side-logo__img {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 6px;
   object-fit: contain;
 }
@@ -56,8 +56,8 @@ const logoUrl = computed(() =>
   color: var(--app-primary);
 }
 .side-logo.collapsed .side-logo__mark {
-  width: 32px;
-  height: 32px;
-  font-size: 18px;
+  width: 36px;
+  height: 36px;
+  font-size: 20px;
 }
 </style>
