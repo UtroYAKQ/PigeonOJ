@@ -124,7 +124,7 @@ CHECK (
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | POST | /submissions | auth | 提交判题 | problem_id, language, code, submit_type, contest_id?/verification_id? | submission_id |
-| GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细 case_name + 状态/耗时/内存/得分/程序输出；不返回期望输出） | - | submission |
+| GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细 case_name + 状态/耗时/内存/得分/程序输出；cases 按判定集顺序排列；不返回期望输出） | - | submission |
 | GET | /submissions | auth | 提交历史（本人，`WHERE user_id=?`） | problem_id/contest_id/status/分页 | submission[] |
 | GET | /problems/{id}/submissions | 题目管理角色（创建者 / admin / tutor / team_creator / team_admin，`can_manage_problem`） | 题目管理视角**全员提交列表**（题目管理页「查看提交」入口；含提交人昵称与提交类型；提交时间倒序分页） | 分页/status（提交状态）/keyword（昵称模糊）/language /submit_type（均精确） | submission[]（含 user_id / nickname / submit_type） |
 | GET | /problems/{id}/submissions/{sid} | 题目管理角色（同上） | 题目管理视角**提交详情（统一入口）**：管理权限 + 提交归属该题校验后复用判题详情装配（含代码与逐测试点明细；不返回期望输出） | - | submission |

@@ -810,6 +810,51 @@ async def test_problem_submission_detail_manage_view(client, admin_headers, user
 
 
 @pytest.mark.asyncio
+async def test_submission_detail_cases_follow_judged_order(client, admin_headers):
+    """提交详情测试点按判定集顺序展示（回归：旧实现按结果行 UUID 主键排序导致乱序；
+    无测试点引用的历史行排尾）。"""
+    from app.services.judge import SubmissionService
+
+    async with SessionLocal() as db:
+        admin = (
+            await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))
+        ).scalar_one()
+        case_ids = [uuid.uuid4() for _ in range(3)]
+        problem = Problem(
+            title="P-order", description="D", owner_id=admin.id,
+            status="published", visibility="public", verified_at=datetime.now(),
+            active_case_ids=[str(case_ids[2]), str(case_ids[0]), str(case_ids[1])],
+        )
+        db.add(problem)
+        await db.flush()
+        for i, cid in enumerate(case_ids):
+            db.add(TestCase(
+                id=cid, problem_id=problem.id, name=f"c{i + 1}",
+                input_oss_id=f"cases/{cid}.in",
+                expected_output_oss_id=f"cases/{cid}.out",
+                sort_order=i + 1,
+            ))
+        submission = Submission(
+            user_id=admin.id, problem_id=problem.id, language="cpp17",
+            code="x", status="accepted",
+        )
+        db.add(submission)
+        await db.flush()
+        # 结果行按与判定集不同的顺序落库（行主键为随机 UUID，不得影响展示顺序）
+        for cid in case_ids:
+            db.add(SubmissionTestCaseResult(
+                submission_id=submission.id, test_case_id=cid, status="accepted", score=33,
+            ))
+        db.add(SubmissionTestCaseResult(
+            submission_id=submission.id, test_case_id=None, status="system_error", score=0,
+        ))
+        await db.commit()
+
+        detail = await SubmissionService(db).build_detail(submission)
+    assert [c.case_name for c in detail.cases] == ["c3", "c1", "c2", None]
+
+
+@pytest.mark.asyncio
 async def test_replace_cases_keeps_history_results(client, admin_headers, fake_storage):
     """回归（行不可变版本化）：全量替换只改写暂存集，旧行退役留档，
     历史判题结果的 test_case_id 外键恒有效（不再置空）。"""

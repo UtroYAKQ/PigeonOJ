@@ -17,7 +17,7 @@ from app.core.exceptions import (
 from app.core.redis import get_redis
 from app.core.storage import get_storage
 from app.models.judge import SandboxConfig, Submission, SubmissionTestCaseResult
-from app.models.problem import TestCase
+from app.models.problem import Problem, TestCase
 from app.repositories.judge import JudgeRepository, SubmissionRepository, TestCaseRepository
 from app.repositories.problem import ProblemRepository
 from app.schemas.judge import (
@@ -32,6 +32,7 @@ from app.schemas.judge import (
 from app.services.problem import (
     can_manage_problem,
     get_problem,
+    judged_case_ids,
 )
 from app.services.system_config import ConfigService
 
@@ -231,17 +232,25 @@ class SubmissionService:
         return await self.build_detail(submission)
 
     async def build_detail(self, submission: Submission) -> SubmissionDetailOut:
-        """装配提交详情（含代码、逐测试点明细；访问控制由调用方完成）。"""
+        """装配提交详情（含代码、逐测试点明细；访问控制由调用方完成）。
+
+        测试点按判定集（active_case_ids；验题提交优先暂存集）列表顺序展示，
+        与派发执行顺序及测试点编辑页一致；结果行主键为随机 UUID，
+        按 id 排序会乱序（回归修复）。sort_order 列在纯调序后可能滞后，
+        不作为排序依据；不在集合内的历史行（测试点已被替换 / 删除）按落库顺序排尾。
+        """
         storage = get_storage()
         results = list(
             (
                 await self.db.execute(
                     select(SubmissionTestCaseResult)
                     .where(SubmissionTestCaseResult.submission_id == submission.id)
-                    .order_by(SubmissionTestCaseResult.id)
+                    .order_by(SubmissionTestCaseResult.created_at, SubmissionTestCaseResult.id)
                 )
             ).scalars()
         )
+        position_by_case = await self._judged_case_position(submission)
+        results.sort(key=lambda r: position_by_case.get(r.test_case_id, len(position_by_case)))
         case_ids = [r.test_case_id for r in results if r.test_case_id]
         name_by_id: dict[uuid.UUID, str | None] = (
             dict((await self.db.execute(select(TestCase.id, TestCase.name).where(TestCase.id.in_(case_ids)))).all())
@@ -269,6 +278,20 @@ class SubmissionService:
         detail = SubmissionDetailOut.model_validate(submission)
         detail.cases = cases
         return detail
+
+    async def _judged_case_position(self, submission: Submission) -> dict[uuid.UUID, int]:
+        """测试点 id → 判定集内位置。验题提交暂存集优先、生效集兜底
+        （暂存晋升后 pending 清空，判题时的暂存点即现生效点）。"""
+        problem = await self.db.get(Problem, submission.problem_id)
+        if problem is None:
+            return {}
+        if submission.submit_type == SubmitType.VERIFY:
+            ids = judged_case_ids(problem, verify=True)
+            known = set(ids)
+            ids += [cid for cid in judged_case_ids(problem, verify=False) if cid not in known]
+        else:
+            ids = judged_case_ids(problem, verify=False)
+        return {cid: idx for idx, cid in enumerate(ids)}
 
     async def create_verify_submission(self, user: object, problem_id: uuid.UUID, body: object) -> Submission:
         from app.services.problem import get_pending_verification, attach_verification_code
