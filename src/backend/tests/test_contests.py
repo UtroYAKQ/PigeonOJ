@@ -428,6 +428,72 @@ async def test_contest_detail_problem_solved(client: httpx.AsyncClient, user_hea
     assert solved_map(problems) == {p1: True, p2: None}
 
 
+async def test_contest_after_end_open_to_unregistered(
+    client: httpx.AsyncClient, user_headers, admin_headers
+) -> None:
+    """赛后开放（第 2 / 6 条）：未报名登录用户可看公开题、可补题（is_after_contest、不计榜单）；
+    编排进来的私有题对其按不存在处理（3001），不泄漏私有题存在性。"""
+    p_pub = await _seed_problem("赛后公开题")
+    p_priv = await _seed_problem("赛后私有题", visibility="private")  # admin 本人私有，可编排
+    payload = _contest_payload(
+        problems=[{"problem_id": p_pub}, {"problem_id": p_priv}],
+        start_offset=-7200, end_offset=-60,  # 已结束
+    )
+    resp = await client.post("/api/v1/contests", json=payload, headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+    cid = resp.json()["data"]["id"]
+
+    # 详情：未报名可看题、可交题，但题目列表仅公开题（私有题过滤）
+    detail = (await client.get(f"/api/v1/contests/{cid}", headers=user_headers)).json()["data"]
+    assert detail["can_view_problems"] is True
+    assert detail["can_submit"] is True
+    assert [it["problem_id"] for it in detail["problems"]] == [p_pub]
+
+    # 列表端点同样仅公开题
+    problems = (
+        await client.get(f"/api/v1/contests/{cid}/problems", headers=user_headers)
+    ).json()["data"]
+    assert [it["problem_id"] for it in problems] == [p_pub]
+
+    # 赛内题面：公开题可读，私有题按不存在（3001）
+    assert (await client.get(f"/api/v1/contests/{cid}/problems/{p_pub}", headers=user_headers)).json()["code"] == 0
+    assert (await client.get(f"/api/v1/contests/{cid}/problems/{p_priv}", headers=user_headers)).json()["code"] == 3001
+
+    # 补题：公开题放行且标记 is_after_contest、不落榜单；私有题拒绝（3001）
+    resp = await client.post(
+        f"/api/v1/contests/{cid}/problems/{p_pub}/submissions",
+        json={"language": "cpp17", "code": "int main(){}"},
+        headers=user_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    assert (await client.post(
+        f"/api/v1/contests/{cid}/problems/{p_priv}/submissions",
+        json={"language": "cpp17", "code": "int main(){}"},
+        headers=user_headers,
+    )).json()["code"] == 3001
+    async with SessionLocal() as db:
+        uid = (
+            await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))
+        ).scalar_one().id
+        sub = (
+            await db.execute(
+                select(Submission).where(
+                    Submission.contest_id == uuid_mod.UUID(cid), Submission.user_id == uid
+                )
+            )
+        ).scalar_one()
+        assert sub.submit_type == "contest"
+        assert sub.is_after_contest is True
+        assert (
+            await db.execute(
+                select(ContestRanking).where(
+                    ContestRanking.contest_id == uuid_mod.UUID(cid),
+                    ContestRanking.user_id == uid,
+                )
+            )
+        ).first() is None
+
+
 async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_headers) -> None:
     """提交记录窗口（第 7 条）：管理角色随时可见（含比赛期间）；
     参赛者比赛期间隐藏、赛后开放；未报名用户不可见。"""

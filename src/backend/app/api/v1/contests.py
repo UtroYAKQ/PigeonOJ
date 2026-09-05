@@ -179,7 +179,7 @@ async def list_contest_problems(
     service: ContestServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[list]:
-    """比赛题目列表（已报名 + 开赛后；letter / 分值随行）。"""
+    """比赛题目列表（赛中报名者可见，赛后所有登录用户可见；letter / 分值随行）。"""
     items = await service.list_problems(user, contest_id)
     return ok(items)
 

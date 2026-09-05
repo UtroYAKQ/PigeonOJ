@@ -22,6 +22,7 @@ from app.enums import (
     ContestStatus,
     ContestType,
     ProblemStatus,
+    ProblemVisibility,
     RegistrationStatus,
     RuleType,
     SubmissionStatus,
@@ -338,12 +339,6 @@ class ContestService:
             raise APIError(RESOURCE_NOT_FOUND, "比赛不存在", 404)
         return contest
 
-    async def _require_registered(self, contest: Contest, user: User) -> ContestRegistration:
-        registration = await self.repo.get_registration(contest.id, user.id)
-        if registration is None or registration.status != RegistrationStatus.REGISTERED:
-            raise APIError(AUTH_FORBIDDEN, "未报名该比赛", 403)
-        return registration
-
     async def _is_registered(self, contest: Contest, user: User) -> bool:
         registration = await self.repo.get_registration(contest.id, user.id)
         return registration is not None and registration.status == RegistrationStatus.REGISTERED
@@ -356,6 +351,28 @@ class ContestService:
             raise APIError(AUTH_FORBIDDEN, "比赛期间提交记录不可见，结束后开放查看", 403)
         if not await self._is_registered(contest, user):
             raise APIError(AUTH_FORBIDDEN, "未报名该比赛，无权查看提交记录", 403)
+
+    async def _ensure_problems_visible(self, contest: Contest, user: User) -> None:
+        """看题窗口（docs/contracts/contests.md 第 2 条）：赛前不开放；赛中仅报名者；
+        赛后向所有登录用户开放（补题浏览）。"""
+        now = _now()
+        if now < _aware(contest.start_time):
+            raise APIError(AUTH_FORBIDDEN, "比赛尚未开始，题目不可见", 403)
+        if now <= _aware(contest.end_time) and not await self._is_registered(contest, user):
+            raise APIError(AUTH_FORBIDDEN, "未报名该比赛，比赛结束后可查看题目并补题", 403)
+
+    async def _has_full_problem_access(self, contest: Contest, user: User) -> bool:
+        """报名者与管理者可见比赛全部题目；其余查看者（赛后未报名）仅见公开题
+        （私有题可被编排进比赛，不对未报名者泄漏）。"""
+        return await self._is_registered(contest, user) or await self._can_manage(user, contest)
+
+    async def _visible_problem_rows(
+        self, contest: Contest, *, full_access: bool
+    ) -> list[tuple[ContestProblem, Problem]]:
+        rows = await self.repo.list_contest_problems(contest.id)
+        if full_access:
+            return rows
+        return [(cp, problem) for cp, problem in rows if problem.visibility == ProblemVisibility.PUBLIC]
 
     @staticmethod
     def _validate_times(start: datetime, end: datetime, reg_start: datetime, reg_end: datetime) -> None:
@@ -457,7 +474,7 @@ class ContestService:
         can_view_problems = (start <= now and (registered or now >= end)) or can_manage
         items: list[ContestProblemItemOut] = []
         if can_view_problems:
-            rows = await self.repo.list_contest_problems(contest.id)
+            rows = await self._visible_problem_rows(contest, full_access=registered or can_manage)
             solved_map = await self._contest_solve_map(contest.id, viewer, rows)
             for cp, problem in rows:
                 items.append(
@@ -479,7 +496,8 @@ class ContestService:
             my_registration=my_status,
             can_register=in_register_window and not registered,
             can_view_problems=can_view_problems,
-            can_submit=registered and start <= now <= end,
+            # 交题窗口与 submit_problem 端点一致：赛中限报名者，赛后对所有登录用户开放补题
+            can_submit=start <= now and (registered or now > end),
             can_manage=can_manage,
             announcement=contest.announcement,
             announcement_updated_at=contest.announcement_updated_at,
@@ -506,12 +524,12 @@ class ContestService:
     async def list_problems(
         self, user: User, contest_id: uuid.UUID
     ) -> list[ContestProblemItemOut]:
-        """比赛题目列表：已报名 + 开赛后可见（赛后保持可见便于补题）；带本场作答状态。"""
+        """比赛题目列表：赛中限报名者，赛后对所有登录用户开放（补题浏览）；带本场作答状态。"""
         contest = await self._get_contest(contest_id)
-        await self._require_registered(contest, user)
-        if _now() < _aware(contest.start_time):
-            raise APIError(AUTH_FORBIDDEN, "比赛尚未开始，题目不可见", 403)
-        rows = await self.repo.list_contest_problems(contest.id)
+        await self._ensure_problems_visible(contest, user)
+        rows = await self._visible_problem_rows(
+            contest, full_access=await self._has_full_problem_access(contest, user)
+        )
         solved_map = await self._contest_solve_map(contest.id, user, rows)
         return [
             ContestProblemItemOut(
@@ -529,13 +547,18 @@ class ContestService:
     async def get_problem_detail(
         self, user: User, contest_id: uuid.UUID, problem_id: uuid.UUID
     ) -> ProblemDetail:
-        """比赛内题目详情（统一入口）：窗口校验后复用题库详情装配。"""
+        """比赛内题目详情（统一入口）：窗口校验后复用题库详情装配。
+
+        未报名者仅赛后可见，且限公开题（私有题编排不泄漏，按不存在处理 3001）。
+        """
         contest = await self._get_contest(contest_id)
-        await self._require_registered(contest, user)
-        if _now() < _aware(contest.start_time):
-            raise APIError(AUTH_FORBIDDEN, "比赛尚未开始，题目不可见", 403)
+        await self._ensure_problems_visible(contest, user)
         if await self.repo.get_contest_problem(contest.id, problem_id) is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不在该比赛中", 404)
+        if not await self._has_full_problem_access(contest, user):
+            problem = await self.db.get(Problem, problem_id)
+            if problem is None or problem.visibility != ProblemVisibility.PUBLIC:
+                raise APIError(RESOURCE_NOT_FOUND, "题目不在该比赛中", 404)
         detail = await ProblemService(self.db).get_detail(
             problem_id, user, bypass_visibility=True
         )
@@ -553,16 +576,22 @@ class ContestService:
         """比赛交题（统一入口）：窗口校验 → 经 ContestSubmitter 端口创建 contest 提交。
 
         返回 (submission, after_contest)；判题上下文端口由构造注入，非路由组合根
-        （rpc / 测试）未装配端口时延迟自建兜底。赛后提交自动标记补题，不计榜单
-        （docs/contracts/contests.md 第 6 条）。
+        （rpc / 测试）未装配端口时延迟自建兜底。赛中限报名者；赛后向所有登录用户
+        开放补题（自动标记 is_after_contest，不计榜单，docs/contracts/contests.md 第 6 条）；
+        未报名者补题限公开题（私有题按不存在处理）。
         """
         contest = await self._get_contest(contest_id)
-        await self._require_registered(contest, user)
-        if await self.repo.get_contest_problem(contest.id, problem_id) is None:
-            raise APIError(RESOURCE_NOT_FOUND, "题目不在该比赛中", 404)
         now = _now()
         if now < _aware(contest.start_time):
             raise APIError(AUTH_FORBIDDEN, "比赛尚未开始，不可提交", 403)
+        if now <= _aware(contest.end_time) and not await self._is_registered(contest, user):
+            raise APIError(AUTH_FORBIDDEN, "未报名该比赛，比赛结束后开放补题", 403)
+        if await self.repo.get_contest_problem(contest.id, problem_id) is None:
+            raise APIError(RESOURCE_NOT_FOUND, "题目不在该比赛中", 404)
+        if not await self._has_full_problem_access(contest, user):
+            problem = await self.db.get(Problem, problem_id)
+            if problem is None or problem.visibility != ProblemVisibility.PUBLIC:
+                raise APIError(RESOURCE_NOT_FOUND, "题目不在该比赛中", 404)
         after = now > _aware(contest.end_time)
         if self._submitter is not None:
             submitter = self._submitter

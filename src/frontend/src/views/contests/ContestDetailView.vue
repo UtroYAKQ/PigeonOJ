@@ -893,36 +893,6 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
                 {{ t('contests.frozenHint') }}
               </n-alert>
             </div>
-            <!-- 图例：药丸格语义 + 赛后可点提示 -->
-            <div v-if="boardRows.length" class="board-legend">
-              <span class="legend-item">
-                <span class="cell-pill cell-pill--ac">{{ isAcM ? '0' : '100' }}</span>
-                {{ t('contests.board.legendAccepted') }}
-              </span>
-              <span class="legend-item">
-                <span class="cell-pill cell-pill--first">{{ isAcM ? '0' : '100' }}</span>
-                {{ t('contests.board.legendFirst') }}
-              </span>
-              <span v-if="!isAcM" class="legend-item">
-                <span class="cell-pill cell-pill--part">40</span>
-                {{ t('contests.board.legendPartial') }}
-              </span>
-              <span class="legend-item">
-                <span class="cell-pill cell-pill--try">-2</span>
-                {{ t('contests.board.legendTried') }}
-              </span>
-              <span class="legend-item">
-                <span class="cell-pill cell-pill--idle">·</span>
-                {{ t('contests.board.legendIdle') }}
-              </span>
-              <span class="legend-item">
-                <span class="cell-pill cell-pill--frozen">?</span>
-                {{ t('contests.board.legendFrozen') }}
-              </span>
-              <span v-if="boardClickable" class="legend-item legend-item--hint">
-                {{ t('contests.board.legendClickable') }}
-              </span>
-            </div>
             <n-data-table
               v-if="boardRows.length"
               class="board-table"
@@ -1470,27 +1440,29 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   }
 }
 
-/* ---- 榜单：双行题头 + 药丸格（色值均由设计令牌 color-mix 派生） ---- */
-.cell-head {
+/* ---- 榜单：双行题头 + 药丸格（色值均由设计令牌 color-mix 派生）。
+   格内 DOM 由列 render 的 h() 在 naive-ui 内部创建、不带本组件 scoped 属性，
+   故全部样式经 .board-table :deep() 下穿（同 solveMark.ts 的已知约束）。 ---- */
+.board-table :deep(.cell-head) {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
   line-height: 1.2;
 }
-.cell-head__letter {
+.board-table :deep(.cell-head__letter) {
   font-weight: 650;
 }
-.cell-head__score {
+.board-table :deep(.cell-head__score) {
   font-size: 11px;
   font-weight: 500;
   color: var(--app-text-secondary);
 }
-.solved-cell {
+.board-table :deep(.solved-cell) {
   font-variant-numeric: tabular-nums;
   color: var(--app-text-secondary);
 }
-.cell-pill {
+.board-table :deep(.cell-pill) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1502,38 +1474,38 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
-.cell-pill--ac {
+.board-table :deep(.cell-pill--ac) {
   background: color-mix(in srgb, var(--app-success, #18a058) 14%, transparent);
   color: var(--app-success, #18a058);
 }
 /* 全场首次通过（一血）：实心深绿 + 白字 */
-.cell-pill--first {
+.board-table :deep(.cell-pill--first) {
   background: var(--app-success, #18a058);
   color: #fff;
 }
-.cell-pill--part {
+.board-table :deep(.cell-pill--part) {
   background: color-mix(in srgb, var(--app-info, #2080f0) 12%, transparent);
   color: var(--app-info, #2080f0);
 }
-.cell-pill--try {
+.board-table :deep(.cell-pill--try) {
   background: color-mix(in srgb, var(--app-error, #d03050) 12%, transparent);
   color: var(--app-error, #d03050);
   font-weight: 600;
 }
 /* 封榜期间提交：灰色虚线格，隐藏结果保持悬念 */
-.cell-pill--frozen {
+.board-table :deep(.cell-pill--frozen) {
   background: var(--app-muted-bg);
   color: var(--app-text-secondary);
   border: 1px dashed var(--app-border);
   padding: 1px 9px;
   font-weight: 650;
 }
-.cell-pill--idle {
+.board-table :deep(.cell-pill--idle) {
   color: var(--app-text-secondary);
   opacity: 0.5;
   font-weight: 500;
 }
-.cell-pill--link {
+.board-table :deep(.cell-pill--link) {
   border: 0;
   font: inherit;
   font-size: 13px;
@@ -1544,32 +1516,8 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
     box-shadow 0.15s ease,
     filter 0.15s ease;
 }
-.cell-pill--link:hover {
+.board-table :deep(.cell-pill--link:hover) {
   filter: brightness(1.05);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-success, #18a058) 35%, transparent);
-}
-.board-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 10px;
-  font-size: 12px;
-  color: var(--app-text-secondary);
-}
-.legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.legend-item .cell-pill {
-  min-width: 0;
-  padding: 1px 9px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.legend-item--hint {
-  color: var(--app-primary);
-  font-weight: 550;
 }
 </style>

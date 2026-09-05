@@ -87,7 +87,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
   非创建者、非 admin 管理他人比赛一律 2003。创建入口为角色门（admin/tutor）
 - 比赛中心仅展示公开比赛（`contest_type='public'`）；团队比赛仅在所属团队空间内展示（按 `team_id` 过滤）
 - 用户只能查看自己所在团队的比赛；团队比赛仅允许团队成员报名
-- 比赛题目访问与提交均校验身份与报名（见下方「关键流程」越权规则）
+- 比赛题目访问与提交校验身份与报名（赛中限报名者，赛后向所有登录用户开放看题 / 补题；见下方「关键流程」越权规则）
 - 榜单按 `(contest_id, user_id)` 聚合展示；Redis `rank:contest:<id>` 仅作读缓存（TTL 分级：进行中 3s / 封榜 60s / 完赛已解冻永久），权威数据在 `contest_rankings`，判题回写 / 封榜 / 解冻时主动失效（含 commit 后补删，见 docs/operations.md「缓存一致性」）
 
 ## 端点
@@ -99,7 +99,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | GET | /contests | public | 比赛中心列表（公开） | 分页/状态/keyword（名称模糊） | contest[] |
 | GET | /admin/contests | admin/tutor | 比赛管理视图：admin 全量、tutor 仅本人创建（单一所有权模型，全部状态） | 分页/状态/keyword（名称模糊） | contest[] |
 | GET | /contests/{id} | public/owner | 比赛详情（题目/规则/报名状态）；登录请求题目条目带 `solved` 本场作答状态（`true`=本场 AC / `false`=本场已尝试未通过 / `null`=未提交，匿名恒 `null`；仅统计本场比赛提交，练习 / 验题通过不计入） | - | contest |
-| GET | /contests/{id}/problems | auth（已报名 + 时间窗口） | 比赛题目列表（同带 `solved` 本场作答状态） | - | problem[] |
+| GET | /contests/{id}/problems | auth（赛中：已报名；赛后：所有登录用户） | 比赛题目列表（同带 `solved` 本场作答状态；未报名者仅见公开题） | - | problem[] |
 | GET | /contests/{id}/problems/search | admin/tutor（require_manage） | **编排页题目搜索（统一入口）**：已发布且（全站公开 或 本人私有）题目，标题模糊；仅比赛管理角色可调 | 分页/keyword | problem[]（problem_id/title/difficulty） |
 | POST | /contests | admin/tutor（公开）/ admin/tutor/team_creator/team_admin（团队） | 创建比赛 | contest_type, logo?, rule_type, time, register, freeze, problems[] | contest |
 | PUT | /contests/{id} | admin/tutor/team_creator/team_admin | 编辑比赛 | ... | contest |
@@ -109,8 +109,8 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | GET | /contests/{id}/board | auth | 榜单（封榜时按冻结展示；BoardCell 含 problem_score 单题满分） | - | board |
 | GET | /contests/{id}/board/{user_id}/{problem_id}/accepted | auth（admin·tutor 随时 / **赛后**：已报名） | **榜单单格成功提交**：该 (选手, 题目) 比赛内 AC 提交（不含补题，时间正序）；窗口与角色门控随提交记录 | - | submission[] |
 | POST | /contests/{id}/unfreeze | admin/tutor | **手动解冻榜单**（**仅赛后可用**，running 时返回 3002——封榜是赛时公平机制，赛中禁止解冻）：从 submissions 权威重算并回填封榜期间结果（解冻必须人工触发，比赛结束后亦然） | - | contest |
-| GET | /contests/{id}/problems/{pid} | auth（已报名 + 看题窗口） | **比赛内题目详情（统一入口）**：归属 / 窗口校验后与 `GET /problems/{id}` 装配一致 | - | problem |
-| POST | /contests/{id}/problems/{pid}/submissions | auth（已报名 + 时间窗口） | **比赛交题（统一入口）**：窗口校验后落 contest 提交并派发；赛后自动标记补题（不计榜单） | language/code | submission_id |
+| GET | /contests/{id}/problems/{pid} | auth（赛中：已报名；赛后：所有登录用户） | **比赛内题目详情（统一入口）**：归属 / 窗口校验后与 `GET /problems/{id}` 装配一致；未报名者仅见公开题（私有题按 3001 不存在） | - | problem |
+| POST | /contests/{id}/problems/{pid}/submissions | auth（赛中：已报名；赛后：所有登录用户补题） | **比赛交题（统一入口）**：窗口校验后落 contest 提交并派发；赛后自动标记补题（不计榜单），未报名者补题仅公开题 | language/code | submission_id |
 | GET | /contests/{id}/submissions | auth（admin·tutor 随时 / **赛后**：已报名） | **比赛提交记录列表**：全员正式提交 + 补题，提交时间倒序；比赛期间仅管理角色可见，参赛者赛后开放 | 分页/keyword（昵称模糊）/language/status/problem_id（均精确） | submission[]（含 nickname / letter） |
 | GET | /contests/{id}/submissions/{sid} | auth（admin·tutor 随时 / **赛后**：已报名） | **比赛提交详情（统一入口）**：窗口与 contest 归属校验后复用判题详情装配 | - | submission（含代码 / 测试点明细） |
 | GET | /teams/{team_id}/contests | team 角色 | 团队比赛列表（随 teams 模块实现） | 分页 | contest[] |
@@ -144,7 +144,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 ## 关键流程 / 验收条件
 
 1. **报名**：`POST /contests/{id}/register`——公开比赛所有登录用户可报，团队比赛仅团队成员可报；`contest_registrations` 唯一约束防重复。
-2. **比赛访问 / 提交越权校验**：公开比赛须「已注册 + `start_time ≤ now ≤ end_time`」（赛后补题按报名用户开放、不计榜单）；团队比赛须「团队成员 + 已报名」；赛前（`now < start_time`）题目不可见，未报名用户不可见 / 不可提交。比赛提交时 `contest_id` 由服务端从当前请求上下文推导，不信任客户端传入。
+2. **比赛访问 / 提交越权校验**：赛中（`start_time ≤ now ≤ end_time`）看题 / 交题须「已报名」；赛后（`now > end_time`）看题与补题对所有登录用户开放（补题不计榜单）；赛前（`now < start_time`）题目不可见。未报名者（仅赛后可见）只能看公开题，编排进来的私有题对其按不存在处理（3001），不泄漏私有题存在性。团队比赛报名额外叠加「团队成员」。比赛提交时 `contest_id` 由服务端从当前请求上下文推导，不信任客户端传入。
 2b. **题目编排规则**：可编排题目 = 已发布且（全站公开 **或 本人私有**）；编排保存与编排搜索端点按同一规则校验；参赛者经比赛窗口查看比赛内题目时按比赛访问权限放行（题解 / 测试点等管理数据仍按题目权限门控）。
 3. **计分**（`rule_type` 区分）：
    - **ACM**：全部测试点通过才有分；罚时（分钟）= 首次通过时间（自比赛开始）+ 首次通过前错误提交数 × 罚时系数（默认 20 分钟，可配置）；未通过题目不计罚时；首次通过后错误提交不计入罚时；提交分数原生二值（AC=满分否则 0），派题携带短路标记（judge.md「赛制计分」）。
@@ -160,7 +160,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
    从 submissions 权威重算榜单并回填封榜期间结果；比赛结束（`status='finished'`）**不自动解冻**，
    榜单保持冻结快照直到人工解冻。封榜期间新提交只落 `submissions` 与 `submission_test_case_results`，
    不更新榜单行。
-6. **赛后补题**：允许补题（`submissions.is_after_contest=true`），不计入榜单。
+6. **赛后补题**：比赛结束后所有登录用户（含未报名者）可交题，自动标记 `submissions.is_after_contest=true`，不计入榜单；补题计入个人「本场作答状态 solved」。
 7. **提交记录可见性**（比赛上下文统一入口端点）：
    - **管理角色（admin/tutor）随时可见**（含比赛期间与封榜期间，便于监考 / 巡查）
    - **比赛期间（`now < end_time`）对参赛者与未报名用户隐藏**（返回 2003）；
