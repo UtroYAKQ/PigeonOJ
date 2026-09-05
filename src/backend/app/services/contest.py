@@ -457,7 +457,9 @@ class ContestService:
         can_view_problems = (start <= now and (registered or now >= end)) or can_manage
         items: list[ContestProblemItemOut] = []
         if can_view_problems:
-            for cp, problem in await self.repo.list_contest_problems(contest.id):
+            rows = await self.repo.list_contest_problems(contest.id)
+            solved_map = await self._contest_solve_map(contest.id, viewer, rows)
+            for cp, problem in rows:
                 items.append(
                     ContestProblemItemOut(
                         problem_id=problem.id,
@@ -466,6 +468,7 @@ class ContestService:
                         sort_order=cp.sort_order,
                         title=problem.title,
                         difficulty=problem.difficulty,
+                        solved=solved_map.get(problem.id),
                     )
                 )
         in_register_window = (
@@ -483,14 +486,33 @@ class ContestService:
             problems=items,
         )
 
+    async def _contest_solve_map(
+        self,
+        contest_id: uuid.UUID,
+        viewer: User | None,
+        rows: list[tuple[ContestProblem, Problem]],
+    ) -> dict[uuid.UUID, bool]:
+        """查看者在本场比赛的逐题作答状态（匿名 / 无查看需要时为空 map）。
+
+        口径 = 本场比赛提交（含补题）：AC 为已解出，有提交未 AC 为已尝试；
+        练习 / 验题通过不计入，避免跨场景误标「已写」。
+        """
+        if viewer is None:
+            return {}
+        return await self.repo.solve_status_map_for_contest(
+            contest_id, viewer.id, [problem.id for _, problem in rows]
+        )
+
     async def list_problems(
         self, user: User, contest_id: uuid.UUID
     ) -> list[ContestProblemItemOut]:
-        """比赛题目列表：已报名 + 开赛后可见（赛后保持可见便于补题）。"""
+        """比赛题目列表：已报名 + 开赛后可见（赛后保持可见便于补题）；带本场作答状态。"""
         contest = await self._get_contest(contest_id)
         await self._require_registered(contest, user)
         if _now() < _aware(contest.start_time):
             raise APIError(AUTH_FORBIDDEN, "比赛尚未开始，题目不可见", 403)
+        rows = await self.repo.list_contest_problems(contest.id)
+        solved_map = await self._contest_solve_map(contest.id, user, rows)
         return [
             ContestProblemItemOut(
                 problem_id=problem.id,
@@ -499,8 +521,9 @@ class ContestService:
                 sort_order=cp.sort_order,
                 title=problem.title,
                 difficulty=problem.difficulty,
+                solved=solved_map.get(problem.id),
             )
-            for cp, problem in await self.repo.list_contest_problems(contest.id)
+            for cp, problem in rows
         ]
 
     async def get_problem_detail(

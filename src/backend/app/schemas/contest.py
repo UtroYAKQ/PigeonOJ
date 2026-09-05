@@ -81,7 +81,11 @@ class AnnouncementUpdate(BaseModel):
 
 
 class ContestProblemItemOut(BaseModel):
-    """比赛题目列表项（letter 为榜单元信息；详情另经统一入口端点获取）。"""
+    """比赛题目列表项（letter 为榜单元信息；详情另经统一入口端点获取）。
+
+    solved 为本人在该比赛内的作答状态（仅详情 / 列表端点对登录用户填充）：
+    true=本场已通过 / false=已尝试未通过 / null=未提交过（或匿名）。
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -91,6 +95,7 @@ class ContestProblemItemOut(BaseModel):
     sort_order: int
     title: str
     difficulty: int | None = None
+    solved: bool | None = None
 
 
 class ContestSummary(BaseModel):

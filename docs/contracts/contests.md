@@ -98,8 +98,8 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | --- | --- | --- | --- | --- | --- |
 | GET | /contests | public | 比赛中心列表（公开） | 分页/状态/keyword（名称模糊） | contest[] |
 | GET | /admin/contests | admin/tutor | 比赛管理视图：admin 全量、tutor 仅本人创建（单一所有权模型，全部状态） | 分页/状态/keyword（名称模糊） | contest[] |
-| GET | /contests/{id} | public/owner | 比赛详情（题目/规则/报名状态） | - | contest |
-| GET | /contests/{id}/problems | auth（已报名 + 时间窗口） | 比赛题目列表 | - | problem[] |
+| GET | /contests/{id} | public/owner | 比赛详情（题目/规则/报名状态）；登录请求题目条目带 `solved` 本场作答状态（`true`=本场 AC / `false`=本场已尝试未通过 / `null`=未提交，匿名恒 `null`；仅统计本场比赛提交，练习 / 验题通过不计入） | - | contest |
+| GET | /contests/{id}/problems | auth（已报名 + 时间窗口） | 比赛题目列表（同带 `solved` 本场作答状态） | - | problem[] |
 | GET | /contests/{id}/problems/search | admin/tutor（require_manage） | **编排页题目搜索（统一入口）**：已发布且（全站公开 或 本人私有）题目，标题模糊；仅比赛管理角色可调 | 分页/keyword | problem[]（problem_id/title/difficulty） |
 | POST | /contests | admin/tutor（公开）/ admin/tutor/team_creator/team_admin（团队） | 创建比赛 | contest_type, logo?, rule_type, time, register, freeze, problems[] | contest |
 | PUT | /contests/{id} | admin/tutor/team_creator/team_admin | 编辑比赛 | ... | contest |

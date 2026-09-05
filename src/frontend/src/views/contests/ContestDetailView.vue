@@ -24,6 +24,7 @@ import {
 } from '@/api/contests'
 import { message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
+import { renderSolveMark } from '@/utils/solveMark'
 import { usePagination } from '@/composables/usePagination'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import { languageOptions } from '@/constants/languages'
@@ -372,6 +373,13 @@ const schedule = computed<Milestone[]>(() => {
 
 const problemColumns = computed<DataTableColumns<ContestProblemItem>>(() => [
   {
+    // 本人在该场比赛的作答状态（练习 / 验题通过不计入）；悬停查看语义
+    title: '',
+    key: 'solved',
+    width: 72,
+    render: (row) => renderSolveMark(t, row.solved),
+  },
+  {
     title: t('contests.detail.letter'),
     key: 'letter',
     width: 70,
@@ -388,12 +396,6 @@ const problemColumns = computed<DataTableColumns<ContestProblemItem>>(() => [
     key: 'score',
     width: 100,
     render: (row) => (row.score > 0 ? String(row.score) : '--'),
-  },
-  {
-    title: t('contests.detail.difficulty'),
-    key: 'difficulty',
-    width: 90,
-    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
   },
 ])
 

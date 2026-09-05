@@ -351,6 +351,83 @@ async def test_contest_access_and_submission_flow(client: httpx.AsyncClient, use
         assert sub.is_after_contest is False
 
 
+async def test_contest_detail_problem_solved(client: httpx.AsyncClient, user_headers) -> None:
+    """详情题目 solved 作答状态（docs/contracts/contests.md）：仅统计本场比赛提交
+    （AC=true / 尝试未过=false / 未交=null），练习通过不计入本场；列表端点同口径。"""
+    p1 = await _seed_problem("状态题一")
+    p2 = await _seed_problem("状态题二")
+    tutor = await _tutor_headers(client)
+    payload = _contest_payload(
+        problems=[{"problem_id": p1}, {"problem_id": p2}],
+        start_offset=-600, end_offset=3600, reg_start_offset=-1200, reg_end_offset=-300,
+    )
+    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    cid = resp.json()["data"]["id"]
+    async with SessionLocal() as db:
+        uid = (
+            await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))
+        ).scalar_one().id
+        db.add(ContestRegistration(contest_id=uuid_mod.UUID(cid), user_id=uid))
+        await db.commit()
+
+    def solved_map(items: list[dict]) -> dict:
+        return {it["problem_id"]: it["solved"] for it in items}
+
+    # 无提交 → 全 null；匿名不在看题窗口，题目列表为空
+    detail = (await client.get(f"/api/v1/contests/{cid}", headers=user_headers)).json()["data"]
+    assert solved_map(detail["problems"]) == {p1: None, p2: None}
+    anon = (await client.get(f"/api/v1/contests/{cid}")).json()["data"]
+    assert anon["problems"] == []
+
+    # 本场交题未判完（pending = 已尝试）→ false
+    resp = await client.post(
+        f"/api/v1/contests/{cid}/problems/{p1}/submissions",
+        json={"language": "cpp17", "code": "int main(){}"},
+        headers=user_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    detail = (await client.get(f"/api/v1/contests/{cid}", headers=user_headers)).json()["data"]
+    assert solved_map(detail["problems"]) == {p1: False, p2: None}
+
+    # 本场 p1 AC → true；练习渠道 AC p2 不计入本场 → 仍 null
+    async with SessionLocal() as db:
+        contest_sub = (
+            await db.execute(
+                select(Submission).where(
+                    Submission.contest_id == uuid_mod.UUID(cid),
+                    Submission.problem_id == uuid_mod.UUID(p1),
+                )
+            )
+        ).scalar_one()
+        contest_sub.status = "accepted"
+        await db.commit()
+    practice = await client.post(
+        "/api/v1/submissions",
+        json={"problem_id": p2, "language": "cpp17", "code": "int main(){}"},
+        headers=user_headers,
+    )
+    assert practice.json()["code"] == 0, practice.text
+    async with SessionLocal() as db:
+        practice_sub = (
+            await db.execute(
+                select(Submission).where(
+                    Submission.problem_id == uuid_mod.UUID(p2),
+                    Submission.submit_type == "practice",
+                )
+            )
+        ).scalar_one()
+        practice_sub.status = "accepted"
+        await db.commit()
+    detail = (await client.get(f"/api/v1/contests/{cid}", headers=user_headers)).json()["data"]
+    assert solved_map(detail["problems"]) == {p1: True, p2: None}
+
+    # 题目列表端点同口径
+    problems = (
+        await client.get(f"/api/v1/contests/{cid}/problems", headers=user_headers)
+    ).json()["data"]
+    assert solved_map(problems) == {p1: True, p2: None}
+
+
 async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_headers) -> None:
     """提交记录窗口（第 7 条）：管理角色随时可见（含比赛期间）；
     参赛者比赛期间隐藏、赛后开放；未报名用户不可见。"""

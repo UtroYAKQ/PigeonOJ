@@ -50,6 +50,8 @@ export interface ContestProblemItem {
   sort_order: number
   title: string
   difficulty?: number | null
+  /** 本人在该比赛内的作答状态：true=已通过 / false=已尝试未通过 / null=未提交过（匿名恒 null） */
+  solved?: boolean | null
 }
 
 export interface ContestSummary {

@@ -182,6 +182,34 @@ class ContestRepository:
             )
         )
 
+    async def solve_status_map_for_contest(
+        self, contest_id: uuid.UUID, user_id: uuid.UUID, problem_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, bool]:
+        """本人在该比赛内的作答状态（详情题目列表 solved 标识，比赛提交口径）：
+
+        True=本场存在 AC 提交；False=本场已尝试未通过；未提交过的题不在返回中。
+        仅统计 submit_type=contest 且 contest_id 匹配的本场比赛提交
+        （练习 / 验题通过不算作本场已解出；补题提交计入）。
+        """
+        if not problem_ids:
+            return {}
+        rows = (
+            await self.db.execute(
+                select(
+                    Submission.problem_id,
+                    func.bool_or(Submission.status == SubmissionStatus.ACCEPTED).label("solved"),
+                )
+                .where(
+                    Submission.contest_id == contest_id,
+                    Submission.user_id == user_id,
+                    Submission.submit_type == SubmitType.CONTEST,
+                    Submission.problem_id.in_(problem_ids),
+                )
+                .group_by(Submission.problem_id)
+            )
+        ).all()
+        return {row.problem_id: bool(row.solved) for row in rows}
+
     async def replace_problems(self, contest_id: uuid.UUID, rows: list[ContestProblem]) -> None:
         await self.db.execute(delete(ContestProblem).where(ContestProblem.contest_id == contest_id))
         self.db.add_all(rows)
