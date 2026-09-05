@@ -17,6 +17,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 
@@ -153,12 +154,17 @@ async def build_job_bundle(db, submission_id: uuid.UUID) -> JobBundle | None:
     if submission is None:
         return None
     # 原子认领：仅当仍为 pending 时置 judging，杜绝双执行方并发判同一题；
-    # 认领失败说明已被其他执行方处理，静默放弃
+    # 认领失败说明已被其他执行方处理，静默放弃。
+    # updated_at 刷新为认领时刻：judging 滞留判定（5 分钟判死）以此为基准
     claimed = (
         await db.execute(
             update(Submission)
             .where(Submission.id == submission_id, Submission.status == SubmissionStatus.PENDING)
-            .values(status=SubmissionStatus.JUDGING, error_message=None)
+            .values(
+                status=SubmissionStatus.JUDGING,
+                error_message=None,
+                updated_at=datetime.now(timezone.utc),
+            )
         )
     ).rowcount
     if not claimed:

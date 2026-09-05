@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid as uuid_mod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -21,6 +21,7 @@ from app.rpc.judge_gateway import (
     _token_ok,
     dispatch_submission,
     maintenance_loop,
+    maintenance_once,
     send_job,
 )
 from app.rpc.gen import judge_pb2
@@ -28,6 +29,7 @@ from app.models.judge import Submission
 from app.models.problem import Problem, TestCase
 from app.models.user import User
 from app.core.database import SessionLocal
+from app.core.redis import get_redis
 
 
 def _add_node(node_id: str, inflight: int = 0, capacity: int = 2) -> NodeConnection:
@@ -317,3 +319,95 @@ async def test_stale_node_excluded_from_dispatch():
     with pytest.raises(GatewayUnavailableError):
         await dispatch_run_code(problem=None, sandbox_config=None, language="python3",
                                 code=b"print(1)", stdin_data=b"", max_concurrent=4)
+
+async def _submit(client, admin_headers, pid: str) -> str:
+    resp = await client.post(
+        "/api/v1/submissions",
+        json={"problem_id": pid, "language": "cpp17", "code": "int main(){}"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    return resp.json()["data"]["submission_id"]
+
+
+async def _set_updated_at(sid: str, minutes_ago: int) -> None:
+    async with SessionLocal() as db:
+        row = await db.get(Submission, uuid_mod.UUID(sid))
+        row.updated_at = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_superseded_conn_cannot_reset_new_inflight(client, admin_headers, fake_storage):
+    """回归（重连竞态）：同 ID 重连后，旧（僵尸）连接的迟到清理不得重置
+    新连接正在判的提交——否则新节点回传结果被 apply_job_result 以「非 judging」
+    丢弃、白判一遍并重新排队（断线重连后题卡在排队的根因之一）。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    old = _add_node("race-node")
+    sid = await _submit(client, admin_headers, pid)
+    await asyncio.wait_for(old.outbox.get(), timeout=5)
+    assert sid in old.inflight
+
+    new = NodeConnection(node_id="race-node", name="race-node", capacity=2, version="test")
+    REGISTRY.register(new)  # 同 ID 重连：in-flight 移交并清空旧连接
+    assert sid in new.inflight and not old.inflight
+
+    # 旧连接迟到 finally：回收必须为空，重置 no-op，提交保持 judging
+    recovered_old = REGISTRY.unregister(old)
+    assert recovered_old == set()
+    await _reset_to_pending(recovered_old, reason="test")
+    async with SessionLocal() as db:
+        row = await db.get(Submission, uuid_mod.UUID(sid))
+        assert row.status == "judging"
+
+    # 新连接真实离线：正常回收
+    await _reset_to_pending(REGISTRY.unregister(new), reason="test")
+    async with SessionLocal() as db:
+        row = await db.get(Submission, uuid_mod.UUID(sid))
+        assert row.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_registration_kick_dispatches_backlog_immediately(client, admin_headers, fake_storage):
+    """回归（节点上线派积压）：断线期间滞留的 pending 提交，在节点重新注册
+    （踢醒事件）后立即重派，不必等扫描周期——修复「节点上线了题还在一直排队」。"""
+    from app.rpc import judge_gateway as gw
+
+    pid = await _seed_problem_with_case(fake_storage)
+    sid = await _submit(client, admin_headers, pid)  # 提交时无在线节点 → 滞留 pending
+    await _set_updated_at(sid, minutes_ago=10)
+
+    conn = _add_node("kick-node")  # 节点上线
+    gw._MAINTENANCE_KICK.set()     # 注册路径的踢醒（Connect 内同款）
+    task = asyncio.create_task(gw.maintenance_loop(interval=30))
+    try:
+        msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+        assert msg.WhichOneof("payload") == "job"
+        assert msg.job.submission_id == sid
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_failed_dispatch_lock_only_short_cooldown(client, admin_headers, fake_storage):
+    """回归（锁语义）：派发失败（无在线节点）只冷却一个扫描周期量级（≤60s），
+    不再冻结 300s；派发成功后锁升级为在途保护窗。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    sid = await _submit(client, admin_headers, pid)
+    await _set_updated_at(sid, minutes_ago=10)
+
+    # 无在线节点 → 派发失败：冷却锁必须短（修复断线期烧 300s 锁、恢复后仍长时间排队）
+    await maintenance_once(30)
+    ttl = await get_redis().ttl(f"judge:requeue:{sid}")
+    assert 0 < ttl <= 60
+
+    # 冷却到期（模拟 TTL 过期）→ 节点已上线 → 下一轮巡检即派发成功，锁升级为在途保护
+    await get_redis().delete(f"judge:requeue:{sid}")
+    conn = _add_node("lock-node")
+    await maintenance_once(30)
+    msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+    assert msg.job.submission_id == sid
+    ttl = await get_redis().ttl(f"judge:requeue:{sid}")
+    assert ttl > 200

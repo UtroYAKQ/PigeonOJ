@@ -35,7 +35,6 @@ _PENDING_RESCAN_SECONDS = 30
 _JUDGING_STALE_SECONDS = 5 * 60
 # 用户自测整链路兜底超时（> 节点侧编译+运行最大预算；到期未回传视为节点故障）
 _RUN_TIMEOUT_SECONDS = 120
-
 # 心跳指标钳制边界（节点上报 0-100 百分比，越界值写 Redis 前收敛）
 _METRIC_PERCENT_MIN = 0
 _METRIC_PERCENT_MAX = 100
@@ -48,6 +47,14 @@ _NODE_STATUS_ONLINE = "online"
 _CHANNEL_GATEWAY = "gateway"
 # 维护循环重派互斥锁键前缀（docs/operations.md Redis 约定）
 _REQUEUE_LOCK_PREFIX = "judge:requeue:"
+# 重派锁 TTL：派发成功后在途保护（与 judging 判死阈值一致，防长作业被频繁重置）；
+# 派发失败仅短 TTL 冷却（一个扫描周期量级），不冻结积压
+_REQUEUE_LOCK_TTL_SECONDS = _JUDGING_STALE_SECONDS
+_REQUEUE_RETRY_TTL_SECONDS = 60
+
+# 节点注册/重连踢醒事件：巡检循环立即消化积压，免等扫描周期
+# （断线→重连后积压提交秒级重派，修复「节点上线了题还在排队」）
+_MAINTENANCE_KICK = asyncio.Event()
 
 
 async def active_judge_count() -> int:
@@ -141,8 +148,11 @@ class GatewayRegistry:
     def register(self, conn: NodeConnection) -> None:
         old = self._connections.get(conn.node_id)
         if old is not None and old is not conn:
-            # 同 ID 重连：踢掉旧流（其 inflight 移交新连接）
+            # 同 ID 重连：踢掉旧流（其 inflight 移交新连接后立即清空）——
+            # 旧连接的生成器可能长时间悬挂在半开 TCP 的 yield 上，若不清空，
+            # 其迟到 finally 会经 unregister 拿到这批 ID，把新连接正在判的提交重置回 pending
             conn.inflight |= old.inflight
+            old.inflight.clear()
             try:
                 old.outbox.put_nowait(None)
             except Exception:  # noqa: BLE001
@@ -150,10 +160,15 @@ class GatewayRegistry:
         self._connections[conn.node_id] = conn
 
     def unregister(self, conn: NodeConnection) -> set[str]:
-        """注销并返回需要回收的 in-flight 提交 ID。"""
+        """注销并返回需要回收的 in-flight 提交 ID。
+
+        仅当 conn 仍是该 ID 的注册连接时才回收：同 ID 重连后，旧（僵尸）连接的
+        迟到清理必须视为空——in-flight 已移交新连接，重置/删心跳都会破坏新连接的在途作业。
+        """
         if self._connections.get(conn.node_id) is conn:
             self._connections.pop(conn.node_id, None)
-        return conn.inflight
+            return conn.inflight
+        return set()
 
     def get(self, node_id: str) -> NodeConnection | None:
         return self._connections.get(node_id)
@@ -261,6 +276,8 @@ class JudgeGatewayService(judge_pb2_grpc.JudgeGatewayServicer):
         REGISTRY.register(conn)
         await REGISTRY.redis_heartbeat(conn)
         logger.info("判题节点上线: %s (capacity=%s)", conn.node_id, conn.capacity)
+        # 节点上线/重连：立即唤醒巡检消化积压（含断线期间滞留的 pending 提交）
+        _MAINTENANCE_KICK.set()
 
         yield judge_pb2.ServerMessage(
             ack=judge_pb2.RegisterAck(
@@ -281,8 +298,9 @@ class JudgeGatewayService(judge_pb2_grpc.JudgeGatewayServicer):
             incoming.cancel()
             recovered = REGISTRY.unregister(conn)
             _fail_pending_runs(conn, reason="node offline")
-            await REGISTRY.remove_heartbeat(conn.node_id)
             if recovered:
+                # 仅本连接仍是注册连接时才回收（同 ID 重连后旧连接的迟到清理不再越权）
+                await REGISTRY.remove_heartbeat(conn.node_id)
                 await _reset_to_pending(recovered, reason="node offline")
             logger.info("判题节点离线: %s", conn.node_id)
 
@@ -392,46 +410,72 @@ async def _reset_to_pending(submission_ids: set[str], *, reason: str) -> None:
 
     ids = [uuid.UUID(s) for s in submission_ids]
     async with SessionLocal() as db:
+        # updated_at 同步刷新为状态变更时刻：巡检的「滞留」判定以它为基准，
+        # 若停留在创建时间，断线回收后的重派门槛与实际滞留时长脱节
         await db.execute(
-            update(Submission).where(Submission.id.in_(ids), Submission.status == SubmissionStatus.JUDGING).values(status=SubmissionStatus.PENDING)
+            update(Submission)
+            .where(Submission.id.in_(ids), Submission.status == SubmissionStatus.JUDGING)
+            .values(status=SubmissionStatus.PENDING, updated_at=datetime.now(timezone.utc))
         )
         await db.commit()
     logger.info("回收 %s 个 in-flight 提交（%s）", len(ids), reason)
 
 
-async def maintenance_loop(interval: int | None = None) -> None:
-    """周期巡检：pending 超时未派发 / judging 超时未完成 → 重置并重派。"""
+async def maintenance_once(scan_interval: int, now: datetime | None = None) -> None:
+    """单轮巡检（maintenance_loop 循环体，独立成函数便于测试注入）：
+    重置超时未完成的 judging、重派滞留的 pending / judging 提交。"""
     from sqlalchemy import select, update
 
     from app.models.judge import Submission
 
-    scan_interval = _PENDING_RESCAN_SECONDS if interval is None else max(0, interval)
     stale_after = timedelta(seconds=scan_interval * _STALE_SCAN_MULTIPLIER)
+    now = now or datetime.now(timezone.utc)
     r = get_redis()
+    async with SessionLocal() as db:
+        stale = (
+            await db.execute(
+                select(Submission).where(
+                    Submission.status.in_([SubmissionStatus.PENDING, SubmissionStatus.JUDGING]),
+                    Submission.updated_at < now - stale_after,
+                )
+            )
+        ).scalars().all()
+        for submission in stale:
+            lock_key = f"{_REQUEUE_LOCK_PREFIX}{submission.id}"
+            # 先以短 TTL 上锁防同轮重复处理；派发成功后再升级为在途保护窗。
+            # 失败（无在线节点等）只冷却一个扫描周期量级——不冻结积压，
+            # 节点恢复后下一轮即可重派（修复断线期烧锁导致恢复后仍长时间排队）
+            if not await r.set(lock_key, "1", nx=True, ex=_REQUEUE_RETRY_TTL_SECONDS):
+                continue
+            if (
+                submission.status == SubmissionStatus.JUDGING
+                and submission.updated_at < now - timedelta(seconds=_JUDGING_STALE_SECONDS)
+            ):
+                await db.execute(
+                    update(Submission)
+                    .where(Submission.id == submission.id)
+                    .values(status=SubmissionStatus.PENDING, updated_at=now)
+                )
+            await db.commit()
+            if await dispatch_submission(submission.id):
+                logger.info("巡检重派提交 %s", submission.id)
+                await r.set(lock_key, "1", ex=_REQUEUE_LOCK_TTL_SECONDS)
+
+
+async def maintenance_loop(interval: int | None = None) -> None:
+    """周期巡检：pending 超时未派发 / judging 超时未完成 → 重置并重派。
+
+    节点注册（含断线重连）会 set 踢醒事件，积压立即消化、不等扫描周期。
+    """
+    scan_interval = _PENDING_RESCAN_SECONDS if interval is None else max(0, interval)
     while True:
         try:
-            await asyncio.sleep(scan_interval)
-            now = datetime.now(timezone.utc)
-            async with SessionLocal() as db:
-                stale = (
-                    await db.execute(
-                        select(Submission).where(
-                            Submission.status.in_([SubmissionStatus.PENDING, SubmissionStatus.JUDGING]),
-                            Submission.updated_at < now - stale_after,
-                        )
-                    )
-                ).scalars().all()
-                for submission in stale:
-                    lock_key = f"{_REQUEUE_LOCK_PREFIX}{submission.id}"
-                    if not await r.set(lock_key, "1", nx=True, ex=_JUDGING_STALE_SECONDS):
-                        continue
-                    if submission.status == SubmissionStatus.JUDGING and submission.updated_at < now - timedelta(seconds=_JUDGING_STALE_SECONDS):
-                        await db.execute(
-                            update(Submission).where(Submission.id == submission.id).values(status=SubmissionStatus.PENDING)
-                        )
-                    await db.commit()
-                    if await dispatch_submission(submission.id):
-                        logger.info("巡检重派提交 %s", submission.id)
+            try:
+                await asyncio.wait_for(_MAINTENANCE_KICK.wait(), timeout=scan_interval)
+            except asyncio.TimeoutError:
+                pass
+            _MAINTENANCE_KICK.clear()
+            await maintenance_once(scan_interval)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - 巡检失败不影响主流程

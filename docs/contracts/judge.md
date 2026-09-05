@@ -158,7 +158,8 @@ CHECK (
     · user+problem 冷却（4001）与全局并发上限（4002），阈值来自系统配置 sandbox 域
   → dispatch_submission：网关注册表按任务数（判题 + 自测）最少优先选节点；
     build_job_bundle 原子认领（UPDATE ... WHERE status='pending'）后经 gRPC 流推送 SubmitJob
-  → 无在线节点：保持 pending，网关维护循环每 30s 重扫派发
+  → 无在线节点：保持 pending，网关维护循环每 30s 重扫派发；**节点注册 / 重连即踢醒巡检**，
+    断线期间滞留的 pending 秒级重派（不等扫描周期）
 节点（pigeonoj/judge-node 容器，privileged，出站连接后端 :50051）
   → 数据缓存未命中时 FetchProblemData 拉取测试点（data_version 缓存于容器 /cache）
   → 按 sandbox_configs 比例换算有效限制（时间 ×time_ratio；内存 max(×memory_ratio, memory_min_mb)）
@@ -166,7 +167,8 @@ CHECK (
     写 submission_test_case_results（输出落 MinIO）
   → 回传 JudgeResult；汇总写 submissions；练习/比赛终态回写 problem_counters 通过率计数
     （口径见下方要点）；验题提交回写 verification 与 problems.is_verified
-维护循环兜底：pending>60s / judging>5min 重置重派（Redis SETNX 防并发重复投递）
+维护循环兜底：滞留判定以 `submissions.updated_at`（状态变更时刻，认领 / 回收时显式刷新）为基准——
+pending>60s / judging>5min 重置重派（Redis SETNX 防同轮重复投递：失败 60s 冷却、成功后 300s 在途保护）
 ```
 
 ### 节点网关协议
@@ -189,6 +191,9 @@ CHECK (
 - 断线语义：连接断开即离线（上行泵退出经 watchdog 向下行队列送哨兵，必经 finally 清理并打离线日志），
   其名下 in-flight 提交由服务端重置 pending 并重派，
   在途用户自测请求（pending Future）即时置错返回；判题写入幂等，重复执行安全。
+  **同 ID 重连竞态防护**：重连注册时 in-flight 移交新连接并立即清空旧连接副本；
+  旧（僵尸）连接的迟到清理视为空回收——不得重置新连接在判的提交、不得删除新连接心跳
+  （节点 ID 形如 `{hostname}-{pid}`，容器内 PID 1 重启不变，同 ID 重连是常态路径）。
 - 僵尸连接防护：上行泵对单条消息处理失败（Redis / DB 瞬断）只记日志并跳过该消息，不终止流；
   派发与并发统计（负载均衡、全局上限）跳过超过 max(2×心跳间隔, 心跳 TTL) 未收到任何上行消息的节点，
   避免「心跳已断流但任务仍派向该节点、结果永远回不来」的脑裂状态。

@@ -115,7 +115,7 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 | `sandbox:node:<id>` | 判题节点运行时状态 | 心跳周期（过期视为离线） |
 | `judge:cooldown:<user_id>:<problem_id>` | 提交冷却 | 冷却时长 |
 | `judge:selftest:<user_id>:<problem_id>` | 用户自测冷却 | 复用冷却配置 |
-| `judge:requeue:<submission_id>` | 维护循环重派互斥锁 | 重派窗口 |
+| `judge:requeue:<submission_id>` | 维护循环重派互斥锁（失败 60s 冷却；派发成功升级 300s 在途保护） | 60s / 300s |
 | `upload:rate:<kind>:<user_id>` | 文件上传固定窗口计数（kind = avatar / image / site_logo） | 窗口（1 小时） |
 
 ### 缓存一致性
@@ -133,7 +133,7 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 | 机制 | 说明 | 现状 |
 | --- | --- | --- |
 | gRPC 网关派发 | 按任务数最少优先选节点（跳过上行消息超时的僵死节点），原子认领后沿双向流推送；无在线节点保持 pending | 已实现 |
-| 网关维护循环 | 每 30s 扫描超时提交（复位 pending 重派、断线节点 in-flight 回收） | 已实现 |
+| 网关维护循环 | 每 30s 扫描超时提交（复位 pending 重派、断线节点 in-flight 回收）；节点注册即踢醒巡检立即消化积压 | 已实现 |
 | 节点心跳桥接 | 上行 Heartbeat → 写 Redis `sandbox:node:<id>`；单条消息处理失败（Redis/DB 瞬断）只记日志不终止流 | 已实现 |
 | 节点判活护栏 | 派发与并发统计跳过超过 max(2×心跳间隔, 心跳 TTL) 未收到上行消息的节点；上行泵退出经 watchdog 触发连接清理（注销 / 置错 / 删心跳 / 离线日志） | 已实现 |
 | 比赛状态推进 | 封榜 / 解封 / 结束重算（`contest_transition`） | 随 contests 模块实现 |
