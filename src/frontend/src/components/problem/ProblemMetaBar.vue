@@ -2,10 +2,12 @@
 /**
  * 题目元信息条：标题 + 时间/内存限制 + 状态/可见性/待重验标签 + 标签。
  * 题目详情页、管理预览页、验题面板三处共用，避免各自维护一套 meta 排版。
+ * 标签默认隐藏（可点击「显示标签 / 隐藏标签」切换，docs/frontend.md 组件契约）。
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NTag } from 'naive-ui'
+import { NTag, NIcon } from 'naive-ui'
+import { ArrowDown, ArrowRight } from '@element-plus/icons-vue'
 
 import { problemStatusLabelKey, problemStatusTagType } from '@/constants/problemStatus'
 import type { ProblemDetail } from '@/types'
@@ -36,6 +38,9 @@ const { t } = useI18n()
 const statusVisible = computed(
   () => !props.hidePublishedStatus || props.problem.status !== 'published',
 )
+/** 标签默认隐藏，点击文字切换 */
+const tagsVisible = ref(false)
+const hasTags = computed(() => (props.problem.tags?.length ?? 0) > 0)
 
 /** 通过率展示：accepted/submission 百分比；无提交不展示 */
 const passRate = computed(() => {
@@ -70,16 +75,29 @@ const passRate = computed(() => {
         {{ t('problems.preview.needsReverification') }}
       </n-tag>
     </div>
-    <div v-if="problem.tags?.length" class="problem-meta-bar__tags problem-meta-bar__tags--standalone">
-      <n-tag
-        v-for="tag in problem.tags"
-        :key="tag.id"
-        size="small"
-        :bordered="false"
-        :color="tag.color ? { color: tag.color, textColor: '#fff' } : undefined"
+    <div v-if="hasTags" class="problem-meta-bar__tagline">
+      <button
+        type="button"
+        class="problem-meta-bar__toggle"
+        :aria-expanded="tagsVisible"
+        @click="tagsVisible = !tagsVisible"
       >
-        {{ tag.name }}
-      </n-tag>
+        <n-icon class="problem-meta-bar__toggle-caret" :size="12" aria-hidden="true">
+          <ArrowRight v-if="!tagsVisible" />
+          <ArrowDown v-else />
+        </n-icon>
+        {{ tagsVisible ? t('problems.list.hideTags') : t('problems.list.showTags') }}
+      </button>
+      <div v-if="tagsVisible" class="problem-meta-bar__taglist">
+        <n-tag
+          v-for="tag in problem.tags"
+          :key="tag.id"
+          size="small"
+          :color="tag.color ? { color: tag.color, textColor: '#fff' } : undefined"
+        >
+          {{ tag.name }}
+        </n-tag>
+      </div>
     </div>
   </div>
 </template>
@@ -103,5 +121,38 @@ const passRate = computed(() => {
 }
 .problem-meta-bar__tags--standalone {
   margin-top: 8px;
+}
+/* 标签区：切换文字独立一行（弱化小字），展开后标签另起一行，避免同行拥挤 */
+.problem-meta-bar__tagline {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* 显示/隐藏标签：可点击文字（无默认按钮外观；中性弱化色，hover 主色提示可点） */
+.problem-meta-bar__toggle {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.problem-meta-bar__toggle:hover {
+  color: var(--app-primary);
+}
+.problem-meta-bar__toggle-caret {
+  display: inline-flex;
+}
+/* 展开的标签行：左对齐与切换文字同缩进 */
+.problem-meta-bar__taglist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 </style>

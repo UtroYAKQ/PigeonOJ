@@ -31,6 +31,8 @@ export default {
       difficulty: '难度',
       passRate: '通过率',
       tags: '标签',
+      showTags: '显示标签',
+      hideTags: '隐藏标签',
       mineOnly: '我的题目',
       privateTag: '私有',
       solveSolved: '已通过',

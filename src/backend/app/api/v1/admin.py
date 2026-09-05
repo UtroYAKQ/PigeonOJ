@@ -191,14 +191,22 @@ async def handle_report(
 
 
 # ---- 标签管理（docs/contracts/problems.md 端点表 /admin/tags*） ----
-@router.get("/tags", response_model=ApiResponse[list[TagOut]])
+@router.get("/tags", response_model=ApiResponse[PaginatedResponse[TagOut]])
 async def list_tags(
     service: TagServiceDep,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=64),
     admin: User = _admin,
-) -> ApiResponse[list[TagOut]]:
-    """标签管理全量列表（含已归档；激活在前）。"""
-    rows = await service.list_all()
-    return ok([TagOut.model_validate(row) for row in rows])
+) -> ApiResponse[PaginatedResponse[TagOut]]:
+    """标签管理分页列表（含已归档；激活在前、归档在后；keyword 模糊匹配标签名）。"""
+    rows, total = await service.list_all_page(keyword, page, page_size)
+    return ok(
+        PaginatedResponse(
+            items=[TagOut.model_validate(row) for row in rows],
+            total=total, page=page, page_size=page_size,
+        )
+    )
 
 
 @router.post("/tags", response_model=ApiResponse[TagOut])

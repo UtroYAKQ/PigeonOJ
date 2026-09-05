@@ -8,13 +8,18 @@ import { adminArchiveTag, adminCreateTag, adminListTags, adminUpdateTag } from '
 import type { ProblemTagItem } from '@/types'
 import { formatDateTime } from '@/utils/format'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
+import { usePagination } from '@/composables/usePagination'
 import ModalFooter from '@/components/ModalFooter.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
 const list = ref<ProblemTagItem[]>([])
+const keyword = ref('')
+const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
+  usePagination()
 
 const editorDialog = ref(false)
 const editing = ref<ProblemTagItem | null>(null)
@@ -24,14 +29,29 @@ const formColor = ref<string | null>(null)
 const submitting = ref(false)
 
 async function load() {
+  const seq = beginLoad()
   loading.value = true
   try {
-    list.value = await adminListTags()
+    const result = await adminListTags({
+      page: page.value,
+      page_size: pageSize.value,
+      keyword: keyword.value || undefined,
+    })
+    if (!isCurrent(seq)) return
+    list.value = result.items
+    total.value = result.total
   } catch (e) {
+    if (!isCurrent(seq)) return
     message.error(e instanceof Error ? e.message : t('common.loadFailed'))
   } finally {
-    loading.value = false
+    if (isCurrent(seq)) loading.value = false
   }
+}
+
+/** 查询（手动模式：点击「查询」/ 回车 / 清空触发，回第一页） */
+function onSearch() {
+  resetPage()
+  load()
 }
 
 onMounted(load)
@@ -163,7 +183,17 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
 
 <template>
   <WorkbenchShell>
-    <SearchFilterBar :show-search="false">
+    <SearchFilterBar
+      :keyword="keyword"
+      :placeholder="t('admin.tags.search')"
+      @update:keyword="
+        (v: string) => {
+          keyword = v
+        }
+      "
+      @search="onSearch"
+      @reset="onSearch"
+    >
       <template #actions>
         <n-button type="primary" size="small" @click="openCreate">
           {{ t('admin.tags.create') }}
@@ -171,17 +201,28 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
       </template>
     </SearchFilterBar>
 
-    <n-data-table
-      v-show="loading || list.length"
-      class="table-fill"
+    <PaginatedDataTable
       :columns="columns"
       :data="list"
       :loading="loading"
-      :bordered="false"
+      :total="total"
+      v-model:page="page"
+      v-model:page-size="pageSize"
+      :page-sizes="[20, 50, 100]"
+      :empty-text="t('admin.tags.empty')"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
+      @update:page-size="
+        (s: number) => {
+          changeSize(s)
+          load()
+        }
+      "
     />
-    <div v-show="!loading && !list.length" class="table-fill-empty">
-      <n-empty size="large" :description="t('admin.tags.empty')" />
-    </div>
 
     <!-- 新建 / 编辑标签 -->
     <n-modal

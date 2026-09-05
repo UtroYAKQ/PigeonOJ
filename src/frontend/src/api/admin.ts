@@ -118,9 +118,9 @@ export function adminHandleReport(reportId: string, action: 'handled' | 'ignored
 
 // ---------------- 标签管理（docs/contracts/problems.md /admin/tags*） ----------------
 
-/** GET /admin/tags — 全量标签（含已归档，激活在前） */
-export function adminListTags() {
-  return apiRequest<ProblemTagItem[]>('GET', '/admin/tags')
+/** GET /admin/tags — 标签管理分页列表（含已归档，激活在前；keyword 模糊匹配标签名） */
+export function adminListTags(query: { page: number; page_size: number; keyword?: string }) {
+  return apiRequest<PageResult<ProblemTagItem>>('GET', `/admin/tags${buildQuery(query)}`)
 }
 
 /** POST /admin/tags — 新增标签（name 全局唯一） */

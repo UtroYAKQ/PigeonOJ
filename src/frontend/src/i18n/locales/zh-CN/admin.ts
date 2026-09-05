@@ -93,6 +93,7 @@
       edit: '编辑标签',
       archive: '归档',
       namePlaceholder: '输入标签名',
+      search: '搜索标签名',
       archiveConfirm: '归档后标签不再可选，已有题目关联保留。确定归档「{name}」？',
       created: '标签已创建',
       updated: '标签已更新',

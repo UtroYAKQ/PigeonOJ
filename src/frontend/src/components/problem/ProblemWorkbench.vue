@@ -150,7 +150,7 @@ watch(
   >
     <!-- 左栏：题面（独立滚动） -->
     <section class="problem-workbench__statement">
-      <n-card :bordered="false" class="statement-card" content-style="padding: 20px;">
+      <n-card :bordered="false" class="statement-card" content-style="padding: 10px 20px 20px;">
         <template #header>
           <ProblemMetaBar
             :problem="problem"
@@ -336,6 +336,10 @@ watch(
 }
 .statement-card {
   flex: 1;
+}
+/* 压缩 meta 条（卡片头）与题面首个分区（题目背景）之间的大间隔 */
+.statement-card :deep(.n-card-header) {
+  padding-bottom: 6px;
 }
 
 .problem-workbench__divider {

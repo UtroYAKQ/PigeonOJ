@@ -227,14 +227,26 @@ class TagRepository:
         )
         return rows, total
 
-    async def list_all(self) -> list[ProblemTag]:
-        return list(
+    async def list_all_page(
+        self, keyword: str | None, page: int, page_size: int
+    ) -> tuple[list[ProblemTag], int]:
+        """管理分页列表：含已归档（激活在前、归档在后，组内按名称），支持 keyword 模糊。"""
+        where = []
+        if keyword:
+            where.append(ProblemTag.name.ilike(f"%{keyword}%"))
+        total = await self.db.scalar(select(func.count()).select_from(ProblemTag).where(*where)) or 0
+        rows = list(
             (
                 await self.db.execute(
-                    select(ProblemTag).order_by(ProblemTag.status, ProblemTag.name)
+                    select(ProblemTag)
+                    .where(*where)
+                    .order_by(ProblemTag.status, ProblemTag.name)
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
                 )
             ).scalars()
         )
+        return rows, total
 
     async def list_by_names(self, names: list[str]) -> list[ProblemTag]:
         return list(

@@ -93,6 +93,7 @@
       edit: 'Edit tag',
       archive: 'Archive',
       namePlaceholder: 'Tag name',
+      search: 'Search tags',
       archiveConfirm:
         'Archived tags can no longer be selected; existing problem links are kept. Archive "{name}"?',
       created: 'Tag created',

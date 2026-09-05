@@ -33,6 +33,8 @@ export default {
       difficulty: 'Difficulty',
       passRate: 'Pass rate',
       tags: 'Tags',
+      showTags: 'Show tags',
+      hideTags: 'Hide tags',
       privateTag: 'Private',
       solveSolved: 'Solved',
       solveAttempted: 'Attempted',
