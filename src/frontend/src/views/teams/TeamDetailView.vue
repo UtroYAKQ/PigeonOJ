@@ -409,290 +409,290 @@ onMounted(load)
     <div class="team-fill">
       <!-- NSpin 只包 Hero（骨架 / 失败 / 信息），不参与模块卡的高度传导 -->
       <NSpin :show="loading" class="hero-spin">
-      <!-- 加载骨架 -->
-      <div v-if="!team && loading" class="hero hero--skeleton">
-        <NSkeleton height="140px" :sharp="false" style="border-radius: 8px" />
-        <NSkeleton circle width="88px" height="88px" class="hero__avatar hero__avatar--skeleton" />
-        <NSkeleton text style="width: 30%" />
-        <NSkeleton text style="width: 60%" />
-      </div>
+        <!-- 加载骨架 -->
+        <div v-if="!team && loading" class="hero hero--skeleton">
+          <NSkeleton height="140px" :sharp="false" style="border-radius: 8px" />
+          <NSkeleton
+            circle
+            width="88px"
+            height="88px"
+            class="hero__avatar hero__avatar--skeleton"
+          />
+          <NSkeleton text style="width: 30%" />
+          <NSkeleton text style="width: 60%" />
+        </div>
 
-      <!-- 加载失败 -->
-      <div v-else-if="!team && loadFailed" class="hero hero--failed">
-        <NEmpty :description="t('teams.detail.loadFailed')" size="large">
-          <template #extra>
-            <NButton @click="load">{{ t('action.refresh') }}</NButton>
-          </template>
-        </NEmpty>
-      </div>
+        <!-- 加载失败 -->
+        <div v-else-if="!team && loadFailed" class="hero hero--failed">
+          <NEmpty :description="t('teams.detail.loadFailed')" size="large">
+            <template #extra>
+              <NButton @click="load">{{ t('action.refresh') }}</NButton>
+            </template>
+          </NEmpty>
+        </div>
       </NSpin>
 
       <!-- ======== Hero（不参与模块卡高度链） ======== -->
       <section v-if="team" class="hero">
-          <div class="hero__banner" aria-hidden="true">
-            <span class="hero__orb"></span>
-            <span class="hero__ring"></span>
+        <div class="hero__banner" aria-hidden="true">
+          <span class="hero__orb"></span>
+          <span class="hero__ring"></span>
+        </div>
+        <div class="hero__body">
+          <img v-if="team.avatar_url" :src="team.avatar_url" alt="" class="hero__avatar" />
+          <div v-else class="hero__avatar hero__avatar--fallback" aria-hidden="true">
+            {{ initialOf(team.name) }}
           </div>
-          <div class="hero__body">
-            <img v-if="team.avatar_url" :src="team.avatar_url" alt="" class="hero__avatar" />
-            <div v-else class="hero__avatar hero__avatar--fallback" aria-hidden="true">
-              {{ initialOf(team.name) }}
-            </div>
 
-            <div class="hero__main">
-              <div class="hero__title-row">
-                <h1 class="hero__title">{{ team.name }}</h1>
-              </div>
-              <p class="hero__desc" :class="{ 'hero__desc--empty': !team.description }">
-                {{ team.description ?? t('teams.detail.descEmpty') }}
-              </p>
-              <!-- 统计行：成员数 / 创建时间 / 团队 ID（点击复制完整 ID） -->
-              <div class="hero__meta">
-                <span>
-                  {{ t('teams.list.memberCount') }}
-                  <strong class="hero__meta-num">{{ team.member_count }}</strong>
-                </span>
-                <span class="hero__dot" aria-hidden="true">·</span>
-                <span>{{ t('teams.list.createdAt') }} {{ formatDateTime(team.created_at) }}</span>
-                <span class="hero__dot" aria-hidden="true">·</span>
-                <button
-                  type="button"
-                  class="hero__id"
-                  :title="t('teams.detail.teamId')"
-                  @click="copyTeamId"
-                >
-                  {{ t('teams.detail.teamId') }} {{ teamId.slice(0, 8) }}
-                </button>
-              </div>
+          <div class="hero__main">
+            <div class="hero__title-row">
+              <h1 class="hero__title">{{ team.name }}</h1>
             </div>
-
-            <!-- 动作区：预留扩展位，后续团队管理按钮继续向此追加 -->
-            <div class="hero__actions">
-              <NButton
-                v-if="isAdmin"
-                type="primary"
-                size="large"
-                :loading="inviting"
-                @click="onCreateInvite"
+            <p class="hero__desc" :class="{ 'hero__desc--empty': !team.description }">
+              {{ team.description ?? t('teams.detail.descEmpty') }}
+            </p>
+            <!-- 统计行：成员数 / 创建时间 / 团队 ID（点击复制完整 ID） -->
+            <div class="hero__meta">
+              <span>
+                {{ t('teams.list.memberCount') }}
+                <strong class="hero__meta-num">{{ team.member_count }}</strong>
+              </span>
+              <span class="hero__dot" aria-hidden="true">·</span>
+              <span>{{ t('teams.list.createdAt') }} {{ formatDateTime(team.created_at) }}</span>
+              <span class="hero__dot" aria-hidden="true">·</span>
+              <button
+                type="button"
+                class="hero__id"
+                :title="t('teams.detail.teamId')"
+                @click="copyTeamId"
               >
-                <template #icon>
-                  <NIcon :component="Promotion" />
-                </template>
-                {{ t('teams.detail.inviteMembers') }}
-              </NButton>
-              <NButton v-if="isAdmin" secondary size="large" @click="openSettings">
-                <template #icon>
-                  <NIcon :component="Setting" />
-                </template>
-                {{ t('teams.detail.editInfo') }}
-              </NButton>
-              <NDropdown
-                v-if="heroActions.length"
-                trigger="click"
-                :options="heroActions"
-                @select="onHeroAction"
-              >
-                <NButton circle quaternary size="large" :aria-label="t('teams.detail.more')">
-                  <template #icon>
-                    <NIcon :component="MoreFilled" />
-                  </template>
-                </NButton>
-              </NDropdown>
+                {{ t('teams.detail.teamId') }} {{ teamId.slice(0, 8) }}
+              </button>
             </div>
           </div>
+
+          <!-- 动作区：预留扩展位，后续团队管理按钮继续向此追加 -->
+          <div class="hero__actions">
+            <NButton
+              v-if="isAdmin"
+              type="primary"
+              size="large"
+              :loading="inviting"
+              @click="onCreateInvite"
+            >
+              <template #icon>
+                <NIcon :component="Promotion" />
+              </template>
+              {{ t('teams.detail.inviteMembers') }}
+            </NButton>
+            <NButton v-if="isAdmin" secondary size="large" @click="openSettings">
+              <template #icon>
+                <NIcon :component="Setting" />
+              </template>
+              {{ t('teams.detail.editInfo') }}
+            </NButton>
+            <NDropdown
+              v-if="heroActions.length"
+              trigger="click"
+              :options="heroActions"
+              @select="onHeroAction"
+            >
+              <NButton circle quaternary size="large" :aria-label="t('teams.detail.more')">
+                <template #icon>
+                  <NIcon :component="MoreFilled" />
+                </template>
+              </NButton>
+            </NDropdown>
+          </div>
+        </div>
       </section>
 
       <!-- ======== 内容模块（tab 线条直连内容） ======== -->
       <section v-if="team" class="module-area">
         <n-tabs v-model:value="activeModule" type="line" class="module-tabs">
-            <n-tab-pane
-              v-for="moduleItem in moduleMeta"
-              :key="moduleItem.key"
-              :name="moduleItem.key"
-              :tab="t(moduleItem.labelKey)"
-            >
-              <!-- 成员 -->
-              <template v-if="moduleItem.key === 'members'">
-                <div class="pane-scroll">
-                  <NSpin :show="membersLoading" class="pane-spin">
-                    <ul v-if="members.length" class="member-grid">
-                      <li v-for="member in members" :key="member.user_id" class="member-cell">
-                        <NAvatar
-                          :src="member.avatar_url || undefined"
-                          round
-                          :size="44"
-                          :style="{
-                            color: 'var(--app-text-secondary)',
-                            fontSize: '15px',
-                            flexShrink: 0,
-                          }"
-                        >
-                          <template v-if="!member.avatar_url">{{ initialOf(member.nickname) }}</template>
-                        </NAvatar>
-                        <div class="member-cell__main">
-                          <span class="member-cell__name" :title="member.nickname">
-                            {{ member.nickname }}
-                          </span>
-                          <span class="member-cell__time">
-                            {{ t('teams.members.joinedAt') }} {{ formatDateTime(member.joined_at) }}
-                          </span>
-                        </div>
-                        <NTag
-                          size="small"
-                          round
-                          :bordered="false"
-                          :type="
-                            member.is_creator ? 'warning' : member.is_admin ? 'info' : 'default'
-                          "
-                          class="member-cell__role"
-                        >
-                          {{
-                            member.is_creator
-                              ? t('teams.role.creator')
-                              : member.is_admin
-                                ? t('teams.role.admin')
-                                : t('teams.role.member')
-                          }}
-                        </NTag>
-                        <NDropdown
-                          v-if="memberActions(member).length"
-                          class="member-cell__ops"
-                          trigger="click"
-                          :options="memberActions(member)"
-                          @select="(action: MemberAction) => onMemberAction(action, member)"
-                        >
-                          <NButton
-                            circle
-                            quaternary
-                            size="tiny"
-                            :aria-label="t('teams.detail.more')"
-                          >
-                            <template #icon>
-                              <NIcon :component="MoreFilled" />
-                            </template>
-                          </NButton>
-                        </NDropdown>
-                      </li>
-                    </ul>
-                    <NEmpty
-                      v-else-if="!membersLoading"
-                      :description="t('teams.members.empty')"
-                      size="large"
-                      class="pane-empty"
-                    />
-                  </NSpin>
-                </div>
-
-                <div v-if="memberTotal > memberPageSize" class="pane-pager">
-                  <n-pagination
-                    :page="memberPage"
-                    :page-size="memberPageSize"
-                    :item-count="memberTotal"
-                    :page-sizes="[10, 20, 50]"
-                    show-size-picker
-                    @update:page="
-                      (p: number) => {
-                        changeMemberPage(p)
-                        loadMembers()
-                      }
-                    "
-                    @update:page-size="
-                      (s: number) => {
-                        changeMemberSize(s)
-                        loadMembers()
-                      }
-                    "
-                  />
-                </div>
-              </template>
-
-              <!-- 规划中模块：三张能力卡并排，写清各自将提供什么 -->
-              <template v-else-if="moduleItem.placeholder">
-                <div class="module-grid">
-                  <div
-                    v-for="mod in placeholderModules"
-                    :key="mod.key"
-                    class="module-card"
-                    :class="{ 'module-card--active': mod.key === moduleItem.key }"
-                  >
-                    <span class="module-card__icon" aria-hidden="true">
-                      <NIcon :size="26" :component="mod.icon" />
-                    </span>
-                    <h3 class="module-card__title">{{ t(mod.labelKey) }}</h3>
-                    <p class="module-card__hint">{{ t(mod.hintKey) }}</p>
-                    <span class="module-card__badge">{{ t('teams.modules.comingSoon') }}</span>
-                  </div>
-                </div>
-              </template>
-
-              <!-- 加入申请（管理员） -->
-              <template v-else>
-                <div class="pane-scroll">
-                  <NSpin :show="applicationsLoading" class="pane-spin">
-                    <ul v-if="applications.length" class="member-grid">
-                      <li
-                        v-for="application in applications"
-                        :key="application.id"
-                        class="member-cell"
+          <n-tab-pane
+            v-for="moduleItem in moduleMeta"
+            :key="moduleItem.key"
+            :name="moduleItem.key"
+            :tab="t(moduleItem.labelKey)"
+          >
+            <!-- 成员 -->
+            <template v-if="moduleItem.key === 'members'">
+              <div class="pane-scroll">
+                <NSpin :show="membersLoading" class="pane-spin">
+                  <ul v-if="members.length" class="member-grid">
+                    <li v-for="member in members" :key="member.user_id" class="member-cell">
+                      <NAvatar
+                        :src="member.avatar_url || undefined"
+                        round
+                        :size="44"
+                        :style="{
+                          color: 'var(--app-text-secondary)',
+                          fontSize: '15px',
+                          flexShrink: 0,
+                        }"
                       >
-                        <NAvatar
-                          round
-                          :size="44"
-                          :style="{
-                            color: 'var(--app-text-secondary)',
-                            fontSize: '15px',
-                            flexShrink: 0,
-                          }"
-                        >
-                          {{ initialOf(application.nickname) }}
-                        </NAvatar>
-                        <div class="member-cell__main">
-                          <span class="member-cell__name" :title="application.nickname">
-                            {{ application.nickname }}
-                          </span>
-                          <span class="member-cell__time">
-                            {{ formatDateTime(application.applied_at) }}
-                          </span>
-                        </div>
-                        <NTag
-                          size="small"
-                          round
-                          :bordered="false"
-                          :type="application.invite_token ? 'info' : 'default'"
-                          class="member-cell__role"
-                        >
-                          {{
-                            application.invite_token
-                              ? t('teams.applications.viaInvite')
-                              : t('teams.applications.direct')
-                          }}
-                        </NTag>
-                        <div class="member-cell__actions">
-                          <NButton size="small" type="primary" @click="onReview(application, true)">
-                            {{ t('teams.applications.approve') }}
-                          </NButton>
-                          <NButton
-                            size="small"
-                            quaternary
-                            type="error"
-                            @click="onReview(application, false)"
-                          >
-                            {{ t('teams.applications.reject') }}
-                          </NButton>
-                        </div>
-                      </li>
-                    </ul>
-                    <NEmpty
-                      v-else-if="!applicationsLoading"
-                      :description="t('teams.applications.empty')"
-                      size="large"
-                      class="pane-empty"
-                    />
-                  </NSpin>
+                        <template v-if="!member.avatar_url">{{
+                          initialOf(member.nickname)
+                        }}</template>
+                      </NAvatar>
+                      <div class="member-cell__main">
+                        <span class="member-cell__name" :title="member.nickname">
+                          {{ member.nickname }}
+                        </span>
+                        <span class="member-cell__time">
+                          {{ t('teams.members.joinedAt') }} {{ formatDateTime(member.joined_at) }}
+                        </span>
+                      </div>
+                      <NTag
+                        size="small"
+                        round
+                        :bordered="false"
+                        :type="member.is_creator ? 'warning' : member.is_admin ? 'info' : 'default'"
+                        class="member-cell__role"
+                      >
+                        {{
+                          member.is_creator
+                            ? t('teams.role.creator')
+                            : member.is_admin
+                              ? t('teams.role.admin')
+                              : t('teams.role.member')
+                        }}
+                      </NTag>
+                      <NDropdown
+                        v-if="memberActions(member).length"
+                        class="member-cell__ops"
+                        trigger="click"
+                        :options="memberActions(member)"
+                        @select="(action: MemberAction) => onMemberAction(action, member)"
+                      >
+                        <NButton circle quaternary size="tiny" :aria-label="t('teams.detail.more')">
+                          <template #icon>
+                            <NIcon :component="MoreFilled" />
+                          </template>
+                        </NButton>
+                      </NDropdown>
+                    </li>
+                  </ul>
+                  <NEmpty
+                    v-else-if="!membersLoading"
+                    :description="t('teams.members.empty')"
+                    size="large"
+                    class="pane-empty"
+                  />
+                </NSpin>
+              </div>
+
+              <div v-if="memberTotal > memberPageSize" class="pane-pager">
+                <n-pagination
+                  :page="memberPage"
+                  :page-size="memberPageSize"
+                  :item-count="memberTotal"
+                  :page-sizes="[10, 20, 50]"
+                  show-size-picker
+                  @update:page="
+                    (p: number) => {
+                      changeMemberPage(p)
+                      loadMembers()
+                    }
+                  "
+                  @update:page-size="
+                    (s: number) => {
+                      changeMemberSize(s)
+                      loadMembers()
+                    }
+                  "
+                />
+              </div>
+            </template>
+
+            <!-- 规划中模块：三张能力卡并排，写清各自将提供什么 -->
+            <template v-else-if="moduleItem.placeholder">
+              <div class="module-grid">
+                <div
+                  v-for="mod in placeholderModules"
+                  :key="mod.key"
+                  class="module-card"
+                  :class="{ 'module-card--active': mod.key === moduleItem.key }"
+                >
+                  <span class="module-card__icon" aria-hidden="true">
+                    <NIcon :size="26" :component="mod.icon" />
+                  </span>
+                  <h3 class="module-card__title">{{ t(mod.labelKey) }}</h3>
+                  <p class="module-card__hint">{{ t(mod.hintKey) }}</p>
+                  <span class="module-card__badge">{{ t('teams.modules.comingSoon') }}</span>
                 </div>
-              </template>
-            </n-tab-pane>
-          </n-tabs>
+              </div>
+            </template>
+
+            <!-- 加入申请（管理员） -->
+            <template v-else>
+              <div class="pane-scroll">
+                <NSpin :show="applicationsLoading" class="pane-spin">
+                  <ul v-if="applications.length" class="member-grid">
+                    <li
+                      v-for="application in applications"
+                      :key="application.id"
+                      class="member-cell"
+                    >
+                      <NAvatar
+                        round
+                        :size="44"
+                        :style="{
+                          color: 'var(--app-text-secondary)',
+                          fontSize: '15px',
+                          flexShrink: 0,
+                        }"
+                      >
+                        {{ initialOf(application.nickname) }}
+                      </NAvatar>
+                      <div class="member-cell__main">
+                        <span class="member-cell__name" :title="application.nickname">
+                          {{ application.nickname }}
+                        </span>
+                        <span class="member-cell__time">
+                          {{ formatDateTime(application.applied_at) }}
+                        </span>
+                      </div>
+                      <NTag
+                        size="small"
+                        round
+                        :bordered="false"
+                        :type="application.invite_token ? 'info' : 'default'"
+                        class="member-cell__role"
+                      >
+                        {{
+                          application.invite_token
+                            ? t('teams.applications.viaInvite')
+                            : t('teams.applications.direct')
+                        }}
+                      </NTag>
+                      <div class="member-cell__actions">
+                        <NButton size="small" type="primary" @click="onReview(application, true)">
+                          {{ t('teams.applications.approve') }}
+                        </NButton>
+                        <NButton
+                          size="small"
+                          quaternary
+                          type="error"
+                          @click="onReview(application, false)"
+                        >
+                          {{ t('teams.applications.reject') }}
+                        </NButton>
+                      </div>
+                    </li>
+                  </ul>
+                  <NEmpty
+                    v-else-if="!applicationsLoading"
+                    :description="t('teams.applications.empty')"
+                    size="large"
+                    class="pane-empty"
+                  />
+                </NSpin>
+              </div>
+            </template>
+          </n-tab-pane>
+        </n-tabs>
       </section>
     </div>
 
@@ -705,7 +705,15 @@ onMounted(load)
     >
       <div class="invite-modal">
         <div class="invite-modal__qr">
-          <NQrCode v-if="inviteLink" :value="inviteLink" :size="176" error-correction-level="M" />
+          <!-- padding=0：组件默认 12px 内边距在 border-box 下会挤压画布，
+               右下约 24px 被容器 overflow:hidden 裁掉；留白改由外层承担 -->
+          <NQrCode
+            v-if="inviteLink"
+            :value="inviteLink"
+            :size="176"
+            :padding="0"
+            error-correction-level="M"
+          />
         </div>
         <p class="invite-modal__hint">{{ t('teams.settings.inviteHint') }}</p>
         <div class="invite-modal__link">
@@ -763,7 +771,6 @@ onMounted(load)
     </NDrawer>
   </WorkbenchShell>
 </template>
-
 
 <style scoped>
 /* ============================================================
@@ -998,7 +1005,12 @@ onMounted(load)
   display: flex;
   flex-direction: column;
 }
+/* 空态：吃满 pane 剩余高度并垂直居中
+   （.n-empty 自身已是 flex 列 + align-items: center，补 flex:1 + justify-content 居中） */
 .pane-empty {
+  flex: 1;
+  min-height: 0;
+  justify-content: center;
   padding: 56px 0;
 }
 
@@ -1142,6 +1154,8 @@ onMounted(load)
   border: 1px solid var(--app-border);
   border-radius: 8px;
   overflow: hidden;
+  /* 组件 padding=0，留白由外层承担，同时避免圆角裁到码点 */
+  padding: 10px;
 }
 .invite-modal__hint {
   margin: 0;

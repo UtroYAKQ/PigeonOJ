@@ -108,9 +108,13 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
         h('div', { class: 'problem-name__row' }, [
           h('strong', null, row.title),
           row.visibility === 'private'
-            ? h(NTag, { size: 'small', bordered: false, type: 'error' }, { default: () => t('problems.list.privateTag') })
+            ? h(
+                NTag,
+                { size: 'small', bordered: false, type: 'error' },
+                { default: () => t('problems.list.privateTag') },
+              )
             : null,
-        ])      
+        ]),
       ])
     },
   },
@@ -125,7 +129,8 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
         return h('span', { class: 'cell-muted' }, '--')
       }
       return h('div', { class: 'problem-tags' }, [
-        h(NTag,
+        h(
+          NTag,
           {
             size: 'small',
             bordered: true,

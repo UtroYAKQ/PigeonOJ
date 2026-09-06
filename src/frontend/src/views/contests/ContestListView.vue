@@ -130,11 +130,7 @@ function openContest(row: ContestSummary) {
         >
           <div class="contest-card__top">
             <img v-if="row.logo" :src="row.logo" alt="" class="contest-card__logo" />
-            <div
-              v-else
-              class="contest-card__logo contest-card__logo--fallback"
-              aria-hidden="true"
-            >
+            <div v-else class="contest-card__logo contest-card__logo--fallback" aria-hidden="true">
               {{ initialOf(row) }}
             </div>
             <h3 class="contest-card__title" :title="row.title">{{ row.title }}</h3>

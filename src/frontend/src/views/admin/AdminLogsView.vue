@@ -106,20 +106,28 @@ function openTraceback(row: ExceptionLogRow) {
 
 /** 登录日志设备展示：前端轻量解析 UA（仅展示用缩略版） */
 function parseUserAgentDisplay(ua: string): string {
-  const browser =
-    /Edg(?:e|A|iOS)?\/([\d]+)/.exec(ua)?.[1] ? `Edge ${RegExp.$1}`
-    : /MicroMessenger\/([\d]+)/.exec(ua)?.[1] ? `WeChat ${RegExp.$1}`
-    : /Firefox\/([\d]+)/.exec(ua)?.[1] ? `Firefox ${RegExp.$1}`
-    : /Version\/([\d]+).*Safari/.exec(ua)?.[1] ? `Safari ${RegExp.$1}`
-    : /Chrome\/([\d]+)/.exec(ua)?.[1] ? `Chrome ${RegExp.$1}`
-    : '--'
-  const os =
-    /Windows NT/.test(ua) ? 'Windows'
-    : /Mac OS X/.test(ua) ? 'macOS'
-    : /Android ([\d.]+)/.exec(ua)?.[1] ? `Android ${RegExp.$1.split('.')[0]}`
-    : /iPhone|iPad/.test(ua) ? 'iOS'
-    : /Linux/.test(ua) ? 'Linux'
-    : '--'
+  const browser = /Edg(?:e|A|iOS)?\/([\d]+)/.exec(ua)?.[1]
+    ? `Edge ${RegExp.$1}`
+    : /MicroMessenger\/([\d]+)/.exec(ua)?.[1]
+      ? `WeChat ${RegExp.$1}`
+      : /Firefox\/([\d]+)/.exec(ua)?.[1]
+        ? `Firefox ${RegExp.$1}`
+        : /Version\/([\d]+).*Safari/.exec(ua)?.[1]
+          ? `Safari ${RegExp.$1}`
+          : /Chrome\/([\d]+)/.exec(ua)?.[1]
+            ? `Chrome ${RegExp.$1}`
+            : '--'
+  const os = /Windows NT/.test(ua)
+    ? 'Windows'
+    : /Mac OS X/.test(ua)
+      ? 'macOS'
+      : /Android ([\d.]+)/.exec(ua)?.[1]
+        ? `Android ${RegExp.$1.split('.')[0]}`
+        : /iPhone|iPad/.test(ua)
+          ? 'iOS'
+          : /Linux/.test(ua)
+            ? 'Linux'
+            : '--'
   return `${browser} · ${os}`
 }
 
@@ -215,12 +223,22 @@ function exportCsv() {
 // ---- 列定义 ----
 const requestColumns = computed<DataTableColumns<RequestLogRow>>(() => [
   { title: t('admin.logs.requestId'), key: 'request_id', width: 150 },
-  { title: t('admin.logs.nickname'), key: 'nickname', width: 100, render: (r) => r.nickname ?? '--' },
+  {
+    title: t('admin.logs.nickname'),
+    key: 'nickname',
+    width: 100,
+    render: (r) => r.nickname ?? '--',
+  },
   { title: t('admin.logs.method'), key: 'method', width: 70 },
   { title: t('admin.logs.path'), key: 'path', minWidth: 180 },
   { title: t('admin.logs.code'), key: 'status_code', width: 70 },
   { title: 'IP', key: 'ip_address', width: 110 },
-  { title: t('admin.logs.location'), key: 'location', minWidth: 130, render: (r) => r.location ?? '--' },
+  {
+    title: t('admin.logs.location'),
+    key: 'location',
+    minWidth: 130,
+    render: (r) => r.location ?? '--',
+  },
   {
     title: t('admin.logs.device'),
     key: 'device',
@@ -237,11 +255,21 @@ const requestColumns = computed<DataTableColumns<RequestLogRow>>(() => [
 ])
 
 const loginColumns = computed<DataTableColumns<LoginLogRow>>(() => [
-  { title: t('admin.logs.nickname'), key: 'nickname', width: 100, render: (r) => r.nickname ?? '--' },
+  {
+    title: t('admin.logs.nickname'),
+    key: 'nickname',
+    width: 100,
+    render: (r) => r.nickname ?? '--',
+  },
   { title: t('auth.email'), key: 'email', minWidth: 150 },
   { title: t('admin.logs.action'), key: 'action', width: 100 },
   { title: 'IP', key: 'ip_address', width: 110 },
-  { title: t('admin.logs.location'), key: 'location', minWidth: 130, render: (r) => r.location ?? '--' },
+  {
+    title: t('admin.logs.location'),
+    key: 'location',
+    minWidth: 130,
+    render: (r) => r.location ?? '--',
+  },
   {
     title: t('admin.logs.device'),
     key: 'device',
@@ -388,7 +416,7 @@ const searchPlaceholder = computed(() =>
         v-show="loading || rows.length"
         size="small"
         :columns="requestColumns"
-        :data="(rows as RequestLogRow[])"
+        :data="rows as RequestLogRow[]"
         :loading="loading"
         :bordered="false"
         :row-key="(r: RequestLogRow) => r.id"
@@ -401,7 +429,7 @@ const searchPlaceholder = computed(() =>
         v-show="loading || rows.length"
         size="small"
         :columns="loginColumns"
-        :data="(rows as LoginLogRow[])"
+        :data="rows as LoginLogRow[]"
         :loading="loading"
         :bordered="false"
         :row-key="(r: LoginLogRow) => r.id"
@@ -413,7 +441,7 @@ const searchPlaceholder = computed(() =>
         v-show="loading || rows.length"
         size="small"
         :columns="exceptionColumns"
-        :data="(rows as ExceptionLogRow[])"
+        :data="rows as ExceptionLogRow[]"
         :loading="loading"
         :bordered="false"
         :row-key="(r: ExceptionLogRow) => r.id"

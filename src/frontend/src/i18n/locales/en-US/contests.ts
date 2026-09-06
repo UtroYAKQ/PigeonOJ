@@ -59,7 +59,8 @@
       registerClosed: 'Registration closed',
       goBoard: 'View scoreboard',
       problems: 'Problems',
-      notVisible: 'Problems are visible to registrants once the contest starts, and open to all signed-in users after it ends',
+      notVisible:
+        'Problems are visible to registrants once the contest starts, and open to all signed-in users after it ends',
       submitDisabled: 'Contest not started',
       manage: 'Manage contest',
       unfreeze: 'Unfreeze board',

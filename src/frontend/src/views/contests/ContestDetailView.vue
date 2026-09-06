@@ -5,7 +5,17 @@
  * 解冻为 admin/tutor 手动操作（重算回填封榜期结果）；进行中榜单 15s 轮询。
  * 提交记录比赛期间仅管理角色（can_manage）可见，赛后对所有登录用户开放（行点击进上下文内评测结果页）。
  */
-import { computed, h, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  h,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { DataTableColumns } from 'naive-ui'
@@ -82,9 +92,7 @@ const subsLocked = computed(
 const subsAllowed = computed(() => {
   const d = detail.value
   return (
-    !!d &&
-    (d.can_manage ||
-      (userStore.isLoggedIn && Date.now() >= new Date(d.end_time).getTime()))
+    !!d && (d.can_manage || (userStore.isLoggedIn && Date.now() >= new Date(d.end_time).getTime()))
   )
 })
 
@@ -796,9 +804,7 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
                   </span>
                   <span class="stat-tile__text">
                     <!-- 封榜开始时间（业务口径：绝对时刻，便于对表） -->
-                    <span class="stat-tile__value stat-tile__value--time">{{
-                      freezeAtText
-                    }}</span>
+                    <span class="stat-tile__value stat-tile__value--time">{{ freezeAtText }}</span>
                     <span class="stat-tile__label">{{ t('contests.list.freezeAt') }}</span>
                   </span>
                 </div>

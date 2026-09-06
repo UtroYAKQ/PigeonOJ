@@ -5,12 +5,7 @@ import { useI18n } from 'vue-i18n'
 
 import { getProblem, getProblemTestCases, patchTestCases, replaceSamples } from '@/api/problems'
 import { message } from '@/utils/feedback'
-import type {
-  ProblemDetail,
-  ProblemTestCase,
-  TestCaseDraft,
-  TestCaseUpsertPayload,
-} from '@/types'
+import type { ProblemDetail, ProblemTestCase, TestCaseDraft, TestCaseUpsertPayload } from '@/types'
 import TestCaseImporter from '@/components/problem/TestCaseImporter.vue'
 import WizardShell from '@/components/WizardShell.vue'
 

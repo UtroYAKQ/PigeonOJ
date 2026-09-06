@@ -62,10 +62,7 @@ const columns = computed<DataTableColumns<ContestSummary>>(() => [
     key: 'title',
     minWidth: 260,
     render(row) {
-      return h('div', { class: 'contest-name' }, [
-        h('strong', null, row.title),
-        row.description ? h('span', null, row.description) : null,
-      ])
+      return h('div', { class: 'contest-name' }, [h('strong', null, row.title)])
     },
   },
   { title: t('contests.list.ruleType'), key: 'rule_type', width: 80 },

@@ -31,7 +31,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           titleKey: 'problems.detail.title',
           requiresAuth: true,
           hidden: true,
-          contextPage: true
+          contextPage: true,
         },
       },
       {

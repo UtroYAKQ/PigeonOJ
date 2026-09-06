@@ -45,4 +45,3 @@ export function buildCrumbs(
   if (items.length === 1) items[0].to = undefined // 仅剩单项时即为当前页，无需链接
   return items
 }
-

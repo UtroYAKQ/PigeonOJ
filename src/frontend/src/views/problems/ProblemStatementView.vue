@@ -233,7 +233,11 @@ const visibilityOptions = computed(() => [
                     :key="tagName"
                     size="small"
                     closable
-                    :color="tagColorMap.get(tagName) ? { color: tagColorMap.get(tagName)!, textColor: '#fff' } : undefined"
+                    :color="
+                      tagColorMap.get(tagName)
+                        ? { color: tagColorMap.get(tagName)!, textColor: '#fff' }
+                        : undefined
+                    "
                     @close="removeTag(tagName)"
                   >
                     {{ tagName }}

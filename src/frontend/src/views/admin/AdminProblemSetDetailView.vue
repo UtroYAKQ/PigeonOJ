@@ -14,11 +14,7 @@ import MarkdownView from '@/components/MarkdownView.vue'
 import ProblemPicker from '@/components/problemsets/ProblemPicker.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import {
-  archiveProblemSet,
-  getProblemSet,
-  replaceProblemSetItems,
-} from '@/api/problemSets'
+import { archiveProblemSet, getProblemSet, replaceProblemSetItems } from '@/api/problemSets'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import type { ProblemSetDetail, ProblemSetItem, ProblemSummary } from '@/types'
 
@@ -337,11 +333,7 @@ const chosenIds = computed(() => new Set((detail.value?.items ?? []).map((it) =>
       </div>
     </n-spin>
 
-    <ProblemPicker
-      v-model:show="pickerShow"
-      :chosen-ids="chosenIds"
-      @add="onPicked"
-    />
+    <ProblemPicker v-model:show="pickerShow" :chosen-ids="chosenIds" @add="onPicked" />
   </WorkbenchShell>
 </template>
 

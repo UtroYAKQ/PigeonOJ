@@ -22,8 +22,10 @@
     form: {
       basicTitle: 'Basics',
       titlePlaceholder: 'Name your problem set',
-      visibilityTip: 'Public sets appear in the center; private sets are visible to the creator and managers only',
-      descPlaceholder: 'Write the introduction in Markdown: audience, suggestions, difficulty spread…',
+      visibilityTip:
+        'Public sets appear in the center; private sets are visible to the creator and managers only',
+      descPlaceholder:
+        'Write the introduction in Markdown: audience, suggestions, difficulty spread…',
       createAction: 'Create set',
       added: 'Added',
       pickAdd: 'Add problems',

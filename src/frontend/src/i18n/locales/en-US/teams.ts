@@ -100,6 +100,7 @@ export default {
     invite: {
       title: 'Team invite',
       badge: 'Team invite',
+      subtitle: 'You are invited to join a team',
       expires: 'Valid until {time}',
       apply: 'Apply to join',
       submitted: 'Application submitted',

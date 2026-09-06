@@ -9,11 +9,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
-import {
-  getContest,
-  unfreezeContestBoard,
-  updateContestAnnouncement,
-} from '@/api/contests'
+import { getContest, unfreezeContestBoard, updateContestAnnouncement } from '@/api/contests'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { goBackOrFallback } from '@/utils/navigation'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
@@ -104,12 +100,7 @@ onMounted(load)
       <div class="tools-head">
         <strong class="tools-head__title">{{ t('contests.tools.title') }}</strong>
         <span v-if="contest" class="tools-head__contest">{{ contest.title }}</span>
-        <n-tag
-          v-if="contest"
-          size="small"
-          :bordered="false"
-          :type="statusMap[contest.status].type"
-        >
+        <n-tag v-if="contest" size="small" :bordered="false" :type="statusMap[contest.status].type">
           {{ statusMap[contest.status].label }}
         </n-tag>
         <n-tag v-if="contest?.board_frozen" size="small" type="warning" :bordered="false">

@@ -115,7 +115,10 @@ export function unfreezeContestBoard(id: string): Promise<ContestSummary> {
 }
 
 /** 更新比赛公告（管理角色，赛时可改；空字符串 = 清空） */
-export function updateContestAnnouncement(id: string, announcement: string): Promise<ContestSummary> {
+export function updateContestAnnouncement(
+  id: string,
+  announcement: string,
+): Promise<ContestSummary> {
   return apiRequest('PUT', `/contests/${id}/announcement`, { announcement })
 }
 

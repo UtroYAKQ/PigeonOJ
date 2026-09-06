@@ -95,6 +95,7 @@ export default {
     invite: {
       title: '团队邀请',
       badge: '团队邀请',
+      subtitle: '邀请你加入团队',
       expires: '链接有效期至 {time}',
       apply: '申请加入',
       submitted: '申请已提交',

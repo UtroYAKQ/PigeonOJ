@@ -144,19 +144,11 @@ onMounted(load)
         >
           <div class="team-card__top">
             <img v-if="team.avatar_url" :src="team.avatar_url" alt="" class="team-card__avatar" />
-            <div
-              v-else
-              class="team-card__avatar team-card__avatar--fallback"
-              aria-hidden="true"
-            >
+            <div v-else class="team-card__avatar team-card__avatar--fallback" aria-hidden="true">
               {{ initialOf(team) }}
             </div>
             <h3 class="team-card__title" :title="team.name">{{ team.name }}</h3>
-            <span
-              v-if="team.my_role"
-              class="role-chip"
-              :class="roleMeta[team.my_role].cls"
-            >
+            <span v-if="team.my_role" class="role-chip" :class="roleMeta[team.my_role].cls">
               <span class="role-chip__dot" aria-hidden="true" />
               {{ t(roleMeta[team.my_role].labelKey) }}
             </span>

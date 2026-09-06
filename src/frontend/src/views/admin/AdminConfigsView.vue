@@ -68,19 +68,19 @@ const emailPreviewHtml = computed(() => {
     .replaceAll('{purpose}', t('config.previewPurpose'))
 })
 
-const editorKind = computed<'boolean' | 'image' | 'number' | 'select' | 'text' | 'switches' | 'multiline'>(
-  () => {
-    if (editTarget.value && MULTILINE_KEYS.has(editTarget.value.config_key)) return 'multiline'
-    // site.logo：上传图片（存 MinIO site/logo/）与外链 URL 双形态编辑
-    if (editTarget.value?.config_key === 'site.logo') return 'image'
-    if (typeof editValue.value === 'boolean') return 'boolean'
-    if (typeof editValue.value === 'number') return 'number'
-    if (editTarget.value && selectOptions.value[editTarget.value.config_key]) return 'select'
-    if (editValue.value && typeof editValue.value === 'object' && !Array.isArray(editValue.value))
-      return 'switches'
-    return 'text'
-  },
-)
+const editorKind = computed<
+  'boolean' | 'image' | 'number' | 'select' | 'text' | 'switches' | 'multiline'
+>(() => {
+  if (editTarget.value && MULTILINE_KEYS.has(editTarget.value.config_key)) return 'multiline'
+  // site.logo：上传图片（存 MinIO site/logo/）与外链 URL 双形态编辑
+  if (editTarget.value?.config_key === 'site.logo') return 'image'
+  if (typeof editValue.value === 'boolean') return 'boolean'
+  if (typeof editValue.value === 'number') return 'number'
+  if (editTarget.value && selectOptions.value[editTarget.value.config_key]) return 'select'
+  if (editValue.value && typeof editValue.value === 'object' && !Array.isArray(editValue.value))
+    return 'switches'
+  return 'text'
+})
 
 // 敏感配置（*.password，服务端掩码为 ******）用密码框编辑
 const isSecretKey = computed(() => (editTarget.value?.config_key ?? '').endsWith('.password'))

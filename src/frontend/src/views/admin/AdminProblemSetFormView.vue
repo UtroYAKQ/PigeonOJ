@@ -93,7 +93,9 @@ function cancel() {
 </script>
 
 <template>
-  <WorkbenchShell :title="isEdit ? t('problemSets.detail.editTitle') : t('problemSets.list.createTitle')">
+  <WorkbenchShell
+    :title="isEdit ? t('problemSets.detail.editTitle') : t('problemSets.list.createTitle')"
+  >
     <template #header-extra>
       <div class="form-actions">
         <n-button size="small" :disabled="submitting" @click="cancel">
@@ -106,13 +108,7 @@ function cancel() {
     </template>
 
     <n-spin :show="loading" class="form-spin">
-      <n-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-placement="top"
-        class="form-grid"
-      >
+      <n-form ref="formRef" :model="form" :rules="rules" label-placement="top" class="form-grid">
         <!-- 左框：元信息（标题 + 可见性 + 提示钉底）；右框：Markdown 介绍撑满 -->
         <section class="panel">
           <div class="panel__head">
@@ -139,8 +135,7 @@ function cancel() {
             </n-form-item>
             <p class="form-tip">{{ t('problemSets.form.visibilityTip') }}</p>
           </div>
-          <div class="panel__foot">
-          </div>
+          <div class="panel__foot"></div>
         </section>
 
         <section class="panel">
