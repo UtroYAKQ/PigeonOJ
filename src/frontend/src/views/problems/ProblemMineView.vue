@@ -27,6 +27,7 @@ const { page, pageSize, total, changePage, changeSize, resetPage } = usePaginati
 const query = reactive({
   keyword: '',
   status: '' as ProblemStatus | '',
+  ownership: '' as '' | 'solo' | 'team',
 })
 
 async function load() {
@@ -38,6 +39,7 @@ async function load() {
       keyword: query.keyword || undefined,
       scope: 'mine',
       status: query.status || undefined,
+      ownership: query.ownership || undefined,
     })
     list.value = result.items
     total.value = result.total
@@ -53,6 +55,17 @@ function switchStatus(value: string) {
   resetPage()
   load()
 }
+function switchOwnership(value: string | null) {
+  query.ownership = (value ?? '') as '' | 'solo' | 'team'
+  resetPage()
+  load()
+}
+
+/** 来源筛选项：全站题 / 团队题（引用快照 + 团队直建） */
+const ownershipOptions = computed(() => [
+  { label: t('problems.mine.ownershipSolo'), value: 'solo' },
+  { label: t('problems.mine.ownershipTeam'), value: 'team' },
+])
 function onSearch() {
   resetPage()
   load()
@@ -121,6 +134,26 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
           type: row.visibility === 'private' ? 'error' : 'info',
         },
         { default: () => t(`problems.visibility.${row.visibility ?? 'public'}`) },
+      )
+    },
+  },
+  {
+    title: t('problems.list.source'),
+    key: 'source',
+    width: 80,
+    render(row) {
+      // 来源：团队题（引用快照 / 团队直建）→「团队题」；其余（全站公开 / 私有）→「全站题」
+      const isTeam = row.visibility === 'team_visible' || row.visibility === 'admin_visible'
+      return h(
+        NTag,
+        {
+          size: 'small',
+          bordered: false,
+          type: isTeam ? 'warning' : 'default',
+        },
+        {
+          default: () => t(isTeam ? 'problems.mine.ownershipTeam' : 'problems.mine.ownershipSolo'),
+        },
       )
     },
   },
@@ -229,6 +262,14 @@ function rowProps(row: ProblemSummary) {
       @search="onSearch"
       @reset="onSearch"
     >
+      <n-select
+        :value="query.ownership || null"
+        clearable
+        style="width: 160px"
+        :options="ownershipOptions"
+        :placeholder="t('problems.mine.ownershipAll')"
+        @update:value="switchOwnership"
+      />
       <template #actions>
         <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
         <n-button type="primary" @click="router.push('/admin/problems/new')">

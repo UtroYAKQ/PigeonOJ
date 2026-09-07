@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, TYPE_CHECKING
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,9 @@ from app.services.system_config import ConfigService, get_site_public_configs
 from app.services.tag import TagService
 from app.services.team import TeamService
 from app.services.user import AuthService, UserService
+
+if TYPE_CHECKING:
+    from app.services.team_space import TeamSpaceService
 
 SessionDep = Annotated[AsyncSession, Depends(get_db)]
 """请求级数据库会话（路由需要显式 commit 时使用）。"""
@@ -115,6 +118,22 @@ def get_team_service(db: SessionDep) -> TeamService:
 
 
 TeamServiceDep = Annotated[TeamService, Depends(get_team_service)]
+
+
+def get_team_space_service(
+    db: SessionDep,
+    teams: TeamServiceDep,
+    problems: ProblemServiceDep,
+    contests: ContestServiceDep,
+    submissions: SubmissionServiceDep,
+) -> "TeamSpaceService":
+    """团队空间门面：团队上下文题目 / 题单 / 比赛的统一入口（含跨上下文端口装配）。"""
+    from app.services.team_space import TeamSpaceService
+
+    return TeamSpaceService(db, teams, problems, contests, submissions)
+
+
+TeamSpaceServiceDep = Annotated["TeamSpaceService", Depends(get_team_space_service)]
 
 
 # ---- admin 组合层服务（用例门面，非独立上下文）----

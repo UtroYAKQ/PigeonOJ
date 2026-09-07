@@ -25,6 +25,7 @@ export default {
       create: 'Create problem',
       empty: 'No published problems',
       name: 'Problem',
+      source: 'Source',
       search: 'Search by problem name',
       tag: 'Tag',
       limits: 'Limits',
@@ -52,6 +53,9 @@ export default {
       all: 'All',
       search: 'Search title',
       empty: 'No matching problems',
+      ownershipAll: 'All sources',
+      ownershipSolo: 'Global problems',
+      ownershipTeam: 'Team problems',
       archiveConfirm:
         'Archiving hides the problem from the catalog; existing references are unaffected. Archive now?',
       viewSubmissions: 'View submissions',

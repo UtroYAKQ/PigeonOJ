@@ -80,6 +80,8 @@ class ProblemSetSummary(BaseModel):
     status: ProblemSetStatus
     owner_id: uuid.UUID
     item_count: int = 0
+    # 引用时间（非空 = 经团队引用进入团队题单；团队自建 / 全站题单恒 NULL）
+    referenced_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

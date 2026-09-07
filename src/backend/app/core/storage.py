@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid as _uuid
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
@@ -60,6 +61,23 @@ class MinioStorage:
 
     async def delete(self, object_key: str) -> None:
         await asyncio.to_thread(self.client.remove_object, self.bucket, object_key)
+
+    async def copy_object(self, object_key: str) -> str:
+        """同桶复制对象，返回新 object key（引用快照复制测试点用）；
+        新对象与源对象互不影响，可独立清理。"""
+        new_key = self._sibling_key(object_key)
+        await asyncio.to_thread(
+            self.client.copy_object,
+            self.bucket,
+            new_key,
+            f"/{self.bucket}/{object_key}",
+        )
+        return new_key
+
+    @staticmethod
+    def _sibling_key(object_key: str) -> str:
+        """生成同前缀的兄弟 key：cases/{uuid}/input → cases/{uuid}/input-{suffix}。"""
+        return f"{object_key}-{_uuid.uuid4().hex[:12]}"
 
 
 _storage: MinioStorage | None = None

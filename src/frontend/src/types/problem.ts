@@ -116,6 +116,8 @@ export interface ProblemListQuery {
   /** 题库中心「我的」勾选：仅本人已发布题目（任意可见性，含私有已发布；须登录） */
   mine?: boolean
   status?: 'draft' | 'published' | 'archived'
+  /** 来源过滤（仅 scope=mine 生效）：solo=全站题 / team=团队题 */
+  ownership?: 'solo' | 'team'
   /** 难度分闭区间筛选（未评分题目不落入任何区间） */
   difficulty_min?: number
   difficulty_max?: number

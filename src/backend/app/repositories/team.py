@@ -49,14 +49,22 @@ class TeamRepository:
         return (await self.db.execute(stmt)).scalar_one_or_none()
 
     async def list_members(
-        self, team_id: uuid.UUID, status: str | None, page: int, page_size: int
+        self,
+        team_id: uuid.UUID,
+        status: str | None,
+        page: int,
+        page_size: int,
+        keyword: str | None = None,
     ) -> tuple[list[tuple[TeamMember, User]], int]:
-        """成员列表（join 用户，入队时间倒序分页；status 缺省 = 在册成员）。"""
+        """成员列表（join 用户，入队时间倒序分页；status 缺省 = 在册成员；
+        keyword 模糊匹配昵称，docs/contracts/teams.md）。"""
         conditions = [TeamMember.team_id == team_id]
         if status:
             conditions.append(TeamMember.status == status)
         else:
             conditions.append(TeamMember.status == TeamMemberStatus.ACTIVE)
+        if keyword:
+            conditions.append(User.nickname.ilike(f"%{keyword}%"))
         total = (
             await self.db.scalar(
                 select(func.count())
@@ -154,3 +162,32 @@ class TeamRepository:
             ).scalars()
         )
         return rows, int(total)
+
+    async def list_all(
+        self,
+        page: int,
+        page_size: int,
+        keyword: str | None = None,
+        status: TeamStatus | None = None,
+    ) -> tuple[list[tuple[Team, str | None]], int]:
+        """团队管理列表（admin 全量，创建时间倒序；keyword 模糊团队名称、status 过滤；
+        join 创建人带昵称，docs/contracts/teams.md 管理端）。"""
+        conditions: list = []
+        if keyword:
+            conditions.append(Team.name.ilike(f"%{keyword}%"))
+        if status:
+            conditions.append(Team.status == status)
+        total = (
+            await self.db.scalar(select(func.count()).select_from(Team).where(*conditions)) or 0
+        )
+        rows = (
+            await self.db.execute(
+                select(Team, User.nickname)
+                .join(User, User.id == Team.creator_id)
+                .where(*conditions)
+                .order_by(Team.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        ).all()
+        return [(team, nickname) for team, nickname in rows], int(total)

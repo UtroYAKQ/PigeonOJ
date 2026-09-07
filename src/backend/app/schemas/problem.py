@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -23,6 +24,8 @@ class ProblemCreate(BaseModel):
     """创建题目：生命周期只允许从 draft 起步，发布走 POST /problems/{id}/publish。
 
     题面要素（题目背景 / 题面 / 输入说明 / 输出说明）均为必填；tags 为激活标签名（≤8）。
+    team_id 非空 = 团队题目直建（团队空间端点上下文）：visibility 须为团队分支
+    （admin_visible / team_visible，缺省 admin_visible），referenced_at 恒 NULL。
     """
 
     title: str = Field(min_length=1, max_length=255)
@@ -39,6 +42,8 @@ class ProblemCreate(BaseModel):
     memory_limit_mb: int = Field(default=256, ge=16, le=4096)
     # 难度分（手动填写；NULL=未评分；仅约束非负，不设上限）
     difficulty: int | None = Field(default=None, ge=0)
+    # 团队上下文创建（POST /problems 携带 team_id，docs/contracts/problems.md 端点表）
+    team_id: uuid.UUID | None = None
 
     @field_validator("tags")
     @classmethod
@@ -88,6 +93,9 @@ class ProblemQuery(BaseModel):
     status: ProblemStatus | None = None
     # 题库中心「我的」勾选：仅本人已发布（任意可见性）；仅 scope=all 分支生效
     mine: bool = False
+    # 管理视图来源过滤（仅 scope=mine 生效）：solo=全站题（team_id IS NULL）/
+    # team=团队题（team_id 非空）；缺省不过滤
+    ownership: Literal["solo", "team"] | None = None
     # 难度分闭区间筛选（未评分题目不落在任何区间内）
     difficulty_min: int | None = Field(default=None, ge=0)
     difficulty_max: int | None = Field(default=None, ge=0)
@@ -251,6 +259,13 @@ class ProblemSummary(BaseModel):
     solved: bool | None = None
     # 标签列表（含 id/name/color，用于前端渲染彩色标签）
     tags: list[TagPublic] = Field(default_factory=list)
+
+
+class TeamProblemSummary(ProblemSummary):
+    """团队题库列表项（团队空间端点返回）：额外携带引用来源与可见性。"""
+
+    # 引用时间（非空 = 经团队引用进入团队题库；团队自建题恒 NULL）
+    referenced_at: datetime | None = None
 
 
 class TestCaseOut(BaseModel):

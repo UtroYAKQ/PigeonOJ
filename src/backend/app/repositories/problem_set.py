@@ -95,6 +95,41 @@ class ProblemSetRepository:
         )
         return rows, int(total)
 
+    async def list_team(
+        self,
+        team_id: uuid.UUID,
+        *,
+        keyword: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        admin_view: bool = False,
+    ) -> tuple[list[ProblemSet], int]:
+        """团队题单列表（docs/contracts/teams.md 团队空间节）：默认仅未下线；管理视图可传 status。
+        admin_view=True 时不过滤状态（含已下线，status 显式传入仍按值过滤）。"""
+        conditions: list = [ProblemSet.team_id == team_id]
+        if status:
+            conditions.append(ProblemSet.status == status)
+        elif not admin_view:
+            conditions.append(ProblemSet.status == ProblemSetStatus.ACTIVE)
+        if keyword:
+            conditions.append(ProblemSet.title.ilike(f"%{keyword}%"))
+        total = (
+            await self.db.scalar(select(func.count()).select_from(ProblemSet).where(*conditions))
+        ) or 0
+        rows = list(
+            (
+                await self.db.execute(
+                    select(ProblemSet)
+                    .where(*conditions)
+                    .order_by(ProblemSet.created_at.desc())
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            ).scalars()
+        )
+        return rows, int(total)
+
     async def count_items(self, set_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
         """题单内题目数（列表页展示用；无条目的题单不计入返回）。"""
         if not set_ids:
@@ -131,10 +166,14 @@ class ProblemSetRepository:
         problem_ids: list[uuid.UUID],
         viewer_id: uuid.UUID | None = None,
         see_all: bool = False,
+        *,
+        team_id: uuid.UUID | None = None,
     ) -> list[Problem]:
         """按 id 批量取可加入题单的题目（编排候选校验）。
 
         规则：须为已发布，且（全站公开 或 创建者本人的私有题）；admin 不受可见性限制。
+        team_id 非 None（团队题单）时额外放开该团队题目；
+        全站题单一律排除团队题目（team_id 非空）——团队是封闭空间（docs/contracts/teams.md）。
         未发布（草稿）/ 已归档的题目一律不可加入。
         """
         if not problem_ids:
@@ -143,7 +182,16 @@ class ProblemSetRepository:
             Problem.id.in_(problem_ids),
             Problem.status == ProblemStatus.PUBLISHED,
         ]
-        if not see_all:
+        if team_id is not None:
+            conditions.append(
+                or_(
+                    Problem.visibility == ProblemVisibility.PUBLIC,
+                    Problem.owner_id == viewer_id,
+                    Problem.team_id == team_id,
+                )
+            )
+        elif not see_all:
+            conditions.append(Problem.team_id.is_(None))
             if viewer_id is None:
                 return []
             conditions.append(
@@ -167,6 +215,7 @@ def to_summary(problem_set: ProblemSet, item_count: int) -> ProblemSetSummary:
         status=problem_set.status,
         owner_id=problem_set.owner_id,
         item_count=item_count,
+        referenced_at=problem_set.referenced_at,
         created_at=problem_set.created_at,
         updated_at=problem_set.updated_at,
     )

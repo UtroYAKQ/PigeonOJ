@@ -71,15 +71,26 @@ class SelfTestService:
         self.problems = ProblemRepository(db)
         self.config_service = ConfigService(db)
 
-    async def create_order(self, user: object, problem_id: uuid.UUID, body: SelfTestRequest) -> SelfTestOrder:
-        """校验并组装自测派发载荷：404 / 403（可见性）/ 1001（语言白名单）。"""
+    async def create_order(
+        self,
+        user: object,
+        problem_id: uuid.UUID,
+        body: SelfTestRequest,
+        *,
+        bypass_visibility: bool = False,
+    ) -> SelfTestOrder:
+        """校验并组装自测派发载荷：404 / 403（可见性）/ 1001（语言白名单）。
+
+        bypass_visibility 供团队空间等引用上下文使用（各自门控通过后豁免题库裸路径校验）。
+        """
         problem = await get_problem(self.db, problem_id)
         # 与题目详情页同一访问规则：已发布 或 具备管理权限；私有题额外要求创建者 / admin
-        # （题库裸路径严格校验；题单 / 比赛上下文经各自门控豁免）
+        # （题库裸路径严格校验；题单 / 比赛 / 团队上下文经各自门控豁免）
         if problem.status != ProblemStatus.PUBLISHED and not await can_manage_problem(self.db, user, problem):
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         if (
-            problem.visibility != ProblemVisibility.PUBLIC
+            not bypass_visibility
+            and problem.visibility != ProblemVisibility.PUBLIC
             and not await can_manage_problem(self.db, user, problem)
         ):
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)

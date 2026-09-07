@@ -217,6 +217,20 @@ class RoleRepository:
                 result[team_id].add(code)
         return result
 
+    async def has_team_manager_role(self, user_id: uuid.UUID) -> bool:
+        """用户是否持有任意团队的创建者 / 管理员授权（team_creator / team_admin）。"""
+        stmt = (
+            select(func.count())
+            .select_from(UserRole)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.scope == UserRoleScope.TEAM,
+                Role.code.in_(["team_creator", "team_admin"]),
+            )
+        )
+        return int(await self.db.scalar(stmt) or 0) > 0
+
     async def grant_team_role(self, user_id: uuid.UUID, team_id: uuid.UUID, code: str) -> None:
         """授予团队角色（幂等：已存在则跳过，唯一约束兜底）。"""
         role = await self.get_by_code(code)

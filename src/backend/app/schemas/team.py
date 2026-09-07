@@ -4,9 +4,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.enums import TeamApplicationStatus, TeamMemberStatus, TeamStatus
+from app.enums import ProblemVisibility, TeamApplicationStatus, TeamMemberStatus, TeamStatus
+from app.schemas.contest import ContestCreate
 from app.utils.validation import validate_nickname
 
 
@@ -61,6 +62,28 @@ class TeamDetail(TeamSummary):
     creator_id: uuid.UUID
     status: TeamStatus
     disbanded_at: datetime | None
+
+
+class TeamAdminSummary(TeamSummary):
+    """团队管理列表项（admin 视图，docs/contracts/teams.md 管理端）：
+    带团队状态与创建人昵称；my_role 恒为 None（管理视图不代表成员身份）。"""
+
+    status: TeamStatus
+    creator_nickname: str | None = None
+    # 团队空间资源计数（题库非归档 / 题单未下线 / 比赛全部状态）
+    problem_count: int = 0
+    problem_set_count: int = 0
+    contest_count: int = 0
+
+
+class TeamAdminDetail(TeamDetail):
+    """团队管理详情（admin 视图，免团队成员校验）：在成员详情上追加创建人昵称
+    与团队空间资源计数（题库 / 题单 / 比赛，全部状态）。"""
+
+    creator_nickname: str | None = None
+    problem_count: int = 0
+    problem_set_count: int = 0
+    contest_count: int = 0
 
 
 class TeamMemberOut(BaseModel):
@@ -120,3 +143,44 @@ class TeamAdminFlag(BaseModel):
     """分配 / 取消团队管理员（仅创建者）。"""
 
     is_admin: bool
+
+
+# ==================== 团队空间（题库 / 题单 / 比赛，docs/contracts/teams.md 团队空间节） ====================
+
+
+class TeamProblemReferenceCreate(BaseModel):
+    """引用本人全站题目进入团队题库（team_creator / team_admin）。
+
+    题目须为全站题目（team_id IS NULL）且为本人创建（admin 同权全站）；
+    引用后归属该团队、可见性切换为团队分支（单向，不设移出通道）。
+    """
+
+    problem_id: uuid.UUID
+    # 团队内可见性：team_visible（全队成员）/ admin_visible（仅创建者与管理员）
+    visibility: ProblemVisibility = ProblemVisibility.TEAM_VISIBLE
+
+    @model_validator(mode="after")
+    def check_visibility(self) -> TeamProblemReferenceCreate:
+        if self.visibility not in (ProblemVisibility.TEAM_VISIBLE, ProblemVisibility.ADMIN_VISIBLE):
+            raise ValueError("团队题目可见性仅支持 team_visible / admin_visible")
+        return self
+
+
+class TeamProblemSetCreate(BaseModel):
+    """创建团队题单（team_creator / team_admin；team_id 由路径给定，visibility='team'）。
+
+    copy_items_from 非空 = 复制本人全站题单的题目条目（快照复制，源题单保留在全站）。
+    """
+
+    title: str = Field(min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=2000)
+    copy_items_from: uuid.UUID | None = None
+
+
+class TeamContestCreate(ContestCreate):
+    """创建团队比赛（team_creator / team_admin；contest_type='team'、team_id 由路径给定）。
+
+    编排候选在 ContestCreate 规则（已发布公开 / 本人私有）之上放开本团队题目。
+    """
+
+    pass

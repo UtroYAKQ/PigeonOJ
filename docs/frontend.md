@@ -22,7 +22,7 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 1. **侧边栏**：展开 220px / 收起 64px（图标态，tooltip 显示名称），白底右边框；Logo 主色块 + 主色标题（站点名 / Logo 来自 `GET /site-config`，未配置回退默认）；`n-menu accordion`，选中项左侧 4px 主色描边；窄屏 ≤991px 强制收起
 2. **顶栏**：白底 60px 下边框；左侧折叠钮 + 面包屑（<667px 隐藏），右侧语言 / 明暗 / 头像菜单
 3. **内容画布**：浅灰蓝 `--app-content-bg`；页面内容白底无边框 `n-card` 承载，间距 12–16px
-4. **管理后台空间**：进入 `/admin` 后侧栏整体切换为管理菜单，底部「返回前台」；面向 staff（admin / tutor），tutor 仅见「题目管理」，admin 见全部
+4. **管理后台空间**：进入 `/admin` 后侧栏整体切换为管理菜单，底部「返回前台」；面向 staff（admin / tutor），tutor 仅见「题目管理」，admin 见全部；团队创建入口收敛在后台「团队管理」（`/admin/teams`），前台团队中心仅浏览
 5. **面包屑**：只反映真实层级（`管理后台/用户管理`、`题库/题目管理/编辑`），首页与顶级区块平级不入
 
 ### 交互习惯
@@ -84,9 +84,11 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 | `components/StatusTag.vue` | 状态 → 标签颜色/文案 | 提交历史 / 结果页 |
 | `components/EmailCodeInput.vue` | 验证码输入 + 60s 倒计时 | 注册 / 安全设置 |
 | `components/PaginatedDataTable.vue` + `composables/usePagination.ts` | 分页列表 | 所有管理列表 |
+| `components/SearchFilterBar.vue` | 统一搜索筛选工具栏：关键词输入 + 自定义筛选控件（默认插槽）+ 「查询」按钮 + 右侧动作区（actions 插槽，功能按钮 → 刷新图标）；搜索手动触发语义见「表格工作台」 | 所有列表 / 详情页 tab 工具栏（含团队详情前后台） |
 | `components/WorkbenchShell.vue` | 视口锁定工作台外壳（page-fill 卡片 + 头部插槽） | 所有管理列表 |
 | `components/RefreshButton.vue` | 刷新按钮（icon-only 圆形幽灵按钮，加载中图标自旋） | 列表 / 状态页 |
 | `constants/languages.ts` | 判题语言选项 | 所有语言选择器 |
+| `components/problemsets/ProblemPicker.vue` | 题库选择器弹窗（支持 `defaultMine` 默认仅本人题目，团队引用场景） | 题单编排 / 团队引用 |
 
 ## 代码组织
 
@@ -140,7 +142,7 @@ src/frontend/
 
 `AppLayout.vue` 对 `router-view` 采用插槽分流：声明 `meta.keepAlive: true` 的页面进入 `<KeepAlive>`（实例 key 为 `route.fullPath`，参数页按 URL 区分、互不串数据），从深层页面（如评测结果）沿面包屑逐级返回（题目详情 → 列表）时沿途页面实例全部命中缓存——筛选、页码、题面、滚动位置等状态保留，不重新拉取；`:max=8` LRU 兜底，最久未用的实例自动释放。缓存 key 绑定当前登录用户 id（`router-view :key="cacheScope"`）：登出 / 换号后缓存整体作废。
 
-- 缓存范围（`meta.keepAlive: true`）：题库 / 题单 / 比赛 / 团队列表，题库 / 题单 / 比赛详情与上下文写题页，各类提交列表与评测结果页，管理后台题目 / 题单 / 比赛 / 用户 / 标签管理、题单详情，会话管理
+- 缓存范围（`meta.keepAlive: true`）：题库 / 题单 / 比赛 / 团队列表，题库 / 题单 / 比赛 / 团队详情与上下文写题页，各类提交列表与评测结果页，管理后台题目 / 题单 / 比赛 / 用户 / 标签 / 团队管理、题单详情、团队管理详情，会话管理
 - 不缓存：写题向导各步（create / statement / cases / verify）、题目预览、团队邀请、个人资料 / 安全设置——带表单或与编辑强耦合的页面进出都重新挂载，保证数据新鲜
 - 轮询 / 计时页面（评测结果 ×3、比赛详情）必须实现 `onDeactivated` 暂停 + `onActivated` 恢复，禁止缓存页后台空转
 - 面包屑层级解析收敛于 `router/crumbs.ts` 的 `buildCrumbs`（`TheBreadcrumb` 展示与缓存共用同一来源）；新增上下文页接入链式缓存：路由声明 `meta.keepAlive: true` 即可，带表单页面禁止声明
@@ -153,10 +155,11 @@ src/frontend/
 > （Law of Demeter，只与直接上下文通信）；规则 4 是 **模块统一入口**
 > （Facade 门面模式）+ **REST 嵌套资源**（归属关系写入 URL，入口即校验）。
 
-同一资源页面被多个业务上下文复用（题目详情 / 评测结果 / 预览 × 题库、题单、管理后台）时，
+同一资源页面被多个业务上下文复用（题目详情 / 评测结果 / 预览 × 题库、题单、比赛、团队）时，
 每个上下文拥有**独立路由实例**，上下文内的所有导航与交互必须封闭在本上下文路由内，
 **禁止把用户带离当前业务上下文**。实例：题库 `/problems/:id`、题单
-`/problem-sets/:setId/problems/:problemId`、管理后台 `/admin/problem-sets/:id/problems/:pid/preview`。
+`/problem-sets/:setId/problems/:problemId`、比赛 `/contests/:cid/problems/:problemId`、
+团队 `/teams/:teamId/problems/:problemId`、管理后台 `/admin/problem-sets/:id/problems/:pid/preview`。
 
 规则：
 
@@ -166,7 +169,9 @@ src/frontend/
    如题单内交题、查看评测结果不得跳 `/problems/:id`；管理端点击资源不得进入作答 / 写作页面。
 3. **组件复用取参**：复用组件按「上下文参数优先」取参
    （如 `route.params.problemId ?? route.params.id`），内部链接基于上下文动态构造
-   （如评测结果基路径 `submissionsBase`），不得硬编码单一前缀。
+   （如评测结果基路径 `submissionsBase`），不得硬编码单一前缀；
+   详情 / 交题 / 自测 API 按上下文选择模块统一入口端点
+   （团队上下文走 `/teams/{teamId}/problems/*`，题库裸路径对团队题目按可见性拦截）
 4. **配套后端上下文端点（模块统一入口，Facade）**：上下文内对资源的读 / 写调用本上下文模块的
    专属端点，不跨模块直调（读如题单内题目详情 `GET /problem-sets/{id}/problems/{pid}`，
    写如题单交题 `POST .../submissions`）；端点在入口校验资源归属关系

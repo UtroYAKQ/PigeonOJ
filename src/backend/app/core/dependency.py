@@ -132,9 +132,16 @@ async def get_user_role_codes(db: AsyncSession, user_id) -> set[str]:
 
 
 async def is_manager(db: AsyncSession, user: User) -> bool:
-    """检查用户是否为题目管理角色。"""
+    """检查用户是否为题目管理角色。
+
+    全局角色（admin / tutor / team_creator）之外，团队角色（team_creator / team_admin，
+    scope='team'）同样可出题——团队空间「出团队题目」即由引用动作承载
+    （docs/contracts/problems.md 端点表；管理范围仍按单一所有权限制为本人资源）。
+    """
     codes = await get_user_role_codes(db, user.id)
-    return bool(MANAGER_ROLE_CODES.intersection(codes))
+    if MANAGER_ROLE_CODES.intersection(codes):
+        return True
+    return bool(await RoleRepository(db).has_team_manager_role(user.id))
 
 
 async def is_admin(db: AsyncSession, user: User) -> bool:

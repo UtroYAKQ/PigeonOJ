@@ -35,7 +35,7 @@ from app import app
 from app.services.system_config import EMAIL_CODE_HTML_TEMPLATE_DEFAULT
 from app.models.user import Role, User, UserRole
 from app.core.database import Base, SessionLocal, engine
-from app.core.redis import get_redis
+from app.core.redis import close_redis, get_redis
 from app.core.storage import StoredObject
 from app.utils.security import hash_password
 
@@ -85,7 +85,12 @@ CONFIG_SEEDS = [
 
 @pytest_asyncio.fixture(autouse=True)
 async def prepare_db():
-    """每个用例重建表结构 + 种子（用例级隔离；async fixture 使用函数级事件循环）。"""
+    """每个用例重建表结构 + 种子（用例级隔离；async fixture 使用函数级事件循环）。
+
+    前后各 engine.dispose()：pytest-asyncio 每用例新建事件循环，asyncpg 连接绑定
+    创建时的 loop——丢弃全部池连接，保证连接生命周期与当前 loop 一致（防跨 loop 复用）。
+    """
+    await engine.dispose()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
@@ -117,6 +122,8 @@ async def prepare_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await (await get_redis()).flushdb()
+    await close_redis()
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture

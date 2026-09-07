@@ -39,6 +39,8 @@ from app.core.redis import (
 )
 from app.core.storage import get_storage
 from app.core.dependency import is_admin, is_manager
+from app.repositories.team import TeamRepository
+from app.repositories.user import RoleRepository
 from app.models.problem import (
     Problem,
     ProblemCounter,
@@ -244,6 +246,22 @@ class ProblemService:
     async def create(self, user: object, body: ProblemCreate) -> Problem:
         if not await is_manager(self.db, user):
             raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
+        team_id = getattr(body, "team_id", None)
+        if body.visibility in (ProblemVisibility.ADMIN_VISIBLE, ProblemVisibility.TEAM_VISIBLE):
+            if team_id is None:
+                # 团队分支可见性仅经团队引用 / 团队上下文创建设置（docs/contracts/teams.md）
+                raise APIError(PARAM_FORMAT_INVALID, "团队可见性仅可经团队引用设置", 400)
+        elif team_id is not None:
+            # 团队题目必须落团队可见性分支（可见性 CHECK 双分支一致）
+            raise APIError(PARAM_FORMAT_INVALID, "团队题目可见性须为团队分支", 400)
+        if team_id is not None:
+            # 团队上下文直建：须为该团队创建者 / 管理员（或全局 admin），且团队存在
+            team = await TeamRepository(self.db).get_by_id(team_id)
+            if team is None:
+                raise APIError(RESOURCE_NOT_FOUND, "团队不存在", 404)
+            codes = set(await RoleRepository(self.db).get_team_role_codes(user.id, team_id))
+            if not ({"team_creator", "team_admin"} & codes or await is_admin(self.db, user)):
+                raise APIError(AUTH_FORBIDDEN, "无权限为该团队创建题目", 403)
         problem = Problem(
             title=body.title,
             background=body.background,
@@ -257,6 +275,7 @@ class ProblemService:
             memory_limit_mb=body.memory_limit_mb,
             difficulty=body.difficulty,
             owner_id=user.id,
+            team_id=team_id,
         )
         problem = await self.problems.create(problem)
         if body.tags:
@@ -270,6 +289,15 @@ class ProblemService:
         if problem is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不存在", 404)
         can_manage = user is not None and await _can_manage(self.db, user, problem)
+        # 团队快照题（source_problem_id 非空 = 经引用复制）：题库裸路径一律拦截，
+        # 访问 / 交题 / 自测只能走团队上下文端点（成员 + 归属门控，docs/contracts/teams.md）；
+        # 例外：全局 admin（管理动线只读浏览团队资源，teams.md 管理端）
+        if (
+            problem.source_problem_id is not None
+            and not bypass_visibility
+            and not await is_admin(self.db, user)
+        ):
+            raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         if not can_manage and problem.status != ProblemStatus.PUBLISHED:
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         # 私有题仅创建者 / admin 可见（docs/contracts/problems.md 可见性表）；
@@ -373,6 +401,12 @@ class ProblemService:
         if body.solution is not None:
             problem.solution = body.solution
         if body.visibility is not None:
+            # 团队题目可见性仅可经团队引用 / 团队空间切换（题库裸路径编辑不得越分支）
+            if problem.team_id is not None or body.visibility in (
+                ProblemVisibility.ADMIN_VISIBLE,
+                ProblemVisibility.TEAM_VISIBLE,
+            ):
+                raise APIError(PARAM_FORMAT_INVALID, "团队题目可见性不可经题库编辑修改", 400)
             problem.visibility = body.visibility
         if body.time_limit_ms is not None:
             problem.time_limit_ms = body.time_limit_ms

@@ -41,12 +41,28 @@ class ProblemSetService:
 
     async def _can_manage(self, user: User | None, problem_set: ProblemSet | None) -> bool:
         """单个题单的管理权限（单一所有权模型，docs/security.md）：admin 管理全站题单；
-        其余管理角色（tutor）仅可管理本人创建的题单。团队题单权限随 teams 模块接入。"""
+        其余管理角色（tutor）仅可管理本人创建的题单；团队题单由团队创建者 / 管理员管理。"""
         if user is None:
             return False
         if await is_admin(self.db, user):
             return True
+        if problem_set is not None and problem_set.team_id is not None:
+            from app.services.team import TeamService
+
+            return await TeamService(self.db).has_team_roles(
+                user, problem_set.team_id, level="admin"
+            )
         return problem_set is not None and user.id == problem_set.owner_id
+
+    async def _team_member_of(self, user: User | None, problem_set: ProblemSet) -> bool:
+        """团队题单的成员可见性：任意团队角色（member 及以上）可浏览详情。"""
+        if user is None or problem_set.team_id is None:
+            return False
+        from app.services.team import TeamService
+
+        return await TeamService(self.db).has_team_roles(
+            user, problem_set.team_id, level="member"
+        )
 
     async def _get_visible(self, set_id: uuid.UUID, viewer: User | None) -> ProblemSet:
         """按可见性取题单：不存在 → 3001；私有 / 已下线对无权限者 → 2003。"""
@@ -55,6 +71,15 @@ class ProblemSetService:
             raise APIError(RESOURCE_NOT_FOUND, "题单不存在", 404)
         can_manage = await self._can_manage(viewer, problem_set)
         is_owner = viewer is not None and viewer.id == problem_set.owner_id
+        is_team_member = problem_set.team_id is not None and await self._team_member_of(
+            viewer, problem_set
+        )
+        # 团队题单：团队成员可见（浏览语义，编排走团队空间端点）；
+        # 全站私有题单仅创建者 / 管理角色；公开题单所有人可见
+        if problem_set.team_id is not None:
+            if is_team_member or can_manage or is_owner:
+                return problem_set
+            raise APIError(AUTH_FORBIDDEN, "无权限：题单不可见", 403)
         visible = problem_set.status == ProblemSetStatus.ACTIVE and (
             problem_set.visibility == ProblemSetVisibility.PUBLIC or is_owner or can_manage
         )
@@ -133,6 +158,13 @@ class ProblemSetService:
     async def get_detail(self, set_id: uuid.UUID, viewer: User | None) -> ProblemSetDetail:
         """题单详情：匿名可看公开题单；条目按 sort_order 展示；登录请求带 per-user 作答状态。"""
         problem_set = await self._get_visible(set_id, viewer)
+        return await self.get_detail_for_team(problem_set, viewer)
+
+    async def get_detail_for_team(
+        self, problem_set: ProblemSet, viewer: User | None
+    ) -> ProblemSetDetail:
+        """团队题单详情装配（团队空间端点复用；可见性 / 归属门由团队门面前置完成）：
+        条目按 sort_order 展示、登录请求带 per-user 作答状态、can_manage=团队管理。"""
         rows = await self.repo.list_items_with_problem(problem_set.id)
         solved_map = (
             await ProblemRepository(self.db).solve_status_map(
@@ -198,7 +230,7 @@ class ProblemSetService:
         self, set_id: uuid.UUID, user: User, body: ProblemSetItemsUpdate
     ) -> None:
         """全量替换题单内题目：题目须为已发布，且（全站公开 或 创建者本人的私有题；
-        admin 同权）；同一题单内不得重复。"""
+        admin 同权）；团队题单额外放开本团队题目；同一题单内不得重复。"""
         problem_set = await self.require_manage(set_id, user)
 
         seen: set[uuid.UUID] = set()
@@ -211,7 +243,8 @@ class ProblemSetService:
         found = {
             problem.id: problem
             for problem in await self.repo.list_accessible_problems(
-                list(seen), viewer_id=user.id, see_all=see_all
+                list(seen), viewer_id=user.id, see_all=see_all,
+                team_id=problem_set.team_id,
             )
         }
         missing = seen - set(found)

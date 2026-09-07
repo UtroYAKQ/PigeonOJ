@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,10 +35,79 @@ class ProblemRepository:
     async def get_by_id(self, problem_id: uuid.UUID) -> Problem | None:
         return await self.db.get(Problem, problem_id)
 
+    async def get_team_source(
+        self, team_id: uuid.UUID, source_problem_id: uuid.UUID
+    ) -> Problem | None:
+        """团队题库内是否已存在某源题的引用快照（引用防重）。"""
+        stmt = select(Problem).where(
+            Problem.team_id == team_id,
+            Problem.source_problem_id == source_problem_id,
+        )
+        return (await self.db.execute(stmt)).scalar_one_or_none()
+
     async def create(self, problem: Problem) -> Problem:
         self.db.add(problem)
         await self.db.flush()
         return problem
+
+    async def copy_test_cases(self, source: Problem, target: Problem) -> None:
+        """快照复制生效测试点（引用题继承判题数据；docs/contracts/teams.md 团队空间节）。
+
+        - 仅复制 source.active_case_ids 引用的行（暂存集不复制）
+        - MinIO 对象逐份复制（新 oss id），源 / 目标对象互不影响，可独立清理
+        - 判题读取按 problems.active_case_ids 指向新行 id
+        """
+        from app.core.storage import get_storage
+
+        if not source.active_case_ids:
+            return
+        rows = list(
+            (
+                await self.db.execute(
+                    select(TestCase).where(
+                        TestCase.problem_id == source.id,
+                        TestCase.id.in_(source.active_case_ids),
+                    )
+                )
+            ).scalars()
+        )
+        by_id = {row.id: row for row in rows}
+        storage = get_storage()
+        new_ids: list[uuid.UUID] = []
+        for case_id in source.active_case_ids:
+            row = by_id.get(case_id)
+            if row is None:  # 生效集指向缺失行（异常数据）：跳过保持集合完整
+                continue
+            input_oss_id, expected_oss_id = await storage.copy_object(
+                row.input_oss_id
+            ), await storage.copy_object(row.expected_output_oss_id)
+            copy = TestCase(
+                problem_id=target.id,
+                name=row.name,
+                input_oss_id=input_oss_id,
+                expected_output_oss_id=expected_oss_id,
+                origin_id=row.id,  # 指回源题行（版本化语义：复制来源）
+                sort_order=row.sort_order,
+            )
+            self.db.add(copy)
+            await self.db.flush()
+            new_ids.append(copy.id)
+        target.active_case_ids = new_ids
+        target.cases_revision = 0  # 新题生效集即基线，暂存集为空
+        await self.db.flush()
+
+    async def copy_tag_relations(self, source: Problem, target: Problem) -> None:
+        """复制题目-标签关联（引用快照继承分类，docs/contracts/teams.md 团队空间节）。"""
+        rows = list(
+            (
+                await self.db.execute(
+                    select(ProblemTagRelation).where(ProblemTagRelation.problem_id == source.id)
+                )
+            ).scalars()
+        )
+        for row in rows:
+            self.db.add(ProblemTagRelation(problem_id=target.id, tag_id=row.tag_id))
+        await self.db.flush()
 
     async def bump_counters(self, problem_id: uuid.UUID, *, accepted: bool) -> None:
         """通过率计数 upsert 原子累加（INSERT ... ON CONFLICT，并发安全；docs/contracts/judge.md）。
@@ -125,6 +194,11 @@ class ProblemRepository:
                 conditions.append(Problem.owner_id == viewer_id)
             if query.status:
                 conditions.append(Problem.status == query.status)
+            # 来源过滤（题目管理页）：solo=全站题 / team=团队题（引用快照 + 直建）
+            if query.ownership == "solo":
+                conditions.append(Problem.team_id.is_(None))
+            elif query.ownership == "team":
+                conditions.append(Problem.team_id.is_not(None))
         elif query.mine and viewer_id is not None:
             # 题库中心「我的」勾选：仅本人已发布题目（任意可见性，含私有已发布；草稿/归档走管理视图）
             conditions.extend([
@@ -175,9 +249,172 @@ class ProblemRepository:
             ).scalars()
         )
 
+    async def list_team_problems(
+        self,
+        team_id: uuid.UUID,
+        *,
+        viewer_id: uuid.UUID,
+        is_team_manager: bool,
+        keyword: str | None = None,
+        status: str | None = None,
+        visibility: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        admin_view: bool = False,
+    ) -> tuple[list[Problem], int]:
+        """团队题库列表（docs/contracts/teams.md 团队空间节）。
+
+        - 成员视图：published 且 team_visible（admin_visible 仅团队管理可见）
+        - 团队管理视图（创建者 / 管理员）：全部可见性；默认展示非归档题目，
+          他人草稿不可见（草稿仅创建者本人可见，docs/contracts/problems.md）；
+          status 显式传入时按值过滤
+        - admin 管理视图（admin_view=True）：全部状态 / 可见性（含草稿与归档）
+        """
+        conditions: list = [Problem.team_id == team_id]
+        if admin_view:
+            if status:
+                conditions.append(Problem.status == status)
+            if visibility:
+                conditions.append(Problem.visibility == visibility)
+        elif is_team_manager:
+            if status:
+                conditions.append(Problem.status == status)
+            else:
+                conditions.append(Problem.status != ProblemStatus.ARCHIVED)
+                conditions.append(
+                    or_(Problem.status != ProblemStatus.DRAFT, Problem.owner_id == viewer_id)
+                )
+            if visibility:
+                conditions.append(Problem.visibility == visibility)
+        else:
+            conditions.append(Problem.status == ProblemStatus.PUBLISHED)
+            conditions.append(Problem.visibility == ProblemVisibility.TEAM_VISIBLE)
+        if keyword:
+            conditions.append(Problem.title.ilike(f"%{keyword}%"))
+        total = (
+            await self.db.scalar(select(func.count()).select_from(Problem).where(*conditions))
+        ) or 0
+        rows = list(
+            (
+                await self.db.execute(
+                    select(Problem)
+                    .where(*conditions)
+                    .order_by(Problem.created_at.desc())
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            ).scalars()
+        )
+        return rows, int(total)
+
+    async def list_team_arrangeable(
+        self,
+        team_id: uuid.UUID,
+        viewer_id: uuid.UUID,
+        problem_ids: list[uuid.UUID],
+    ) -> list[Problem]:
+        """团队上下文编排候选校验（团队题单 / 团队比赛共用规则）：
+
+        已发布且（全站公开 或 本人私有 或 本团队题目）；团队管理动作专用。
+        """
+        if not problem_ids:
+            return []
+        return list(
+            (
+                await self.db.execute(
+                    select(Problem).where(
+                        Problem.id.in_(problem_ids),
+                        Problem.status == ProblemStatus.PUBLISHED,
+                        or_(
+                            Problem.visibility == ProblemVisibility.PUBLIC,
+                            Problem.owner_id == viewer_id,
+                            Problem.team_id == team_id,
+                        ),
+                    )
+                )
+            ).scalars()
+        )
+
+    async def list_team_arrangeable_search(
+        self,
+        team_id: uuid.UUID,
+        viewer_id: uuid.UUID,
+        *,
+        keyword: str | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[Problem], int]:
+        """团队编排候选搜索（列表）：已发布且（本团队题目 ∪ 全站公开 ∪ 本人私有），标题模糊。"""
+        conditions: list = [
+            Problem.status == ProblemStatus.PUBLISHED,
+            or_(
+                Problem.team_id == team_id,
+                Problem.visibility == ProblemVisibility.PUBLIC,
+                Problem.owner_id == viewer_id,
+            ),
+        ]
+        if keyword:
+            conditions.append(Problem.title.ilike(f"%{keyword}%"))
+        total = (
+            await self.db.scalar(select(func.count()).select_from(Problem).where(*conditions))
+        ) or 0
+        rows = list(
+            (
+                await self.db.execute(
+                    select(Problem)
+                    .where(*conditions)
+                    .order_by(Problem.created_at.desc())
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            ).scalars()
+        )
+        return rows, int(total)
+
     async def add_test_cases(self, cases: list[TestCase]) -> None:
         self.db.add_all(cases)
         await self.db.flush()
+
+    async def list_referenceable(
+        self,
+        team_id: uuid.UUID,
+        owner_id: uuid.UUID,
+        *,
+        keyword: str | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[Problem], int]:
+        """团队题目引用候选（引用页列表）：本人创建 + 已发布 + 全站题（team_id IS NULL）
+        + 未被该团队引用过（同团队同源仅一份快照，docs/contracts/teams.md 团队空间节）。"""
+        conditions: list = [
+            Problem.owner_id == owner_id,
+            Problem.status == ProblemStatus.PUBLISHED,
+            Problem.team_id.is_(None),
+            Problem.source_problem_id.is_(None),
+            Problem.id.not_in(
+                select(Problem.source_problem_id).where(
+                    Problem.team_id == team_id,
+                    Problem.source_problem_id.is_not(None),
+                )
+            ),
+        ]
+        if keyword:
+            conditions.append(Problem.title.ilike(f"%{keyword}%"))
+        total = (
+            await self.db.scalar(select(func.count()).select_from(Problem).where(*conditions))
+        ) or 0
+        rows = list(
+            (
+                await self.db.execute(
+                    select(Problem)
+                    .where(*conditions)
+                    .order_by(Problem.created_at.desc())
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            ).scalars()
+        )
+        return rows, int(total)
 
 
 class TagRepository:

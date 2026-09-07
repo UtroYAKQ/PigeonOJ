@@ -25,7 +25,9 @@ from app.models.user import User
 from app.repositories.team import TeamRepository
 from app.repositories.user import RoleRepository
 from app.schemas.team import (
+    TeamAdminDetail,
     TeamAdminFlag,
+    TeamAdminSummary,
     TeamApplicationOut,
     TeamApplicationReview,
     TeamApplicationSubmit,
@@ -87,6 +89,18 @@ class TeamService:
             if not ({ROLE_CREATOR, ROLE_ADMIN, ROLE_MEMBER} & codes):
                 raise APIError(AUTH_FORBIDDEN, "非团队成员", 403)
         return codes
+
+    async def has_team_roles(
+        self, user: User | None, team_id: uuid.UUID, *, level: str = "member"
+    ) -> bool:
+        """无异常版本的角色检查（其他模块判断团队可见性 / 管理权用）：匿名恒 False。"""
+        if user is None:
+            return False
+        try:
+            await self._require_team_roles(user, team_id, level=level)
+        except APIError:
+            return False
+        return True
 
     @staticmethod
     def _is_creator(team: Team, user_id: uuid.UUID) -> bool:
@@ -185,6 +199,52 @@ class TeamService:
             )
         return items, total
 
+    # ---------------- 管理端视图（admin，docs/contracts/teams.md 管理端） ----------------
+
+    async def admin_list_teams(
+        self,
+        page: int,
+        page_size: int,
+        keyword: str | None = None,
+        status: TeamStatus | None = None,
+    ) -> tuple[list[TeamAdminSummary], int]:
+        """团队管理列表（admin 全量，含已解散）：成员数 / 创建人昵称 / 状态。"""
+        rows, total = await self.teams.list_all(page, page_size, keyword=keyword, status=status)
+        counts = await self.teams.count_active_members_by_team([team.id for team, _ in rows])
+        return [
+            TeamAdminSummary(
+                id=team.id,
+                name=team.name,
+                description=team.description,
+                avatar_url=team.avatar_url,
+                created_at=team.created_at,
+                member_count=counts.get(team.id, 0),
+                my_role=None,
+                status=TeamStatus(team.status),
+                creator_nickname=nickname,
+            )
+            for team, nickname in rows
+        ], total
+
+    async def admin_get_detail(self, team_id: uuid.UUID) -> TeamAdminDetail:
+        """团队管理详情（admin 免成员校验，含已解散团队）。"""
+        team = await self._team_or_404(team_id)
+        creator = await self.db.get(User, team.creator_id)
+        count = await self.teams.count_active_members_by_team([team.id])
+        return TeamAdminDetail(
+            id=team.id,
+            name=team.name,
+            description=team.description,
+            avatar_url=team.avatar_url,
+            created_at=team.created_at,
+            member_count=count.get(team.id, 0),
+            my_role=None,
+            creator_id=team.creator_id,
+            status=TeamStatus(team.status),
+            disbanded_at=team.disbanded_at,
+            creator_nickname=creator.nickname if creator else None,
+        )
+
     # ---------------- 邀请链接（Redis，不落库） ----------------
 
     async def create_invite(self, user: User, team_id: uuid.UUID) -> TeamInviteCreated:
@@ -277,12 +337,36 @@ class TeamService:
     # ---------------- 成员管理 ----------------
 
     async def list_members(
-        self, user: User, team_id: uuid.UUID, status: str | None, page: int, page_size: int
+        self,
+        user: User,
+        team_id: uuid.UUID,
+        status: str | None,
+        page: int,
+        page_size: int,
+        keyword: str | None = None,
     ) -> tuple[list[TeamMemberOut], int]:
         """成员列表（团队任意角色可查，docs/contracts/teams.md；带创建者 / 管理员标记）。"""
         team = await self._team_or_404(team_id)
         await self._require_team_roles(user, team.id, level="member")
-        rows, total = await self.teams.list_members(team.id, status, page, page_size)
+        return await self._assemble_members(team, status, page, page_size, keyword)
+
+    async def admin_list_members(
+        self,
+        team_id: uuid.UUID,
+        status: str | None,
+        page: int,
+        page_size: int,
+        keyword: str | None = None,
+    ) -> tuple[list[TeamMemberOut], int]:
+        """成员列表（admin 管理视图，免团队成员校验）。"""
+        team = await self._team_or_404(team_id)
+        return await self._assemble_members(team, status, page, page_size, keyword)
+
+    async def _assemble_members(
+        self, team: Team, status: str | None, page: int, page_size: int, keyword: str | None = None
+    ) -> tuple[list[TeamMemberOut], int]:
+        """成员列表装配（成员 / 管理端视图共用）。"""
+        rows, total = await self.teams.list_members(team.id, status, page, page_size, keyword)
         admin_ids = await self._team_admin_ids(team.id)
         return [
             TeamMemberOut(

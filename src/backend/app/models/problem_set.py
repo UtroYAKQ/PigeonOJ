@@ -40,6 +40,8 @@ class ProblemSet(Base):
         String(16), nullable=False, server_default=ProblemSetVisibility.PUBLIC
     )
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemSetStatus.ACTIVE)
+    # 经团队引用进入团队题单的时间（引用来源标记；NULL=非引用产生，docs/contracts/teams.md 团队空间）
+    referenced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

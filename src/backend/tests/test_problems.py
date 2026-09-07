@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import urllib.parse
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select, text
 
 from app.models.judge import Submission, SubmissionTestCaseResult
 from app.models.problem import Problem, TestCase
+from app.models.team import Team
 from app.models.user import User, UserRole
 from app.core.database import SessionLocal
 
@@ -1284,6 +1285,57 @@ async def test_list_scope_mine_shows_own_private_problems(client, admin_headers,
     assert "My Private" not in {item["title"] for item in resp.json()["data"]["items"]}
 
 
+@pytest.mark.asyncio
+async def test_list_scope_mine_ownership_filter(client):
+    """scope=mine 的 ownership 过滤：solo=全站题 / team=团队题；非法值 1001。"""
+    tutor_headers = await _tutor_headers(client)
+    await _create_problem(client, tutor_headers, title="Solo Problem", visibility="public")
+
+    # 直接种子一道团队题（owner=tutor）
+    async with SessionLocal() as db:
+        tutor_uid = (
+            await db.execute(select(User).where(User.email == "tutor@pigeonoj.dev"))
+        ).scalar_one().id
+        team = Team(name="归属过滤队", creator_id=tutor_uid)
+        db.add(team)
+        await db.flush()
+        team_problem = Problem(
+            title="Team Problem",
+            description="D",
+            owner_id=tutor_uid,
+            status="published",
+            visibility="team_visible",
+            team_id=team.id,
+            verified_at=datetime.now(timezone.utc),
+        )
+        db.add(team_problem)
+        await db.commit()
+        team_problem_id = str(team_problem.id)
+
+    # solo → 仅全站题
+    resp = await client.get(
+        "/api/v1/problems?scope=mine&ownership=solo", headers=tutor_headers
+    )
+    assert resp.json()["code"] == 0, resp.text
+    items = resp.json()["data"]["items"]
+    assert "Solo Problem" in {it["title"] for it in items}
+    assert "Team Problem" not in {it["title"] for it in items}
+
+    # team → 仅团队题
+    resp = await client.get(
+        "/api/v1/problems?scope=mine&ownership=team", headers=tutor_headers
+    )
+    assert resp.json()["code"] == 0, resp.text
+    items = resp.json()["data"]["items"]
+    assert {it["id"] for it in items} == {team_problem_id}
+
+    # 非法值 → 1001
+    resp = await client.get(
+        "/api/v1/problems?scope=mine&ownership=bogus", headers=tutor_headers
+    )
+    assert resp.json()["code"] == 1001
+
+
 # ---- 标签体系 ----
 
 
@@ -1326,7 +1378,9 @@ async def test_tag_admin_crud_and_archive(client, admin_headers, user_headers):
     resp = await client.get("/api/v1/problems/tags")
     assert resp.json()["data"] == []
     resp = await client.get("/api/v1/admin/tags", headers=admin_headers)
-    names = {item["name"]: item["status"] for item in resp.json()["data"]}
+    # 管理列表为分页信封（items 数组）
+    items = resp.json()["data"]["items"]
+    names = {item["name"]: item["status"] for item in items}
     assert names["DP"] == "archived"
 
 
@@ -1337,14 +1391,15 @@ async def test_problem_tag_assignment_and_filter(client, admin_headers):
     problem = await _create_problem(client, admin_headers, tags=["图论", "入门"])
 
     resp = await client.get(f"/api/v1/problems/{problem['id']}", headers=admin_headers)
-    assert resp.json()["data"]["tags"] == ["入门", "图论"]  # 按名排序返回
+    # 详情标签为对象数组（id/name/color），按名排序返回
+    assert [tag["name"] for tag in resp.json()["data"]["tags"]] == ["入门", "图论"]
 
     # 编辑全量替换：清空再单挂一个
     resp = await client.put(
         f"/api/v1/problems/{problem['id']}", json={"tags": ["图论"]}, headers=admin_headers
     )
     resp = await client.get(f"/api/v1/problems/{problem['id']}", headers=admin_headers)
-    assert resp.json()["data"]["tags"] == ["图论"]
+    assert [tag["name"] for tag in resp.json()["data"]["tags"]] == ["图论"]
 
     # 未知 / 归档标签名 → 1001
     resp = await client.put(

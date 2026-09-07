@@ -37,6 +37,7 @@ from app.repositories.contest import (
     ContestRepository,
     ContestSubmissionQueryRepository,
 )
+from app.repositories.user import RoleRepository
 from app.schemas.contest import (
     AnnouncementUpdate,
     BoardCell,
@@ -322,12 +323,16 @@ class ContestService:
 
     async def _can_manage(self, user: User | None, contest: Contest | None = None) -> bool:
         """单个比赛的管理权限（单一所有权模型，docs/security.md）：admin 管理全站比赛；
-        其余管理角色（tutor）仅可管理本人创建的比赛。团队比赛权限随 teams 模块接入。"""
+        其余管理角色（tutor）仅可管理本人创建的比赛；团队比赛由团队创建者 / 管理员管理。"""
         if user is None:
             return False
         if await is_admin(self.db, user):
             return True
-        return contest is not None and user.id == contest.owner_id
+        if contest is None:
+            return False
+        if contest.contest_type == ContestType.TEAM and contest.team_id is not None:
+            return await self._has_team_role(user, contest.team_id, level="admin")
+        return user.id == contest.owner_id
 
     async def require_manage(self, contest_id: uuid.UUID, user: User) -> Contest:
         contest = await self.repo.get_by_id(contest_id)
@@ -386,14 +391,18 @@ class ContestService:
             raise APIError(PARAM_FORMAT_INVALID, "报名截止不能晚于比赛结束", 400)
 
     async def _validate_problem_ids(
-        self, user: User, problem_ids: list[uuid.UUID]
+        self, user: User, problem_ids: list[uuid.UUID], *, team_id: uuid.UUID | None = None
     ) -> None:
-        """编排候选校验：已发布且（全站公开 或 本人私有）题目（docs/contracts/contests.md）。"""
+        """编排候选校验：已发布且（全站公开 或 本人私有）题目（docs/contracts/contests.md）。
+
+        team_id 非 None（团队比赛）时额外放开本团队题目；
+        全站编排一律排除团队题目（团队是封闭空间，docs/contracts/teams.md）。
+        """
         seen: list[uuid.UUID] = []
         for pid in problem_ids:
             if pid not in seen:
                 seen.append(pid)
-        found = await self.repo.list_arrangeable(user.id, seen)
+        found = await self.repo.list_arrangeable(user.id, seen, team_id=team_id)
         if len(found) != len(seen):
             raise APIError(PARAM_FORMAT_INVALID, "题目未发布或不可见，不可加入比赛", 400)
 
@@ -408,11 +417,15 @@ class ContestService:
     ) -> tuple[list[ContestProblemItemOut], int]:
         """编排页题目搜索（统一入口）：公开题 + 本人私有题（已发布），标题模糊。
 
-        仅比赛管理角色可调（编排是管理动作）。
+        团队比赛编排额外放开本团队题目；仅比赛管理角色可调（编排是管理动作）。
         """
-        await self.require_manage(contest_id, user)
+        contest = await self.require_manage(contest_id, user)
         rows, total = await self.repo.search_arrangeable(
-            user.id, keyword=keyword, page=page, page_size=page_size
+            user.id,
+            keyword=keyword,
+            page=page,
+            page_size=page_size,
+            team_id=contest.team_id if contest.contest_type == ContestType.TEAM else None,
         )
         return [
             ContestProblemItemOut(
@@ -462,6 +475,11 @@ class ContestService:
 
     async def get_detail(self, contest_id: uuid.UUID, viewer: User | None) -> ContestDetail:
         contest = await self._get_contest(contest_id)
+        # 团队比赛：非团队成员不可见（团队空间封闭，docs/contracts/teams.md）
+        if contest.contest_type == ContestType.TEAM and not await self._has_team_role(
+            viewer, contest.team_id
+        ):
+            raise APIError(AUTH_FORBIDDEN, "非团队成员，无权查看该比赛", 403)
         summary = await self._to_summary(self.repo, contest)
         now = _now()
         start = _aware(contest.start_time)
@@ -707,8 +725,10 @@ class ContestService:
 
     async def register(self, user: User, contest_id: uuid.UUID) -> None:
         contest = await self._get_contest(contest_id)
-        if contest.contest_type != ContestType.PUBLIC:
-            raise APIError(AUTH_FORBIDDEN, "团队比赛随 teams 模块开放", 403)
+        if contest.contest_type == ContestType.TEAM:
+            # 团队比赛：仅团队成员可报名（docs/contracts/contests.md 数据所有权）
+            if contest.team_id is None or not await self._has_team_role(user, contest.team_id):
+                raise APIError(AUTH_FORBIDDEN, "仅团队成员可报名团队比赛", 403)
         now = _now()
         if now < _aware(contest.register_start_time):
             raise APIError(RESOURCE_STATE_CONFLICT, "报名尚未开始", 409)
@@ -832,6 +852,72 @@ class ContestService:
             for index, item in enumerate(items)
         ]
         await self.repo.replace_problems(contest_id, rows)
+
+    # ---------------- 团队比赛（docs/contracts/teams.md 团队空间节） ----------------
+
+    async def _has_team_role(
+        self, user: User, team_id: uuid.UUID | None, *, level: str = "member"
+    ) -> bool:
+        """团队角色检查（团队比赛可见性 / 报名 / 管理权共用）：匿名恒 False。
+
+        level='member' 任意团队角色；'admin' 创建者 / 管理员。
+        """
+        if user is None or team_id is None:
+            return False
+        codes = set(
+            await RoleRepository(self.db).get_team_role_codes(user.id, team_id)
+        )
+        if level == "admin":
+            return bool({"team_creator", "team_admin"} & codes)
+        return bool({"team_creator", "team_admin", "team_member"} & codes)
+
+    async def list_team_contests(
+        self,
+        team_id: uuid.UUID,
+        *,
+        page: int,
+        page_size: int,
+        status: str | None,
+        keyword: str | None = None,
+    ) -> tuple[list[ContestSummary], int]:
+        """团队比赛列表（团队空间端点用；成员校验由 TeamSpaceService 前置完成）。"""
+        rows, total = await self.repo.list_team(
+            team_id, page=page, page_size=page_size, status=status, keyword=keyword
+        )
+        return [await self._to_summary(self.repo, row) for row in rows], total
+
+    async def create_team_contest(
+        self, user: User, team_id: uuid.UUID, body: object
+    ) -> ContestSummary:
+        """创建团队比赛（团队空间端点用；团队角色校验由 TeamSpaceService 前置完成）。
+
+        contest_type='team' + team_id 落库；编排候选在公开比赛规则之上放开本团队题目。
+        """
+        self._validate_times(
+            body.start_time, body.end_time, body.register_start_time, body.register_end_time
+        )
+        await self._validate_problem_ids(
+            user, [p.problem_id for p in body.problems], team_id=team_id
+        )
+        contest = await self.repo.create(
+            Contest(
+                title=body.title.strip(),
+                description=body.description,
+                logo=body.logo,
+                contest_type=ContestType.TEAM,
+                team_id=team_id,
+                owner_id=user.id,
+                rule_type=body.rule_type,
+                start_time=_aware(body.start_time),
+                end_time=_aware(body.end_time),
+                register_start_time=_aware(body.register_start_time),
+                register_end_time=_aware(body.register_end_time),
+                freeze_time=_aware(body.freeze_time) if body.freeze_time else None,
+                status=ContestStatus.SCHEDULED,
+            )
+        )
+        await self._replace_problems(contest.id, body.problems)
+        return await self._to_summary(self.repo, contest)
 
     # ---------------- 榜单 ----------------
 

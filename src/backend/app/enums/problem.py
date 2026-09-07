@@ -11,8 +11,16 @@ class ProblemStatus(StrEnum):
 
 
 class ProblemVisibility(StrEnum):
+    """题目可见性（docs/contracts/problems.md 可见性双分支）：
+
+    全站题目（team_id IS NULL）：private / public；
+    团队题目（team_id 非空）：admin_visible（仅团队创建者 / 管理员）/ team_visible（全队成员）。
+    """
+
     PRIVATE = "private"
     PUBLIC = "public"
+    ADMIN_VISIBLE = "admin_visible"
+    TEAM_VISIBLE = "team_visible"
 
 
 class ProblemScope(StrEnum):

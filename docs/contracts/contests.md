@@ -84,10 +84,13 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 
 - **单一所有权模型**：比赛管理权限（编辑 / 编排 / 公告 / 解榜 / 滚榜数据 / 比赛提交记录随时可见 / 赛前题目可见）
   按「`admin` 管理全站比赛，其余管理角色（`tutor`）仅管理本人创建的比赛」判定；
-  非创建者、非 admin 管理他人比赛一律 2003。创建入口为角色门（admin/tutor）
+  非创建者、非 admin 管理他人比赛一律 2003。创建入口为角色门（admin/tutor）；
+  **团队比赛由团队创建者 / 管理员管理**（创建走 teams.md 团队空间节端点）
 - 比赛中心仅展示公开比赛（`contest_type='public'`）；团队比赛仅在所属团队空间内展示（按 `team_id` 过滤）
-- 用户只能查看自己所在团队的比赛；团队比赛仅允许团队成员报名
+- 团队比赛详情仅团队成员（或全站 admin）可见（非成员 2003）；团队比赛报名叠加「团队成员」校验
 - 比赛题目访问与提交校验身份与报名（赛中限报名者，赛后向所有登录用户开放看题 / 补题；见下方「关键流程」越权规则）
+- **编排候选隔离**：公开比赛编排 = 已发布且（全站公开 ∪ 本人私有），一律排除团队题目；
+  团队比赛编排额外放开本团队题目（docs/contracts/teams.md 团队空间节）
 - 榜单按 `(contest_id, user_id)` 聚合展示；Redis `rank:contest:<id>` 仅作读缓存（TTL 分级：进行中 20s / 封榜 60s / 完赛已解冻永久；进行中 TTL 取大于前端 15s 轮询间隔，令轮询命中缓存、新鲜度靠写失效保证），权威数据在 `contest_rankings`，判题回写 / 封榜 / 解冻时主动失效（含 commit 后补删，见 docs/operations.md「缓存一致性」）
 
 ## 端点
@@ -113,7 +116,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | POST | /contests/{id}/problems/{pid}/submissions | auth（赛中：已报名；赛后：所有登录用户补题） | **比赛交题（统一入口）**：窗口校验后落 contest 提交并派发；赛后自动标记补题（不计榜单），未报名者补题仅公开题 | language/code | submission_id |
 | GET | /contests/{id}/submissions | auth（admin·tutor 随时 / **赛后**：所有登录用户） | **比赛提交记录列表**：全员正式提交 + 补题，提交时间倒序；比赛期间仅管理角色可见，赛后向所有登录用户开放（含未报名者） | 分页/keyword（昵称模糊）/language/status/problem_id（均精确） | submission[]（含 nickname / letter） |
 | GET | /contests/{id}/submissions/{sid} | auth（admin·tutor 随时 / **赛后**：所有登录用户） | **比赛提交详情（统一入口）**：窗口与 contest 归属校验后复用判题详情装配 | - | submission（含代码 / 测试点明细） |
-| GET | /teams/{team_id}/contests | team 角色 | 团队比赛列表（随 teams 模块实现） | 分页 | contest[] |
+| GET | /teams/{team_id}/contests | team 角色 | 团队比赛列表（随 teams.md 团队空间节实现：创建走团队端点；详情 / 报名 / 交题复用本模块端点并叠加团队门控） | 分页/status | contest[] |
 | GET | /users/me/contests | auth | 我的比赛 / 报名列表 | 分页/状态 | contest[] |
 
 ## 错误码
@@ -121,9 +124,10 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | 错误码 | HTTP | 说明 |
 | --- | --- | --- |
 | 3001 | 404 | 比赛不存在 |
-| 2003 | 403 | 未报名 / 非团队成员 / 赛前题目不可见 |
+| 2003 | 403 | 未报名 / 非团队成员（团队比赛详情 / 报名）/ 赛前题目不可见 |
 | 3003 | 409 | 重复报名 |
 | 3002 | 409 | 报名截止 / 比赛已开始或已结束（不允许补交） |
+| 1001 | 400 | 编排含未发布或不可见题目（含团队题目编入公开比赛） |
 | 4002 | 429 | 全局判题并发上限触发排队 / 拒绝 |
 
 ## 状态守卫与赛时工具（修订）
@@ -207,5 +211,6 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
   无头像回退渐变底 + 标题首字），建赛 / 编辑为**全页表单**（`/admin/contests/create`、
   `/admin/contests/:id/edit`：logo 上传 + Markdown 说明 + 时间四元组 + 题目编排），
   详情页带 logo 横幅与 Markdown 说明渲染；榜单页轮询刷新
-- 待 teams 模块：团队比赛（`team_id` / `contest_type='team'` 列与约束已落库，
-  报名与团队列表端点随 teams 开放）
+- 已实现（迁移 0029，随 teams.md 团队空间节）：团队比赛——创建（团队端点，
+  编排候选放开本团队题目）/ 团队列表 / 报名叠加团队成员校验 / 详情团队门控；
+  比赛内题目编排搜索对团队比赛放开本团队题目

@@ -33,6 +33,8 @@
 | verified_at | TIMESTAMPTZ | NULL | 验题通过时间；「已验题」≡ 本字段非空（原 `is_verified` 列冗余已移除，API 字段由后端派生输出） |
 | verified_by | UUID | NULL, FK → users.id | 验题通过审核人 |
 | published_at | TIMESTAMPTZ | NULL | 发布时间 |
+| referenced_at | TIMESTAMPTZ | NULL | 团队引用来源字段：非空 = 团队引用快照复制的新题（引用时间，见 teams.md 团队空间节）；题库直建 / 团队直建 / 全站题目恒 NULL |
+| source_problem_id | UUID | NULL, FK → problems.id ON DELETE SET NULL | 引用快照的源题（同团队同源唯一索引 `uq_problems_team_source` 防重）；非引用产生恒 NULL |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
 CHECK 约束（可见性与归属匹配）：
@@ -144,6 +146,8 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 | 团队题目 | 非空 | `admin_visible`（默认）/ `team_visible` | 否 | 团队题库内按可见性展示；不提供进入题库中心的通道 |
 
 - 生命周期（`status`）与可见性（`visibility`）正交：草稿 / 发布 / 归档由 `status` 表达，私有 / 管理可见 / 团队可见 / 全站公开由 `visibility` 表达
+- 团队题目可见性（`admin_visible` / `team_visible`）仅可经团队引用动作设置与切换（见 teams.md 团队空间节）；题库直建恒为全站题目，题库编辑不得越分支改动可见性
+- 团队引用快照题（`source_problem_id` 非空）：题库裸路径（详情 / 交题 / 自测）一律拦截，只能经团队上下文端点访问（限界上下文隔离，docs/contracts/teams.md）；**例外：全局 admin** 经裸路径只读（管理动线浏览团队资源，docs/contracts/teams.md 管理端）
 - 题目被题单 / 比赛引用时不物理删除，下线走 `status='archived'`；引用后不自动改变题目在题库中心的可见性
 - 用户在题单或比赛中访问题目时，按题单或比赛本身的访问权限展示题面；创建者把私有题编入题单 / 比赛即视为经该上下文分发——引用上下文内（详情 / 交题）放行，题库裸路径仍按可见性门控（见 `problem-sets.md` / `contests.md` 编排规则）
 
@@ -153,7 +157,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：**admin 见全量题目，其余用户（含 tutor / team_creator）仅见本人创建**，可叠加 `status` 过滤；列表项恒带 `needs_reverification` 字段（存在待验证测试点，或样例晚于最近验题通过时间；仅 `scope=mine` 视图有意义，其他场景恒为 `false`）；支持难度分闭区间筛选（未评分题目不落入任何区间，min>max 返回 1001）；`mine=true`（题库中心「我的」勾选，须登录，匿名 401）改为仅本人已发布题目（任意可见性，含私有已发布；草稿 / 归档仍走 `scope=mine` 管理视图）；列表项带 `difficulty` 与 `submission_count` / `accepted_count`；登录请求列表项带 `solved` 作答状态（`true`=已通过：存在 AC 提交；`false`=已尝试未通过；`null`=未提交过；未登录恒 `null`；验题提交不计入口径，与 `problem_counters` 一致） | 分页/标签/关键字/scope/status/mine/difficulty_min/difficulty_max | problem[] |
+| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：**admin 见全量题目，其余用户（含 tutor / team_creator）仅见本人创建**，可叠加 `status` 过滤与 `ownership` 来源过滤（`solo`=全站题 team_id 为空 / `team`=团队题 team_id 非空；仅 scope=mine 生效，非法值 1001）；列表项恒带 `needs_reverification` 字段（存在待验证测试点，或样例晚于最近验题通过时间；仅 `scope=mine` 视图有意义，其他场景恒为 `false`）；支持难度分闭区间筛选（未评分题目不落入任何区间，min>max 返回 1001）；`mine=true`（题库中心「我的」勾选，须登录，匿名 401）改为仅本人已发布题目（任意可见性，含私有已发布；草稿 / 归档仍走 `scope=mine` 管理视图）；列表项带 `difficulty` 与 `submission_count` / `accepted_count`；登录请求列表项带 `solved` 作答状态（`true`=已通过：存在 AC 提交；`false`=已尝试未通过；`null`=未提交过；未登录恒 `null`；验题提交不计入口径，与 `problem_counters` 一致） | 分页/标签/关键字/scope/status/mine/ownership/difficulty_min/difficulty_max | problem[] |
 | GET | /problems/tags | public | 激活标签列表（打标选择器与列表筛选用，仅 `status='active'`） | - | tag[]（id/name/color） |
 | GET | /admin/tags | admin | 标签管理全量列表（含已归档） | - | tag[] |
 | POST | /admin/tags | admin | 新增标签（name 唯一，重复返回 1001） | name/color? | tag |
@@ -161,7 +165,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 | POST | /admin/tags/{id}/archive | admin | 归档标签（关联保留、不再可选） | - | tag |
 | GET | /problems/{id} | public/owner | 题目详情（按可见性过滤；**不含测试点**，测试点走独立端点）；带 `difficulty` 与 `submission_count` / `accepted_count` | - | problem |
 | GET | /problems/{id}/test-cases | admin/owner（题目管理者） | **测试点列表（独立管理端点）**：目标状态合并视图（暂存优先）+ `updated_at`；普通用户 2003、匿名 2001 | - | { cases[], updated_at } |
-| POST | /problems | admin/tutor/team_creator/team_admin | 创建题目（公开/团队） | team_id?/title/.../tags?/visibility/limits/difficulty? | problem |
+| POST | /problems | admin/tutor/team_creator/team_admin | 创建题目（公开/团队）。`team_id` 非空 = 团队上下文直建：须为该团队 team_creator/team_admin（admin 同权全站），visibility 须为团队分支（admin_visible/team_visible，缺省 admin_visible），referenced_at 恒 NULL（区别于引用进团队）；缺省 team_id = 全站题目（public/private） | team_id?/title/.../tags?/visibility/limits/difficulty? | problem |
 | PUT | /problems/{id} | admin/tutor/team_creator/team_admin | 编辑题目 | ...（`tags` 全量替换标签关联；`difficulty` 非负整数，缺省不改动） | problem |
 | PUT | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 全量替换**暂存集**测试点（出题不设分值；提交得分由判题服务端按通过比例派生，比赛计分随 contests 模块配置）；被替换内容的 MinIO 旧对象异步清理；生效集不动，验题通过后晋升 | cases[]（name?、input、expected_output、sort_order） | - |
 | PATCH | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 增量更新**暂存集**（前端编辑器按行 diff 只提交变化的行）：upserts 带 id 为修改（input/expected_output 缺省或 null = 内容不变，可仅改名 / 调序；传字符串则整体替换该侧内容，空字符串 = 显式清空——写入空对象、ossId 保持非空，两侧同时置空返回 1001；改动生成新行、origin_id 指回原行）、无 id 为新增（输入输出不能全空）；delete_ids 表示目标状态中不含该点；同一 id 不得同时出现在 upserts 与 delete_ids（1001），未知 id 返回 3001；被替换内容的 MinIO 旧对象异步清理。生效集在晋升前不受影响 | upserts[]（id?、name?、input?、expected_output?、sort_order?）/ delete_ids[] | cases[]（目标状态合并视图：未改动点沿用原 id，含内容与 staged 标记，供前端重置基线） |
@@ -171,7 +175,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 | GET | /verify-invites/{token} | public | 解析验题邀请链接（数据源 Redis `verify_invite:{token}`；返回题面与样例供受邀人查看，不含正式测试点内容与题解；`expires_at` 由 TTL 推算） | - | {problem_id, problem_title, expires_at, background, description, input_description?, output_description?, note?, tags[], time_limit_ms, memory_limit_mb, samples[]} |
 | POST | /problems/{id}/publish | admin/tutor/team_creator/team_admin | 发布（须验题通过 + active 测试点 ≥ 1 + `pending_case_ids` 为 NULL；存在暂存改动或样例晚于 verified_at 时返回 3002，须重新验题） | - | problem |
 | POST | /problems/{id}/archive | admin/tutor/team_creator/team_admin | 下线归档 | - | problem |
-| GET | /teams/{team_id}/problems | admin/tutor/team_creator/team_admin | 团队题库列表（随 teams 模块实现） | 分页/可见性 | problem[] |
+| GET | /teams/{team_id}/problems | team 角色 | 团队题库列表（随 teams.md 团队空间节实现：引用 / 列表 / 详情 / 交题 / 自测独立端点） | 分页/可见性 | problem[] |
 | POST | /files/upload/avatar | auth（头像） | 头像上传（multipart → 站内文件 URL；频控见 security.md） | file | url |
 | POST | /files/upload/image | auth（公共图片，登录用户可用） | 题面插图上传（multipart → 站内文件 URL），Markdown 编辑器以 `![](url)` 引用；详见 admin.md files 表 | file（≤5MB，JPG/PNG/WEBP/GIF） | url |
 
