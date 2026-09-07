@@ -14,6 +14,7 @@
     problemSets: 'Problem sets',
     problemSetsManage: 'Manage problem sets',
     contestsManage: 'Manage contests',
+    teamsManage: 'Manage teams',
     problemsManage: 'Manage problems',
     contests: 'Contests',
     teams: 'Teams',

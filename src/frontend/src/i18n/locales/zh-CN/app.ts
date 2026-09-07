@@ -14,6 +14,7 @@
     problemSets: '题单',
     problemSetsManage: '题单管理',
     contestsManage: '比赛管理',
+    teamsManage: '团队管理',
     problemsManage: '题目管理',
     contests: '比赛',
     teams: '团队',

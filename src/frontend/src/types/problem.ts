@@ -146,4 +146,6 @@ export interface ProblemCreatePayload extends ProblemEditPayload {
   /** 题面要素必填（docs/contracts/problems.md） */
   input_description: string
   output_description: string
+  /** 团队上下文直建（团队空间）：团队题目须为团队可见性分支 */
+  team_id?: string
 }

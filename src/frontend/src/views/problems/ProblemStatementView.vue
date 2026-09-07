@@ -15,6 +15,9 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const isEdit = computed(() => Boolean(route.params.id))
+/** 团队上下文（团队空间直建）：route 带 teamId，创建时归属该团队 */
+const teamId = computed(() => (route.params.teamId ? String(route.params.teamId) : null))
+const isTeam = computed(() => teamId.value !== null)
 const saving = ref(false)
 const loading = ref(false)
 const showSolution = ref(false)
@@ -103,7 +106,7 @@ async function loadExisting() {
     }
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
-    router.push('/admin/problems')
+    router.push(isTeam.value ? `/teams/${teamId.value}` : '/admin/problems')
   } finally {
     loading.value = false
   }
@@ -140,6 +143,8 @@ async function persist(): Promise<string | null> {
       time_limit_ms: form.time_limit_ms,
       memory_limit_mb: form.memory_limit_mb,
       difficulty: form.difficulty,
+      // 团队上下文直建（docs/contracts/problems.md 端点表 team_id?）
+      team_id: teamId.value ?? undefined,
     })
     if (isEdit.value) {
       const id = String(route.params.id)
@@ -158,19 +163,20 @@ async function persist(): Promise<string | null> {
   }
 }
 
-/** 下一步：持久化题面后进入「样例与测试点」页 */
+/** 下一步：持久化题面后进入「样例与测试点」页（团队上下文走团队路由） */
 async function goNext() {
   const id = await persist()
   if (!id) return
-  // 新建用 replace：浏览器后退不会回到 /new 造成重复建草稿
-  const target = `/admin/problems/${id}/edit/cases`
+  const target = isTeam.value
+    ? `/teams/${teamId.value}/problems/${id}/edit/cases`
+    : `/admin/problems/${id}/edit/cases`  // 新建用 replace：浏览器后退不会回到 /new 造成重复建草稿
   await (isEdit.value ? router.push(target) : router.replace(target))
 }
 
-/** 保存并退出：持久化题面后返回题目管理列表 */
+/** 保存并退出：持久化题面后返回来源列表 */
 async function saveAndExit() {
   if (!(await persist())) return
-  await router.push('/admin/problems')
+  await router.push(isTeam.value ? `/teams/${teamId.value}` : '/admin/problems')
 }
 
 const chosenTagNames = computed(() => new Set(form.tags))
@@ -184,14 +190,25 @@ const tagColorMap = computed(() => {
 })
 
 onMounted(() => {
+  // 团队直建默认「全队成员可见」（docs/contracts/problems.md 团队可见性分支）
+  if (isTeam.value && !isEdit.value) form.visibility = 'team_visible'
   loadTagOptions()
   loadExisting()
 })
 
-const visibilityOptions = computed(() => [
-  { label: t('problems.create.visibilityPublic'), value: 'public' },
-  { label: t('problems.create.visibilityPrivate'), value: 'private' },
-])
+const visibilityOptions = computed(() => {
+  if (isTeam.value) {
+    // 团队题目可见性仅团队分支（admin_visible / team_visible，docs/contracts/problems.md）
+    return [
+      { label: t('teams.space.teamVisible'), value: 'team_visible' },
+      { label: t('teams.space.adminVisible'), value: 'admin_visible' },
+    ]
+  }
+  return [
+    { label: t('problems.create.visibilityPublic'), value: 'public' },
+    { label: t('problems.create.visibilityPrivate'), value: 'private' },
+  ]
+})
 </script>
 
 <template>

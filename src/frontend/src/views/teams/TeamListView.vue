@@ -1,19 +1,17 @@
 <script setup lang="ts">
 /**
- * 团队中心：我的团队卡片墙（分页）+ 创建团队（admin/tutor）。
+ * 团队中心：我的团队卡片墙（分页）。
+ * 创建团队入口已收敛到管理后台（/admin/teams，docs/contracts/teams.md 管理端）。
  * 卡片范式与比赛列表（ContestListView）一致：单行头部（头像 + 名称 + 右侧角色点标）、
  * 描述两行截断、成员数元信息、底部创建时间；
  * 悬停仅边框加深 + 标题主色，无位移 / 阴影 / 动画。
  */
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { CirclePlus } from '@element-plus/icons-vue'
-import { NButton, NIcon } from 'naive-ui'
 
-import { createTeam, listMyTeams } from '@/api/teams'
+import { listMyTeams } from '@/api/teams'
 import { message } from '@/utils/feedback'
-import { useUserStore } from '@/stores/user'
 import { usePagination } from '@/composables/usePagination'
 import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
@@ -23,18 +21,11 @@ import type { TeamRoleType, TeamSummary } from '@/types'
 
 const router = useRouter()
 const { t } = useI18n()
-const userStore = useUserStore()
-
-const canCreate = computed(() => userStore.hasAnyRole(['admin', 'tutor']))
 
 const loading = ref(false)
 const list = ref<TeamSummary[]>([])
 const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
 const keyword = ref('')
-
-const showCreate = ref(false)
-const creating = ref(false)
-const createForm = ref({ name: '', description: '' })
 
 /** 我的角色 → 点标（语义色 class + 文案 key；创建者警示橙 / 管理员信息蓝 / 成员中性灰） */
 const roleMeta: Record<TeamRoleType, { cls: string; labelKey: string }> = {
@@ -73,28 +64,6 @@ function openTeam(team: TeamSummary) {
   void router.push(`/teams/${team.id}`)
 }
 
-async function doCreate() {
-  if (!createForm.value.name.trim()) {
-    message.warning(t('teams.create.nameRequired'))
-    return
-  }
-  creating.value = true
-  try {
-    const team = await createTeam({
-      name: createForm.value.name.trim(),
-      description: createForm.value.description.trim() || undefined,
-    })
-    message.success(t('teams.create.success'))
-    showCreate.value = false
-    createForm.value = { name: '', description: '' }
-    void router.push(`/teams/${team.id}`)
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
-  } finally {
-    creating.value = false
-  }
-}
-
 onMounted(load)
 </script>
 
@@ -114,12 +83,6 @@ onMounted(load)
     >
       <template #actions>
         <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
-        <n-button v-if="canCreate" type="primary" @click="showCreate = true">
-          <template #icon>
-            <n-icon :component="CirclePlus" />
-          </template>
-          {{ t('teams.list.create') }}
-        </n-button>
       </template>
     </SearchFilterBar>
 
@@ -198,40 +161,6 @@ onMounted(load)
         "
       />
     </div>
-
-    <n-modal
-      v-model:show="showCreate"
-      :title="t('teams.list.create')"
-      preset="card"
-      style="width: 480px"
-    >
-      <n-form label-placement="top">
-        <n-form-item :label="t('teams.create.name')" required>
-          <n-input
-            v-model:value="createForm.name"
-            maxlength="64"
-            :placeholder="t('teams.create.namePlaceholder')"
-          />
-        </n-form-item>
-        <n-form-item :label="t('teams.create.description')">
-          <n-input
-            v-model:value="createForm.description"
-            type="textarea"
-            :rows="3"
-            maxlength="2000"
-            :placeholder="t('teams.create.descriptionPlaceholder')"
-          />
-        </n-form-item>
-      </n-form>
-      <template #footer>
-        <div class="modal-actions">
-          <n-button @click="showCreate = false">{{ t('action.cancel') }}</n-button>
-          <n-button type="primary" :loading="creating" @click="doCreate">
-            {{ t('action.save') }}
-          </n-button>
-        </div>
-      </template>
-    </n-modal>
   </WorkbenchShell>
 </template>
 
@@ -383,11 +312,6 @@ onMounted(load)
 }
 .pager__spacer {
   flex: 1;
-}
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 @media (max-width: 700px) {
   .pager {

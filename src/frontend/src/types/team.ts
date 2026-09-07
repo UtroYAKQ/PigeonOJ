@@ -67,3 +67,90 @@ export interface TeamUpsertPayload {
   description?: string
   avatar_url?: string
 }
+
+/* ==================== 团队空间（题库 / 题单 / 比赛，docs/contracts/teams.md 团队空间节） ==================== */
+
+/** 团队题库列表项：题库摘要 + 引用来源字段 */
+export interface TeamProblemSummary {
+  id: string
+  title: string
+  time_limit_ms: number
+  memory_limit_mb: number
+  status: 'draft' | 'published' | 'archived'
+  visibility: 'admin_visible' | 'team_visible'
+  is_verified?: boolean
+  created_at?: string
+  difficulty?: number | null
+  submission_count?: number
+  accepted_count?: number
+  solved?: boolean | null
+  /** 非空 = 经团队引用进入团队题库（引用时间） */
+  referenced_at?: string | null
+}
+
+/** 团队题库列表查询 */
+export interface TeamProblemListQuery {
+  page?: number
+  page_size?: number
+  keyword?: string
+  status?: 'draft' | 'published' | 'archived'
+  visibility?: 'admin_visible' | 'team_visible'
+}
+
+/** 引用题目进团队载荷 */
+export interface TeamProblemReferencePayload {
+  problem_id: string
+  visibility: 'team_visible' | 'admin_visible'
+}
+
+/** 团队题单列表查询 */
+export interface TeamSetListQuery {
+  page?: number
+  page_size?: number
+  keyword?: string
+  status?: 'active' | 'archived'
+}
+
+/** 创建团队题单载荷（copy_from_set_id 非空 = 复制本人全站题单条目，快照复制） */
+export interface TeamSetCreatePayload {
+  title: string
+  description?: string | null
+  copy_from_set_id?: string
+}
+
+/** 团队比赛列表查询 */
+export interface TeamContestListQuery {
+  page?: number
+  page_size?: number
+  keyword?: string
+  status?: 'scheduled' | 'running' | 'finished'
+}
+
+/* ==================== 团队管理（admin 后台，docs/contracts/teams.md 管理端） ==================== */
+
+/** 团队管理列表项（admin 全量，含已解散；带创建人昵称与状态） */
+export interface TeamAdminSummary extends TeamSummary {
+  status: 'active' | 'disbanded'
+  creator_nickname: string | null
+  /** 团队空间资源计数（题库 / 题单 / 比赛，全部状态） */
+  problem_count: number
+  problem_set_count: number
+  contest_count: number
+}
+
+/** 团队管理详情（admin 免成员校验） */
+export interface TeamAdminDetail extends TeamDetail {
+  creator_nickname: string | null
+  /** 团队空间资源计数（题库 / 题单 / 比赛，全部状态） */
+  problem_count: number
+  problem_set_count: number
+  contest_count: number
+}
+
+/** 团队管理列表查询 */
+export interface AdminTeamListQuery {
+  page?: number
+  page_size?: number
+  keyword?: string
+  status?: 'active' | 'disbanded'
+}

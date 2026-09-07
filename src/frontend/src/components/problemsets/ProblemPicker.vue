@@ -18,6 +18,8 @@ const props = defineProps<{
   show: boolean
   /** 已选题目 id：用于去重与「已添加」禁用态 */
   chosenIds?: Set<string>
+  /** 进入时默认勾选「我的」（团队引用等场景：仅本人题目可被引用） */
+  defaultMine?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -29,7 +31,7 @@ const { t } = useI18n()
 const userStore = useUserStore()
 
 const keyword = ref('')
-const mineOnly = ref(false)
+const mineOnly = ref(props.defaultMine ?? false)
 const items = ref<ProblemSummary[]>([])
 const { page, pageSize, total, changePage, resetPage, beginLoad, isCurrent } = usePagination()
 
@@ -63,7 +65,7 @@ watch(
   (show) => {
     if (!show) return
     keyword.value = ''
-    mineOnly.value = false
+    mineOnly.value = props.defaultMine ?? false
     resetPage()
     void load()
   },

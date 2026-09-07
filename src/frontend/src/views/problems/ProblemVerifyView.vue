@@ -18,6 +18,7 @@ import {
   publishProblem,
   submitVerifyCode,
 } from '@/api/problems'
+import { getTeamProblem } from '@/api/teams'
 import { listSubmissions } from '@/api/judge'
 import { useSelfTest } from '@/composables/useSelfTest'
 import type { ProblemDetail, ProblemLanguage, Submission } from '@/types'
@@ -34,6 +35,9 @@ const { t } = useI18n()
 
 const loading = ref(false)
 const problemId = String(route.params.id)
+/** 团队上下文：回读走团队端点，跳转 / 提交评测结果均落团队路由 */
+const teamId = route.params.teamId ? String(route.params.teamId) : null
+const isTeam = teamId !== null
 /** 完整详情（含验题状态），驱动门禁与状态标签 */
 const detail = ref<ProblemDetail | null>(null)
 
@@ -102,7 +106,10 @@ async function onSubmit() {
       language: language.value,
     })
     message.success(t('problems.verify.submitted'))
-    router.push(`/problems/${problemId}/submissions/${res.submission_id}`)
+    const target = isTeam
+      ? `/teams/${teamId}/problems/${problemId}/submissions/${res.submission_id}`
+      : `/problems/${problemId}/submissions/${res.submission_id}`
+    router.push(target)
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.operationFailed'))
   } finally {
@@ -129,7 +136,10 @@ async function loadMySubmissions() {
 
 function openSubmission(row: Submission) {
   subsVisible.value = false
-  router.push(`/problems/${problemId}/submissions/${row.id}`)
+  const target = isTeam
+    ? `/teams/${teamId}/problems/${problemId}/submissions/${row.id}`
+    : `/problems/${problemId}/submissions/${row.id}`
+  router.push(target)
 }
 
 const submissionColumns = computed<DataTableColumns<Submission>>(() => [
@@ -263,23 +273,30 @@ async function onApply() {
 async function loadExisting() {
   loading.value = true
   try {
-    const loaded: ProblemDetail = await getProblem(problemId)
+    // 团队题目经团队上下文端点回读（题库裸路径按可见性拦截）
+    const loaded: ProblemDetail = await (isTeam
+      ? getTeamProblem(teamId!, problemId)
+      : getProblem(problemId))
     if (!loaded.can_manage) throw new Error(t('problems.create.noPermission'))
     detail.value = loaded
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
-    router.push('/admin/problems')
+    router.push(isTeam ? `/teams/${teamId}` : '/admin/problems')
   } finally {
     loading.value = false
   }
 }
 
 function goPrev() {
-  router.push(`/admin/problems/${problemId}/edit/cases`)
+  router.push(
+    isTeam
+      ? `/teams/${teamId}/problems/${problemId}/edit/cases`
+      : `/admin/problems/${problemId}/edit/cases`,
+  )
 }
 function cancelEdit() {
   // 未发布离开：草稿保留，可随时从管理工作台继续
-  router.push('/admin/problems')
+  router.push(isTeam ? `/teams/${teamId}` : '/admin/problems')
 }
 
 onMounted(() => void loadExisting())

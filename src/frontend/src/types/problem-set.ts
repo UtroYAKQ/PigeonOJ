@@ -24,6 +24,8 @@ export interface ProblemSetSummary {
   status: 'active' | 'archived'
   owner_id: string
   item_count: number
+  /** 非空 = 经团队引用进入团队题单（引用时间；团队空间） */
+  referenced_at?: string | null
   created_at: string
   updated_at: string
 }

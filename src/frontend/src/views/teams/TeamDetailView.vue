@@ -2,14 +2,18 @@
 /**
  * 团队详情主页（/teams/:id）：社区空间式布局。
  * Hero（渐变横幅 + 头像 + 简介 + 动作区）+ 模块化内容区：
- * 成员 / 团队题库 / 团队题单 / 团队比赛（预留占位）/ 加入申请（管理员）。
+ * 成员 / 团队题库 / 团队题单 / 团队比赛 / 加入申请（管理员）。
+ * 团队空间三模块（题库 / 题单 / 比赛）走独立团队端点（docs/contracts/teams.md 团队空间节）：
+ * 成员只读浏览；创建者 / 管理员可引用题目题单、建题单、建比赛、编排与下线。
  * 邀请走弹窗（链接 + 二维码）；编辑走抽屉；权限按 my_role 显隐（creator ⊇ admin ⊇ member）。
- * Hero 动作区预留扩展：后续团队管理动作（如批量导入、公告等）继续向该区追加。
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import type { DataTableColumns } from 'naive-ui'
 import {
+  ArrowRight,
+  CirclePlus,
   Collection,
   Document,
   MoreFilled,
@@ -36,14 +40,20 @@ import {
 } from 'naive-ui'
 
 import {
+  archiveTeamProblemSet,
   createTeamInvite,
   disbandTeam,
   exitTeam,
   getTeam,
   kickTeamMember,
   listTeamApplications,
+  listTeamContests,
   listTeamMembers,
+  listTeamProblemSets,
+  listTeamProblems,
+  replaceTeamProblemSetItems,
   reviewTeamApplication,
+  searchTeamArrangeableProblems,
   setTeamAdmin,
   updateTeam,
 } from '@/api/teams'
@@ -51,12 +61,23 @@ import { uploadImage } from '@/api/files'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
+import { useUserStore } from '@/stores/user'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import type { TeamApplicationItem, TeamDetail, TeamMemberItem } from '@/types'
+import SearchFilterBar from '@/components/SearchFilterBar.vue'
+import RefreshButton from '@/components/RefreshButton.vue'
+import type {
+  ContestSummary,
+  ProblemSetSummary,
+  TeamApplicationItem,
+  TeamDetail,
+  TeamMemberItem,
+  TeamProblemSummary,
+} from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const userStore = useUserStore()
 
 const teamId = String(route.params.id)
 const team = ref<TeamDetail | null>(null)
@@ -70,7 +91,7 @@ function initialOf(name: string | null | undefined) {
   return name?.trim()?.charAt(0).toUpperCase() || 'T'
 }
 
-// ---------------- 模块 tab（内容板块；题库 / 题单 / 比赛为预留占位） ----------------
+// ---------------- 模块 tab（内容板块） ----------------
 
 type TeamModule = 'members' | 'problems' | 'sets' | 'contests' | 'applications'
 const activeModule = ref<TeamModule>('members')
@@ -79,33 +100,13 @@ const moduleMeta = computed(() => {
   const items: Array<{
     key: TeamModule
     labelKey: string
-    hintKey?: string
     icon: typeof Collection
     adminOnly?: boolean
-    placeholder?: boolean
   }> = [
     { key: 'members', labelKey: 'teams.detail.tabMembers', icon: Setting },
-    {
-      key: 'problems',
-      labelKey: 'teams.modules.problems',
-      hintKey: 'teams.modules.problemsHint',
-      icon: Collection,
-      placeholder: true,
-    },
-    {
-      key: 'sets',
-      labelKey: 'teams.modules.sets',
-      hintKey: 'teams.modules.setsHint',
-      icon: Document,
-      placeholder: true,
-    },
-    {
-      key: 'contests',
-      labelKey: 'teams.modules.contests',
-      hintKey: 'teams.modules.contestsHint',
-      icon: Trophy,
-      placeholder: true,
-    },
+    { key: 'problems', labelKey: 'teams.modules.problems', icon: Collection },
+    { key: 'sets', labelKey: 'teams.modules.sets', icon: Document },
+    { key: 'contests', labelKey: 'teams.modules.contests', icon: Trophy },
     {
       key: 'applications',
       labelKey: 'teams.detail.tabApplications',
@@ -116,14 +117,349 @@ const moduleMeta = computed(() => {
   return items.filter((item) => !item.adminOnly || isAdmin.value)
 })
 
-/** 规划中的模块：并排成能力卡展示，避免逐 tab 切换才能看到全貌 */
-const placeholderModules = computed(() =>
-  moduleMeta.value.flatMap((item) =>
-    item.placeholder && item.hintKey
-      ? [{ key: item.key, labelKey: item.labelKey, hintKey: item.hintKey, icon: item.icon }]
-      : [],
-  ),
-)
+// ---------------- 团队题库 ----------------
+
+const problems = ref<TeamProblemSummary[]>([])
+const problemsLoading = ref(false)
+const problemKeyword = ref('')
+const {
+  page: problemPage,
+  pageSize: problemPageSize,
+  total: problemTotal,
+  changePage: changeProblemPage,
+  changeSize: changeProblemSize,
+  resetPage: resetProblemPage,
+} = usePagination({ defaultPageSize: 10 })
+
+async function loadProblems() {
+  problemsLoading.value = true
+  try {
+    const result = await listTeamProblems(teamId, {
+      page: problemPage.value,
+      page_size: problemPageSize.value,
+      keyword: problemKeyword.value || undefined,
+    })
+    problems.value = result.items
+    problemTotal.value = result.total
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
+  } finally {
+    problemsLoading.value = false
+  }
+}
+
+function searchProblems() {
+  resetProblemPage()
+  loadProblems()
+}
+
+function openTeamProblem(row: TeamProblemSummary) {
+  void router.push(`/teams/${teamId}/problems/${row.id}`)
+}
+
+/** 引用题目页（团队题目 = 引用制）：tutor / admin 全局身份才拥有可引用的本人题目 */
+const canReference = computed(() => userStore.hasAnyRole(['admin', 'tutor']))
+
+function openProblemReference() {
+  void router.push(`/teams/${teamId}/problems/new`)
+}
+
+/** 团队题目直建向导（POST /problems 带 team_id，团队可见性分支） */
+function openProblemCreate() {
+  void router.push(`/teams/${teamId}/problems/create`)
+}
+
+// ---------------- 团队题单 ----------------
+
+const sets = ref<ProblemSetSummary[]>([])
+const setsLoading = ref(false)
+const setKeyword = ref('')
+const {
+  page: setPage,
+  pageSize: setPageSize,
+  total: setTotal,
+  changePage: changeSetPage,
+  changeSize: changeSetSize,
+  resetPage: resetSetPage,
+} = usePagination({ defaultPageSize: 10 })
+
+async function loadSets() {
+  setsLoading.value = true
+  try {
+    const result = await listTeamProblemSets(teamId, {
+      page: setPage.value,
+      page_size: setPageSize.value,
+      keyword: setKeyword.value || undefined,
+    })
+    sets.value = result.items
+    setTotal.value = result.total
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
+  } finally {
+    setsLoading.value = false
+  }
+}
+
+/** 新建 / 引用收敛到题单创建页（引用 tab 仅 tutor / admin 可见） */
+function openSetCreate() {
+  void router.push(`/teams/${teamId}/sets/new`)
+}
+
+/** 团队题库列表列（行点击进团队写题页；限制 + 通过率） */
+const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
+  {
+    title: t('problems.list.name'),
+    key: 'title',
+    minWidth: 220,
+    ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'cell-strong' }, row.title),
+  },
+  {
+    title: t('problems.list.difficulty'),
+    key: 'difficulty',
+    width: 80,
+    align: 'center',
+    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
+  },
+  {
+    title: t('problems.list.limits'),
+    key: 'limits',
+    width: 150,
+    render: (row) => `${row.time_limit_ms ?? '--'} ms / ${row.memory_limit_mb ?? '--'} MB`,
+  },
+  {
+    title: t('problems.list.passRate'),
+    key: 'rate',
+    width: 110,
+    align: 'center',
+    render(row) {
+      const total = row.submission_count ?? 0
+      if (!total) return '--'
+      const accepted = row.accepted_count ?? 0
+      return `${accepted}/${total}`
+    },
+  },
+])
+
+function rowKeyOfProblem(row: TeamProblemSummary) {
+  return row.id
+}
+
+function rowPropsOfProblem(row: TeamProblemSummary) {
+  return {
+    style: 'cursor: pointer;',
+    onClick: () => openTeamProblem(row),
+  }
+}
+
+/** 团队题单列表列（行点击进团队题单详情；编排 / 下线收敛在行内操作列） */
+const setColumns = computed<DataTableColumns<ProblemSetSummary>>(() => [
+  {
+    title: t('problemSets.list.titleLabel'),
+    key: 'title',
+    minWidth: 220,
+    ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'cell-strong' }, row.title),
+  },
+  {
+    title: t('admin.teams.setVisible'),
+    key: 'item_count',
+    width: 80,
+    align: 'center',
+    render: (row) => String(row.item_count),
+  },
+  {
+    title: t('problemSets.list.status'),
+    key: 'status',
+    width: 88,
+    render(row) {
+      const active = row.status === 'active'
+      return h(
+        NTag,
+        { size: 'small', bordered: false, type: active ? 'info' : 'warning' },
+        { default: () => t(active ? 'problemSets.list.active' : 'problemSets.detail.archived') },
+      )
+    },
+  },
+  {
+    title: '',
+    key: 'actions',
+    width: 150,
+    render(row) {
+      if (!isAdmin.value) return ''
+      const buttons = [
+        h(
+          NButton,
+          { size: 'tiny', secondary: true, onClick: () => openArrange(row) },
+          { default: () => t('teams.space.arrange') },
+        ),
+      ]
+      if (row.status === 'active') {
+        buttons.push(
+          h(
+            NButton,
+            {
+              size: 'tiny',
+              quaternary: true,
+              type: 'error',
+              onClick: () => onArchiveSet(row),
+            },
+            { default: () => t('teams.space.archiveSet') },
+          ),
+        )
+      }
+      return h('div', { class: 'cell-actions' }, buttons)
+    },
+  },
+])
+
+function rowKeyOfSet(row: ProblemSetSummary) {
+  return row.id
+}
+
+function rowPropsOfSet(row: ProblemSetSummary) {
+  return {
+    style: 'cursor: pointer;',
+    onClick: () => router.push(`/teams/${teamId}/sets/${row.id}`),
+  }
+}
+
+async function onArchiveSet(row: ProblemSetSummary) {
+  confirmAsyncDialog({
+    title: t('teams.space.archiveSet'),
+    content: t('teams.space.archiveSetConfirm', { title: row.title }),
+    positiveText: t('teams.space.archiveSet'),
+    action: async () => {
+      await archiveTeamProblemSet(teamId, row.id)
+    },
+    successMessage: t('teams.space.setArchived'),
+    onAfterSuccess: () => {
+      loadSets()
+    },
+  })
+}
+
+/** 编排团队题单弹窗（ProblemPicker 换团队编排候选源） */
+const arrangingSet = ref<ProblemSetSummary | null>(null)
+const arrangingItems = ref<Array<{ problem_id: string; sort_order: number }>>([])
+const arrangingSource = ref<TeamProblemSummary[]>([])
+const arrangingKeyword = ref('')
+const arrangeSearchLoading = ref(false)
+const savingArrange = ref(false)
+
+async function openArrange(row: ProblemSetSummary) {
+  arrangingSet.value = row
+  arrangingKeyword.value = ''
+  arrangingItems.value = []
+  void searchArrangeable()
+  // 取该题单当前条目（题单详情端点对团队成员可见）以预填
+  try {
+    const { getProblemSet } = await import('@/api/problemSets')
+    const d = await getProblemSet(row.id)
+    arrangingItems.value = d.items.map((it) => ({
+      problem_id: it.problem_id,
+      sort_order: it.sort_order,
+    }))
+  } catch {
+    /* 预填失败不阻塞弹窗 */
+  }
+}
+
+async function searchArrangeable() {
+  arrangeSearchLoading.value = true
+  try {
+    const result = await searchTeamArrangeableProblems(teamId, {
+      keyword: arrangingKeyword.value || undefined,
+      page: 1,
+      page_size: 50,
+    })
+    arrangingSource.value = result.items
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
+  } finally {
+    arrangeSearchLoading.value = false
+  }
+}
+
+function addArrangeItem(problem: TeamProblemSummary) {
+  if (arrangingItems.value.some((it) => it.problem_id === problem.id)) return
+  arrangingItems.value.push({ problem_id: problem.id, sort_order: arrangingItems.value.length })
+}
+
+function removeArrangeItem(problemId: string) {
+  arrangingItems.value = arrangingItems.value.filter((it) => it.problem_id !== problemId)
+}
+
+const arrangingTitles = computed(() => {
+  const map = new Map<string, string>()
+  arrangingSource.value.forEach((p) => map.set(p.id, p.title))
+  return map
+})
+
+async function saveArrange() {
+  if (!arrangingSet.value) return
+  savingArrange.value = true
+  try {
+    await replaceTeamProblemSetItems(teamId, arrangingSet.value.id, {
+      items: arrangingItems.value.map((it, index) => ({
+        problem_id: it.problem_id,
+        sort_order: index,
+      })),
+    })
+    message.success(t('teams.space.arranged'))
+    arrangingSet.value = null
+    loadSets()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
+  } finally {
+    savingArrange.value = false
+  }
+}
+
+// ---------------- 团队比赛 ----------------
+
+const contests = ref<ContestSummary[]>([])
+const contestsLoading = ref(false)
+const contestKeyword = ref('')
+const {
+  page: contestPage,
+  pageSize: contestPageSize,
+  total: contestTotal,
+  changePage: changeContestPage,
+  changeSize: changeContestSize,
+  resetPage: resetContestPage,
+} = usePagination({ defaultPageSize: 10 })
+
+async function loadContests() {
+  contestsLoading.value = true
+  try {
+    const result = await listTeamContests(teamId, {
+      page: contestPage.value,
+      page_size: contestPageSize.value,
+      keyword: contestKeyword.value || undefined,
+    })
+    contests.value = result.items
+    contestTotal.value = result.total
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
+  } finally {
+    contestsLoading.value = false
+  }
+}
+
+function openContest(row: ContestSummary) {
+  void router.push(`/contests/${row.id}`)
+}
+
+function searchContests() {
+  resetContestPage()
+  loadContests()
+}
+
+/** 创建团队比赛 → 独立创建页（题目编排随后在比赛编辑页进行） */
+function openContestCreate() {
+  void router.push(`/teams/${teamId}/contests/new`)
+}
 
 // ---------------- 团队信息 ----------------
 
@@ -144,12 +480,14 @@ async function load() {
 
 const members = ref<TeamMemberItem[]>([])
 const membersLoading = ref(false)
+const memberKeyword = ref('')
 const {
   page: memberPage,
   pageSize: memberPageSize,
   total: memberTotal,
   changePage: changeMemberPage,
   changeSize: changeMemberSize,
+  resetPage: resetMemberPage,
 } = usePagination({ defaultPageSize: 10 })
 
 async function loadMembers() {
@@ -158,6 +496,7 @@ async function loadMembers() {
     const result = await listTeamMembers(teamId, {
       page: memberPage.value,
       page_size: memberPageSize.value,
+      keyword: memberKeyword.value || undefined,
     })
     members.value = result.items
     memberTotal.value = result.total
@@ -166,6 +505,16 @@ async function loadMembers() {
   } finally {
     membersLoading.value = false
   }
+}
+
+function searchMembers() {
+  resetMemberPage()
+  loadMembers()
+}
+
+function searchSets() {
+  resetSetPage()
+  loadSets()
 }
 
 /** 成员行操作（⋯ 下拉）：设 / 撤管理员（仅创建者）、移出（管理员） */
@@ -397,6 +746,9 @@ watch(
     if (team.value) {
       loadMembers()
       loadApplications()
+      loadProblems()
+      loadSets()
+      loadContests()
     }
   },
 )
@@ -518,6 +870,25 @@ onMounted(load)
           >
             <!-- 成员 -->
             <template v-if="moduleItem.key === 'members'">
+              <SearchFilterBar
+                :keyword="memberKeyword"
+                :placeholder="t('teams.members.search')"
+                @update:keyword="
+                  (v: string) => {
+                    memberKeyword = v
+                  }
+                "
+                @search="searchMembers"
+                @reset="searchMembers"
+              >
+                <template #actions>
+                  <RefreshButton
+                    :loading="membersLoading"
+                    :aria-label="t('action.refresh')"
+                    @click="loadMembers"
+                  />
+                </template>
+              </SearchFilterBar>
               <div class="pane-scroll">
                 <NSpin :show="membersLoading" class="pane-spin">
                   <ul v-if="members.length" class="member-grid">
@@ -583,7 +954,10 @@ onMounted(load)
                 </NSpin>
               </div>
 
-              <div v-if="memberTotal > memberPageSize" class="pane-pager">
+              <div class="pane-pager">
+                <span class="pane-pager__total">
+                  {{ t('teams.pane.memberTotal', { count: memberTotal }) }}
+                </span>
                 <n-pagination
                   :page="memberPage"
                   :page-size="memberPageSize"
@@ -606,22 +980,267 @@ onMounted(load)
               </div>
             </template>
 
-            <!-- 规划中模块：三张能力卡并排，写清各自将提供什么 -->
-            <template v-else-if="moduleItem.placeholder">
-              <div class="module-grid">
+            <!-- 团队题库 -->
+            <template v-else-if="moduleItem.key === 'problems'">
+              <SearchFilterBar
+                :keyword="problemKeyword"
+                :placeholder="t('teams.space.problemSearch')"
+                @update:keyword="
+                  (v: string) => {
+                    problemKeyword = v
+                  }
+                "
+                @search="searchProblems"
+                @reset="searchProblems"
+              >
+                <template #actions>
+                  <NButton v-if="isAdmin" size="small" secondary @click="openProblemCreate">
+                    <template #icon>
+                      <NIcon :component="Collection" />
+                    </template>
+                    {{ t('problems.create.title') }}
+                  </NButton>
+                  <NButton
+                    v-if="isAdmin && canReference"
+                    size="small"
+                    type="primary"
+                    secondary
+                    @click="openProblemReference"
+                  >
+                    <template #icon>
+                      <NIcon :component="CirclePlus" />
+                    </template>
+                    {{ t('teams.space.referenceProblem') }}
+                  </NButton>
+                  <RefreshButton
+                    :loading="problemsLoading"
+                    :aria-label="t('action.refresh')"
+                    @click="loadProblems"
+                  />
+                </template>
+              </SearchFilterBar>
+              <div class="pane-scroll">
+                <n-data-table
+                  v-show="problems.length || problemsLoading"
+                  size="small"
+                  class="pane-table"
+                  :columns="problemColumns"
+                  :data="problems"
+                  :loading="problemsLoading"
+                  :bordered="false"
+                  :bottom-bordered="false"
+                  :row-key="rowKeyOfProblem"
+                  :row-props="rowPropsOfProblem"
+                />
                 <div
-                  v-for="mod in placeholderModules"
-                  :key="mod.key"
-                  class="module-card"
-                  :class="{ 'module-card--active': mod.key === moduleItem.key }"
+                  v-show="!problems.length && !problemsLoading"
+                  class="table-fill-empty pane-empty"
                 >
-                  <span class="module-card__icon" aria-hidden="true">
-                    <NIcon :size="26" :component="mod.icon" />
-                  </span>
-                  <h3 class="module-card__title">{{ t(mod.labelKey) }}</h3>
-                  <p class="module-card__hint">{{ t(mod.hintKey) }}</p>
-                  <span class="module-card__badge">{{ t('teams.modules.comingSoon') }}</span>
+                  <NEmpty :description="t('teams.space.problemsEmpty')" size="large" />
                 </div>
+              </div>
+              <div class="pane-pager">
+                <span class="pane-pager__total">
+                  {{ t('teams.pane.problemTotal', { count: problemTotal }) }}
+                </span>
+                <n-pagination
+                  :page="problemPage"
+                  :page-size="problemPageSize"
+                  :item-count="problemTotal"
+                  :page-sizes="[10, 20, 50]"
+                  show-size-picker
+                  @update:page="
+                    (p: number) => {
+                      changeProblemPage(p)
+                      loadProblems()
+                    }
+                  "
+                  @update:page-size="
+                    (s: number) => {
+                      changeProblemSize(s)
+                      loadProblems()
+                    }
+                  "
+                />
+              </div>
+            </template>
+
+            <!-- 团队题单 -->
+            <template v-else-if="moduleItem.key === 'sets'">
+              <SearchFilterBar
+                :keyword="setKeyword"
+                :placeholder="t('problemSets.list.search')"
+                @update:keyword="
+                  (v: string) => {
+                    setKeyword = v
+                  }
+                "
+                @search="searchSets"
+                @reset="searchSets"
+              >
+                <template #actions>
+                  <NButton v-if="isAdmin" size="small" type="primary" @click="openSetCreate">
+                    <template #icon>
+                      <NIcon :component="CirclePlus" />
+                    </template>
+                    {{ t('teams.space.createSet') }}
+                  </NButton>
+                  <RefreshButton
+                    :loading="setsLoading"
+                    :aria-label="t('action.refresh')"
+                    @click="loadSets"
+                  />
+                </template>
+              </SearchFilterBar>
+              <div class="pane-scroll">
+                <n-data-table
+                  v-show="sets.length || setsLoading"
+                  size="small"
+                  class="pane-table"
+                  :columns="setColumns"
+                  :data="sets"
+                  :loading="setsLoading"
+                  :bordered="false"
+                  :bottom-bordered="false"
+                  :row-key="rowKeyOfSet"
+                  :row-props="rowPropsOfSet"
+                />
+                <div v-show="!sets.length && !setsLoading" class="table-fill-empty pane-empty">
+                  <NEmpty :description="t('teams.space.setsEmpty')" size="large" />
+                </div>
+              </div>
+              <div class="pane-pager">
+                <span class="pane-pager__total">
+                  {{ t('teams.pane.setTotal', { count: setTotal }) }}
+                </span>
+                <n-pagination
+                  :page="setPage"
+                  :page-size="setPageSize"
+                  :item-count="setTotal"
+                  :page-sizes="[10, 20, 50]"
+                  show-size-picker
+                  @update:page="
+                    (p: number) => {
+                      changeSetPage(p)
+                      loadSets()
+                    }
+                  "
+                  @update:page-size="
+                    (s: number) => {
+                      changeSetSize(s)
+                      loadSets()
+                    }
+                  "
+                />
+              </div>
+            </template>
+
+            <!-- 团队比赛 -->
+            <template v-else-if="moduleItem.key === 'contests'">
+              <SearchFilterBar
+                :keyword="contestKeyword"
+                :placeholder="t('contests.list.search')"
+                @update:keyword="
+                  (v: string) => {
+                    contestKeyword = v
+                  }
+                "
+                @search="searchContests"
+                @reset="searchContests"
+              >
+                <template #actions>
+                  <NButton v-if="isAdmin" size="small" type="primary" @click="openContestCreate">
+                    <template #icon>
+                      <NIcon :component="CirclePlus" />
+                    </template>
+                    {{ t('teams.space.createContest') }}
+                  </NButton>
+                  <RefreshButton
+                    :loading="contestsLoading"
+                    :aria-label="t('action.refresh')"
+                    @click="loadContests"
+                  />
+                </template>
+              </SearchFilterBar>
+              <div class="pane-scroll">
+                <NSpin :show="contestsLoading" class="pane-spin">
+                  <ul v-if="contests.length" class="member-grid">
+                    <li
+                      v-for="contest in contests"
+                      :key="contest.id"
+                      class="member-cell member-cell--link"
+                      role="button"
+                      tabindex="0"
+                      @click="openContest(contest)"
+                      @keyup.enter="openContest(contest)"
+                    >
+                      <span class="member-cell__avatar-text" aria-hidden="true">C</span>
+                      <div class="member-cell__main">
+                        <span class="member-cell__name" :title="contest.title">{{
+                          contest.title
+                        }}</span>
+                        <span class="member-cell__time">
+                          {{ formatDateTime(contest.start_time) }} →
+                          {{ formatDateTime(contest.end_time) }}
+                        </span>
+                      </div>
+                      <NTag
+                        size="small"
+                        round
+                        :bordered="false"
+                        :type="
+                          contest.status === 'running'
+                            ? 'success'
+                            : contest.status === 'scheduled'
+                              ? 'info'
+                              : 'default'
+                        "
+                        class="member-cell__role"
+                      >
+                        {{
+                          t(
+                            contest.status === 'running'
+                              ? 'contests.statusRunning'
+                              : contest.status === 'scheduled'
+                                ? 'contests.statusScheduled'
+                                : 'contests.statusFinished',
+                          )
+                        }}
+                      </NTag>
+                      <NIcon class="member-cell__arrow" :component="ArrowRight" />
+                    </li>
+                  </ul>
+                  <NEmpty
+                    v-else-if="!contestsLoading"
+                    :description="t('teams.space.contestsEmpty')"
+                    size="large"
+                    class="pane-empty"
+                  />
+                </NSpin>
+              </div>
+              <div class="pane-pager">
+                <span class="pane-pager__total">
+                  {{ t('teams.pane.contestTotal', { count: contestTotal }) }}
+                </span>
+                <n-pagination
+                  :page="contestPage"
+                  :page-size="contestPageSize"
+                  :item-count="contestTotal"
+                  :page-sizes="[10, 20, 50]"
+                  show-size-picker
+                  @update:page="
+                    (p: number) => {
+                      changeContestPage(p)
+                      loadContests()
+                    }
+                  "
+                  @update:page-size="
+                    (s: number) => {
+                      changeContestSize(s)
+                      loadContests()
+                    }
+                  "
+                />
               </div>
             </template>
 
@@ -769,6 +1388,98 @@ onMounted(load)
         </template>
       </NDrawerContent>
     </NDrawer>
+
+    <!-- 编排团队题单 -->
+    <NModal
+      :show="Boolean(arrangingSet)"
+      preset="card"
+      style="width: min(760px, 94vw)"
+      :title="t('teams.space.arrangeTitle', { title: arrangingSet?.title ?? '' })"
+      @update:show="
+        (v: boolean) => {
+          if (!v) arrangingSet = null
+        }
+      "
+    >
+      <div class="arrange">
+        <div class="arrange__picker">
+          <div class="reference-picker__bar">
+            <NInput
+              v-model:value="arrangingKeyword"
+              clearable
+              size="small"
+              style="max-width: 260px"
+              :placeholder="t('teams.space.problemSearch')"
+              @keyup.enter="searchArrangeable"
+              @clear="searchArrangeable"
+            />
+            <NButton
+              size="small"
+              secondary
+              :loading="arrangeSearchLoading"
+              @click="searchArrangeable"
+            >
+              {{ t('action.search') }}
+            </NButton>
+          </div>
+          <ul v-if="arrangingSource.length" class="reference-picker__list arrange__source">
+            <li v-for="p in arrangingSource" :key="p.id" class="reference-picker__item">
+              <span class="reference-picker__title" :title="p.title">{{ p.title }}</span>
+              <span class="reference-picker__meta">
+                {{ t('problems.list.limits') }} {{ p.time_limit_ms }}ms / {{ p.memory_limit_mb }}MB
+              </span>
+              <NButton
+                size="tiny"
+                type="primary"
+                secondary
+                :disabled="arrangingItems.some((it) => it.problem_id === p.id)"
+                @click="addArrangeItem(p)"
+              >
+                {{ t('problemSets.detail.add') }}
+              </NButton>
+            </li>
+          </ul>
+          <NEmpty
+            v-else-if="!arrangeSearchLoading"
+            :description="t('teams.space.noArrangeable')"
+            size="small"
+          />
+        </div>
+        <div class="arrange__chosen">
+          <p class="arrange__label">
+            {{ t('teams.space.chosenCount', { count: arrangingItems.length }) }}
+          </p>
+          <ul class="reference-picker__list arrange__list">
+            <li
+              v-for="(item, index) in arrangingItems"
+              :key="item.problem_id"
+              class="reference-picker__item"
+            >
+              <span class="arrange__order">{{ index + 1 }}</span>
+              <span class="reference-picker__title" :title="arrangingTitles.get(item.problem_id)">
+                {{ arrangingTitles.get(item.problem_id) ?? item.problem_id.slice(0, 8) }}
+              </span>
+              <NButton
+                size="tiny"
+                quaternary
+                type="error"
+                @click="removeArrangeItem(item.problem_id)"
+              >
+                {{ t('action.delete') }}
+              </NButton>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <template #footer>
+        <div class="drawer-footer">
+          <NButton @click="arrangingSet = null">{{ t('action.cancel') }}</NButton>
+          <NButton type="primary" :loading="savingArrange" @click="saveArrange">
+            {{ t('action.save') }}
+          </NButton>
+        </div>
+      </template>
+    </NModal>
   </WorkbenchShell>
 </template>
 
@@ -855,7 +1566,7 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: 56px 32px;
+  padding: 26px 32px 20px;
   flex-wrap: wrap;
   max-width: 1680px;
   margin: 0 auto;
@@ -1078,70 +1789,168 @@ onMounted(load)
   }
 }
 
+/* 题库 / 题单列表表格：吃满滚动区，行内操作按钮 */
+.pane-table {
+  flex: 1;
+  min-height: 0;
+}
+.cell-strong {
+  font-weight: 600;
+}
+.cell-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* 分页钉底 */
 .pane-pager {
   flex-shrink: 0;
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--app-border);
 }
+.pane-pager__total {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
 
-/* 规划中模块：能力卡并排（不再是「一个图标 + 敬请期待」的死路） */
-.module-grid {
-  flex: 1;
-  min-height: 280px;
-  align-content: center;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 14px;
-}
-.module-card {
-  display: grid;
+/* 团队空间模块：工具行（搜索 / 管理动作） */
+.pane-toolbar {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  align-content: start;
-  padding: 18px;
-  border: 1px solid var(--app-border);
-  border-radius: 10px;
-  background: var(--app-card-bg);
-  box-shadow: 0 1px 2px rgb(16 24 40 / 4%);
+  flex-wrap: wrap;
+  padding-bottom: 10px;
 }
-.module-card--active {
-  border-color: color-mix(in srgb, var(--app-primary) 40%, var(--app-border));
+.pane-toolbar__spacer {
+  flex: 1;
 }
-.module-card__icon {
+/* 可点击行（题库 / 比赛整行进上下文） */
+.member-cell--link {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.member-cell--link:hover {
+  background: var(--app-muted-bg);
+}
+.member-cell--link:hover .member-cell__name {
+  color: var(--app-primary);
+}
+.member-cell--link:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: -2px;
+}
+.member-cell--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.member-cell__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.member-cell__row--ops {
+  padding-left: 56px;
+  gap: 8px;
+}
+.member-cell__avatar-text {
   width: 44px;
   height: 44px;
-  border-radius: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
   display: grid;
   place-items: center;
   background: var(--app-muted-bg);
+  border: 1px solid var(--app-border);
   color: var(--app-text-secondary);
-}
-.module-card--active .module-card__icon {
-  background: color-mix(in srgb, var(--app-primary) 10%, transparent);
-  color: var(--app-primary);
-}
-.module-card__title {
-  margin: 4px 0 0;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 650;
 }
-.module-card__hint {
+.member-cell__arrow {
+  margin-left: auto;
+  color: var(--app-text-secondary);
+  flex-shrink: 0;
+}
+
+/* 引用 / 编排弹窗 */
+.reference-picker {
+  display: grid;
+  gap: 12px;
+}
+.reference-picker__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.reference-picker__list {
+  list-style: none;
   margin: 0;
-  color: var(--app-text-secondary);
-  font-size: 12.5px;
-  line-height: 1.65;
+  padding: 0;
+  max-height: 320px;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
 }
-.module-card__badge {
-  justify-self: start;
-  margin-top: 2px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
+.reference-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+}
+.reference-picker__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reference-picker__meta {
   color: var(--app-text-secondary);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.arrange {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.arrange__source {
+  max-height: 300px;
+}
+.arrange__list {
+  max-height: 340px;
+}
+.arrange__label {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.arrange__order {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
   background: var(--app-muted-bg);
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .arrange {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ======== 邀请弹窗 ======== */
@@ -1228,7 +2037,7 @@ onMounted(load)
     width: 100%;
   }
   .hero__body {
-    padding: 40px 16px;
+    padding: 20px 16px;
   }
   .hero__avatar {
     width: 72px;

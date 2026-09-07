@@ -6,7 +6,7 @@
  * 滚动只发生在 info-main / problems-scroll 内部，页面级不出滚动条。
  * 「信息」tab 左 7 右 3：左 Markdown 介绍，右创建人 / 创建时间 / 完成进度。
  */
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onActivated, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NTag } from 'naive-ui'
@@ -16,6 +16,7 @@ import MarkdownView from '@/components/MarkdownView.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import { getProblemSet } from '@/api/problemSets'
+import { getTeamProblemSet } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import { renderSolveMark } from '@/utils/solveMark'
 import { formatDateTime } from '@/utils/format'
@@ -29,10 +30,18 @@ const loading = ref(false)
 const detail = ref<ProblemSetDetail | null>(null)
 const activeTab = ref<'info' | 'problems'>('info')
 
+/** 上下文取参（frontend.md 路由上下文隔离）：团队上下文读团队端点，否则题单统一入口 */
+const teamId = computed(() => (route.params.teamId ? String(route.params.teamId) : null))
+const setId = computed(() =>
+  route.params.setId ? String(route.params.setId) : String(route.params.id),
+)
+
 async function load() {
   loading.value = true
   try {
-    detail.value = await getProblemSet(String(route.params.id))
+    detail.value = await (teamId.value
+      ? getTeamProblemSet(teamId.value, setId.value)
+      : getProblemSet(setId.value))
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.loadFailed'))
   } finally {
@@ -40,6 +49,11 @@ async function load() {
   }
 }
 onMounted(load)
+// keepAlive 页面：从编排页返回时命中缓存实例（onMounted 不再执行），
+// onActivated 强制重拉，保证题单内容与服务器一致（frontend.md 数据时效约定）
+onActivated(() => {
+  if (detail.value) void load()
+})
 
 /** 完成进度：当前用户 AC 题数 / 题单题数（匿名=0） */
 const solvedCount = computed(
@@ -85,7 +99,10 @@ const columns = computed<DataTableColumns<ProblemSetItem>>(() => [
 
 function goProblem(row: ProblemSetItem) {
   if (!detail.value) return
-  router.push(`/problem-sets/${detail.value.id}/problems/${row.problem_id}`)
+  const target = teamId.value
+    ? `/teams/${teamId.value}/sets/${detail.value.id}/problems/${row.problem_id}`
+    : `/problem-sets/${detail.value.id}/problems/${row.problem_id}`
+  router.push(target)
 }
 
 function rowProps(row: ProblemSetItem) {
@@ -197,9 +214,7 @@ function rowKey(row: ProblemSetItem) {
                 :row-props="rowProps"
                 :row-key="rowKey"
               />
-              <div v-show="!detail.items.length" class="table-fill-empty problems-empty">
-                <n-empty size="large" :description="t('problemSets.detail.empty')" />
-              </div>
+              <n-empty v-show="!detail.items.length" size="large" :description="t('problemSets.detail.empty')" />
             </div>
           </n-tab-pane>
         </n-tabs>

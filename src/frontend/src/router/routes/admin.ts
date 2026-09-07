@@ -303,6 +303,46 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'teams',
+        name: 'admin-teams-section',
+        meta: {
+          title: '团队管理',
+          titleKey: 'nav.teamsManage',
+          icon: 'UserFilled',
+          roles: ['admin'],
+        },
+        children: [
+          {
+            path: '',
+            name: 'admin-teams',
+            component: () => import('@/views/admin/AdminTeamsView.vue'),
+            meta: {
+              title: '团队管理',
+              titleKey: 'nav.teamsManage',
+              icon: 'UserFilled',
+              roles: ['admin'],
+              requiresAuth: true,
+              keepAlive: true,
+            },
+          },
+          {
+            // 团队管理详情（只读浏览：成员 / 团队题库 / 团队题单 / 团队比赛）
+            path: ':id',
+            name: 'admin-team-detail',
+            component: () => import('@/views/admin/AdminTeamDetailView.vue'),
+            meta: {
+              title: '团队详情',
+              titleKey: 'admin.teams.detailTitle',
+              roles: ['admin'],
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              keepAlive: true,
+            },
+          },
+        ],
+      },
+      {
         path: 'users',
         name: 'admin-users',
         component: () => import('@/views/admin/AdminUsersView.vue'),

@@ -79,7 +79,7 @@ const backLabel = computed(() => {
 })
 
 /** 返回：有来路时原路返回（验题工作台 / 提交列表等）；直接进入则回题目详情
- * （题单 / 比赛上下文路由时回上下文内写题页，不跳出） */
+ * （题单 / 比赛 / 团队上下文路由时回上下文内写题页，不跳出） */
 function back() {
   if (canGoBack.value) {
     router.back()
@@ -91,6 +91,8 @@ function back() {
     )
   } else if (route.params.cid && route.params.problemId) {
     router.push(`/contests/${String(route.params.cid)}/problems/${String(route.params.problemId)}`)
+  } else if (route.params.teamId && route.params.problemId) {
+    router.push(`/teams/${String(route.params.teamId)}/problems/${String(route.params.problemId)}`)
   } else if (submission.value?.problem_id) {
     router.push(`/problems/${submission.value.problem_id}`)
   } else {
