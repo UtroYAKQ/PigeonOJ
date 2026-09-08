@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, false, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -267,9 +267,9 @@ class ProblemRepository:
         """团队题库列表（docs/contracts/teams.md 团队空间节）。
 
         - 成员视图：published 且 team_visible（admin_visible 仅团队管理可见）
-        - 团队管理视图（创建者 / 管理员）：全部可见性；默认展示非归档题目，
-          他人草稿不可见（草稿仅创建者本人可见，docs/contracts/problems.md）；
-          status 显式传入时按值过滤
+        - 团队管理视图（创建者 / 管理员）：主列表仅已发布（草稿收敛到 status='draft'
+          草稿箱视图，仍仅本人草稿、他人草稿不可见）；归档在团队空间不返回
+          （下线即从团队消失）；status 显式传入时按值过滤
         - admin 管理视图（admin_view=True）：全部状态 / 可见性（含草稿与归档）
         """
         conditions: list = [Problem.team_id == team_id]
@@ -279,13 +279,17 @@ class ProblemRepository:
             if visibility:
                 conditions.append(Problem.visibility == visibility)
         elif is_team_manager:
-            if status:
+            if status == ProblemStatus.DRAFT:
+                # 草稿箱视图：仅本人草稿（草稿仅创建者本人可见，docs/contracts/problems.md）
+                conditions.append(Problem.status == ProblemStatus.DRAFT)
+                conditions.append(Problem.owner_id == viewer_id)
+            elif status == ProblemStatus.ARCHIVED:
+                # 团队空间归档即不可见（管理后台 admin_view 仍可查）：恒返回空
+                conditions.append(false())
+            elif status:
                 conditions.append(Problem.status == status)
             else:
-                conditions.append(Problem.status != ProblemStatus.ARCHIVED)
-                conditions.append(
-                    or_(Problem.status != ProblemStatus.DRAFT, Problem.owner_id == viewer_id)
-                )
+                conditions.append(Problem.status == ProblemStatus.PUBLISHED)
             if visibility:
                 conditions.append(Problem.visibility == visibility)
         else:

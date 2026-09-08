@@ -268,6 +268,123 @@ async def test_team_arrangeable_search_excludes_others(client: httpx.AsyncClient
     assert resp.json()["code"] == 2003
 
 
+async def _seed_team_problem(
+    title: str,
+    *,
+    team_id: str,
+    owner_email: str,
+    status: str = "published",
+    visibility: str = "team_visible",
+    samples_after_verify: bool = False,
+) -> str:
+    async with SessionLocal() as db:
+        uid = (
+            await db.execute(select(User).where(User.email == owner_email))
+        ).scalar_one().id
+        now = datetime.now(timezone.utc)
+        if status == "published":
+            # 默认样例早于验题通过时间（无需重验）；samples_after_verify 时样例晚于验题
+            verified_at, samples_updated_at = (
+                (now - timedelta(days=1), now)
+                if samples_after_verify
+                else (now, now - timedelta(days=1))
+            )
+        else:
+            verified_at, samples_updated_at = None, now
+        problem = Problem(
+            title=title,
+            description="D",
+            owner_id=uid,
+            status=status,
+            visibility=visibility,
+            team_id=uuid_mod.UUID(team_id),
+            verified_at=verified_at,
+            samples_updated_at=samples_updated_at,
+        )
+        db.add(problem)
+        await db.commit()
+        return str(problem.id)
+
+
+async def test_team_problem_list_publish_states_and_draft_box(
+    client: httpx.AsyncClient,
+) -> None:
+    """团队题库管理视图（草稿箱语义）：主列表仅已发布（含 admin_visible），
+    草稿收敛到 status=draft 草稿箱且仅本人草稿（他人草稿不可见），
+    归档在团队空间任何视图不可见；管理视图回填 needs_reverification。"""
+    tutor = await _tutor_headers(client)
+    team_id = await _create_team(client, tutor, "草稿箱队")
+
+    await _seed_team_problem("已发布团队题", team_id=team_id, owner_email="tutor@pigeonoj.dev")
+    await _seed_team_problem(
+        "已发布管理题", team_id=team_id, owner_email="tutor@pigeonoj.dev",
+        visibility="admin_visible",
+    )
+    await _seed_team_problem(
+        "样例变更题", team_id=team_id, owner_email="tutor@pigeonoj.dev",
+        samples_after_verify=True,
+    )
+    await _seed_team_problem(
+        "tutor草稿", team_id=team_id, owner_email="tutor@pigeonoj.dev", status="draft"
+    )
+    await _seed_team_problem(
+        "已归档题", team_id=team_id, owner_email="tutor@pigeonoj.dev", status="archived"
+    )
+
+    # 主列表：仅已发布（团队可见 + 管理可见均返回），草稿 / 归档不出现
+    resp = await client.get(f"/api/v1/teams/{team_id}/problems", headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    items = resp.json()["data"]["items"]
+    assert {it["title"] for it in items} == {"已发布团队题", "已发布管理题", "样例变更题"}
+    assert all(it["status"] == "published" for it in items)
+
+    # 发布与验题状态：needs_reverification 精确回填（样例晚于验题通过时间 → True）
+    flags = {it["title"]: it["needs_reverification"] for it in items}
+    assert flags["样例变更题"] is True
+    assert flags["已发布团队题"] is False
+
+    # 普通成员视图不变：仅 published + team_visible（admin_visible 不出现）
+    member = await _user_headers(client, "draftbox-admin@pigeonoj.dev")
+    resp = await client.post(f"/api/v1/teams/{team_id}/applications", json={}, headers=member)
+    assert resp.json()["code"] == 0
+    await _approve_all(client, team_id, tutor)
+    resp = await client.get(f"/api/v1/teams/{team_id}/problems", headers=member)
+    assert resp.json()["code"] == 0, resp.text
+    assert {it["title"] for it in resp.json()["data"]["items"]} == {"已发布团队题", "样例变更题"}
+
+    # 提升为团队管理员后：草稿箱视图仅本人草稿；他人草稿不可见
+    async with SessionLocal() as db:
+        other_uid = str(
+            (
+                await db.execute(
+                    select(User).where(User.email == "draftbox-admin@pigeonoj.dev")
+                )
+            ).scalar_one().id
+        )
+    resp = await client.post(
+        f"/api/v1/teams/{team_id}/members/{other_uid}/admin",
+        json={"is_admin": True},
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    await _seed_team_problem(
+        "他人草稿", team_id=team_id, owner_email="draftbox-admin@pigeonoj.dev", status="draft"
+    )
+
+    resp = await client.get(f"/api/v1/teams/{team_id}/problems?status=draft", headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    assert {it["title"] for it in resp.json()["data"]["items"]} == {"tutor草稿"}
+
+    resp = await client.get(f"/api/v1/teams/{team_id}/problems?status=draft", headers=member)
+    assert resp.json()["code"] == 0, resp.text
+    assert {it["title"] for it in resp.json()["data"]["items"]} == {"他人草稿"}
+
+    # 归档在团队空间不可见（显式 status=archived 恒为空；管理后台 admin_view 仍可查）
+    resp = await client.get(f"/api/v1/teams/{team_id}/problems?status=archived", headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    assert resp.json()["data"]["total"] == 0
+
+
 # ---------------- 团队题单 ----------------
 
 

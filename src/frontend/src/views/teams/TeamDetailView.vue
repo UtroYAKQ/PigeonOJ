@@ -5,7 +5,8 @@
  * 成员 / 团队题库 / 团队题单 / 团队比赛 / 加入申请（管理员）。
  * 团队空间三模块（题库 / 题单 / 比赛）走独立团队端点（docs/contracts/teams.md 团队空间节）：
  * 成员只读浏览；创建者 / 管理员可引用题目题单、建题单、建比赛、编排与下线。
- * 邀请走弹窗（链接 + 二维码）；编辑走抽屉；权限按 my_role 显隐（creator ⊇ admin ⊇ member）。
+ * 团队题库管理视图仅展示已发布题目（带发布验题 / 可见性列），勾选「草稿箱」切换为
+ * 查询本人草稿题目，归档题不再出现在团队空间；权限按 my_role 显隐（creator ⊇ admin ⊇ member）。
  */
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -24,6 +25,7 @@ import {
 import {
   NAvatar,
   NButton,
+  NCheckbox,
   NDropdown,
   NDrawer,
   NDrawerContent,
@@ -139,6 +141,7 @@ async function loadProblems() {
       page: problemPage.value,
       page_size: problemPageSize.value,
       keyword: problemKeyword.value || undefined,
+      status: draftOnly.value ? 'draft' : undefined,
     })
     problems.value = result.items
     problemTotal.value = result.total
@@ -156,6 +159,15 @@ function searchProblems() {
 
 function openTeamProblem(row: TeamProblemSummary) {
   void router.push(`/teams/${teamId}/problems/${row.id}`)
+}
+
+/** 草稿箱勾选（仅团队管理）：勾选后列表仅查询草稿题目（后端 status=draft 过滤，仅本人草稿） */
+const draftOnly = ref(false)
+
+function onToggleDraftBox(checked: boolean) {
+  draftOnly.value = checked
+  resetProblemPage()
+  loadProblems()
 }
 
 /** 题库行内操作（⋯ 下拉，仅团队管理可见；backend 仍强校验 owner/admin） */
@@ -236,15 +248,63 @@ function openSetCreate() {
   void router.push(`/teams/${teamId}/sets/new`)
 }
 
-/** 团队题库列表列（行点击进团队写题页；限制 + 通过率） */
+/** 团队题库列表列（行点击进团队写题页；限制 + 通过率；管理视图带发布验题 / 可见性列） */
 const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
   {
     title: t('problems.list.name'),
     key: 'title',
-    minWidth: 220,
+    minWidth: 200,
     ellipsis: { tooltip: true },
     render: (row) => h('span', { class: 'cell-strong' }, row.title),
   },
+  ...(isAdmin.value
+    ? [
+        {
+          title: t('problems.manage.shareTitle'),
+          key: 'publish',
+          width: 110,
+          render: (row: TeamProblemSummary) => {
+            // 已验题后才可能「需重新验题」（草稿从未验题 → 显示未验题）
+            if (row.is_verified && row.needs_reverification) {
+              return h(
+                NTag,
+                { size: 'small', bordered: false, type: 'warning' },
+                { default: () => t('problems.manage.reverifyTag') },
+              )
+            }
+            return h(
+              NTag,
+              { size: 'small', bordered: false, type: row.is_verified ? 'success' : 'default' },
+              {
+                default: () =>
+                  row.is_verified
+                    ? t('problems.manage.verifiedTag')
+                    : t('problems.manage.unverifiedTag'),
+              },
+            )
+          },
+        },
+      ]
+    : []),
+  ...(isAdmin.value
+    ? [
+        {
+          title: t('problems.list.visibility'),
+          key: 'visibility',
+          width: 96,
+          render: (row: TeamProblemSummary) =>
+            h(
+              NTag,
+              {
+                size: 'small',
+                bordered: false,
+                type: row.visibility === 'team_visible' ? 'info' : 'default',
+              },
+              { default: () => t(`problems.visibility.${row.visibility}`) },
+            ),
+        },
+      ]
+    : []),
   {
     title: t('problems.list.difficulty'),
     key: 'difficulty',
@@ -312,7 +372,14 @@ function rowKeyOfProblem(row: TeamProblemSummary) {
 function rowPropsOfProblem(row: TeamProblemSummary) {
   return {
     style: 'cursor: pointer;',
-    onClick: () => openTeamProblem(row),
+    onClick: () => {
+      // 草稿箱模式：行点击直接进编辑向导（草稿以继续编辑为主）
+      if (draftOnly.value) {
+        void router.push(`/teams/${teamId}/problems/${row.id}/edit/statement`)
+        return
+      }
+      openTeamProblem(row)
+    },
   }
 }
 
@@ -331,19 +398,6 @@ const setColumns = computed<DataTableColumns<ProblemSetSummary>>(() => [
     width: 80,
     align: 'center',
     render: (row) => String(row.item_count),
-  },
-  {
-    title: t('problemSets.list.status'),
-    key: 'status',
-    width: 88,
-    render(row) {
-      const active = row.status === 'active'
-      return h(
-        NTag,
-        { size: 'small', bordered: false, type: active ? 'info' : 'warning' },
-        { default: () => t(active ? 'problemSets.list.active' : 'problemSets.detail.archived') },
-      )
-    },
   },
   ...(isAdmin.value
     ? [
@@ -1101,6 +1155,13 @@ onMounted(load)
                     </template>
                     {{ t('teams.space.referenceProblem') }}
                   </NButton>
+                  <NCheckbox
+                    v-if="isAdmin"
+                    :checked="draftOnly"
+                    @update:checked="onToggleDraftBox"
+                  >
+                    {{ t('teams.space.draftBox') }}
+                  </NCheckbox>
                   <RefreshButton
                     :loading="problemsLoading"
                     :aria-label="t('action.refresh')"
@@ -1125,7 +1186,10 @@ onMounted(load)
                   v-show="!problems.length && !problemsLoading"
                   class="table-fill-empty pane-empty"
                 >
-                  <NEmpty :description="t('teams.space.problemsEmpty')" size="large" />
+                  <NEmpty
+                    :description="t(draftOnly ? 'teams.space.draftsEmpty' : 'teams.space.problemsEmpty')"
+                    size="large"
+                  />
                 </div>
               </div>
               <div class="pane-pager">

@@ -256,8 +256,9 @@ async def list_team_problems(
     visibility: str | None = Query(default=None),
     user: User = Depends(get_current_user),
 ) -> ApiResponse[PaginatedResponse[TeamProblemSummary]]:
-    """团队题库列表：成员见 published + team_visible；创建者 / 管理员另见
-    admin_visible 与本人草稿（他人草稿不可见）；keyword / status / visibility 过滤。"""
+    """团队题库列表：成员见 published + team_visible；创建者 / 管理员主列表仅见
+    已发布（草稿经 status=draft 进入草稿箱视图，仍仅本人草稿；归档不在团队空间
+    返回）；keyword / status / visibility 过滤。"""
     items, total = await service.list_problems(
         user, team_id, keyword=keyword, status=status, visibility=visibility,
         page=page, page_size=page_size,

@@ -68,6 +68,9 @@ export default {
     space: {
       problemSearch: 'Search team problems',
       problemsEmpty: 'No problems in the team bank yet',
+      draftBox: 'Drafts',
+      draftsEmpty: 'No drafts yet',
+      continueEdit: 'Continue editing',
       referenceProblem: 'Reference problem',
       referenceProblemHint:
         'Pick from your own published public problems; referencing moves ownership to this team (one-way).',

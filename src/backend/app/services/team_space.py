@@ -110,13 +110,15 @@ class TeamSpaceService:
         page: int,
         page_size: int,
     ) -> tuple[list[TeamProblemSummary], int]:
-        """团队题库列表：成员仅见 published + team_visible；团队管理另见 admin_visible
-        与非归档的本人草稿（他人草稿不可见，docs/contracts/problems.md）。"""
+        """团队题库列表：成员仅见 published + team_visible；团队管理主列表仅见已发布
+        （草稿经 status='draft' 进入草稿箱视图，仍仅本人草稿、他人草稿不可见），
+        并回填 needs_reverification 供发布与验题状态展示。"""
         await self.require_member(user, team_id)
+        is_manager = await self._is_team_manager(user, team_id)
         rows, total = await self.problem_repo.list_team_problems(
             team_id,
             viewer_id=user.id,
-            is_team_manager=await self._is_team_manager(user, team_id),
+            is_team_manager=is_manager,
             keyword=keyword,
             status=status,
             visibility=visibility,
@@ -124,6 +126,10 @@ class TeamSpaceService:
             page_size=page_size,
         )
         items = [TeamProblemSummary.model_validate(row) for row in rows]
+        if is_manager:
+            flags = await self.problems.verification_flags([row.id for row in rows])
+            for item in items:
+                item.needs_reverification = flags.get(item.id, False)
         await self.problems.attach_counters(items)
         await self.problems.attach_tags(items)
         await self.problems.attach_solve_status(items, user)

@@ -90,6 +90,9 @@ export default {
     space: {
       problemSearch: '搜索团队题目',
       problemsEmpty: '团队题库还没有题目',
+      draftBox: '草稿箱',
+      draftsEmpty: '草稿箱还是空的',
+      continueEdit: '继续编辑',
       referenceProblem: '引用题目',
       referenceProblemHint:
         '从你自己创建的已发布公开题目中挑选，引用后归属本团队（单向，不可移出）。',

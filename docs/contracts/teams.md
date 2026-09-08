@@ -143,7 +143,7 @@
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| GET | /teams/{team_id}/problems | team 角色 | 团队题库列表：成员见 published+team_visible；创建者 / 管理员另见 admin_visible 与本人草稿（他人草稿不可见）；列表项带 `referenced_at` 引用字段与通过率计数 / 作答状态 | 分页/keyword/visibility | problem[] |
+| GET | /teams/{team_id}/problems | team 角色 | 团队题库列表：成员见 published+team_visible；创建者 / 管理员主列表仅见已发布（含 admin_visible，草稿收敛到 status='draft' 草稿箱视图且仅本人草稿、他人草稿不可见，归档在团队空间任何视图不返回）；管理视图列表项带 `needs_reverification`（存在待验证测试点或样例晚于最近验题通过时间）；列表项带 `referenced_at` 引用字段与通过率计数 / 作答状态 | 分页/keyword/visibility | problem[] |
 | POST | /teams/{team_id}/problems/references | team_creator/team_admin | 引用本人全站题目进团队（单向；二次引用 1001、他人题目 2003、归档题 409 语义同题库） | problem_id, visibility（team_visible/admin_visible，默认 team_visible） | problem |
 | GET | /teams/{team_id}/problems/referenceable | team_creator/team_admin | 团队题目引用候选搜索（引用页列表）：本人创建 + 已发布 + 全站题 + 未被该团队引用过（同团队同源仅一份快照，服务端排除已引用源题） | 分页/keyword | problem[] |
 | GET | /teams/{team_id}/problems/arrangeable | team_creator/team_admin | 团队编排候选搜索（题单编排挑题）：已发布且（本团队题目 ∪ 全站公开 ∪ 本人私有） | 分页/keyword | problem[] |
@@ -202,6 +202,13 @@
 
 ## 实现状态
 
+- 已实现（团队题库发布 / 草稿箱语义）：团队管理视图主列表仅返回已发布题目
+  （草稿经 `status='draft'` 进入草稿箱视图且仅本人草稿；归档在团队空间任何视图
+  不返回，管理后台 admin_view 仍可查全量）；管理视图回填 `needs_reverification`。
+  前端 `/teams/:id` 团队题库 tab：管理视图带「发布与验题」「可见性」列，
+  工具栏右侧「草稿箱」勾选项——勾选后列表切换为本人草稿题目（行点击进编辑向导）；
+  成员视图不变（仅 published+team_visible，无状态列）。
+
 - 已实现（0029 起，题单复制语义收敛）：团队题单取消「引用（归属切换）」端点
   （`POST /teams/{team_id}/problem-sets/references` 移除），改为创建时可选
   `copy_items_from` 快照复制本人全站题单条目（源题单保留在全站，`referenced_at`
@@ -224,7 +231,8 @@
   FK + 索引，全站可见性 CHECK 扩展为契约双分支（全站 private/public，团队 admin_visible/team_visible）。
 - 前端：`/teams/mine` 团队中心（我的团队卡片墙；创建入口已收敛到管理后台）、
   `/teams/:id` 详情工作台（成员 / 团队题库 / 团队题单 / 团队比赛 / 加入申请五 tab，
-  各 tab 带 SearchFilterBar 搜索 + 刷新，权限按 `my_role` 显隐）、`/teams/invites/:token`
+  各 tab 带 SearchFilterBar 搜索 + 刷新，权限按 `my_role` 显隐；团队题库管理视图
+  带发布验题 / 可见性两列与草稿箱弹窗，主列表仅已发布）、`/teams/invites/:token`
   邀请落地页（公开解析 + 申请加入）、`/teams/:teamId/problems/:pid` 团队写题页
   （复用题库详情组件，详情 / 交题 / 自测 / 评测结果全部走团队上下文路由，不跳出）。
 - 前端（团队题单上下文路由，限界上下文）：`/teams/:teamId/sets/:setId` 团队题单详情

@@ -79,6 +79,8 @@ export interface TeamProblemSummary {
   status: 'draft' | 'published' | 'archived'
   visibility: 'admin_visible' | 'team_visible'
   is_verified?: boolean
+  /** 管理视图回填：存在待验证测试点，或样例晚于最近验题通过时间 */
+  needs_reverification?: boolean
   created_at?: string
   difficulty?: number | null
   submission_count?: number
