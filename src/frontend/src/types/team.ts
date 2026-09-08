@@ -5,6 +5,8 @@
 export type TeamRoleType = 'creator' | 'admin' | 'member'
 export type TeamMemberStatusType = 'active' | 'exited' | 'kicked'
 export type TeamApplicationStatusType = 'pending' | 'approved' | 'rejected'
+/** 团队可见性：public 团队中心可见可直接申请；private 仅邀请链接申请 */
+export type TeamVisibilityType = 'public' | 'private'
 
 /** 团队列表项 / 摘要（my_role 为当前用户在该团队的角色，非成员视图为 null） */
 export interface TeamSummary {
@@ -14,6 +16,7 @@ export interface TeamSummary {
   avatar_url: string | null
   created_at: string
   member_count: number
+  visibility?: TeamVisibilityType
   my_role: TeamRoleType | null
 }
 
@@ -61,11 +64,20 @@ export interface TeamInviteResolved {
   expires_at: string
 }
 
-/** 创建 / 编辑团队载荷 */
+/** 创建 / 编辑团队载荷（编辑全部缺省不动） */
 export interface TeamUpsertPayload {
   name: string
   description?: string
   avatar_url?: string
+  visibility?: TeamVisibilityType
+}
+
+/** 团队中心列表查询（mine=true 为「我的团队」勾选，须登录） */
+export interface TeamListQuery {
+  page?: number
+  page_size?: number
+  keyword?: string
+  mine?: boolean
 }
 
 /* ==================== 团队空间（题库 / 题单 / 比赛，docs/contracts/teams.md 团队空间节） ==================== */

@@ -14,10 +14,11 @@
 | avatar_url | VARCHAR(512) | NULL | 团队头像：站内完整文件 URL（`/api/v1/files/users/{uid}/images/{uuid}`，即 `POST /files/upload/image` 返回的 `url`）或可信外链 `http(s)://…`；前端直接渲染 |
 | creator_id | UUID | NOT NULL, FK → users.id | 创建人，自动成为团队创建者 |
 | status | VARCHAR(16) | NOT NULL DEFAULT 'active' | `active` / `disbanded` 已解散 |
+| visibility | VARCHAR(16) | NOT NULL DEFAULT 'private' | `public` 公开（团队中心可见、可直接申请加入）/ `private` 私有（不进团队中心，仅凭邀请链接申请） |
 | disbanded_at | TIMESTAMPTZ | NULL | 解散时间 |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
-索引：INDEX(`creator_id`)、INDEX(`status`)
+索引：INDEX(`creator_id`)、INDEX(`status`)、INDEX(`visibility`, `status`)
 
 ### `team_members` — 团队成员表
 
@@ -79,13 +80,14 @@
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| POST | /teams | admin/tutor | 创建团队（入口在管理后台 `/admin/teams`；自动写创建者成员记录 + team_creator 授权） | name, description? | team |
+| POST | /teams | admin/tutor | 创建团队（入口在管理后台 `/admin/teams`；自动写创建者成员记录 + team_creator 授权；visibility 缺省 private） | name, description?, avatar_url?, visibility? | team |
+| GET | /teams | public / auth | 团队中心列表：仅 public + active 团队（创建时间倒序，匿名可看；在册成员带 my_role，非成员 my_role=null）；`mine=true`（「我的团队」勾选，须登录，匿名 401）改为本人在册团队（公开 + 私有） | 分页/keyword（名称模糊）/mine | team[]（TeamSummary，含 visibility / member_count / my_role） |
 | GET | /teams/mine | auth | 我的团队列表（在册成员；带成员数与我的角色；与 /contests/me 同款资源域内 me 端点） | 分页/keyword（名称模糊） | team[] |
 | GET | /teams/{id} | auth（成员） | 团队详情 | - | team |
 | GET | /teams/{id}/members | team 角色 | 成员列表 | 分页/keyword（昵称模糊）/状态 | member[] |
 | POST | /teams/{id}/invites | team_creator/team_admin | 生成邀请链接（写 Redis） | - | {token, expires_at} |
 | GET | /teams/invites/{token} | public | 解析邀请链接（返回团队与有效期） | - | {team_id, team_name, expires_at} |
-| POST | /teams/{id}/applications | auth | 提交加入申请 | invite_token | - |
+| POST | /teams/{id}/applications | auth | 提交加入申请（public 团队可直接申请；private 团队无 invite_token 返回 2003，凭有效邀请链接放行；invite_token 经私有团队申请时记录来源） | invite_token | - |
 | GET | /teams/{id}/applications | team_creator/team_admin | 申请列表 | 分页/状态 | application[] |
 | POST | /teams/{id}/applications/{aid}/review | team_creator/team_admin | 审批（通过写 `user_roles` team_member） | approve, comment? | - |
 | POST | /teams/{id}/members/{uid}/admin | team_creator/team_admin（仅创建者） | 分配 / 取消团队管理员 | is_admin | - |
@@ -98,18 +100,19 @@
 | 错误码 | HTTP | 说明 |
 | --- | --- | --- |
 | 3001 | 404 | 团队不存在 / 邀请链接无效或已过期 / 题目或题单不在该团队 |
-| 2003 | 403 | 非团队创建者 / 管理员执行团队管理操作；非成员访问团队空间；引用非本人题目 / 复制非本人题单 |
+| 2003 | 403 | 非团队创建者 / 管理员执行团队管理操作；非成员访问团队空间；私有团队未经邀请链接直接申请；引用非本人题目 / 复制非本人题单 |
 | 3003 | 409 | 重复申请（已有 pending 申请） |
 | 3002 | 409 | 邀请链接已过期 / 团队已解散 / 复制来源题单已下线 |
 | 1001 | 400 | 团队题目被二次引用 / 编排含不可见题目 / 可见性非法 / 团队题单不可作为复制来源 |
 
 ## 关键流程 / 验收条件
 
-1. **创建团队**：`admin/tutor` 创建 → 自动写创建者 `team_members`（active）记录 + `user_roles` 授权 `team_creator`（scope='team'）。
-2. **邀请链接**：`POST /teams/{id}/invites` 生成 token → 写 Redis `team:invite:<token>`（TTL=有效期，默认配置）；链接不可撤销、支持多人使用、无人数 / 一次性限制。用户经链接提交申请时记录 `invite_token` 来源。
-3. **加入审批**：用户提交申请（pending）→ 创建者 / 管理员审批；通过 → 写 `team_members`（active）+ `user_roles`（`team_member`）+ 通知；拒绝 → 记录状态 + 通知（通知随通知模块开放，当前仅记录申请状态与审批人 / 时间）。
-4. **分配管理员**：仅创建者可执行 `POST /teams/{id}/members/{uid}/admin`；分配即写 `team_admin` 授权，取消即删除。
-5. **退出 / 踢出 / 解散**：同步清理成员记录状态与 `user_roles` 团队授权。
+1. **创建团队**：`admin/tutor` 创建 → 自动写创建者 `team_members`（active）记录 + `user_roles` 授权 `team_creator`（scope='team'）；`visibility` 缺省 private。
+2. **可见性与加入入口**：`public` 团队出现在团队中心（`GET /teams`，匿名可看），登录用户可直接提交加入申请；`private` 团队不进团队中心，唯一申请入口为邀请链接（无 invite_token 返回 2003）。可见性切换由创建者 / 管理员经编辑动线（`PUT /teams/{id}`）进行，即时生效。
+3. **邀请链接**：`POST /teams/{id}/invites` 生成 token → 写 Redis `team:invite:<token>`（TTL=有效期，默认配置）；链接不可撤销、支持多人使用、无人数 / 一次性限制。用户经链接提交申请时记录 `invite_token` 来源。
+4. **加入审批**：用户提交申请（pending）→ 创建者 / 管理员审批；通过 → 写 `team_members`（active）+ `user_roles`（`team_member`）+ 通知；拒绝 → 记录状态 + 通知（通知随通知模块开放，当前仅记录申请状态与审批人 / 时间）。
+5. **分配管理员**：仅创建者可执行 `POST /teams/{id}/members/{uid}/admin`；分配即写 `team_admin` 授权，取消即删除。
+6. **退出 / 踢出 / 解散**：同步清理成员记录状态与 `user_roles` 团队授权。
 
 ## 团队空间（题库 / 题单 / 比赛，限界上下文）
 
@@ -202,6 +205,12 @@
 
 ## 实现状态
 
+- 已实现（迁移 0031，团队可见性）：`teams` 增 `visibility`（public / private，缺省 private，
+  存量回填 private）；`GET /teams` 团队中心列表（仅 public+active，匿名可看，
+  `mine=true` 「我的团队」勾选须登录）；私有团队申请须凭邀请链接（无 token 2003）；
+  创建 / 编辑携带 visibility（编辑由 team_creator / team_admin 执行，切换即时生效）。
+  前端：`/teams/mine` 团队中心（公开团队卡片墙 + 「我的团队」勾选；公开团队非成员
+  卡片「申请加入」）、`/teams/:id` 团队设置抽屉增可见性切换、管理后台创建团队增可见性选择。
 - 已实现（团队题库发布 / 草稿箱语义）：团队管理视图主列表仅返回已发布题目
   （草稿经 `status='draft'` 进入草稿箱视图且仅本人草稿；归档在团队空间任何视图
   不返回，管理后台 admin_view 仍可查全量）；管理视图回填 `needs_reverification`。
@@ -229,10 +238,12 @@
   通过率口径）；快照题裸路径全拦截；存量归属切换产生的引用题保留现状。
 - 已实现：为 `problem_sets.team_id` / `contests.team_id` 补 FK；`problems` 补 `team_id` 列 +
   FK + 索引，全站可见性 CHECK 扩展为契约双分支（全站 private/public，团队 admin_visible/team_visible）。
-- 前端：`/teams/mine` 团队中心（我的团队卡片墙；创建入口已收敛到管理后台）、
+- 前端：`/teams/mine` 团队中心（公开团队列表卡片墙 + 右上角「我的团队」勾选切换
+  在册团队；公开团队非成员卡片带「申请加入」，详情仅成员可进；创建入口已收敛到
+  管理后台）、
   `/teams/:id` 详情工作台（成员 / 团队题库 / 团队题单 / 团队比赛 / 加入申请五 tab，
   各 tab 带 SearchFilterBar 搜索 + 刷新，权限按 `my_role` 显隐；团队题库管理视图
-  带发布验题 / 可见性两列与草稿箱弹窗，主列表仅已发布）、`/teams/invites/:token`
+  带发布验题 / 可见性两列与「草稿箱」勾选项，主列表仅已发布）、`/teams/invites/:token`
   邀请落地页（公开解析 + 申请加入）、`/teams/:teamId/problems/:pid` 团队写题页
   （复用题库详情组件，详情 / 交题 / 自测 / 评测结果全部走团队上下文路由，不跳出）。
 - 前端（团队题单上下文路由，限界上下文）：`/teams/:teamId/sets/:setId` 团队题单详情

@@ -1,16 +1,16 @@
 <script setup lang="ts">
 /**
- * 团队中心：我的团队卡片墙（分页）。
- * 创建团队入口已收敛到管理后台（/admin/teams，docs/contracts/teams.md 管理端）。
+ * 团队中心（docs/contracts/teams.md）：默认公开团队列表（卡片墙，可申请加入），
+ * 右上角「我的团队」勾选切换为在册团队（公开 + 私有）。
+ * 公开团队非成员卡片带「申请加入」（私有团队不进公开列表，仅邀请链接入口）；
  * 卡片范式与比赛列表（ContestListView）一致：单行头部（头像 + 名称 + 右侧角色点标）、
- * 描述两行截断、成员数元信息、底部创建时间；
- * 悬停仅边框加深 + 标题主色，无位移 / 阴影 / 动画。
+ * 描述两行截断、成员数元信息、底部创建时间；悬停仅边框加深 + 题题主色。
  */
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
-import { listMyTeams } from '@/api/teams'
+import { listMyTeams, listTeams, submitTeamApplication } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import RefreshButton from '@/components/RefreshButton.vue'
@@ -26,6 +26,12 @@ const loading = ref(false)
 const list = ref<TeamSummary[]>([])
 const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
 const keyword = ref('')
+/** 「我的团队」勾选：默认公开团队列表，勾选后查询本人在册团队（公开 + 私有） */
+const mineOnly = ref(false)
+
+/** 加入申请本地态：申请中团队 id 与已申请集合（防重复点击，重复申请由后端 3003 兜底） */
+const applyingId = ref('')
+const appliedIds = ref(new Set<string>())
 
 /** 我的角色 → 点标（语义色 class + 文案 key；创建者警示橙 / 管理员信息蓝 / 成员中性灰） */
 const roleMeta: Record<TeamRoleType, { cls: string; labelKey: string }> = {
@@ -41,11 +47,14 @@ function initialOf(team: TeamSummary) {
 async function load() {
   loading.value = true
   try {
-    const result = await listMyTeams({
+    const query = {
       page: page.value,
       page_size: pageSize.value,
       keyword: keyword.value || undefined,
-    })
+    }
+    const result = mineOnly.value
+      ? await listMyTeams(query)
+      : await listTeams(query)
     list.value = result.items
     total.value = result.total
   } catch (error) {
@@ -60,8 +69,29 @@ function onSearch() {
   load()
 }
 
+function onToggleMine(checked: boolean) {
+  mineOnly.value = checked
+  resetPage()
+  load()
+}
+
 function openTeam(team: TeamSummary) {
+  // 团队详情仅成员可见（后端 2003）：公开团队非成员经卡片「申请加入」入队
+  if (!team.my_role) return
   void router.push(`/teams/${team.id}`)
+}
+
+async function onApply(team: TeamSummary) {
+  applyingId.value = team.id
+  try {
+    await submitTeamApplication(team.id)
+    appliedIds.value.add(team.id)
+    message.success(t('teams.list.applySuccess'))
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
+  } finally {
+    applyingId.value = ''
+  }
 }
 
 onMounted(load)
@@ -82,6 +112,12 @@ onMounted(load)
       @reset="onSearch"
     >
       <template #actions>
+        <n-checkbox
+          :checked="mineOnly"
+          @update:checked="onToggleMine"
+        >
+          {{ t('teams.list.myTeams') }}
+        </n-checkbox>
         <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
       </template>
     </SearchFilterBar>
@@ -115,6 +151,10 @@ onMounted(load)
               <span class="role-chip__dot" aria-hidden="true" />
               {{ t(roleMeta[team.my_role].labelKey) }}
             </span>
+            <span v-else-if="!mineOnly" class="role-chip role-chip--public">
+              <span class="role-chip__dot" aria-hidden="true" />
+              {{ t('teams.list.publicTeam') }}
+            </span>
           </div>
 
           <p class="team-card__desc" :class="{ 'team-card__desc--empty': !team.description }">
@@ -126,6 +166,16 @@ onMounted(load)
               {{ t('teams.list.memberCount') }}
               <strong>{{ team.member_count }}</strong>
             </span>
+            <n-button
+              v-if="!mineOnly && !team.my_role && !appliedIds.has(team.id)"
+              size="tiny"
+              type="primary"
+              secondary
+              :loading="applyingId === team.id"
+              @click.stop="onApply(team)"
+            >
+              {{ t('teams.list.applyJoin') }}
+            </n-button>
           </div>
 
           <div class="team-card__footer">
@@ -135,7 +185,10 @@ onMounted(load)
       </div>
     </n-spin>
     <div v-show="!loading && !list.length" class="table-fill-empty">
-      <n-empty size="large" :description="t('teams.list.empty')" />
+      <n-empty
+        size="large"
+        :description="t(mineOnly ? 'teams.list.empty' : 'teams.list.emptyPublic')"
+      />
     </div>
 
     <div v-if="total > 0" class="pager">
@@ -260,6 +313,12 @@ onMounted(load)
 }
 .role-chip--admin .role-chip__dot {
   background: var(--app-info);
+}
+.role-chip--public {
+  color: var(--app-success);
+}
+.role-chip--public .role-chip__dot {
+  background: var(--app-success);
 }
 /* 描述固定两行高度：无描述也占位，保证同排卡片底部对齐 */
 .team-card__desc {

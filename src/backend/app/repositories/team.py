@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import TeamMemberStatus, TeamStatus
+from app.enums import TeamMemberStatus, TeamStatus, TeamVisibility
 from app.models.team import Team, TeamMember, TeamMemberApplication
 from app.models.user import User
 
@@ -154,6 +154,33 @@ class TeamRepository:
                 await self.db.execute(
                     select(Team)
                     .join(TeamMember, Team.id == TeamMember.team_id)
+                    .where(*conditions)
+                    .order_by(Team.created_at.desc())
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            ).scalars()
+        )
+        return rows, int(total)
+
+    async def list_public(
+        self, page: int, page_size: int, keyword: str | None = None
+    ) -> tuple[list[Team], int]:
+        """团队中心公开列表：仅 public + active（私有团队不进任何公开列表，
+        docs/contracts/teams.md）；创建时间倒序，keyword 模糊匹配团队名称。"""
+        conditions = [
+            Team.visibility == TeamVisibility.PUBLIC,
+            Team.status == TeamStatus.ACTIVE,
+        ]
+        if keyword:
+            conditions.append(Team.name.ilike(f"%{keyword}%"))
+        total = (
+            await self.db.scalar(select(func.count()).select_from(Team).where(*conditions)) or 0
+        )
+        rows = list(
+            (
+                await self.db.execute(
+                    select(Team)
                     .where(*conditions)
                     .order_by(Team.created_at.desc())
                     .offset((page - 1) * page_size)

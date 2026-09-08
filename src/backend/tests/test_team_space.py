@@ -40,7 +40,10 @@ async def _user_headers(client: httpx.AsyncClient, email: str) -> dict[str, str]
 
 
 async def _create_team(client: httpx.AsyncClient, headers: dict[str, str], name: str) -> str:
-    resp = await client.post("/api/v1/teams", json={"name": name}, headers=headers)
+    # 团队空间用例走公开团队（成员可经团队列表直接申请，保持原动线）；私有门控见 test_teams.py
+    resp = await client.post(
+        "/api/v1/teams", json={"name": name, "visibility": "public"}, headers=headers
+    )
     assert resp.json()["code"] == 0, resp.text
     return resp.json()["data"]["id"]
 

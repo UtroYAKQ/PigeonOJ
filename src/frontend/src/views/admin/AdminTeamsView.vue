@@ -161,10 +161,10 @@ function rowProps(row: TeamAdminSummary) {
 
 const showCreate = ref(false)
 const creating = ref(false)
-const createForm = ref({ name: '', description: '' })
+const createForm = ref({ name: '', description: '', visibility: 'private' as 'public' | 'private' })
 
 function openCreate() {
-  createForm.value = { name: '', description: '' }
+  createForm.value = { name: '', description: '', visibility: 'private' }
   showCreate.value = true
 }
 
@@ -178,6 +178,7 @@ async function doCreate() {
     const team = await createTeam({
       name: createForm.value.name.trim(),
       description: createForm.value.description.trim() || undefined,
+      visibility: createForm.value.visibility,
     })
     message.success(t('admin.teams.createSuccess'))
     showCreate.value = false
@@ -273,6 +274,12 @@ async function doCreate() {
             maxlength="2000"
             :placeholder="t('teams.create.descriptionPlaceholder')"
           />
+        </n-form-item>
+        <n-form-item :label="t('teams.settings.visibility')">
+          <n-radio-group v-model:value="createForm.visibility">
+            <n-radio value="private">{{ t('teams.settings.visibilityPrivate') }}</n-radio>
+            <n-radio value="public">{{ t('teams.settings.visibilityPublic') }}</n-radio>
+          </n-radio-group>
         </n-form-item>
       </n-form>
       <template #footer>

@@ -117,7 +117,7 @@ async def test_invite_apply_review_flow(client: httpx.AsyncClient) -> None:
     )
     assert resp.json()["code"] == 0, resp.text
     resp = await client.post(
-        f"/api/v1/teams/{team_id}/applications", json={}, headers=user
+        f"/api/v1/teams/{team_id}/applications", json={"invite_token": token}, headers=user
     )
     assert resp.json()["code"] == 3003
 
@@ -145,8 +145,109 @@ async def test_invite_apply_review_flow(client: httpx.AsyncClient) -> None:
     assert resp.json()["data"]["total"] == 2
 
     # 已在团队成员再申请 → 3003
-    resp = await client.post(f"/api/v1/teams/{team_id}/applications", json={}, headers=user)
+    resp = await client.post(
+        f"/api/v1/teams/{team_id}/applications", json={"invite_token": token}, headers=user
+    )
     assert resp.json()["code"] == 3003
+
+
+async def test_team_visibility_public_list_and_private_gate(
+    client: httpx.AsyncClient,
+) -> None:
+    """团队可见性：公开团队进团队中心、可直接申请；私有团队不进公开列表、
+    无邀请链接申请 403（凭链接放行）；mine=true 返回在册团队（公开 + 私有）；
+    编辑可见性切换即时生效。"""
+    tutor = await _tutor_headers(client)
+
+    # 创建公开团队 + 私有团队（默认 private）
+    resp = await client.post(
+        "/api/v1/teams", json={"name": "公开集训队", "visibility": "public"}, headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    public_id = resp.json()["data"]["id"]
+    assert resp.json()["data"]["visibility"] == "public"
+
+    resp = await client.post("/api/v1/teams", json={"name": "神秘私队"}, headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    private_id = resp.json()["data"]["id"]
+    assert resp.json()["data"]["visibility"] == "private"
+
+    # 团队中心：匿名也可看，仅公开团队；my_role 为 None（非成员视图）
+    resp = await client.get("/api/v1/teams")
+    assert resp.json()["code"] == 0, resp.text
+    items = {it["id"]: it for it in resp.json()["data"]["items"]}
+    assert public_id in items
+    assert private_id not in items
+    assert items[public_id]["my_role"] is None
+
+    # mine=true：匿名 401；登录后返回在册团队（公开 + 私有）
+    resp = await client.get("/api/v1/teams?mine=true")
+    assert resp.json()["code"] == 1001 or resp.status_code == 401
+    resp = await client.get("/api/v1/teams?mine=true", headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    mine_ids = {it["id"] for it in resp.json()["data"]["items"]}
+    assert {public_id, private_id} <= mine_ids
+    assert all(it["my_role"] == "creator" for it in resp.json()["data"]["items"])
+
+    user = await _extra_user_headers(client, "visitor@pigeonoj.dev")
+
+    # 公开团队：直接申请 → 成功；私有团队：无链接 403
+    resp = await client.post(
+        f"/api/v1/teams/{public_id}/applications", json={}, headers=user
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    resp = await client.post(
+        f"/api/v1/teams/{private_id}/applications", json={}, headers=user
+    )
+    assert resp.json()["code"] == 2003
+
+    # 私有团队凭邀请链接申请 → 放行
+    resp = await client.post(f"/api/v1/teams/{private_id}/invites", headers=tutor)
+    invite_token = resp.json()["data"]["token"]
+    resp = await client.post(
+        f"/api/v1/teams/{private_id}/applications",
+        json={"invite_token": invite_token},
+        headers=user,
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    # 审批两个申请 → user 在册两个团队
+    for tid in (public_id, private_id):
+        resp = await client.get(f"/api/v1/teams/{tid}/applications", headers=tutor)
+        for application in resp.json()["data"]["items"]:
+            if application["status"] != "pending":
+                continue
+            resp = await client.post(
+                f"/api/v1/teams/{tid}/applications/{application['id']}/review",
+                json={"approve": True},
+                headers=tutor,
+            )
+            assert resp.json()["code"] == 0, resp.text
+    resp = await client.get("/api/v1/teams?mine=true", headers=user)
+    mine_ids = {it["id"] for it in resp.json()["data"]["items"]}
+    assert {public_id, private_id} <= mine_ids
+
+    # 公开列表的非成员视图与在册成员视图（user 现为公开团队成员，带角色）
+    resp = await client.get("/api/v1/teams", headers=user)
+    items = {it["id"]: it for it in resp.json()["data"]["items"]}
+    assert items[public_id]["my_role"] == "member"
+
+    # 编辑可见性：团队管理员把公开团队切私有 → 退出团队中心；再切回
+    resp = await client.put(
+        f"/api/v1/teams/{public_id}", json={"visibility": "private"}, headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    assert resp.json()["data"]["visibility"] == "private"
+    resp = await client.get("/api/v1/teams")
+    assert public_id not in {it["id"] for it in resp.json()["data"]["items"]}
+
+    resp = await client.put(
+        f"/api/v1/teams/{public_id}", json={"visibility": "public"}, headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get("/api/v1/teams")
+    assert public_id in {it["id"] for it in resp.json()["data"]["items"]}
 
 
 async def test_admin_assignment(client: httpx.AsyncClient) -> None:
@@ -235,7 +336,13 @@ async def test_kick_exit_disband(client: httpx.AsyncClient) -> None:
     member_b = await _extra_user_headers(client, "exitme@pigeonoj.dev")
     admin2 = await _extra_user_headers(client, "disbander@pigeonoj.dev")
     for headers in (member_a, member_b):
-        resp = await client.post(f"/api/v1/teams/{team_id}/applications", json={}, headers=headers)
+        resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=tutor)
+        invite_token = resp.json()["data"]["token"]
+        resp = await client.post(
+            f"/api/v1/teams/{team_id}/applications",
+            json={"invite_token": invite_token},
+            headers=headers,
+        )
         assert resp.json()["code"] == 0
     resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=tutor)
     for application in resp.json()["data"]["items"]:

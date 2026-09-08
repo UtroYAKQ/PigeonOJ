@@ -14,12 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import (
     APIError,
     AUTH_FORBIDDEN,
+    AUTH_NOT_LOGGED_IN,
     RESOURCE_DUPLICATE,
     RESOURCE_NOT_FOUND,
     RESOURCE_STATE_CONFLICT,
 )
 from app.core.redis import get_redis, redis_get_json, redis_set_json
-from app.enums import TeamApplicationStatus, TeamMemberStatus, TeamStatus
+from app.enums import (
+    TeamApplicationStatus,
+    TeamMemberStatus,
+    TeamStatus,
+    TeamVisibility,
+)
 from app.models.team import Team, TeamMember, TeamMemberApplication
 from app.models.user import User
 from app.repositories.team import TeamRepository
@@ -116,7 +122,13 @@ class TeamService:
         if not ({"admin", "tutor"} & codes):
             raise APIError(AUTH_FORBIDDEN, "无权限创建团队", 403)
         team = await self.teams.create(
-            Team(name=body.name, description=body.description, avatar_url=body.avatar_url, creator_id=user.id)
+            Team(
+                name=body.name,
+                description=body.description,
+                avatar_url=body.avatar_url,
+                visibility=body.visibility,
+                creator_id=user.id,
+            )
         )
         self.db.add(
             TeamMember(team_id=team.id, user_id=user.id, status=TeamMemberStatus.ACTIVE)
@@ -128,6 +140,7 @@ class TeamService:
             description=team.description,
             avatar_url=team.avatar_url,
             created_at=team.created_at,
+            visibility=TeamVisibility(team.visibility),
             member_count=1,
             my_role="creator",
         )
@@ -151,6 +164,7 @@ class TeamService:
             description=team.description,
             avatar_url=team.avatar_url,
             created_at=team.created_at,
+            visibility=TeamVisibility(team.visibility),
             member_count=count.get(team.id, 0),
             my_role=my_role,
             creator_id=team.creator_id,
@@ -168,6 +182,8 @@ class TeamService:
             team.description = patch.description
         if patch.avatar_url is not None:
             team.avatar_url = patch.avatar_url
+        if patch.visibility is not None:
+            team.visibility = patch.visibility
         await self.db.flush()
         return await self.get_detail(user, team.id)
 
@@ -193,6 +209,79 @@ class TeamService:
                     description=team.description,
                     avatar_url=team.avatar_url,
                     created_at=team.created_at,
+                    visibility=TeamVisibility(team.visibility),
+                    member_count=counts.get(team.id, 0),
+                    my_role=my_role,
+                )
+            )
+        return items, total
+
+    async def list_public_teams(
+        self,
+        user: User | None,
+        page: int,
+        page_size: int,
+        keyword: str | None = None,
+        mine: bool = False,
+    ) -> tuple[list[TeamSummary], int]:
+        """团队中心列表（docs/contracts/teams.md）。
+
+        - 默认：仅公开在册团队（创建时间倒序），匿名可看；私有团队不出现在任何公开列表
+        - mine=true（须登录）：我在册的团队（公开 + 私有，含我创建的）——「我的团队」勾选
+        - my_role：在册成员带角色；公开团队非成员视图为 None
+        """
+        if mine:
+            if user is None:
+                raise APIError(AUTH_NOT_LOGGED_IN, "查看我的团队需要登录", 401)
+            rows, total = await self.teams.list_teams_of_user(
+                user.id, page, page_size, keyword
+            )
+            counts = await self.teams.count_active_members_by_team([t.id for t in rows])
+            role_map = await self.roles.get_team_roles_for_teams(user.id, [t.id for t in rows])
+            items = []
+            for team in rows:
+                codes = role_map.get(team.id, set())
+                my_role = (
+                    "creator"
+                    if self._is_creator(team, user.id)
+                    else "admin" if ROLE_ADMIN in codes else "member"
+                )
+                items.append(
+                    TeamSummary(
+                        id=team.id,
+                        name=team.name,
+                        description=team.description,
+                        avatar_url=team.avatar_url,
+                        created_at=team.created_at,
+                        visibility=TeamVisibility(team.visibility),
+                        member_count=counts.get(team.id, 0),
+                        my_role=my_role,
+                    )
+                )
+            return items, total
+        rows, total = await self.teams.list_public(page, page_size, keyword=keyword)
+        counts = await self.teams.count_active_members_by_team([t.id for t in rows])
+        member_team_ids: set[uuid.UUID] = set()
+        role_map: dict[uuid.UUID, set[str]] = {}
+        if user is not None and rows:
+            role_map = await self.roles.get_team_roles_for_teams(user.id, [t.id for t in rows])
+            member_team_ids = set(role_map.keys())
+        items = []
+        for team in rows:
+            codes = role_map.get(team.id, set())
+            my_role = (
+                "creator"
+                if self._is_creator(team, user.id)
+                else "admin" if ROLE_ADMIN in codes else "member"
+            ) if team.id in member_team_ids else None
+            items.append(
+                TeamSummary(
+                    id=team.id,
+                    name=team.name,
+                    description=team.description,
+                    avatar_url=team.avatar_url,
+                    created_at=team.created_at,
+                    visibility=TeamVisibility(team.visibility),
                     member_count=counts.get(team.id, 0),
                     my_role=my_role,
                 )
@@ -218,6 +307,7 @@ class TeamService:
                 description=team.description,
                 avatar_url=team.avatar_url,
                 created_at=team.created_at,
+                visibility=TeamVisibility(team.visibility),
                 member_count=counts.get(team.id, 0),
                 my_role=None,
                 status=TeamStatus(team.status),
@@ -237,6 +327,7 @@ class TeamService:
             description=team.description,
             avatar_url=team.avatar_url,
             created_at=team.created_at,
+            visibility=TeamVisibility(team.visibility),
             member_count=count.get(team.id, 0),
             my_role=None,
             creator_id=team.creator_id,
@@ -272,13 +363,16 @@ class TeamService:
     # ---------------- 加入申请 / 审批 ----------------
 
     async def submit_application(self, user: User, team_id: uuid.UUID, body: TeamApplicationSubmit) -> None:
-        """提交加入申请：已入队或已有 pending 申请返回 3003；经邀请链接提交记录来源。"""
+        """提交加入申请：公开团队可直接申请；私有团队须凭邀请链接（invite_token 必带且有效）；
+        已入队或已有 pending 申请返回 3003。"""
         team = await self._active_team_or_error(team_id)
         if await self.teams.get_active_member(team.id, user.id) is not None:
             raise APIError(RESOURCE_DUPLICATE, "已是该团队成员", 409)
         if await self.teams.get_pending_application(team.id, user.id) is not None:
             raise APIError(RESOURCE_DUPLICATE, "已有待处理的加入申请", 409)
         invite_token = body.invite_token
+        if TeamVisibility(team.visibility) == TeamVisibility.PRIVATE and not invite_token:
+            raise APIError(AUTH_FORBIDDEN, "私有团队仅可通过邀请链接申请加入", 403)
         if invite_token:
             payload = await redis_get_json(f"{_INVITE_KEY_PREFIX}{invite_token}")
             if not payload or str(payload.get("team_id")) != str(team.id):

@@ -16,6 +16,7 @@ import type {
   TeamDetail,
   TeamInviteCreated,
   TeamInviteResolved,
+  TeamListQuery,
   TeamMemberItem,
   TeamProblemListQuery,
   TeamProblemReferencePayload,
@@ -30,6 +31,13 @@ import type {
 /** 创建团队（admin/tutor） */
 export function createTeam(body: TeamUpsertPayload): Promise<TeamSummary> {
   return apiRequest('POST', '/teams', body)
+}
+
+/** 团队中心列表：默认仅公开在册团队；mine=true 为「我的团队」勾选（须登录） */
+export function listTeams(
+  query: TeamListQuery = {},
+): Promise<PageResult<TeamSummary>> {
+  return apiRequest('GET', `/teams${buildQuery(query)}`)
 }
 
 /** 我的团队列表（在册成员；带成员数与我的角色；keyword 模糊匹配团队名称） */

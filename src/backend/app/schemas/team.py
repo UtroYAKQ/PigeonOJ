@@ -6,17 +6,27 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.enums import ProblemVisibility, TeamApplicationStatus, TeamMemberStatus, TeamStatus
+from app.enums import (
+    ProblemVisibility,
+    TeamApplicationStatus,
+    TeamMemberStatus,
+    TeamStatus,
+    TeamVisibility,
+)
 from app.schemas.contest import ContestCreate
 from app.utils.validation import validate_nickname
 
 
 class TeamCreate(BaseModel):
-    """创建团队（admin/tutor；创建人自动成为成员并获 team_creator 授权）。"""
+    """创建团队（admin/tutor；创建人自动成为成员并获 team_creator 授权）。
+
+    visibility：public 团队中心可见可直接申请加入；private 仅经邀请链接申请（默认）。
+    """
 
     name: str = Field(min_length=1, max_length=64)
     description: str | None = Field(default=None, max_length=2000)
     avatar_url: str | None = Field(default=None, max_length=512)
+    visibility: TeamVisibility = TeamVisibility.PRIVATE
 
     @field_validator("name")
     @classmethod
@@ -32,6 +42,7 @@ class TeamUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
     description: str | None = Field(default=None, max_length=2000)
     avatar_url: str | None = Field(default=None, max_length=512)
+    visibility: TeamVisibility | None = None
 
     @field_validator("name")
     @classmethod
@@ -52,6 +63,8 @@ class TeamSummary(BaseModel):
     avatar_url: str | None
     created_at: datetime
     member_count: int = 0
+    # 可见性：public 团队中心可见；private 仅邀请链接申请
+    visibility: TeamVisibility = TeamVisibility.PRIVATE
     # 当前用户在该团队的角色：creator / admin / member；非成员视图为 None
     my_role: str | None = None
 

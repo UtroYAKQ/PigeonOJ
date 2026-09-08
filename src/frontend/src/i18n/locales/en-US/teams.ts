@@ -8,6 +8,11 @@ export default {
       createdAt: 'Created at',
       totalCount: '{count} teams in total',
       empty: 'You have not joined any team yet',
+      emptyPublic: 'No public teams yet',
+      myTeams: 'My teams',
+      publicTeam: 'Public',
+      applyJoin: 'Apply to join',
+      applySuccess: 'Application submitted; waiting for team admin review',
       create: 'Create team',
       loadFailed: 'Failed to load teams',
       search: 'Search by team name',
@@ -136,6 +141,11 @@ export default {
     },
     settings: {
       infoTitle: 'Team info',
+      visibility: 'Team visibility',
+      visibilityPrivate: 'Private',
+      visibilityPublic: 'Public',
+      visibilityHint:
+        'Public teams appear in the team center and accept direct applications; private teams are hidden and only accept applications via invite links',
       avatar: 'Team avatar',
       noAvatar: 'No avatar',
       saved: 'Saved',

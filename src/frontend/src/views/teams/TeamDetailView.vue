@@ -786,7 +786,12 @@ async function copyInviteLink() {
 // ---------------- 编辑抽屉 ----------------
 
 const showSettings = ref(false)
-const form = reactive({ name: '', description: '', avatar_url: '' as string | null })
+const form = reactive({
+  name: '',
+  description: '',
+  avatar_url: '' as string | null,
+  visibility: 'private' as 'public' | 'private',
+})
 const saving = ref(false)
 const uploadingAvatar = ref(false)
 
@@ -795,6 +800,7 @@ function openSettings() {
   form.name = team.value.name
   form.description = team.value.description ?? ''
   form.avatar_url = team.value.avatar_url ?? ''
+  form.visibility = team.value.visibility ?? 'private'
   showSettings.value = true
 }
 
@@ -825,6 +831,7 @@ async function saveSettings() {
       name: form.name.trim(),
       description: form.description.trim() || undefined,
       avatar_url: form.avatar_url || undefined,
+      visibility: form.visibility,
     })
     message.success(t('teams.settings.saved'))
     showSettings.value = false
@@ -1514,6 +1521,13 @@ onMounted(load)
           </NFormItem>
           <NFormItem :label="t('teams.create.description')">
             <NInput v-model:value="form.description" type="textarea" :rows="4" maxlength="2000" />
+          </NFormItem>
+          <NFormItem :label="t('teams.settings.visibility')">
+            <n-radio-group v-model:value="form.visibility">
+              <n-radio value="private">{{ t('teams.settings.visibilityPrivate') }}</n-radio>
+              <n-radio value="public">{{ t('teams.settings.visibilityPublic') }}</n-radio>
+            </n-radio-group>
+            <span class="field-hint">{{ t('teams.settings.visibilityHint') }}</span>
           </NFormItem>
           <NFormItem :label="t('teams.settings.avatar')">
             <div class="avatar-uploader">

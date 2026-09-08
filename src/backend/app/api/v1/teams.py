@@ -15,7 +15,7 @@ from app.api.deps import (
     TeamServiceDep,
     TeamSpaceServiceDep,
 )
-from app.core.dependency import get_current_user
+from app.core.dependency import get_current_user, get_optional_user
 from app.core.exceptions import PARAM_FORMAT_INVALID, APIError
 from app.models.user import User
 from app.rpc.judge_gateway import dispatch_submission, dispatch_run_code
@@ -55,6 +55,27 @@ from app.utils.pagination import PaginatedResponse
 from app.utils.response import ApiResponse, ok
 
 router = APIRouter(prefix="/teams", tags=["teams"])
+
+
+@router.get("", response_model=ApiResponse[PaginatedResponse[TeamSummary]])
+async def list_teams(
+    service: TeamServiceDep,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=64),
+    mine: bool = Query(default=False),
+    user: User | None = Depends(get_optional_user),
+) -> ApiResponse[PaginatedResponse[TeamSummary]]:
+    """团队中心列表：默认仅公开在册团队（匿名可看）；mine=true 为「我的团队」
+    勾选（须登录，匿名 401），返回本人在册的团队（公开 + 私有）。"""
+    if mine and user is None:
+        from app.core.exceptions import AUTH_NOT_LOGGED_IN
+
+        raise APIError(AUTH_NOT_LOGGED_IN, "查看我的团队需要登录", 401)
+    items, total = await service.list_public_teams(
+        user, page, page_size, keyword, mine=mine
+    )
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
 
 
 @router.post("", response_model=ApiResponse[TeamSummary])
