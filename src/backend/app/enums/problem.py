@@ -61,8 +61,13 @@ class ProblemSetStatus(StrEnum):
 
 
 class ProblemSetVisibility(StrEnum):
-    """题单可见性：全站题单 public/private，团队题单 team（随 teams 模块开放）。"""
+    """题单可见性（与团队题目双分支对齐）：
+
+    全站题单 public / private；团队题单 team_visible（全队成员可见，原 'team' 值
+    迁移 0032 更名）/ admin_visible（仅团队创建者 / 管理员可见）。
+    """
 
     PUBLIC = "public"
     PRIVATE = "private"
-    TEAM = "team"
+    TEAM_VISIBLE = "team_visible"
+    ADMIN_VISIBLE = "admin_visible"

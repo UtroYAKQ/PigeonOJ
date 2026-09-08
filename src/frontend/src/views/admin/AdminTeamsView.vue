@@ -86,7 +86,11 @@ const columns = computed<DataTableColumns<TeamAdminSummary>>(() => [
     width: 72,
     align: 'center',
     render(row) {
-      return h(NAvatar, { size: 36, round: true, src: row.avatar_url || undefined }, row.avatar_url ? {} : { default: () => initialOf(row) })
+      return h(
+        NAvatar,
+        { size: 36, round: true, src: row.avatar_url || undefined },
+        row.avatar_url ? {} : { default: () => initialOf(row) },
+      )
     },
   },
   {

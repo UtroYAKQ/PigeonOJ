@@ -18,7 +18,8 @@ import {
 } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import type { DataTableColumns } from 'naive-ui'
+import { MoreFilled } from '@element-plus/icons-vue'
+import type { DataTableColumns, DropdownOption } from 'naive-ui'
 
 import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
@@ -32,6 +33,13 @@ import {
   listContestSubmissions,
   registerContest,
 } from '@/api/contests'
+import {
+  getTeamContest,
+  getTeamContestBoard,
+  listTeamContestCellAccepted,
+  listTeamContestSubmissions,
+  registerTeamContest,
+} from '@/api/teams'
 import { message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
 import { renderSolveMark } from '@/utils/solveMark'
@@ -55,15 +63,21 @@ const userStore = useUserStore()
 const loading = ref(false)
 const detail = ref<ContestDetail | null>(null)
 const registering = ref(false)
-const activeTab = ref<'home' | 'problems' | 'board' | 'submissions'>('home')
+type ContestTab = 'home' | 'problems' | 'board' | 'submissions'
+const TAB_KEYS: ContestTab[] = ['home', 'problems', 'board', 'submissions']
+function tabFromQuery(raw: unknown): ContestTab {
+  const value = typeof raw === 'string' ? raw : ''
+  return (TAB_KEYS as string[]).includes(value) ? (value as ContestTab) : 'home'
+}
+const activeTab = ref<ContestTab>(tabFromQuery(route.query.tab))
 
 /** 比赛 id：全局路由取 params.id，团队上下文路由取 params.cid */
 const contestId = computed(() => String(route.params.cid ?? route.params.id))
-/** 上下文基路径（frontend.md 路由上下文隔离）：团队比赛路由内导航不跳出团队前缀；
- * 数据端点仍复用比赛统一端点（docs/contracts/teams.md，叠加团队门控） */
+const teamId = computed(() => (route.params.teamId ? String(route.params.teamId) : null))
+/** 上下文基路径（frontend.md 路由上下文隔离）：团队比赛路由内导航不跳出团队前缀 */
 const contextBase = computed(() =>
-  route.params.teamId
-    ? `/teams/${String(route.params.teamId)}/contests/${contestId.value}`
+  teamId.value
+    ? `/teams/${teamId.value}/contests/${contestId.value}`
     : `/contests/${contestId.value}`,
 )
 
@@ -110,14 +124,17 @@ async function loadSubmissions(silent = false) {
   const seq = subsBeginLoad()
   subsLoading.value = !silent
   try {
-    const result = await listContestSubmissions(String(route.params.id), {
+    const query = {
       page: subsPage.value,
       page_size: subsPageSize.value,
       keyword: subsQuery.keyword || undefined,
       language: subsQuery.language || undefined,
       problem_id: subsQuery.problemId || undefined,
       status: subsQuery.status || undefined,
-    })
+    }
+    const result = await (teamId.value
+      ? listTeamContestSubmissions(teamId.value, contestId.value, query)
+      : listContestSubmissions(contestId.value, query))
     if (!subsIsCurrent(seq)) return
     submissions.value = result.items
     subsTotal.value = result.total
@@ -185,7 +202,9 @@ let pollTimer: number | null = null
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
-    detail.value = await getContest(contestId.value)
+    detail.value = await (teamId.value
+      ? getTeamContest(teamId.value, contestId.value)
+      : getContest(contestId.value))
   } catch (error) {
     if (!silent) message.error(error instanceof Error ? error.message : t('common.loadFailed'))
   } finally {
@@ -196,7 +215,9 @@ async function load(silent = false) {
 async function loadBoard(silent = false) {
   boardLoading.value = !silent
   try {
-    board.value = await getContestBoard(String(route.params.id))
+    board.value = await (teamId.value
+      ? getTeamContestBoard(teamId.value, contestId.value)
+      : getContestBoard(contestId.value))
   } catch (error) {
     if (!silent) message.error(error instanceof Error ? error.message : t('common.loadFailed'))
   } finally {
@@ -215,6 +236,14 @@ watch(activeTab, (tab) => {
     void loadSubmissions()
   }
 })
+
+watch(
+  () => route.query.tab,
+  (raw) => {
+    const next = tabFromQuery(raw)
+    if (next !== activeTab.value) activeTab.value = next
+  },
+)
 
 function stopPolling() {
   if (pollTimer !== null) {
@@ -270,7 +299,9 @@ async function register() {
   if (!detail.value) return
   registering.value = true
   try {
-    await registerContest(detail.value.id)
+    await (teamId.value
+      ? registerTeamContest(teamId.value, detail.value.id)
+      : registerContest(detail.value.id))
     message.success(t('common.success'))
     await load(true)
     if (activeTab.value === 'board') void loadBoard(true)
@@ -291,6 +322,33 @@ const statusMeta = computed(() => {
 })
 
 const initial = computed(() => (detail.value?.title || '?').trim().charAt(0).toUpperCase())
+
+const manageOptions = computed<DropdownOption[]>(() => {
+  if (!detail.value?.can_manage) return []
+  return [
+    {
+      key: 'edit',
+      label: t('contests.detail.manage'),
+      disabled: detail.value.status !== 'scheduled',
+    },
+    { key: 'tools', label: t('contests.tools.title') },
+  ]
+})
+
+function onManageSelect(key: string | number) {
+  const cid = contestId.value
+  const team = teamId.value
+  if (key === 'edit') {
+    if (detail.value?.status !== 'scheduled') return
+    void router.push(
+      team ? `/teams/${team}/contests/${cid}/edit/basic` : `/admin/contests/${cid}/edit/basic`,
+    )
+    return
+  }
+  if (key === 'tools') {
+    void router.push(team ? `/teams/${team}/contests/${cid}/tools` : `/admin/contests/${cid}/tools`)
+  }
+}
 
 // ---------------- 主页：时钟与倒计时 ----------------
 
@@ -433,11 +491,9 @@ async function openCell(row: Row, cell: BoardCell) {
     items: [],
   }
   try {
-    cellModal.value.items = await listContestCellAccepted(
-      String(route.params.id),
-      row.user_id,
-      cell.problem_id,
-    )
+    cellModal.value.items = await (teamId.value
+      ? listTeamContestCellAccepted(teamId.value, contestId.value, row.user_id, cell.problem_id)
+      : listContestCellAccepted(contestId.value, row.user_id, cell.problem_id))
   } catch (error) {
     cellModal.value.show = false
     message.error(error instanceof Error ? error.message : t('common.loadFailed'))
@@ -761,6 +817,19 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
                 >
                   {{ t('contests.detail.register') }}
                 </n-button>
+                <n-dropdown
+                  v-if="manageOptions.length"
+                  trigger="click"
+                  placement="bottom-end"
+                  :options="manageOptions"
+                  @select="onManageSelect"
+                >
+                  <n-button circle quaternary size="large" :aria-label="t('teams.detail.more')">
+                    <template #icon>
+                      <n-icon :component="MoreFilled" />
+                    </template>
+                  </n-button>
+                </n-dropdown>
               </div>
             </div>
           </div>

@@ -43,10 +43,12 @@ class ProblemSetRepository:
         viewer_id: uuid.UUID | None = None, mine: bool = False,
     ) -> tuple[list[ProblemSet], int]:
         """题单中心：仅 visibility=public 且 status=active 的全站题单；
-        mine=true（须登录）改为仅本人创建的未下线题单（含私有，题单中心「我的」勾选）。"""
+        mine=true（须登录）改为仅本人创建的未下线全站题单（含私有，题单中心「我的」勾选；
+        团队题单属封闭空间不进题单中心）。"""
         conditions = [ProblemSet.status == ProblemSetStatus.ACTIVE]
         if mine and viewer_id is not None:
             conditions.append(ProblemSet.owner_id == viewer_id)
+            conditions.append(ProblemSet.team_id.is_(None))
         else:
             conditions.append(ProblemSet.visibility == ProblemSetVisibility.PUBLIC)
         if keyword:
@@ -70,11 +72,17 @@ class ProblemSetRepository:
     async def list_all(
         self, *, page: int, page_size: int, keyword: str | None, status: str | None,
         owner_id: uuid.UUID | None = None,
+        ownership: str | None = None,
     ) -> tuple[list[ProblemSet], int]:
-        """管理视图题单：含私有与已下线；owner_id 非 None 时仅该创建者（单一所有权模型）。"""
+        """管理视图题单：含私有与已下线；owner_id 非 None 时仅该创建者（单一所有权模型）；
+        ownership 过滤来源：'solo'=全站题单（team_id IS NULL）/ 'team'=团队题单。"""
         conditions = []
         if owner_id is not None:
             conditions.append(ProblemSet.owner_id == owner_id)
+        if ownership == "solo":
+            conditions.append(ProblemSet.team_id.is_(None))
+        elif ownership == "team":
+            conditions.append(ProblemSet.team_id.is_not(None))
         if keyword:
             conditions.append(ProblemSet.title.ilike(f"%{keyword}%"))
         if status is not None:
@@ -104,10 +112,25 @@ class ProblemSetRepository:
         page: int = 1,
         page_size: int = 20,
         admin_view: bool = False,
+        is_team_manager: bool = False,
     ) -> tuple[list[ProblemSet], int]:
-        """团队题单列表（docs/contracts/teams.md 团队空间节）：默认仅未下线；管理视图可传 status。
-        admin_view=True 时不过滤状态（含已下线，status 显式传入仍按值过滤）。"""
+        """团队题单列表（docs/contracts/teams.md 团队空间节，可见性与团队题目对齐）：
+
+        - 成员视图：team_visible 且未下线（admin_visible 仅团队管理可见）
+        - 团队管理视图（创建者 / 管理员）：team_visible + admin_visible 均可见；
+          默认仅未下线；status 显式传入时按值过滤（团队管理视图）
+        - admin 管理视图（admin_view=True）：全部可见性 / 状态（含已下线）
+        """
         conditions: list = [ProblemSet.team_id == team_id]
+        if not admin_view:
+            if is_team_manager:
+                conditions.append(
+                    ProblemSet.visibility.in_(
+                        (ProblemSetVisibility.TEAM_VISIBLE, ProblemSetVisibility.ADMIN_VISIBLE)
+                    )
+                )
+            else:
+                conditions.append(ProblemSet.visibility == ProblemSetVisibility.TEAM_VISIBLE)
         if status:
             conditions.append(ProblemSet.status == status)
         elif not admin_view:
@@ -214,6 +237,7 @@ def to_summary(problem_set: ProblemSet, item_count: int) -> ProblemSetSummary:
         visibility=problem_set.visibility,
         status=problem_set.status,
         owner_id=problem_set.owner_id,
+        team_id=problem_set.team_id,
         item_count=item_count,
         referenced_at=problem_set.referenced_at,
         created_at=problem_set.created_at,

@@ -52,9 +52,7 @@ async function load() {
       page_size: pageSize.value,
       keyword: keyword.value || undefined,
     }
-    const result = mineOnly.value
-      ? await listMyTeams(query)
-      : await listTeams(query)
+    const result = mineOnly.value ? await listMyTeams(query) : await listTeams(query)
     list.value = result.items
     total.value = result.total
   } catch (error) {
@@ -112,10 +110,7 @@ onMounted(load)
       @reset="onSearch"
     >
       <template #actions>
-        <n-checkbox
-          :checked="mineOnly"
-          @update:checked="onToggleMine"
-        >
+        <n-checkbox :checked="mineOnly" @update:checked="onToggleMine">
           {{ t('teams.list.myTeams') }}
         </n-checkbox>
         <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />

@@ -5,10 +5,17 @@
 import { apiRequest } from './http'
 import { buildQuery } from '@/utils/query'
 import type {
+  Board,
   ContestCreatePayload,
+  ContestDetail,
+  ContestEditPayload,
+  ContestProblemItem,
+  ContestSubmissionItem,
   ContestSummary,
   PageResult,
   ProblemDetail,
+  ScoreboardShow,
+  Submission,
   ProblemSetDetail,
   ProblemSetItemsPayload,
   ProblemSetSummary,
@@ -34,9 +41,7 @@ export function createTeam(body: TeamUpsertPayload): Promise<TeamSummary> {
 }
 
 /** 团队中心列表：默认仅公开在册团队；mine=true 为「我的团队」勾选（须登录） */
-export function listTeams(
-  query: TeamListQuery = {},
-): Promise<PageResult<TeamSummary>> {
+export function listTeams(query: TeamListQuery = {}): Promise<PageResult<TeamSummary>> {
   return apiRequest('GET', `/teams${buildQuery(query)}`)
 }
 
@@ -272,4 +277,140 @@ export function createTeamContest(
   body: ContestCreatePayload,
 ): Promise<ContestSummary> {
   return apiRequest('POST', `/teams/${teamId}/contests`, body)
+}
+
+/** 团队比赛详情（团队上下文统一入口） */
+export function getTeamContest(teamId: string, contestId: string): Promise<ContestDetail> {
+  return apiRequest('GET', `/teams/${teamId}/contests/${contestId}`)
+}
+
+export function updateTeamContest(
+  teamId: string,
+  contestId: string,
+  body: ContestEditPayload,
+): Promise<ContestSummary> {
+  return apiRequest('PUT', `/teams/${teamId}/contests/${contestId}`, body)
+}
+
+export function registerTeamContest(teamId: string, contestId: string): Promise<null> {
+  return apiRequest('POST', `/teams/${teamId}/contests/${contestId}/register`)
+}
+
+export function listTeamContestProblems(
+  teamId: string,
+  contestId: string,
+): Promise<ContestProblemItem[]> {
+  return apiRequest('GET', `/teams/${teamId}/contests/${contestId}/problems`)
+}
+
+/** 团队比赛编排候选搜索（team_creator / team_admin） */
+export function searchTeamContestProblems(
+  teamId: string,
+  contestId: string,
+  query: { keyword?: string; page?: number; page_size?: number } = {},
+): Promise<PageResult<ContestProblemItem>> {
+  return apiRequest(
+    'GET',
+    `/teams/${teamId}/contests/${contestId}/problems/search${buildQuery(query)}`,
+  )
+}
+
+export function getTeamContestProblem(
+  teamId: string,
+  contestId: string,
+  problemId: string,
+): Promise<ProblemDetail> {
+  return apiRequest('GET', `/teams/${teamId}/contests/${contestId}/problems/${problemId}`)
+}
+
+export function createTeamContestSubmission(
+  teamId: string,
+  contestId: string,
+  problemId: string,
+  body: { language: string; code: string },
+): Promise<{ submission_id: string; status: string }> {
+  return apiRequest(
+    'POST',
+    `/teams/${teamId}/contests/${contestId}/problems/${problemId}/submissions`,
+    body,
+  )
+}
+
+export function getTeamContestBoard(teamId: string, contestId: string): Promise<Board> {
+  return apiRequest('GET', `/teams/${teamId}/contests/${contestId}/board`)
+}
+
+export function listTeamContestSubmissions(
+  teamId: string,
+  contestId: string,
+  query: {
+    page?: number
+    page_size?: number
+    keyword?: string
+    language?: string
+    status?: string
+    problem_id?: string
+  } = {},
+): Promise<PageResult<ContestSubmissionItem>> {
+  return apiRequest('GET', `/teams/${teamId}/contests/${contestId}/submissions${buildQuery(query)}`)
+}
+
+export function getTeamContestSubmission(
+  teamId: string,
+  contestId: string,
+  submissionId: string,
+): Promise<Submission> {
+  return apiRequest('GET', `/teams/${teamId}/contests/${contestId}/submissions/${submissionId}`)
+}
+
+export function listTeamContestCellAccepted(
+  teamId: string,
+  contestId: string,
+  userId: string,
+  problemId: string,
+): Promise<ContestSubmissionItem[]> {
+  return apiRequest(
+    'GET',
+    `/teams/${teamId}/contests/${contestId}/board/${userId}/${problemId}/accepted`,
+  )
+}
+
+export function unfreezeTeamContestBoard(
+  teamId: string,
+  contestId: string,
+): Promise<ContestSummary> {
+  return apiRequest('POST', `/teams/${teamId}/contests/${contestId}/unfreeze`)
+}
+
+export function updateTeamContestAnnouncement(
+  teamId: string,
+  contestId: string,
+  announcement: string,
+): Promise<ContestSummary> {
+  return apiRequest('PUT', `/teams/${teamId}/contests/${contestId}/announcement`, { announcement })
+}
+
+export function extendTeamContest(
+  teamId: string,
+  contestId: string,
+  endTime: string,
+): Promise<ContestSummary> {
+  return apiRequest('POST', `/teams/${teamId}/contests/${contestId}/extend`, { end_time: endTime })
+}
+
+export function updateTeamContestFreezeTime(
+  teamId: string,
+  contestId: string,
+  freezeTime: string | null,
+): Promise<ContestSummary> {
+  return apiRequest('PUT', `/teams/${teamId}/contests/${contestId}/freeze-time`, {
+    freeze_time: freezeTime,
+  })
+}
+
+export function getTeamContestScoreboardShow(
+  teamId: string,
+  contestId: string,
+): Promise<ScoreboardShow> {
+  return apiRequest('GET', `/teams/${teamId}/contests/${contestId}/scoreboard-show`)
 }

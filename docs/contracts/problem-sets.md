@@ -13,7 +13,7 @@
 | description | TEXT | NULL | 题单说明 |
 | team_id | UUID | NULL, FK → teams.id | 归属团队；NULL=全站题单，非 NULL=团队题单 |
 | owner_id | UUID | NOT NULL, FK → users.id | 创建者 |
-| visibility | VARCHAR(16) | NOT NULL DEFAULT 'public' | `public` / `private` / `team`；全站题单用 public/private，团队题单用 team |
+| visibility | VARCHAR(16) | NOT NULL DEFAULT 'public' | `public` / `private` / `team_visible` / `admin_visible`；全站题单用 public/private，团队题单用 team_visible（全队可见，原 `team` 值迁移 0032 更名）/ admin_visible（仅团队创建者与管理员可见） |
 | status | VARCHAR(16) | NOT NULL DEFAULT 'active' | `active` / `archived` |
 | referenced_at | TIMESTAMPTZ | NULL | 团队复制来源字段：非空 = 复制自本人全站题单的团队题单（复制时间，快照语义仅来源标记，见 teams.md 团队空间节）；团队直建 / 全站题单恒 NULL |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
@@ -44,8 +44,12 @@ CHECK (
 
 ## 数据所有权
 
-- 题单中心仅展示公开题单（`visibility='public'`、`team_id` 为空）
-- 团队题单仅在所属团队空间内展示（按 `team_id` 过滤），不进入题单中心；团队题单的
+- 题单中心仅展示公开题单（`visibility='public'`、`team_id` 为空）；「我的」勾选
+  （mine=true）为本人未下线的**全站**题单（团队题单属封闭空间不进题单中心）
+- 团队题单仅在所属团队空间内展示（按 `team_id` 过滤），不进入题单中心；可见性
+  `team_visible`（全队成员可见，缺省）/ `admin_visible`（仅团队创建者与管理员可见，
+  与团队题目 admin_visible 同门：列表 / 详情 / 题单内题目 / 交题 / 自测均对普通成员拦截）；
+  团队题单的
   创建 / 复制来源 / 编排 / 下线 / 详情浏览 / 题单内题目 / 交题 / 自测全部走
   teams.md 团队空间节独立端点（`/teams/{team_id}/problem-sets/...` 前缀，
   限界上下文隔离，不走本模块统一入口 `GET /problem-sets/{id}`）
@@ -65,7 +69,7 @@ CHECK (
 | GET | /problem-sets | public / auth | 题单中心列表：仅公开且未下线的全站题单；`mine=true`（题单中心「我的」勾选，须登录，匿名 401）改为仅本人未下线题单（含私有） | 分页/keyword/mine | problem_set[]（含 item_count） |
 | POST | /problem-sets | admin/tutor | 创建题单（team_id 为空；`visibility='team'` 随 teams 模块开放，当前返回 1001） | title/description?/visibility | problem_set |
 | GET | /problem-sets/{id} | public/owner | 题单详情：条目按 `sort_order` 展示，携带题目元信息（title / difficulty / time_limit_ms / memory_limit_mb）；登录请求条目带 `solved` 作答状态（`true`=已通过 / `false`=已尝试未通过 / `null`=未提交过，未登录恒 `null`，口径与题库列表一致）；私有 / 已下线题单仅创建者与管理角色可见（2003），`can_manage` 标记管理入口 | - | problem_set_detail |
-| GET | /admin/problem-sets | admin/tutor | 题单管理视图：admin 全量、tutor 仅本人创建（含私有与已下线），供管理后台编排维护 | 分页/keyword/status | problem_set[]（含 item_count） |
+| GET | /admin/problem-sets | admin/tutor | 题单管理视图：admin 全量、tutor 仅本人创建（含私有与已下线），供管理后台编排维护；`ownership` 过滤来源（`solo`=全站题单 / `team`=团队题单，非法值 1001）；列表项带 `team_id`（区分来源） | 分页/keyword/status/ownership | problem_set[]（含 item_count / team_id） |
 | GET | /problem-sets/{id}/problems/{pid} | public/owner | **题单内题目详情（统一入口）**：题单可见 + 题目属于该题单校验（题目不属于该题单 3001）后，返回与 `GET /problems/{id}` 完全一致的详情装配；题单上下文内前端只调本端点 | - | problem |
 | POST | /problem-sets/{id}/problems/{pid}/submissions | auth | 题单内交题：题单须可见（私有 / 已下线按可见性拦截 2003）、题目必须属于该题单（否则 3001）；落库 / 派发 / 计分与 `POST /submissions` 完全一致（`submit_type='practice'`） | language/code（≤64KB） | submission_id / status |
 | PUT | /problem-sets/{id} | admin/tutor | 编辑题单元信息（title / description / visibility，缺省不动） | title?/description?/visibility? | problem_set |

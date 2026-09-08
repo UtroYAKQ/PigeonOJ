@@ -6,6 +6,7 @@
 import { apiRequest } from './http'
 import { buildQuery } from '@/utils/query'
 import type {
+  AdminProblemSetListQuery,
   AdminTeamListQuery,
   AdminUserQuery,
   ConfigCategory,
@@ -15,7 +16,6 @@ import type {
   LogQuery,
   LogType,
   PageResult,
-  ProblemSetListQuery,
   ProblemSetSummary,
   ProblemTagItem,
   Report,
@@ -36,10 +36,8 @@ export function adminListContests(query: ContestListQuery = {}) {
   return apiRequest<PageResult<ContestSummary>>('GET', `/admin/contests${buildQuery(query)}`)
 }
 
-/** GET /admin/problem-sets — 题单管理视图（admin 全量、tutor 仅本人创建，含私有与已下线） */
-export function adminListProblemSets(
-  query: ProblemSetListQuery & { status?: 'active' | 'archived' } = {},
-) {
+/** GET /admin/problem-sets — 题单管理视图（admin 全量、tutor 仅本人创建，含私有与已下线；ownership 过滤来源） */
+export function adminListProblemSets(query: AdminProblemSetListQuery = {}) {
   return apiRequest<PageResult<ProblemSetSummary>>('GET', `/admin/problem-sets${buildQuery(query)}`)
 }
 

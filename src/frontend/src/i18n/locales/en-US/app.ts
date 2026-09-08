@@ -58,6 +58,8 @@
     imageTooLarge: 'Image must be no larger than 5MB',
     imageUploadFailed: 'Image upload failed. Please try again later.',
     success: 'Success',
+    copied: 'Copied to clipboard',
+    copyFailed: 'Copy failed. Please copy manually.',
     yes: 'Yes',
     no: 'No',
   },

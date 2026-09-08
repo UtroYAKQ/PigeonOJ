@@ -156,6 +156,7 @@
   const SPEEDS = [1, 2, 4]
   const params = new URLSearchParams(location.search)
   const contestId = params.get('contest_id')
+  const teamId = params.get('team_id')
 
   const $ = (id) => document.getElementById(id)
   const state = {
@@ -365,7 +366,11 @@
       return
     }
     try {
-      const data = await api(`/contests/${contestId}/scoreboard-show`)
+      const data = await api(
+        teamId
+          ? `/teams/${teamId}/contests/${contestId}/scoreboard-show`
+          : `/contests/${contestId}/scoreboard-show`,
+      )
       state.data = data
       $('title').textContent = data.title
       $('rule').textContent = data.rule_type

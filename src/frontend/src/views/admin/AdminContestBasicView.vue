@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
  * 比赛向导 · 步骤 1 基本信息（标题 / 头像 / 说明 / 赛制 / 时间 / 封榜）。
- * 新建：/admin/contests/create；编辑：/admin/contests/:cid/edit/basic。
+ * 管理后台：/admin/contests/create、/admin/contests/:cid/edit/basic；
+ * 团队空间：/teams/:teamId/contests/:cid/edit/basic（数据走团队端点）。
  * 「保存并下一步」持久化后进入编排题目页（新建用 replace 防止后退重复建赛）。
- * 赛时调整（公告 / 解榜 / 滚榜）在赛时工具页 /admin/contests/:cid/tools——
- * 比赛开始后结构性字段被后端守卫锁定（docs/contracts/contests.md「状态守卫与赛时工具」）。
+ * 赛时调整（公告 / 解榜 / 滚榜）在赛时工具页——比赛开始后结构性字段被后端守卫锁定。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -13,6 +13,7 @@ import { InfoFilled } from '@element-plus/icons-vue'
 import type { FormInst, FormRules } from 'naive-ui'
 
 import { createContest, getContest, updateContest } from '@/api/contests'
+import { getTeamContest, updateTeamContest } from '@/api/teams'
 import { uploadImage } from '@/api/files'
 import { message } from '@/utils/feedback'
 import WizardShell from '@/components/WizardShell.vue'
@@ -24,6 +25,13 @@ const router = useRouter()
 const { t } = useI18n()
 
 const editingId = computed(() => (route.params.cid ? String(route.params.cid) : null))
+const teamId = computed(() => (route.params.teamId ? String(route.params.teamId) : null))
+const listPath = computed(() => (teamId.value ? `/teams/${teamId.value}` : '/admin/contests'))
+function arrangePath(id: string) {
+  return teamId.value
+    ? `/teams/${teamId.value}/contests/${id}/edit/problems`
+    : `/admin/contests/${id}/edit/problems`
+}
 const loading = ref(false)
 const saving = ref(false)
 const uploadingLogo = ref(false)
@@ -50,7 +58,9 @@ onMounted(async () => {
   if (!editingId.value) return
   loading.value = true
   try {
-    const detail: ContestDetail = await getContest(editingId.value)
+    const detail: ContestDetail = await (teamId.value
+      ? getTeamContest(teamId.value, editingId.value)
+      : getContest(editingId.value))
     form.title = detail.title
     form.description = detail.description ?? ''
     form.logo = detail.logo ?? ''
@@ -62,7 +72,7 @@ onMounted(async () => {
     form.freezeAt = detail.freeze_time ? new Date(detail.freeze_time).getTime() : null
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.loadFailed'))
-    router.push('/admin/contests')
+    router.push(listPath.value)
   } finally {
     loading.value = false
   }
@@ -131,13 +141,15 @@ async function goNext() {
     let targetId: string
     if (editingId.value) {
       targetId = editingId.value
-      await updateContest(targetId, meta)
+      await (teamId.value
+        ? updateTeamContest(teamId.value, targetId, meta)
+        : updateContest(targetId, meta))
     } else {
       const created = await createContest({ ...meta, problems: [] })
       targetId = created.id
     }
     message.success(t('common.success'))
-    const target = `/admin/contests/${targetId}/edit/problems`
+    const target = arrangePath(targetId)
     await (editingId.value ? router.push(target) : router.replace(target))
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.saveFailed'))
@@ -147,7 +159,7 @@ async function goNext() {
 }
 
 function cancelWizard() {
-  router.push('/admin/contests')
+  router.push(listPath.value)
 }
 </script>
 

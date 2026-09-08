@@ -145,12 +145,15 @@ class ProblemSetService:
         return [to_summary(row, counts.get(row.id, 0)) for row in rows], total
 
     async def list_manage(
-        self, *, user: User, page: int, page_size: int, keyword: str | None, status: str | None
+        self, *, user: User, page: int, page_size: int, keyword: str | None,
+        status: str | None, ownership: str | None = None,
     ) -> tuple[list[ProblemSetSummary], int]:
-        """管理视图：admin 全量题单；tutor 仅本人创建（单一所有权模型），含私有与已下线。"""
+        """管理视图：admin 全量题单；tutor 仅本人创建（单一所有权模型），含私有与已下线；
+        ownership 过滤来源（solo=全站题单 / team=团队题单）。"""
         owner_id = None if await is_admin(self.db, user) else user.id
         rows, total = await self.repo.list_all(
-            page=page, page_size=page_size, keyword=keyword, status=status, owner_id=owner_id
+            page=page, page_size=page_size, keyword=keyword, status=status,
+            owner_id=owner_id, ownership=ownership,
         )
         counts = await self.repo.count_items([row.id for row in rows])
         return [to_summary(row, counts.get(row.id, 0)) for row in rows], total
@@ -219,7 +222,7 @@ class ProblemSetService:
         if body.visibility is not None and body.visibility != problem_set.visibility:
             if problem_set.team_id is not None:
                 raise APIError(PARAM_FORMAT_INVALID, "团队题单可见性不可修改", 400)
-            if body.visibility == ProblemSetVisibility.TEAM:
+            if body.visibility in (ProblemSetVisibility.TEAM_VISIBLE, ProblemSetVisibility.ADMIN_VISIBLE):
                 raise APIError(PARAM_FORMAT_INVALID, "团队题单随 teams 模块开放", 400)
             problem_set.visibility = body.visibility
         await self.db.flush()

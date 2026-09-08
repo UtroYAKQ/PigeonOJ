@@ -12,6 +12,7 @@ import type { DataTableColumns } from 'naive-ui'
 
 import { useTimeoutFn } from '@vueuse/core'
 import { getContestSubmission } from '@/api/contests'
+import { getTeamContestSubmission } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import RefreshButton from '@/components/RefreshButton.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -45,10 +46,13 @@ const statusLabel = computed(() => t(`problems.status.${submission.value?.status
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
-    submission.value = await getContestSubmission(
-      String(route.params.cid),
-      String(route.params.sid),
-    )
+    submission.value = await (route.params.teamId
+      ? getTeamContestSubmission(
+          String(route.params.teamId),
+          String(route.params.cid),
+          String(route.params.sid),
+        )
+      : getContestSubmission(String(route.params.cid), String(route.params.sid)))
     if (isRunning.value && !pollingStopped.value && pageActive.value) {
       pollCount.value += 1
       scheduleNextPoll.start()

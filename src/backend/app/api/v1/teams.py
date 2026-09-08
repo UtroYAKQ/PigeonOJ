@@ -12,17 +12,20 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import (
     SelfTestServiceDep,
     SessionDep,
+    SubmissionServiceDep,
     TeamServiceDep,
     TeamSpaceServiceDep,
 )
 from app.core.dependency import get_current_user, get_optional_user
 from app.core.exceptions import PARAM_FORMAT_INVALID, APIError
+from app.enums import SubmissionStatus
 from app.models.user import User
 from app.rpc.judge_gateway import dispatch_submission, dispatch_run_code
 from app.schemas.judge import (
     SelfTestRequest,
     SelfTestResultOut,
     SubmissionCreatedResponse,
+    SubmissionDetailOut,
 )
 from app.schemas.problem import ProblemDetail, ProblemUpdate
 from app.schemas.problem_set import (
@@ -46,7 +49,17 @@ from app.schemas.team import (
     TeamSummary,
     TeamUpdate,
 )
-from app.schemas.contest import ContestSummary
+from app.schemas.contest import (
+    AnnouncementUpdate,
+    BoardOut,
+    ContestDetail,
+    ContestExtend,
+    ContestSubmissionItem,
+    ContestSummary,
+    ContestUpdate,
+    FreezeTimeUpdate,
+    ScoreboardShowOut,
+)
 from app.schemas.problem import TeamProblemSummary
 from app.schemas.problem_set import ProblemSetSummary
 from app.rpc.judge_gateway import GatewayUnavailableError, GatewayBusyError, GatewayTimeoutError
@@ -465,7 +478,8 @@ async def create_team_problem_set(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSetSummary]:
-    """创建团队题单（team_creator / team_admin；visibility='team'，仅团队空间可见）。
+    """创建团队题单（team_creator / team_admin；visibility 与团队题目对齐：
+    team_visible 全队可见（缺省）/ admin_visible 仅团队管理）。
 
     copy_items_from 非空 = 复制本人全站题单条目（快照复制，源题单保留在全站）。
     """
@@ -516,7 +530,8 @@ async def get_team_problem_set(
     service: TeamSpaceServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSetDetail]:
-    """团队题单详情（团队上下文统一入口）：成员门 + 归属校验后复用题单详情装配。"""
+    """团队题单详情（团队上下文统一入口）：成员门 + 归属校验 + 可见性门
+    （admin_visible 仅团队管理）后复用题单详情装配。"""
     return ok(await service.get_set_detail(user, team_id, set_id))
 
 
@@ -635,3 +650,261 @@ async def create_team_contest(
     summary = await service.create_contest(user, team_id, body)
     await db.commit()
     return ok(summary)
+
+
+# ---- 团队比赛上下文（限界上下文：详情 / 报名 / 题目 / 交题 / 榜单 / 提交走团队端点） ----
+
+
+@router.get("/{team_id}/contests/{contest_id}", response_model=ApiResponse[ContestDetail])
+async def get_team_contest(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ContestDetail]:
+    """团队比赛详情（团队上下文统一入口）：成员门 + 归属校验后复用比赛详情装配。"""
+    return ok(await service.get_contest_detail(user, team_id, contest_id))
+
+
+@router.put("/{team_id}/contests/{contest_id}", response_model=ApiResponse[ContestSummary])
+async def update_team_contest(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    body: ContestUpdate,
+    service: TeamSpaceServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ContestSummary]:
+    """编辑团队比赛（team_creator / team_admin）。"""
+    summary = await service.update_contest(user, team_id, contest_id, body)
+    await db.commit()
+    return ok(summary)
+
+
+@router.post("/{team_id}/contests/{contest_id}/register", response_model=ApiResponse[None])
+async def register_team_contest(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[None]:
+    """团队比赛报名（成员门 + 归属校验后走比赛报名，叠加团队成员校验）。"""
+    await service.register_contest(user, team_id, contest_id)
+    await db.commit()
+    return ok(None)
+
+
+@router.get("/{team_id}/contests/{contest_id}/problems", response_model=ApiResponse[list])
+async def list_team_contest_problems(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[list]:
+    return ok(await service.list_contest_problems(user, team_id, contest_id))
+
+
+@router.get(
+    "/{team_id}/contests/{contest_id}/problems/search",
+    response_model=ApiResponse[PaginatedResponse],
+)
+async def search_team_contest_problems(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=128),
+    user: User = Depends(get_current_user),
+) -> ApiResponse[PaginatedResponse]:
+    rows, total = await service.search_contest_problems(
+        user, team_id, contest_id, keyword=keyword, page=page, page_size=page_size
+    )
+    return ok(PaginatedResponse(items=rows, total=total, page=page, page_size=page_size))
+
+
+@router.get(
+    "/{team_id}/contests/{contest_id}/problems/{problem_id}",
+    response_model=ApiResponse[ProblemDetail],
+)
+async def get_team_contest_problem(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    problem_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ProblemDetail]:
+    return ok(await service.get_contest_problem_detail(user, team_id, contest_id, problem_id))
+
+
+@router.post(
+    "/{team_id}/contests/{contest_id}/problems/{problem_id}/submissions",
+    response_model=ApiResponse[SubmissionCreatedResponse],
+)
+async def create_team_contest_submission(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    problem_id: uuid.UUID,
+    body: ProblemSetSubmissionCreate,
+    service: TeamSpaceServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[SubmissionCreatedResponse]:
+    submission, _after = await service.submit_contest_problem(
+        user, team_id, contest_id, problem_id, language=body.language, code=body.code
+    )
+    await db.commit()
+    await dispatch_submission(submission.id)
+    return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
+
+
+@router.get("/{team_id}/contests/{contest_id}/board", response_model=ApiResponse[BoardOut])
+async def get_team_contest_board(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[BoardOut]:
+    return ok(await service.get_contest_board(user, team_id, contest_id))
+
+
+@router.get(
+    "/{team_id}/contests/{contest_id}/board/{cell_user_id}/{problem_id}/accepted",
+    response_model=ApiResponse[list[ContestSubmissionItem]],
+)
+async def list_team_contest_cell_accepted(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    cell_user_id: uuid.UUID,
+    problem_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[list[ContestSubmissionItem]]:
+    return ok(
+        await service.list_contest_cell_accepted(
+            user, team_id, contest_id, cell_user_id, problem_id
+        )
+    )
+
+
+@router.get(
+    "/{team_id}/contests/{contest_id}/submissions",
+    response_model=ApiResponse[PaginatedResponse[ContestSubmissionItem]],
+)
+async def list_team_contest_submissions(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=64),
+    language: str | None = Query(default=None, max_length=32),
+    status: str | None = Query(default=None),
+    problem_id: uuid.UUID | None = Query(default=None),
+    user: User = Depends(get_current_user),
+) -> ApiResponse[PaginatedResponse[ContestSubmissionItem]]:
+    try:
+        status_value = SubmissionStatus(status) if status else None
+    except ValueError as exc:
+        raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
+    items, total = await service.list_contest_submissions(
+        user, team_id, contest_id, page=page, page_size=page_size,
+        keyword=keyword, language=language, status=status_value, problem_id=problem_id,
+    )
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.get(
+    "/{team_id}/contests/{contest_id}/submissions/{submission_id}",
+    response_model=ApiResponse[SubmissionDetailOut],
+)
+async def get_team_contest_submission(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    submission_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    submission_service: SubmissionServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[SubmissionDetailOut]:
+    submission = await service.get_contest_submission(user, team_id, contest_id, submission_id)
+    return ok(await submission_service.build_detail(submission))
+
+
+@router.post(
+    "/{team_id}/contests/{contest_id}/unfreeze", response_model=ApiResponse[ContestSummary]
+)
+async def unfreeze_team_contest_board(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ContestSummary]:
+    summary = await service.unfreeze_contest(user, team_id, contest_id)
+    await db.commit()
+    await service.contests.invalidate_board_cache(contest_id)
+    return ok(summary)
+
+
+@router.put(
+    "/{team_id}/contests/{contest_id}/announcement", response_model=ApiResponse[ContestSummary]
+)
+async def update_team_contest_announcement(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    body: AnnouncementUpdate,
+    service: TeamSpaceServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ContestSummary]:
+    summary = await service.update_contest_announcement(user, team_id, contest_id, body)
+    await db.commit()
+    return ok(summary)
+
+
+@router.post(
+    "/{team_id}/contests/{contest_id}/extend", response_model=ApiResponse[ContestSummary]
+)
+async def extend_team_contest(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    body: ContestExtend,
+    service: TeamSpaceServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ContestSummary]:
+    summary = await service.extend_contest(user, team_id, contest_id, body)
+    await db.commit()
+    return ok(summary)
+
+
+@router.put(
+    "/{team_id}/contests/{contest_id}/freeze-time", response_model=ApiResponse[ContestSummary]
+)
+async def update_team_contest_freeze_time(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    body: FreezeTimeUpdate,
+    service: TeamSpaceServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ContestSummary]:
+    summary = await service.update_contest_freeze_time(user, team_id, contest_id, body)
+    await db.commit()
+    if summary.board_frozen:
+        await service.contests.invalidate_board_cache(contest_id)
+    return ok(summary)
+
+
+@router.get(
+    "/{team_id}/contests/{contest_id}/scoreboard-show",
+    response_model=ApiResponse[ScoreboardShowOut],
+)
+async def get_team_contest_scoreboard_show(
+    team_id: uuid.UUID,
+    contest_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ScoreboardShowOut]:
+    return ok(await service.get_contest_scoreboard_show(user, team_id, contest_id))

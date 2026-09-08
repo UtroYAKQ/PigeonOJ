@@ -45,7 +45,8 @@ onMounted(async () => {
     const detail: ProblemSetDetail = await getProblemSet(setId.value!)
     form.title = detail.title
     form.description = detail.description ?? ''
-    form.visibility = detail.visibility === 'team' ? 'public' : detail.visibility
+    // 全站题单仅 public/private；团队分支值不会出现在管理端点，防御性兜底为 public
+    form.visibility = detail.visibility === 'public' ? 'public' : 'private'
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.loadFailed'))
     router.push('/admin/problem-sets')

@@ -18,7 +18,7 @@ class ProblemSetCreate(BaseModel):
 
     @model_validator(mode="after")
     def check_visibility(self) -> ProblemSetCreate:
-        if self.visibility == ProblemSetVisibility.TEAM:
+        if self.visibility in (ProblemSetVisibility.TEAM_VISIBLE, ProblemSetVisibility.ADMIN_VISIBLE):
             raise ValueError("团队题单随 teams 模块开放")
         return self
 
@@ -34,7 +34,7 @@ class ProblemSetUpdate(BaseModel):
 
     @model_validator(mode="after")
     def check_visibility(self) -> ProblemSetUpdate:
-        if self.visibility == ProblemSetVisibility.TEAM:
+        if self.visibility in (ProblemSetVisibility.TEAM_VISIBLE, ProblemSetVisibility.ADMIN_VISIBLE):
             raise ValueError("团队题单随 teams 模块开放")
         return self
 
@@ -79,6 +79,8 @@ class ProblemSetSummary(BaseModel):
     visibility: ProblemSetVisibility
     status: ProblemSetStatus
     owner_id: uuid.UUID
+    # 归属团队（管理视图区分全站题单 / 团队题单用；题单中心恒 NULL）
+    team_id: uuid.UUID | None = None
     item_count: int = 0
     # 引用时间（非空 = 经团队引用进入团队题单；团队自建 / 全站题单恒 NULL）
     referenced_at: datetime | None = None

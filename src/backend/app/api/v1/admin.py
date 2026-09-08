@@ -42,6 +42,7 @@ from app.schemas.problem_set import ProblemSetSummary
 from app.schemas.team import TeamAdminDetail, TeamAdminSummary, TeamMemberOut
 from app.schemas.user import UserPublic
 from app.core.dependency import get_current_admin, get_current_user
+from app.core.exceptions import APIError, PARAM_FORMAT_INVALID
 from app.utils.pagination import PaginatedResponse
 from app.utils.response import ApiResponse, ok
 
@@ -280,12 +281,17 @@ async def admin_list_problem_sets(
     page_size: int = Query(default=20, ge=1, le=100),
     keyword: str | None = Query(default=None, max_length=128),
     status: ProblemSetStatus | None = Query(default=None),
+    ownership: str | None = Query(default=None),
     user: User = Depends(get_current_user),
 ) -> ApiResponse[PaginatedResponse[ProblemSetSummary]]:
-    """题单管理视图：admin 全量；其余管理角色仅本人创建（单一所有权模型）。"""
+    """题单管理视图：admin 全量；其余管理角色仅本人创建（单一所有权模型）；
+    ownership 过滤来源：solo=全站题单 / team=团队题单（非法值 1001）。"""
+    if ownership not in (None, "solo", "team"):
+        raise APIError(PARAM_FORMAT_INVALID, "ownership 参数不合法", 400)
     await service.require_manager(user)
     rows, total = await service.list_manage(
-        user=user, page=page, page_size=page_size, keyword=keyword, status=status
+        user=user, page=page, page_size=page_size, keyword=keyword, status=status,
+        ownership=ownership,
     )
     return ok(PaginatedResponse(items=rows, total=total, page=page, page_size=page_size))
 

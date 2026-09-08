@@ -44,7 +44,19 @@ from app.models.problem_set import ProblemSet, ProblemSetItem
 from app.models.user import User
 from app.repositories.problem import ProblemRepository
 from app.repositories.problem_set import ProblemSetRepository, to_summary as set_to_summary
-from app.schemas.contest import ContestSummary
+from app.enums import SubmissionStatus
+from app.models.contest import Contest
+from app.schemas.contest import (
+    AnnouncementUpdate,
+    BoardOut,
+    ContestDetail,
+    ContestExtend,
+    ContestSubmissionItem,
+    ContestSummary,
+    ContestUpdate,
+    FreezeTimeUpdate,
+    ScoreboardShowOut,
+)
 from app.schemas.judge import SubmissionCreate
 from app.schemas.problem import ProblemDetail, ProblemUpdate, TeamProblemSummary
 from app.schemas.problem_set import ProblemSetSummary
@@ -283,10 +295,16 @@ class TeamSpaceService:
         page: int,
         page_size: int,
     ) -> tuple[list[ProblemSetSummary], int]:
-        """团队题单列表：默认仅未下线（status 显式传入时按值过滤，团队管理视图）。"""
+        """团队题单列表（可见性与团队题目对齐）：成员仅见 team_visible 且未下线；
+        团队管理另见 admin_visible（status 显式传入时按值过滤，团队管理视图）。"""
         await self.require_member(user, team_id)
         rows, total = await self.set_repo.list_team(
-            team_id, keyword=keyword, status=status, page=page, page_size=page_size
+            team_id,
+            keyword=keyword,
+            status=status,
+            page=page,
+            page_size=page_size,
+            is_team_manager=await self._is_team_manager(user, team_id),
         )
         counts = await self.set_repo.count_items([row.id for row in rows])
         return [set_to_summary(row, counts.get(row.id, 0)) for row in rows], total
@@ -294,7 +312,8 @@ class TeamSpaceService:
     async def create_problem_set(
         self, user: User, team_id: uuid.UUID, body: TeamProblemSetCreate
     ) -> ProblemSetSummary:
-        """创建团队题单（team_creator / team_admin；visibility='team'，仅团队空间可见）。
+        """创建团队题单（team_creator / team_admin；visibility 与团队题目对齐：
+        team_visible 全队可见（缺省）/ admin_visible 仅团队管理，仅团队空间可见）。
 
         copy_items_from 非空 = 复制本人全站题单的题目条目（快照复制语义，与题目引用一致）：
         - 源题单须存在、未下线、为全站题单（team_id IS NULL）且为本人创建（admin 同权）
@@ -307,7 +326,7 @@ class TeamSpaceService:
                 description=body.description,
                 owner_id=user.id,
                 team_id=team_id,
-                visibility=ProblemSetVisibility.TEAM,
+                visibility=body.visibility,
                 status=ProblemSetStatus.ACTIVE,
                 # 复制来源标记（referenced_at 语义随复制语义沿用：非空 = 复制自本人全站题单）
                 referenced_at=_now() if body.copy_items_from is not None else None,
@@ -347,20 +366,34 @@ class TeamSpaceService:
             raise APIError(RESOURCE_NOT_FOUND, "题单不在该团队中", 404)
         return problem_set
 
+    async def _require_set_visible(
+        self, user: User, team_id: uuid.UUID, problem_set: ProblemSet
+    ) -> None:
+        """admin_visible 团队题单仅团队创建者 / 管理员可见（与团队题目 admin_visible 同门）。"""
+        if (
+            ProblemSetVisibility(problem_set.visibility) == ProblemSetVisibility.ADMIN_VISIBLE
+            and not await self._is_team_manager(user, team_id)
+        ):
+            raise APIError(AUTH_FORBIDDEN, "无权限查看该题单", 403)
+
     async def get_set_detail(self, user: User, team_id: uuid.UUID, set_id: uuid.UUID) -> object:
-        """团队题单详情（团队上下文统一入口）：成员门 + 归属校验后复用题单详情装配
+        """团队题单详情（团队上下文统一入口）：成员门 + 归属校验 + 可见性门
+        （admin_visible 仅团队管理）后复用题单详情装配
         （条目按 sort_order、作答状态、owner_name）；不再走 /problem-sets/{id} 统一端点。"""
         await self.require_member(user, team_id)
         problem_set = await self._team_set_or_404(team_id, set_id)
+        await self._require_set_visible(user, team_id, problem_set)
         return await self.set_service.get_detail_for_team(problem_set, user)
 
     async def get_set_problem_detail(
         self, user: User, team_id: uuid.UUID, set_id: uuid.UUID, problem_id: uuid.UUID
     ) -> ProblemDetail:
         """团队题单内题目详情（团队上下文统一入口）：成员门 + 归属校验
-        （题目属于该题单）后复用题库详情装配（私有题豁免同题单统一端点口径）。"""
+        （题目属于该题单）+ 可见性门（admin_visible 仅团队管理）后复用题库详情装配
+        （私有题豁免同题单统一端点口径）。"""
         await self.require_member(user, team_id)
         problem_set = await self._team_set_or_404(team_id, set_id)
+        await self._require_set_visible(user, team_id, problem_set)
         if await self.set_repo.get_item(problem_set.id, problem_id) is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不在该题单中", 404)
         detail = await self.problems.get_detail(problem_id, user, bypass_visibility=True)
@@ -380,6 +413,7 @@ class TeamSpaceService:
         （submit_type='practice'；派发由路由层 commit 后执行）。"""
         await self.require_member(user, team_id)
         problem_set = await self._team_set_or_404(team_id, set_id)
+        await self._require_set_visible(user, team_id, problem_set)
         if await self.set_repo.get_item(problem_set.id, problem_id) is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不在该题单中", 404)
         problem = await self.problem_repo.get_by_id(problem_id)
@@ -496,10 +530,154 @@ class TeamSpaceService:
         """创建团队比赛（team_creator / team_admin；contest_type='team'）。
 
         编排候选在公开比赛规则（已发布公开 / 本人私有）之上放开本团队题目；
-        报名 / 看题 / 交题窗口复用比赛统一端点（团队比赛报名叠加团队成员校验）。
+        详情 / 报名 / 看题 / 交题走团队上下文端点（归属校验后复用比赛装配）。
         """
         await self.require_manager(user, team_id)
         return await self.contests.create_team_contest(user, team_id, body)
+
+    async def _team_contest_or_404(self, team_id: uuid.UUID, contest_id: uuid.UUID) -> Contest:
+        contest = await self.contests.repo.get_by_id(contest_id)
+        if contest is None or contest.team_id != team_id:
+            raise APIError(RESOURCE_NOT_FOUND, "比赛不在该团队中", 404)
+        return contest
+
+    async def require_team_contest(
+        self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID, *, manager: bool = False
+    ) -> Contest:
+        """团队比赛上下文门：成员（或管理员）+ 归属校验。"""
+        if manager:
+            await self.require_manager(user, team_id)
+        else:
+            await self.require_member(user, team_id)
+        return await self._team_contest_or_404(team_id, contest_id)
+
+    async def get_contest_detail(
+        self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID
+    ) -> ContestDetail:
+        await self.require_team_contest(user, team_id, contest_id)
+        return await self.contests.get_detail(contest_id, user)
+
+    async def register_contest(self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID) -> None:
+        await self.require_team_contest(user, team_id, contest_id)
+        await self.contests.register(user, contest_id)
+
+    async def list_contest_problems(self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID):
+        await self.require_team_contest(user, team_id, contest_id)
+        return await self.contests.list_problems(user, contest_id)
+
+    async def search_contest_problems(
+        self,
+        user: User,
+        team_id: uuid.UUID,
+        contest_id: uuid.UUID,
+        *,
+        keyword: str | None,
+        page: int,
+        page_size: int,
+    ):
+        await self.require_team_contest(user, team_id, contest_id, manager=True)
+        return await self.contests.search_arrangeable_problems(
+            user, contest_id=contest_id, keyword=keyword, page=page, page_size=page_size
+        )
+
+    async def get_contest_problem_detail(
+        self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID, problem_id: uuid.UUID
+    ) -> ProblemDetail:
+        await self.require_team_contest(user, team_id, contest_id)
+        return await self.contests.get_problem_detail(user, contest_id, problem_id)
+
+    async def submit_contest_problem(
+        self,
+        user: User,
+        team_id: uuid.UUID,
+        contest_id: uuid.UUID,
+        problem_id: uuid.UUID,
+        *,
+        language: str,
+        code: str,
+    ):
+        await self.require_team_contest(user, team_id, contest_id)
+        return await self.contests.submit_problem(
+            user, contest_id, problem_id, language=language, code=code
+        )
+
+    async def get_contest_board(
+        self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID
+    ) -> BoardOut:
+        await self.require_team_contest(user, team_id, contest_id)
+        return await self.contests.board(contest_id, user)
+
+    async def list_contest_cell_accepted(
+        self,
+        user: User,
+        team_id: uuid.UUID,
+        contest_id: uuid.UUID,
+        cell_user_id: uuid.UUID,
+        problem_id: uuid.UUID,
+    ) -> list[ContestSubmissionItem]:
+        await self.require_team_contest(user, team_id, contest_id)
+        return await self.contests.cell_submissions(user, contest_id, cell_user_id, problem_id)
+
+    async def list_contest_submissions(
+        self,
+        user: User,
+        team_id: uuid.UUID,
+        contest_id: uuid.UUID,
+        *,
+        page: int,
+        page_size: int,
+        keyword: str | None,
+        language: str | None,
+        status: SubmissionStatus | None,
+        problem_id: uuid.UUID | None,
+    ):
+        await self.require_team_contest(user, team_id, contest_id)
+        return await self.contests.list_submissions(
+            user, contest_id, page=page, page_size=page_size,
+            keyword=keyword, language=language, status=status, problem_id=problem_id,
+        )
+
+    async def get_contest_submission(
+        self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID, submission_id: uuid.UUID
+    ):
+        await self.require_team_contest(user, team_id, contest_id)
+        return await self.contests.get_visible_submission(user, contest_id, submission_id)
+
+    async def update_contest(
+        self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID, body: ContestUpdate
+    ) -> ContestSummary:
+        await self.require_team_contest(user, team_id, contest_id, manager=True)
+        return await self.contests.update(contest_id, user, body)
+
+    async def unfreeze_contest(
+        self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID
+    ) -> ContestSummary:
+        await self.require_team_contest(user, team_id, contest_id, manager=True)
+        return await self.contests.unfreeze(user, contest_id)
+
+    async def update_contest_announcement(
+        self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID, body: AnnouncementUpdate
+    ) -> ContestSummary:
+        await self.require_team_contest(user, team_id, contest_id, manager=True)
+        return await self.contests.update_announcement(user, contest_id, body)
+
+    async def extend_contest(
+        self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID, body: ContestExtend
+    ) -> ContestSummary:
+        await self.require_team_contest(user, team_id, contest_id, manager=True)
+        return await self.contests.extend(user, contest_id, body)
+
+    async def update_contest_freeze_time(
+        self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID, body: FreezeTimeUpdate
+    ) -> ContestSummary:
+        await self.require_team_contest(user, team_id, contest_id, manager=True)
+        return await self.contests.update_freeze_time(user, contest_id, body)
+
+    async def get_contest_scoreboard_show(
+        self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID
+    ) -> ScoreboardShowOut:
+        await self.require_team_contest(user, team_id, contest_id, manager=True)
+        return await self.contests.scoreboard_show(user, contest_id)
 
     # ---------------- 管理端只读视图（admin，免团队成员校验；docs/contracts/teams.md 管理端） ----------------
 

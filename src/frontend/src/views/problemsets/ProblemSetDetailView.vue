@@ -20,6 +20,7 @@ import { getTeamProblemSet } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import { renderSolveMark } from '@/utils/solveMark'
 import { formatDateTime } from '@/utils/format'
+import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/visibilityLabel'
 import type { ProblemSetDetail, ProblemSetItem } from '@/types'
 
 const route = useRoute()
@@ -128,15 +129,9 @@ function rowKey(row: ProblemSetItem) {
             <n-tag
               size="small"
               :bordered="false"
-              :type="detail.visibility === 'public' ? 'info' : 'error'"
+              :type="problemSetVisibilityTagType(detail.visibility)"
             >
-              {{
-                t(
-                  detail.visibility === 'public'
-                    ? 'problemSets.list.visibilityPublic'
-                    : 'problemSets.list.visibilityPrivate',
-                )
-              }}
+              {{ t(problemSetVisibilityKey(detail.visibility)) }}
             </n-tag>
             <n-tag v-if="detail.status === 'archived'" type="warning" size="small">
               {{ t('problemSets.detail.archived') }}
@@ -214,7 +209,11 @@ function rowKey(row: ProblemSetItem) {
                 :row-props="rowProps"
                 :row-key="rowKey"
               />
-              <n-empty v-show="!detail.items.length" size="large" :description="t('problemSets.detail.empty')" />
+              <n-empty
+                v-show="!detail.items.length"
+                size="large"
+                :description="t('problemSets.detail.empty')"
+              />
             </div>
           </n-tab-pane>
         </n-tabs>

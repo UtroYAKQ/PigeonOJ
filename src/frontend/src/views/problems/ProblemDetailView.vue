@@ -8,6 +8,7 @@ import { createSubmission, listSubmissions } from '@/api/judge'
 import { getProblem } from '@/api/problems'
 import { createProblemSetSubmission, getProblemSetProblem } from '@/api/problemSets'
 import { createContestSubmission, getContestProblem } from '@/api/contests'
+import { createTeamContestSubmission, getTeamContestProblem } from '@/api/teams'
 import {
   createTeamProblemSubmission,
   createTeamSetProblemSubmission,
@@ -126,15 +127,17 @@ async function load() {
     // 统一入口：各上下文走本模块详情端点（归属 / 窗口校验），题库走题库端点；
     // 团队比赛复用比赛端点（叠加团队门控，docs/contracts/teams.md）
     problem.value =
-      context.value === 'contests' || context.value === 'team-contests'
-        ? await getContestProblem(contextId.value, problemId.value)
-        : context.value === 'team-sets'
-          ? await getTeamSetProblem(teamContextId.value, contextId.value, problemId.value)
-          : context.value === 'problem-sets'
-            ? await getProblemSetProblem(contextId.value, problemId.value)
-            : context.value === 'teams'
-              ? await getTeamProblem(contextId.value, problemId.value)
-              : await getProblem(problemId.value)
+      context.value === 'team-contests'
+        ? await getTeamContestProblem(String(route.params.teamId), contextId.value, problemId.value)
+        : context.value === 'contests'
+          ? await getContestProblem(contextId.value, problemId.value)
+          : context.value === 'team-sets'
+            ? await getTeamSetProblem(teamContextId.value, contextId.value, problemId.value)
+            : context.value === 'problem-sets'
+              ? await getProblemSetProblem(contextId.value, problemId.value)
+              : context.value === 'teams'
+                ? await getTeamProblem(contextId.value, problemId.value)
+                : await getProblem(problemId.value)
     await loadMySubmissions()
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
@@ -173,8 +176,17 @@ async function submit() {
         // 统一入口：各上下文走本模块交题端点（题单：归属校验；比赛：窗口校验，赛后自动补题；
         // 团队：团队门控）
         let result: { submission_id: string; status: string }
-        if (context.value === 'contests' || context.value === 'team-contests') {
-          // 团队比赛复用比赛交题端点（叠加团队门控，docs/contracts/teams.md）
+        if (context.value === 'team-contests') {
+          result = await createTeamContestSubmission(
+            String(route.params.teamId),
+            contextId.value,
+            current.id,
+            {
+              language: language.value,
+              code: code.value,
+            },
+          )
+        } else if (context.value === 'contests') {
           result = await createContestSubmission(contextId.value, current.id, {
             language: language.value,
             code: code.value,

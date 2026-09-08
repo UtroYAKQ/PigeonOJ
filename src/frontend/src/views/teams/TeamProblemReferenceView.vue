@@ -90,10 +90,7 @@ const columns = computed<DataTableColumns<TeamProblemSummary>>(() => [
         NTag,
         { size: 'small', bordered: false, type: isPublic ? 'success' : 'default' },
         {
-          default: () =>
-            t(
-              isPublic ? 'problemSets.list.visibilityPublic' : 'problemSets.list.visibilityPrivate',
-            ),
+          default: () => t(isPublic ? 'problems.visibility.public' : 'problems.visibility.private'),
         },
       )
     },

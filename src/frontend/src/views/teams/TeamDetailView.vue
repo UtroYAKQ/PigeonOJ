@@ -13,7 +13,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { DataTableColumns } from 'naive-ui'
 import {
-  ArrowRight,
   CirclePlus,
   Collection,
   Document,
@@ -53,15 +52,14 @@ import {
   listTeamMembers,
   listTeamProblemSets,
   listTeamProblems,
-  replaceTeamProblemSetItems,
   reviewTeamApplication,
-  searchTeamArrangeableProblems,
   setTeamAdmin,
   updateTeam,
 } from '@/api/teams'
 import { uploadImage } from '@/api/files'
 import { archiveProblem } from '@/api/problems'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
+import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/visibilityLabel'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
 import { useUserStore } from '@/stores/user'
@@ -93,6 +91,26 @@ const isAdmin = computed(() => team.value?.my_role === 'creator' || team.value?.
 function initialOf(name: string | null | undefined) {
   return name?.trim()?.charAt(0).toUpperCase() || 'T'
 }
+
+function formatCompact(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function memberRoleOf(row: TeamMemberItem): 'creator' | 'admin' | 'member' {
+  if (row.is_creator) return 'creator'
+  if (row.is_admin) return 'admin'
+  return 'member'
+}
+
+const contestStatusLabel = computed(() => ({
+  running: t('contests.statusRunning'),
+  scheduled: t('contests.statusScheduled'),
+  finished: t('contests.statusFinished'),
+}))
 
 // ---------------- 模块 tab（内容板块） ----------------
 
@@ -402,6 +420,25 @@ const setColumns = computed<DataTableColumns<ProblemSetSummary>>(() => [
   ...(isAdmin.value
     ? [
         {
+          title: t('problems.list.visibility'),
+          key: 'visibility',
+          width: 96,
+          render: (row: ProblemSetSummary) =>
+            h(
+              NTag,
+              {
+                size: 'small',
+                bordered: false,
+                type: problemSetVisibilityTagType(row.visibility),
+              },
+              { default: () => t(problemSetVisibilityKey(row.visibility)) },
+            ),
+        },
+      ]
+    : []),
+  ...(isAdmin.value
+    ? [
+        {
           title: '',
           key: 'ops',
           width: 48,
@@ -475,87 +512,10 @@ function setActions(row: ProblemSetSummary): Array<{ key: SetAction; label: stri
 
 function onSetAction(key: SetAction, row: ProblemSetSummary) {
   if (key === 'arrange') {
-    void openArrange(row)
+    void router.push(`/teams/${teamId}/sets/${row.id}/arrange`)
     return
   }
   void onArchiveSet(row)
-}
-
-/** 编排团队题单弹窗（ProblemPicker 换团队编排候选源） */
-const arrangingSet = ref<ProblemSetSummary | null>(null)
-const arrangingItems = ref<Array<{ problem_id: string; sort_order: number }>>([])
-const arrangingSource = ref<TeamProblemSummary[]>([])
-const arrangingKeyword = ref('')
-const arrangeSearchLoading = ref(false)
-const savingArrange = ref(false)
-
-async function openArrange(row: ProblemSetSummary) {
-  arrangingSet.value = row
-  arrangingKeyword.value = ''
-  arrangingItems.value = []
-  void searchArrangeable()
-  // 取该题单当前条目（题单详情端点对团队成员可见）以预填
-  try {
-    const { getProblemSet } = await import('@/api/problemSets')
-    const d = await getProblemSet(row.id)
-    arrangingItems.value = d.items.map((it) => ({
-      problem_id: it.problem_id,
-      sort_order: it.sort_order,
-    }))
-  } catch {
-    /* 预填失败不阻塞弹窗 */
-  }
-}
-
-async function searchArrangeable() {
-  arrangeSearchLoading.value = true
-  try {
-    const result = await searchTeamArrangeableProblems(teamId, {
-      keyword: arrangingKeyword.value || undefined,
-      page: 1,
-      page_size: 50,
-    })
-    arrangingSource.value = result.items
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
-  } finally {
-    arrangeSearchLoading.value = false
-  }
-}
-
-function addArrangeItem(problem: TeamProblemSummary) {
-  if (arrangingItems.value.some((it) => it.problem_id === problem.id)) return
-  arrangingItems.value.push({ problem_id: problem.id, sort_order: arrangingItems.value.length })
-}
-
-function removeArrangeItem(problemId: string) {
-  arrangingItems.value = arrangingItems.value.filter((it) => it.problem_id !== problemId)
-}
-
-const arrangingTitles = computed(() => {
-  const map = new Map<string, string>()
-  arrangingSource.value.forEach((p) => map.set(p.id, p.title))
-  return map
-})
-
-async function saveArrange() {
-  if (!arrangingSet.value) return
-  savingArrange.value = true
-  try {
-    await replaceTeamProblemSetItems(teamId, arrangingSet.value.id, {
-      items: arrangingItems.value.map((it, index) => ({
-        problem_id: it.problem_id,
-        sort_order: index,
-      })),
-    })
-    message.success(t('teams.space.arranged'))
-    arrangingSet.value = null
-    loadSets()
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
-  } finally {
-    savingArrange.value = false
-  }
 }
 
 // ---------------- 团队比赛 ----------------
@@ -592,6 +552,32 @@ async function loadContests() {
 function openContest(row: ContestSummary) {
   // 限界上下文：留在团队路由前缀内（frontend.md 路由上下文隔离）
   void router.push(`/teams/${teamId}/contests/${row.id}`)
+}
+
+type ContestAction = 'manage' | 'tools'
+
+function contestActions(row: ContestSummary): Array<{
+  key: ContestAction
+  label: string
+  disabled?: boolean
+}> {
+  return [
+    {
+      key: 'manage',
+      label: t('contests.detail.manage'),
+      disabled: row.status !== 'scheduled',
+    },
+    { key: 'tools', label: t('contests.tools.title') },
+  ]
+}
+
+function onContestAction(key: ContestAction, row: ContestSummary) {
+  if (key === 'manage') {
+    if (row.status !== 'scheduled') return
+    void router.push(`/teams/${teamId}/contests/${row.id}/edit/basic`)
+    return
+  }
+  void router.push(`/teams/${teamId}/contests/${row.id}/tools`)
 }
 
 function searchContests() {
@@ -1041,58 +1027,55 @@ onMounted(load)
               </SearchFilterBar>
               <div class="pane-scroll">
                 <NSpin :show="membersLoading" class="pane-spin">
-                  <ul v-if="members.length" class="member-grid">
-                    <li v-for="member in members" :key="member.user_id" class="member-cell">
+                  <ul v-if="members.length" class="tile-grid">
+                    <li v-for="member in members" :key="member.user_id" class="tile">
                       <NAvatar
                         :src="member.avatar_url || undefined"
                         round
-                        :size="44"
-                        :style="{
-                          color: 'var(--app-text-secondary)',
-                          fontSize: '15px',
-                          flexShrink: 0,
-                        }"
+                        :size="40"
+                        class="tile__avatar"
                       >
                         <template v-if="!member.avatar_url">{{
                           initialOf(member.nickname)
                         }}</template>
                       </NAvatar>
-                      <div class="member-cell__main">
-                        <span class="member-cell__name" :title="member.nickname">
-                          {{ member.nickname }}
-                        </span>
-                        <span class="member-cell__time">
-                          {{ t('teams.members.joinedAt') }} {{ formatDateTime(member.joined_at) }}
-                        </span>
+                      <div class="tile__body">
+                        <div class="tile__head">
+                          <span class="tile__title" :title="member.nickname">{{
+                            member.nickname
+                          }}</span>
+                          <span v-if="member.user_id === userStore.user?.id" class="tile__you">
+                            {{ t('teams.members.you') }}
+                          </span>
+                          <NDropdown
+                            v-if="memberActions(member).length"
+                            class="tile__ops"
+                            trigger="click"
+                            :options="memberActions(member)"
+                            @select="(action: MemberAction) => onMemberAction(action, member)"
+                          >
+                            <NButton
+                              circle
+                              quaternary
+                              size="tiny"
+                              :aria-label="t('teams.detail.more')"
+                            >
+                              <template #icon>
+                                <NIcon :component="MoreFilled" />
+                              </template>
+                            </NButton>
+                          </NDropdown>
+                        </div>
+                        <div class="tile__foot">
+                          <span class="dot-chip" :class="`dot-chip--${memberRoleOf(member)}`">
+                            <span class="dot-chip__dot" aria-hidden="true" />
+                            {{ t(`teams.role.${memberRoleOf(member)}`) }}
+                          </span>
+                          <span class="tile__meta">
+                            {{ t('teams.members.joinedAt') }} {{ formatCompact(member.joined_at) }}
+                          </span>
+                        </div>
                       </div>
-                      <NTag
-                        size="small"
-                        round
-                        :bordered="false"
-                        :type="member.is_creator ? 'warning' : member.is_admin ? 'info' : 'default'"
-                        class="member-cell__role"
-                      >
-                        {{
-                          member.is_creator
-                            ? t('teams.role.creator')
-                            : member.is_admin
-                              ? t('teams.role.admin')
-                              : t('teams.role.member')
-                        }}
-                      </NTag>
-                      <NDropdown
-                        v-if="memberActions(member).length"
-                        class="member-cell__ops"
-                        trigger="click"
-                        :options="memberActions(member)"
-                        @select="(action: MemberAction) => onMemberAction(action, member)"
-                      >
-                        <NButton circle quaternary size="tiny" :aria-label="t('teams.detail.more')">
-                          <template #icon>
-                            <NIcon :component="MoreFilled" />
-                          </template>
-                        </NButton>
-                      </NDropdown>
                     </li>
                   </ul>
                   <NEmpty
@@ -1162,11 +1145,7 @@ onMounted(load)
                     </template>
                     {{ t('teams.space.referenceProblem') }}
                   </NButton>
-                  <NCheckbox
-                    v-if="isAdmin"
-                    :checked="draftOnly"
-                    @update:checked="onToggleDraftBox"
-                  >
+                  <NCheckbox v-if="isAdmin" :checked="draftOnly" @update:checked="onToggleDraftBox">
                     {{ t('teams.space.draftBox') }}
                   </NCheckbox>
                   <RefreshButton
@@ -1194,7 +1173,9 @@ onMounted(load)
                   class="table-fill-empty pane-empty"
                 >
                   <NEmpty
-                    :description="t(draftOnly ? 'teams.space.draftsEmpty' : 'teams.space.problemsEmpty')"
+                    :description="
+                      t(draftOnly ? 'teams.space.draftsEmpty' : 'teams.space.problemsEmpty')
+                    "
                     size="large"
                   />
                 </div>
@@ -1324,50 +1305,74 @@ onMounted(load)
               </SearchFilterBar>
               <div class="pane-scroll">
                 <NSpin :show="contestsLoading" class="pane-spin">
-                  <ul v-if="contests.length" class="member-grid">
+                  <ul v-if="contests.length" class="tile-grid tile-grid--contest">
                     <li
                       v-for="contest in contests"
                       :key="contest.id"
-                      class="member-cell member-cell--link"
+                      class="tile tile--contest tile--link"
+                      :class="`tile--contest-${contest.status}`"
                       role="button"
                       tabindex="0"
                       @click="openContest(contest)"
                       @keyup.enter="openContest(contest)"
                     >
-                      <span class="member-cell__avatar-text" aria-hidden="true">C</span>
-                      <div class="member-cell__main">
-                        <span class="member-cell__name" :title="contest.title">{{
-                          contest.title
-                        }}</span>
-                        <span class="member-cell__time">
-                          {{ formatDateTime(contest.start_time) }} →
-                          {{ formatDateTime(contest.end_time) }}
+                      <div class="tile__head">
+                        <img v-if="contest.logo" :src="contest.logo" alt="" class="tile__face" />
+                        <span v-else class="tile__face tile__face--fallback" aria-hidden="true">
+                          {{ initialOf(contest.title) }}
                         </span>
+                        <h3 class="tile__title" :title="contest.title">{{ contest.title }}</h3>
+                        <span class="dot-chip" :class="`dot-chip--${contest.status}`">
+                          <span class="dot-chip__dot" aria-hidden="true" />
+                          {{ contestStatusLabel[contest.status] }}
+                        </span>
+                        <span
+                          v-if="contest.board_frozen"
+                          class="dot-chip dot-chip--frozen"
+                          :title="t('contests.frozenHint')"
+                        >
+                          <span class="dot-chip__dot" aria-hidden="true" />
+                          {{ t('contests.boardFrozenTag') }}
+                        </span>
+                        <NDropdown
+                          v-if="isAdmin"
+                          class="tile__ops"
+                          trigger="click"
+                          :options="contestActions(contest)"
+                          @select="(action: ContestAction) => onContestAction(action, contest)"
+                        >
+                          <NButton
+                            circle
+                            quaternary
+                            size="tiny"
+                            :aria-label="t('teams.detail.more')"
+                            @click.stop
+                          >
+                            <template #icon>
+                              <NIcon :component="MoreFilled" />
+                            </template>
+                          </NButton>
+                        </NDropdown>
                       </div>
-                      <NTag
-                        size="small"
-                        round
-                        :bordered="false"
-                        :type="
-                          contest.status === 'running'
-                            ? 'success'
-                            : contest.status === 'scheduled'
-                              ? 'info'
-                              : 'default'
-                        "
-                        class="member-cell__role"
-                      >
-                        {{
-                          t(
-                            contest.status === 'running'
-                              ? 'contests.statusRunning'
-                              : contest.status === 'scheduled'
-                                ? 'contests.statusScheduled'
-                                : 'contests.statusFinished',
-                          )
-                        }}
-                      </NTag>
-                      <NIcon class="member-cell__arrow" :component="ArrowRight" />
+                      <p class="tile__desc" :class="{ 'tile__desc--empty': !contest.description }">
+                        {{ contest.description ?? '—' }}
+                      </p>
+                      <div class="tile__meta">
+                        <span class="tile__rule">{{ contest.rule_type }}</span>
+                        <span class="tile__sep" aria-hidden="true">·</span>
+                        <span>{{
+                          t('contests.list.problemCount', { count: contest.problem_count })
+                        }}</span>
+                        <span class="tile__sep" aria-hidden="true">·</span>
+                        <span>{{
+                          t('contests.list.registeredCount', { count: contest.registered_count })
+                        }}</span>
+                      </div>
+                      <div class="tile__when">
+                        <span>{{ formatCompact(contest.start_time) }}</span>
+                        <span class="tile__when-arrow" aria-hidden="true">→</span>
+                        <span>{{ formatCompact(contest.end_time) }}</span>
+                      </div>
                     </li>
                   </ul>
                   <NEmpty
@@ -1408,56 +1413,46 @@ onMounted(load)
             <template v-else>
               <div class="pane-scroll">
                 <NSpin :show="applicationsLoading" class="pane-spin">
-                  <ul v-if="applications.length" class="member-grid">
-                    <li
-                      v-for="application in applications"
-                      :key="application.id"
-                      class="member-cell"
-                    >
-                      <NAvatar
-                        round
-                        :size="44"
-                        :style="{
-                          color: 'var(--app-text-secondary)',
-                          fontSize: '15px',
-                          flexShrink: 0,
-                        }"
-                      >
+                  <ul v-if="applications.length" class="tile-grid">
+                    <li v-for="application in applications" :key="application.id" class="tile">
+                      <NAvatar round :size="40" class="tile__avatar">
                         {{ initialOf(application.nickname) }}
                       </NAvatar>
-                      <div class="member-cell__main">
-                        <span class="member-cell__name" :title="application.nickname">
-                          {{ application.nickname }}
-                        </span>
-                        <span class="member-cell__time">
-                          {{ formatDateTime(application.applied_at) }}
-                        </span>
-                      </div>
-                      <NTag
-                        size="small"
-                        round
-                        :bordered="false"
-                        :type="application.invite_token ? 'info' : 'default'"
-                        class="member-cell__role"
-                      >
-                        {{
-                          application.invite_token
-                            ? t('teams.applications.viaInvite')
-                            : t('teams.applications.direct')
-                        }}
-                      </NTag>
-                      <div class="member-cell__actions">
-                        <NButton size="small" type="primary" @click="onReview(application, true)">
-                          {{ t('teams.applications.approve') }}
-                        </NButton>
-                        <NButton
-                          size="small"
-                          quaternary
-                          type="error"
-                          @click="onReview(application, false)"
-                        >
-                          {{ t('teams.applications.reject') }}
-                        </NButton>
+                      <div class="tile__body">
+                        <div class="tile__head">
+                          <span class="tile__title" :title="application.nickname">
+                            {{ application.nickname }}
+                          </span>
+                        </div>
+                        <div class="tile__foot">
+                          <span
+                            class="dot-chip"
+                            :class="application.invite_token ? 'dot-chip--admin' : ''"
+                          >
+                            <span class="dot-chip__dot" aria-hidden="true" />
+                            {{
+                              application.invite_token
+                                ? t('teams.applications.viaInvite')
+                                : t('teams.applications.direct')
+                            }}
+                          </span>
+                          <span class="tile__meta">{{
+                            formatCompact(application.applied_at)
+                          }}</span>
+                        </div>
+                        <div class="tile__actions">
+                          <NButton size="tiny" type="primary" @click="onReview(application, true)">
+                            {{ t('teams.applications.approve') }}
+                          </NButton>
+                          <NButton
+                            size="tiny"
+                            quaternary
+                            type="error"
+                            @click="onReview(application, false)"
+                          >
+                            {{ t('teams.applications.reject') }}
+                          </NButton>
+                        </div>
                       </div>
                     </li>
                   </ul>
@@ -1555,98 +1550,6 @@ onMounted(load)
         </template>
       </NDrawerContent>
     </NDrawer>
-
-    <!-- 编排团队题单 -->
-    <NModal
-      :show="Boolean(arrangingSet)"
-      preset="card"
-      style="width: min(760px, 94vw)"
-      :title="t('teams.space.arrangeTitle', { title: arrangingSet?.title ?? '' })"
-      @update:show="
-        (v: boolean) => {
-          if (!v) arrangingSet = null
-        }
-      "
-    >
-      <div class="arrange">
-        <div class="arrange__picker">
-          <div class="reference-picker__bar">
-            <NInput
-              v-model:value="arrangingKeyword"
-              clearable
-              size="small"
-              style="max-width: 260px"
-              :placeholder="t('teams.space.problemSearch')"
-              @keyup.enter="searchArrangeable"
-              @clear="searchArrangeable"
-            />
-            <NButton
-              size="small"
-              secondary
-              :loading="arrangeSearchLoading"
-              @click="searchArrangeable"
-            >
-              {{ t('action.search') }}
-            </NButton>
-          </div>
-          <ul v-if="arrangingSource.length" class="reference-picker__list arrange__source">
-            <li v-for="p in arrangingSource" :key="p.id" class="reference-picker__item">
-              <span class="reference-picker__title" :title="p.title">{{ p.title }}</span>
-              <span class="reference-picker__meta">
-                {{ t('problems.list.limits') }} {{ p.time_limit_ms }}ms / {{ p.memory_limit_mb }}MB
-              </span>
-              <NButton
-                size="tiny"
-                type="primary"
-                secondary
-                :disabled="arrangingItems.some((it) => it.problem_id === p.id)"
-                @click="addArrangeItem(p)"
-              >
-                {{ t('problemSets.detail.add') }}
-              </NButton>
-            </li>
-          </ul>
-          <NEmpty
-            v-else-if="!arrangeSearchLoading"
-            :description="t('teams.space.noArrangeable')"
-            size="small"
-          />
-        </div>
-        <div class="arrange__chosen">
-          <p class="arrange__label">
-            {{ t('teams.space.chosenCount', { count: arrangingItems.length }) }}
-          </p>
-          <ul class="reference-picker__list arrange__list">
-            <li
-              v-for="(item, index) in arrangingItems"
-              :key="item.problem_id"
-              class="reference-picker__item"
-            >
-              <span class="arrange__order">{{ index + 1 }}</span>
-              <span class="reference-picker__title" :title="arrangingTitles.get(item.problem_id)">
-                {{ arrangingTitles.get(item.problem_id) ?? item.problem_id.slice(0, 8) }}
-              </span>
-              <NButton
-                size="tiny"
-                quaternary
-                type="error"
-                @click="removeArrangeItem(item.problem_id)"
-              >
-                {{ t('action.delete') }}
-              </NButton>
-            </li>
-          </ul>
-        </div>
-      </div>
-      <template #footer>
-        <div class="drawer-footer">
-          <NButton @click="arrangingSet = null">{{ t('action.cancel') }}</NButton>
-          <NButton type="primary" :loading="savingArrange" @click="saveArrange">
-            {{ t('action.save') }}
-          </NButton>
-        </div>
-      </template>
-    </NModal>
   </WorkbenchShell>
 </template>
 
@@ -1892,66 +1795,258 @@ onMounted(load)
   padding: 56px 0;
 }
 
-/* 成员 / 申请：线条列表（分隔线行，无卡片边框） */
-.member-grid {
-  flex: 1;
-  min-height: 0;
-  grid-auto-rows: minmax(56px, auto);
-  align-content: start;
+/* 成员 / 比赛 / 申请：紧凑小卡片 */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
   list-style: none;
   margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 0 48px;
+  padding: 0 0 4px;
+  align-content: start;
 }
-.member-cell {
+.tile-grid--contest {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+.tile {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-card-bg, #fff);
+  transition: border-color 0.15s ease;
+}
+.tile:hover {
+  border-color: var(--app-text-muted);
+}
+.tile--link {
+  cursor: pointer;
+}
+.tile--contest {
+  --contest-rail: var(--app-text-muted);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 16px 18px 14px 20px;
+  box-shadow: inset 3px 0 0 var(--contest-rail);
+}
+.tile--contest-running {
+  --contest-rail: var(--app-success);
+  background: color-mix(in srgb, var(--app-success) 5%, var(--app-card-bg, #fff));
+}
+.tile--contest-scheduled {
+  --contest-rail: var(--app-info);
+}
+.tile--link:hover .tile__title {
+  color: var(--app-primary);
+}
+.tile--link:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+.tile__avatar {
+  flex-shrink: 0;
+  color: var(--app-text-secondary);
+  font-size: 14px;
+}
+.tile__face {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--app-border);
+  flex-shrink: 0;
+}
+.tile__face--fallback {
+  display: grid;
+  place-items: center;
+  background: var(--app-muted-bg);
+  color: var(--app-text-secondary);
+  font-size: 14px;
+  font-weight: 650;
+}
+.tile__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tile__head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--app-border);
-  background: transparent;
-  transition: background-color 0.15s ease;
-}
-.member-cell:hover {
-  background: var(--app-muted-bg);
-}
-.member-cell__main {
-  display: grid;
-  gap: 2px;
+  gap: 10px;
   min-width: 0;
-  flex: 1;
 }
-.member-cell__name {
+.tile__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
   font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--app-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+.tile--contest .tile__title {
+  font-size: 15px;
   font-weight: 600;
+}
+.tile__you {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--app-primary);
+  background: color-mix(in srgb, var(--app-primary) 12%, transparent);
+}
+.tile__ops {
+  flex-shrink: 0;
+  margin: -2px -4px -2px 0;
+}
+.tile__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.tile__meta {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.member-cell__time {
+.tile__desc {
+  margin: 0;
+  min-height: 37px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tile__desc--empty {
+  opacity: 0.55;
+}
+.tile--contest .tile__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: visible;
+  text-overflow: unset;
+}
+.tile__sep {
+  opacity: 0.45;
+}
+.tile__rule {
+  color: var(--app-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.tile__when {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--app-border);
   color: var(--app-text-secondary);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-.member-cell__role {
-  flex-shrink: 0;
+.tile__when-arrow {
+  opacity: 0.55;
 }
-.member-cell__actions {
+.tile__actions {
   display: flex;
   gap: 6px;
-  flex-shrink: 0;
+  margin-top: 2px;
 }
-/* 行内「更多」操作：指针设备下 hover 才浮现，减少每行常驻图标的噪音；
-   触屏（无 hover）与键盘 focus 时保持可见，不影响可操作性 */
+.dot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--app-text-secondary);
+}
+.dot-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--app-text-muted);
+}
+.dot-chip--creator {
+  color: var(--app-warning);
+}
+.dot-chip--creator .dot-chip__dot {
+  background: var(--app-warning);
+}
+.dot-chip--admin {
+  color: var(--app-info);
+}
+.dot-chip--admin .dot-chip__dot {
+  background: var(--app-info);
+}
+.dot-chip--running {
+  color: var(--app-success);
+}
+.dot-chip--running .dot-chip__dot {
+  background: var(--app-success);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--app-success) 50%, transparent);
+  animation: tile-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tile-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--app-success) 45%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot-chip--running .dot-chip__dot {
+    animation: none;
+  }
+}
+.dot-chip--scheduled {
+  color: var(--app-info);
+}
+.dot-chip--scheduled .dot-chip__dot {
+  background: var(--app-info);
+}
+.dot-chip--frozen {
+  color: var(--app-warning);
+}
+.dot-chip--frozen .dot-chip__dot {
+  background: var(--app-warning);
+}
 @media (hover: hover) {
-  .member-cell__ops {
+  .tile__ops {
     opacity: 0;
     transition: opacity 0.15s ease;
   }
-  .member-cell:hover .member-cell__ops,
-  .member-cell:focus-within .member-cell__ops {
+  .tile:hover .tile__ops,
+  .tile:focus-within .tile__ops {
     opacity: 1;
   }
 }
@@ -1998,126 +2093,6 @@ onMounted(load)
 }
 .pane-toolbar__spacer {
   flex: 1;
-}
-/* 可点击行（题库 / 比赛整行进上下文） */
-.member-cell--link {
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-.member-cell--link:hover {
-  background: var(--app-muted-bg);
-}
-.member-cell--link:hover .member-cell__name {
-  color: var(--app-primary);
-}
-.member-cell--link:focus-visible {
-  outline: 2px solid var(--app-primary);
-  outline-offset: -2px;
-}
-.member-cell--stack {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-}
-.member-cell__row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.member-cell__row--ops {
-  padding-left: 56px;
-  gap: 8px;
-}
-.member-cell__avatar-text {
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  background: var(--app-muted-bg);
-  border: 1px solid var(--app-border);
-  color: var(--app-text-secondary);
-  font-size: 15px;
-  font-weight: 650;
-}
-.member-cell__arrow {
-  margin-left: auto;
-  color: var(--app-text-secondary);
-  flex-shrink: 0;
-}
-
-/* 引用 / 编排弹窗 */
-.reference-picker {
-  display: grid;
-  gap: 12px;
-}
-.reference-picker__bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.reference-picker__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 320px;
-  overflow: auto;
-  display: grid;
-  gap: 4px;
-}
-.reference-picker__item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--app-border);
-  border-radius: 6px;
-}
-.reference-picker__title {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.reference-picker__meta {
-  color: var(--app-text-secondary);
-  font-size: 12px;
-  flex-shrink: 0;
-}
-.arrange {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
-}
-.arrange__source {
-  max-height: 300px;
-}
-.arrange__list {
-  max-height: 340px;
-}
-.arrange__label {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.arrange__order {
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  background: var(--app-muted-bg);
-  color: var(--app-text-secondary);
-  font-size: 12px;
-}
-@media (max-width: 760px) {
-  .arrange {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ======== 邀请弹窗 ======== */
@@ -2215,7 +2190,7 @@ onMounted(load)
     padding-left: 16px;
     padding-right: 16px;
   }
-  .member-grid {
+  .tile-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

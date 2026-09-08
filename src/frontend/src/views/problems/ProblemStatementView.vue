@@ -147,13 +147,12 @@ async function persist(): Promise<string | null> {
       time_limit_ms: form.time_limit_ms,
       memory_limit_mb: form.memory_limit_mb,
       difficulty: form.difficulty,
-      // 团队上下文直建（docs/contracts/problems.md 端点表 team_id?）
-      team_id: teamId.value ?? undefined,
     })
     if (isEdit.value) {
       const id = String(route.params.id)
       if (isTeam.value) {
         // 团队上下文：走团队端点（题库裸路径对快照题拦截）；可见性切换已在团队分支内
+        // ProblemUpdate extra=forbid，不可携带 team_id（归属由路径给定）
         await updateTeamProblemStatement(teamId.value!, id, payload())
       } else {
         await updateProblem(id, payload())
@@ -161,7 +160,11 @@ async function persist(): Promise<string | null> {
       message.success(t('problems.create.saved'))
       return id
     }
-    const created = await createProblem(payload() as Parameters<typeof createProblem>[0])
+    const created = await createProblem({
+      ...payload(),
+      // 团队上下文直建：仅创建载荷携带 team_id（docs/contracts/problems.md）
+      team_id: teamId.value ?? undefined,
+    } as Parameters<typeof createProblem>[0])
     message.success(t('problems.create.saved'))
     return created.id
   } catch (error) {

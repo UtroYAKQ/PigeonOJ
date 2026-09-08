@@ -15,15 +15,27 @@
       visibilityPrivate: 'Private',
       mineOnly: 'My sets',
       privateTag: 'Private',
+      ownership: 'Source',
+      ownershipAll: 'All sources',
+      ownershipSolo: 'Global sets',
+      ownershipTeam: 'Team sets',
       active: 'Active',
       status: 'Status',
       createdAt: 'Created at',
     },
+    visibility: {
+      public: 'Public',
+      private: 'Private',
+      team_visible: 'Team visible',
+      admin_visible: 'Admins only',
+    },
     form: {
+      hint: 'Fill in the basics. The introduction supports Markdown (images, formulas and tables).',
       basicTitle: 'Basics',
       titlePlaceholder: 'Name your problem set',
       visibilityTip:
         'Public sets appear in the center; private sets are visible to the creator and managers only',
+      visibility: 'Set visibility',
       descPlaceholder:
         'Write the introduction in Markdown: audience, suggestions, difficulty spread…',
       createAction: 'Create set',

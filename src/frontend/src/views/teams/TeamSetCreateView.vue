@@ -31,7 +31,12 @@ const canCopy = computed(() => userStore.hasAnyRole(['admin', 'tutor']))
 const submitting = ref(false)
 
 const formRef = ref<FormInst | null>(null)
-const form = reactive({ title: '', description: '', copyFromSetId: null as string | null })
+const form = reactive({
+  title: '',
+  description: '',
+  copyFromSetId: null as string | null,
+  visibility: 'team_visible' as 'team_visible' | 'admin_visible',
+})
 
 const rules: FormRules = {
   title: [
@@ -58,7 +63,9 @@ async function loadMySets() {
   mySetsLoading.value = true
   try {
     const result = await listProblemSets({ page: 1, page_size: 50, mine: true })
-    mySets.value = result.items.filter((it) => it.visibility !== 'team')
+    mySets.value = result.items.filter(
+      (it) => it.visibility === 'public' || it.visibility === 'private',
+    )
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.loadFailed'))
   } finally {
@@ -78,6 +85,7 @@ async function submitCreate() {
       title: form.title.trim(),
       description: form.description.trim() || undefined,
       copy_from_set_id: form.copyFromSetId ?? undefined,
+      visibility: form.visibility,
     })
     message.success(t('teams.space.setCreated'))
     backToTeam()
@@ -122,6 +130,13 @@ onMounted(() => {
               :placeholder="t('teams.space.setTitleRequired')"
             />
           </n-form-item>
+          <n-form-item :label="t('problemSets.form.visibility')" :show-feedback="false">
+            <n-radio-group v-model:value="form.visibility">
+              <n-radio value="team_visible">{{ t('teams.space.teamVisible') }}</n-radio>
+              <n-radio value="admin_visible">{{ t('teams.space.adminVisible') }}</n-radio>
+            </n-radio-group>
+          </n-form-item>
+          <p class="form-tip">{{ t('teams.space.setVisibilityHint') }}</p>
           <template v-if="canCopy">
             <n-form-item :label="t('teams.space.copyFromSet')" :show-feedback="false">
               <n-select

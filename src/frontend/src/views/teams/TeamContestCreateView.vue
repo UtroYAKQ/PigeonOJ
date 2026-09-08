@@ -58,7 +58,7 @@ async function submit() {
   if (!validateTimes()) return
   submitting.value = true
   try {
-    await createTeamContest(teamId, {
+    const created = await createTeamContest(teamId, {
       title: form.title.trim(),
       description: form.description.trim() || undefined,
       rule_type: form.rule_type,
@@ -69,7 +69,7 @@ async function submit() {
       problems: [],
     })
     message.success(t('teams.space.contestCreated'))
-    backToTeam()
+    await router.replace(`/teams/${teamId}/contests/${created.id}/edit/problems`)
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.saveFailed'))
   } finally {

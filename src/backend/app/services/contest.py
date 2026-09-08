@@ -45,10 +45,12 @@ from app.schemas.contest import (
     BoardRow,
     ContestCreate,
     ContestDetail,
+    ContestExtend,
     ContestProblemItemOut,
     ContestSubmissionItem,
     ContestSummary,
     ContestUpdate,
+    FreezeTimeUpdate,
     MyContestItem,
     RevealStep,
     ScoreboardShowOut,
@@ -796,7 +798,7 @@ class ContestService:
     ) -> ContestSummary:
         contest = await self.require_manage(contest_id, user)
         # 赛时守卫：比赛开始后结构性信息冻结（docs/contracts/contests.md 状态守卫节）——
-        # 影响比赛公平 / 结构的字段一律拒绝；赛中调整走受控端点（公告 / 后续延时）。
+        # 影响比赛公平 / 结构的字段一律拒绝；赛中调整走受控端点（公告 / 延时 / 封榜时间）。
         # 守卫字段从 ContestUpdate 模型定义推导（杜绝与 schema 脱节的「魔法字段清单」）：
         # 即「全部字段 - 公告类」，freeze_time 的显式 null（取消封榜）同样计入
         if contest.status != ContestStatus.SCHEDULED:
@@ -1180,7 +1182,7 @@ class ContestService:
     async def update_announcement(
         self, user: User, contest_id: uuid.UUID, body: AnnouncementUpdate
     ) -> ContestSummary:
-        """更新比赛公告（admin/tutor / 团队管理角色；赛时唯一允许的题外编辑）。
+        """更新比赛公告（admin/tutor / 团队管理角色；赛时受控编辑）。
 
         空字符串 = 清空公告（详情页公告条随之隐藏）。
         """
@@ -1189,6 +1191,64 @@ class ContestService:
         contest.announcement = content or None
         contest.announcement_updated_at = _now()
         await self.db.flush()
+        return await self._to_summary(self.repo, contest)
+
+    async def extend(self, user: User, contest_id: uuid.UUID, body: ContestExtend) -> ContestSummary:
+        """赛时延时：把结束时间推后；已结束的比赛延时后重新进入 running。
+
+        赛前请走 PUT 编辑。新结束时间必须晚于当前结束时间且晚于现在。
+        """
+        contest = await self.require_manage(contest_id, user)
+        if contest.status == ContestStatus.SCHEDULED:
+            raise APIError(RESOURCE_STATE_CONFLICT, "比赛未开始，请使用赛前管理修改时间", 409)
+        new_end = _aware(body.end_time)
+        now = _now()
+        current_end = _aware(contest.end_time)
+        if new_end <= current_end:
+            raise APIError(PARAM_FORMAT_INVALID, "新结束时间必须晚于当前结束时间", 400)
+        if new_end <= now:
+            raise APIError(PARAM_FORMAT_INVALID, "新结束时间必须晚于当前时刻", 400)
+        if new_end <= _aware(contest.start_time):
+            raise APIError(PARAM_FORMAT_INVALID, "结束时间必须晚于开始时间", 400)
+        contest.end_time = new_end
+        if contest.status == ContestStatus.FINISHED:
+            contest.status = ContestStatus.RUNNING
+        await self.db.flush()
+        return await self._to_summary(self.repo, contest)
+
+    async def update_freeze_time(
+        self, user: User, contest_id: uuid.UUID, body: FreezeTimeUpdate
+    ) -> ContestSummary:
+        """调整封榜时间（赛前 / 赛中、尚未封榜时）；null = 取消封榜。
+
+        已封榜或已结束不可改。若新封榜时刻已到且比赛进行中，立即封榜。
+        """
+        contest = await self.require_manage(contest_id, user)
+        if contest.status == ContestStatus.FINISHED:
+            raise APIError(RESOURCE_STATE_CONFLICT, "比赛已结束，不可调整封榜时间", 409)
+        if contest.board_frozen:
+            raise APIError(RESOURCE_STATE_CONFLICT, "已封榜，不可再调整封榜时间", 409)
+        start = _aware(contest.start_time)
+        end = _aware(contest.end_time)
+        freeze_at = _aware(body.freeze_time) if body.freeze_time is not None else None
+        if freeze_at is not None and not (start < freeze_at <= end):
+            raise APIError(
+                PARAM_FORMAT_INVALID, "封榜时间必须晚于开始时间且不晚于结束时间", 400
+            )
+        contest.freeze_time = freeze_at
+        now = _now()
+        if (
+            freeze_at is not None
+            and contest.status == ContestStatus.RUNNING
+            and freeze_at <= now
+        ):
+            contest.board_frozen = True
+            contest.frozen_at = now
+            await self.rankings.freeze_rows(contest.id)
+            await self.db.flush()
+            await self._invalidate_board_cache(contest.id)
+        else:
+            await self.db.flush()
         return await self._to_summary(self.repo, contest)
 
     async def _recompute_rankings(self, contest: Contest) -> None:

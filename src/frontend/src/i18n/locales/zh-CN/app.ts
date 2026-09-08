@@ -58,6 +58,8 @@
     imageTooLarge: '图片大小不能超过 5MB',
     imageUploadFailed: '图片上传失败，请稍后重试',
     success: '成功',
+    copied: '已复制到剪贴板',
+    copyFailed: '复制失败，请手动复制',
     yes: '是',
     no: '否',
   },

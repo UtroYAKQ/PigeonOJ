@@ -107,7 +107,9 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | POST | /contests | admin/tutor（公开）/ admin/tutor/team_creator/team_admin（团队） | 创建比赛 | contest_type, logo?, rule_type, time, register, freeze, problems[] | contest |
 | PUT | /contests/{id} | admin/tutor/team_creator/team_admin | 编辑比赛 | ... | contest |
 | POST | /contests/{id}/register | auth | 报名 | - | - |
-| PUT | /contests/{id}/announcement | admin/tutor/team_creator/team_admin | **更新比赛公告**（赛时唯一受控编辑出口；空字符串 = 清空；Markdown） | announcement | contest |
+| PUT | /contests/{id}/announcement | admin/tutor/team_creator/team_admin | **更新比赛公告**（赛时受控编辑；空字符串 = 清空；Markdown） | announcement | contest |
+| POST | /contests/{id}/extend | admin/tutor/team_creator/team_admin | **赛时延时**：新 `end_time` 必须晚于当前结束时间且晚于现在；赛前请走 PUT 编辑（3002）；已结束则重新置 `running` | end_time | contest |
+| PUT | /contests/{id}/freeze-time | admin/tutor/team_creator/team_admin | **调整封榜时间**（赛前 / 赛中且尚未封榜）；`null` = 取消封榜；新时刻已到且进行中则立即封榜；已封榜或已结束 3002 | freeze_time | contest |
 | GET | /contests/{id}/scoreboard-show | admin/tutor/team_creator/team_admin | **滚榜数据包**（只读、不解冻）：`base_rows` 冻结快照榜 + `final_rows` submissions 现算最终榜 + `steps` 封榜期提交揭晓序列（按最终名次从差到好、同队按提交时间序，domjudge 式滚榜）；封榜期提交以 `frozen_at` 为界 | - | scoreboard-show |
 | GET | /contests/{id}/board | auth | 榜单（封榜时按冻结展示；BoardCell 含 problem_score 单题满分） | - | board |
 | GET | /contests/{id}/board/{user_id}/{problem_id}/accepted | auth（admin·tutor 随时 / **赛后**：所有登录用户） | **榜单单格成功提交**：该 (选手, 题目) 比赛内 AC 提交（不含补题，时间正序）；窗口与角色门控随提交记录 | - | submission[] |
@@ -135,15 +137,17 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 - **结构性编辑锁定**：`PUT /contests/{id}` 在 `status != 'scheduled'` 时拒绝任何字段变更
   （title / description / logo / rule_type / 时间四元组 / freeze_offset / problems，返回 3002）——
   「比赛开始不能改东西」由后端强制，不依赖前端隐藏入口
-- **赛时工具**（独立页面 `/admin/contests/{id}/tools`，入口在比赛管理列表行内按钮，
-  仅 `status != 'scheduled'` 显示；前台详情页不提供管理动作）：
+- **赛前管理**：编辑向导仅 `status='scheduled'` 可进（前端「⋯」禁用 + 后端 PUT 守卫）；开赛后结构性字段改走赛时工具
+- **赛时工具**（独立页面：管理后台 `/admin/contests/{id}/tools`，
+  团队空间 `/teams/:teamId/contests/:cid/tools`；入口为比赛列表 / 详情页 `can_manage` 「⋯」，赛前亦可进入以预写公告）：
   - 公告：`PUT /contests/{id}/announcement`，赛时可改（带 Markdown 效果预览），主页 tab 顶部公告条对全部参赛者展示
+  - 延时：`POST /contests/{id}/extend`，仅进行中或已结束；新结束时间必须更晚；已结束则重新开赛
+  - 封榜时间：`PUT /contests/{id}/freeze-time`，未封榜时可改或取消；新时刻已到则立即封榜
   - 解榜：`POST /contests/{id}/unfreeze` 仅赛后可用（见上表）
   - 滚榜：`GET /contests/{id}/scoreboard-show`（只读不解冻），大屏回放页为独立静态页
     `public/scrollboard.html`（新窗口打开，读同源 localStorage token 鉴权，不进应用路由）
-- 详情页展示口径：时间轴与 hero 瓦片呈现「封榜时间」绝对时刻（= end_time - freeze_offset_seconds，
-  业务对表用），不展示封榜倒计时秒数
-- 延时与封榜交互策略（extend / 自动解冻联动）为后续迭代项，当前未实现
+- 详情页展示口径：时间轴与 hero 瓦片呈现「封榜时间」绝对时刻（`freeze_time`），
+  业务对表用，不展示封榜倒计时秒数
 
 ## 关键流程 / 验收条件
 
@@ -195,8 +199,8 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 
 - 已实现（迁移 0024）：赛时工具与滚榜——`announcement` 公告（赛时可改 + 主页公告条）、
   `frozen_at` 封榜时刻记录、PUT 结构性编辑的赛时守卫、unfreeze 收紧为赛后、
-  `scoreboard-show` 滚榜数据端点（domjudge 式揭晓序列）与独立大屏页 `public/scrollboard.html`；
-  延时（extend）与封榜交互策略为后续迭代项
+  `scoreboard-show` 滚榜数据端点（domjudge 式揭晓序列）与独立大屏页 `public/scrollboard.html`
+  （团队赛带 `team_id` 查询走团队端点）；赛时延时 `POST .../extend` 与封榜时间 `PUT .../freeze-time`
 - 已实现（迁移 0019 / 0020）：全站比赛端到端——建赛编排 / 报名 / 赛内题目与交题（统一入口）/
   ACM·IOI 计分与榜单条件更新 / 自动封榜 / **手动解冻重算** / 赛后补题；
   周期任务 `contest_transition`（开赛 / 自动封榜 / 结束，随应用 lifespan 启动）

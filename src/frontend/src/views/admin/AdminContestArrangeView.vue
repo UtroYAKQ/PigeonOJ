@@ -1,14 +1,15 @@
 ﻿<script setup lang="ts">
 /**
  * 比赛向导 · 步骤 2 编排题目（题号自动分配、IOI 分值、顺序调整）。
- * 路由：/admin/contests/:cid/edit/problems（编辑与新建第二步骤共用）。
- * 保存 = PUT /contests/{id} problems 全量替换（后端重排字母 A/B/C…）。
+ * 管理后台：/admin/contests/:cid/edit/problems；团队空间：/teams/:teamId/contests/:cid/edit/problems。
+ * 保存 = PUT problems 全量替换（后端重排字母 A/B/C…）。
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { getContest, searchContestProblems, updateContest } from '@/api/contests'
+import { getTeamContest, searchTeamContestProblems, updateTeamContest } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import WizardShell from '@/components/WizardShell.vue'
 import type { ContestProblemItem } from '@/types'
@@ -18,6 +19,13 @@ const router = useRouter()
 const { t } = useI18n()
 
 const contestId = computed(() => String(route.params.cid))
+const teamId = computed(() => (route.params.teamId ? String(route.params.teamId) : null))
+const listPath = computed(() => (teamId.value ? `/teams/${teamId.value}` : '/admin/contests'))
+const basicPath = computed(() =>
+  teamId.value
+    ? `/teams/${teamId.value}/contests/${contestId.value}/edit/basic`
+    : `/admin/contests/${contestId.value}/edit/basic`,
+)
 const loading = ref(false)
 const saving = ref(false)
 const contestTitle = ref('')
@@ -38,13 +46,15 @@ const isIOI = ref(false)
 onMounted(async () => {
   loading.value = true
   try {
-    const detail = await getContest(contestId.value)
+    const detail = await (teamId.value
+      ? getTeamContest(teamId.value, contestId.value)
+      : getContest(contestId.value))
     contestTitle.value = detail.title
     isIOI.value = detail.rule_type === 'IOI'
     draftProblems.value = detail.problems.map((it) => ({ ...it }))
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.loadFailed'))
-    router.push('/admin/contests')
+    router.push(listPath.value)
   } finally {
     loading.value = false
   }
@@ -55,11 +65,10 @@ async function searchPool(keyword: string) {
   poolLoading.value = true
   try {
     // 编排专属搜索：公开题 + 本人私有题（已发布），排除已在列表中的
-    const result = await searchContestProblems(contestId.value, {
-      page: 1,
-      page_size: 20,
-      keyword: keyword || undefined,
-    })
+    const query = { page: 1, page_size: 20, keyword: keyword || undefined }
+    const result = await (teamId.value
+      ? searchTeamContestProblems(teamId.value, contestId.value, query)
+      : searchContestProblems(contestId.value, query))
     const chosen = new Set(draftProblems.value.map((it) => it.problem_id))
     poolOptions.value = result.items
       .filter((p) => !chosen.has(p.problem_id))
@@ -104,14 +113,17 @@ function moveDraft(index: number, delta: number) {
 async function save() {
   saving.value = true
   try {
-    await updateContest(contestId.value, {
+    const payload = {
       problems: draftProblems.value.map((it) => ({
         problem_id: it.problem_id,
         score: it.score,
       })),
-    })
+    }
+    await (teamId.value
+      ? updateTeamContest(teamId.value, contestId.value, payload)
+      : updateContest(contestId.value, payload))
     message.success(t('common.success'))
-    router.push('/admin/contests')
+    router.push(listPath.value)
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.saveFailed'))
   } finally {
@@ -120,7 +132,7 @@ async function save() {
 }
 
 function goPrev() {
-  router.push(`/admin/contests/${contestId.value}/edit/basic`)
+  router.push(basicPath.value)
 }
 </script>
 

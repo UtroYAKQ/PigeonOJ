@@ -41,6 +41,7 @@
       logoHint: 'JPG / PNG / WEBP / GIF, up to 5MB',
       noLogo: 'No logo',
       backToList: 'Back to contest management',
+      backToTeam: 'Back to team',
       saved: 'Saved',
     },
     wizard: {
@@ -66,7 +67,7 @@
       notVisible:
         'Problems are visible to registrants once the contest starts, and open to all signed-in users after it ends',
       submitDisabled: 'Contest not started',
-      manage: 'Manage contest',
+      manage: 'Pre-contest setup',
       unfreeze: 'Unfreeze board',
       unfreezeConfirm:
         'Unfreezing recomputes the scoreboard from submissions and fills in results made during the freeze. Continue?',
@@ -103,13 +104,47 @@
         'Write the announcement (Markdown supported); save empty to clear it',
       announcementHint:
         'Shown to all participants at the top of the contest home; update anytime (clarifications, extensions, etc.)',
+      announcementPrepare:
+        'You can draft the announcement before the contest starts; it becomes visible as soon as you save',
       unfreeze: 'Unfreeze board',
       unfreezeHint:
         'Recomputes the scoreboard from submissions and fills in frozen-period results; available after the contest ends only',
+      unfreezeDisabledNotFinished: 'Unfreeze is available after the contest ends',
+      unfreezeDisabledNotFrozen: 'The board is not frozen; nothing to unfreeze',
       scrollboard: 'Scoreboard reveal',
       scrollboardHint:
         'Big-screen replay for the award ceremony: reveals frozen-period submissions from the worst final rank upward, opens in a new window',
       scrollboardOpen: 'Open reveal screen',
+      scrollboardDisabled: 'Reveal is available after the contest ends',
+      shortcuts: 'Shortcuts',
+      boardOps: 'Board actions',
+      openContest: 'Open contest',
+      openBoard: 'View scoreboard',
+      openSubmissions: 'Submissions',
+      editContest: 'Pre-contest setup',
+      editDisabled: 'After the contest starts, use contest tools instead',
+      copyLink: 'Copy contest link',
+      schedule: 'Schedule',
+      extend: 'Extend',
+      extendHint:
+        'Pushes the end time later. Extending a finished contest reopens it. Before start, use pre-contest setup.',
+      extendBy15: '+15 min',
+      extendBy30: '+30 min',
+      extendBy60: '+1 hour',
+      extendConfirm: 'Extend the end time to {time}?',
+      extendDisabled: 'Extend is available while running or after the contest ends',
+      currentEnd: 'Ends at',
+      freezeHint:
+        'Change or clear the freeze time before the board freezes. If the new time is already due, the board freezes immediately.',
+      freezeSave: 'Save freeze time',
+      freezeDisabledFrozen: 'The board is frozen; freeze time can no longer be changed',
+      freezeDisabledFinished: 'The contest has ended; freeze time cannot be changed',
+      freezeNowConfirm:
+        'The freeze time is already due. Saving will freeze the board now. Continue?',
+      copied: 'Link copied',
+      countdown: 'Countdown',
+      freezeAt: 'Freeze at',
+      noFreeze: 'No freeze',
     },
     board: {
       title: 'Scoreboard',

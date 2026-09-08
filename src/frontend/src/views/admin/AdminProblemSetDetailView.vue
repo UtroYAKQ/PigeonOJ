@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * 题单详情（管理后台，admin/tutor）：点进来即编排。
- * 左 4/12：题单标题 / 元信息 / Markdown 说明；右 8/12：题目列表
- * （行内上移 / 下移 / 移除即时保存，「添加题目」打开题库选择器弹窗）。
+ * 题单编排页（管理后台 / 团队空间同款）：点进来即编排。
+ * 左栏 Markdown 说明，右栏题目列表（上移 / 下移 / 移除即时保存，「添加题目」打开选择器）。
+ * 团队上下文（route.params.teamId）走团队题单端点 + arrangeable 候选源。
  */
 import { computed, h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -15,14 +15,22 @@ import ProblemPicker from '@/components/problemsets/ProblemPicker.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import { archiveProblemSet, getProblemSet, replaceProblemSetItems } from '@/api/problemSets'
+import {
+  archiveTeamProblemSet,
+  getTeamProblemSet,
+  replaceTeamProblemSetItems,
+  searchTeamArrangeableProblems,
+} from '@/api/teams'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
-import type { ProblemSetDetail, ProblemSetItem, ProblemSummary } from '@/types'
+import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/visibilityLabel'
+import type { PageResult, ProblemSetDetail, ProblemSetItem, ProblemSummary } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 
-const setId = String(route.params.id)
+const teamId = computed(() => (route.params.teamId ? String(route.params.teamId) : null))
+const setId = computed(() => String(route.params.setId ?? route.params.id))
 const loading = ref(false)
 const detail = ref<ProblemSetDetail | null>(null)
 /** 编排操作瞬时保存中（行内 ops 与添加按钮共用，避免并发写） */
@@ -32,10 +40,12 @@ const pickerShow = ref(false)
 async function load() {
   loading.value = true
   try {
-    detail.value = await getProblemSet(setId)
+    detail.value = await (teamId.value
+      ? getTeamProblemSet(teamId.value, setId.value)
+      : getProblemSet(setId.value))
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.loadFailed'))
-    router.push('/admin/problem-sets')
+    router.push(teamId.value ? `/teams/${teamId.value}` : '/admin/problem-sets')
   } finally {
     loading.value = false
   }
@@ -46,9 +56,10 @@ onMounted(load)
 async function persistItems(items: ProblemSetItem[]) {
   arranging.value = true
   try {
-    await replaceProblemSetItems(setId, {
-      items: items.map((it, i) => ({ problem_id: it.problem_id, sort_order: i })),
-    })
+    const body = { items: items.map((it, i) => ({ problem_id: it.problem_id, sort_order: i })) }
+    await (teamId.value
+      ? replaceTeamProblemSetItems(teamId.value, setId.value, body)
+      : replaceProblemSetItems(setId.value, body))
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.saveFailed'))
     await load() // 失败回滚到服务器权威状态
@@ -147,7 +158,7 @@ function rowProps(row: ProblemSetItem, index: number) {
 }
 
 function goEdit() {
-  router.push(`/admin/problem-sets/${setId}/edit`)
+  router.push(`/admin/problem-sets/${setId.value}/edit`)
 }
 
 function doArchive() {
@@ -155,12 +166,28 @@ function doArchive() {
     title: t('problemSets.detail.archive'),
     content: t('problemSets.detail.archiveConfirm'),
     positiveText: t('problemSets.detail.archive'),
-    action: () => archiveProblemSet(setId),
+    action: () =>
+      teamId.value
+        ? archiveTeamProblemSet(teamId.value, setId.value)
+        : archiveProblemSet(setId.value),
     successMessage: t('common.success'),
     onAfterSuccess: () => {
-      router.push('/admin/problem-sets')
+      router.push(teamId.value ? `/teams/${teamId.value}` : '/admin/problem-sets')
     },
   })
+}
+
+async function loadArrangeable(query: {
+  page: number
+  page_size: number
+  keyword?: string
+}): Promise<PageResult<ProblemSummary>> {
+  const result = await searchTeamArrangeableProblems(teamId.value!, {
+    page: query.page,
+    page_size: query.page_size,
+    keyword: query.keyword,
+  })
+  return { ...result, items: result.items as ProblemSummary[] }
 }
 
 function rowKey(row: ProblemSetItem) {
@@ -252,15 +279,9 @@ const chosenIds = computed(() => new Set((detail.value?.items ?? []).map((it) =>
           v-if="detail"
           size="small"
           :bordered="false"
-          :type="detail.visibility === 'public' ? 'info' : 'error'"
+          :type="problemSetVisibilityTagType(detail.visibility)"
         >
-          {{
-            t(
-              detail.visibility === 'public'
-                ? 'problemSets.list.visibilityPublic'
-                : 'problemSets.list.visibilityPrivate',
-            )
-          }}
+          {{ t(problemSetVisibilityKey(detail.visibility)) }}
         </n-tag>
         <n-tag v-if="detail?.status === 'archived'" type="warning" size="small">
           {{ t('problemSets.detail.archived') }}
@@ -269,7 +290,7 @@ const chosenIds = computed(() => new Set((detail.value?.items ?? []).map((it) =>
     </template>
     <template #header-extra>
       <div v-if="detail" class="detail-actions">
-        <n-button size="small" @click="goEdit">
+        <n-button v-if="!teamId" size="small" @click="goEdit">
           {{ t('problemSets.detail.edit') }}
         </n-button>
         <n-button
@@ -333,7 +354,12 @@ const chosenIds = computed(() => new Set((detail.value?.items ?? []).map((it) =>
       </div>
     </n-spin>
 
-    <ProblemPicker v-model:show="pickerShow" :chosen-ids="chosenIds" @add="onPicked" />
+    <ProblemPicker
+      v-model:show="pickerShow"
+      :chosen-ids="chosenIds"
+      :loader="teamId ? loadArrangeable : undefined"
+      @add="onPicked"
+    />
   </WorkbenchShell>
 </template>
 

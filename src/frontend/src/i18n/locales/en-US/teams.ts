@@ -97,6 +97,8 @@ export default {
       referenceNoPermission: 'Only tutors / admins can reference their own problems into a team',
       teamVisible: 'Visible to all members',
       adminVisible: 'Visible to team admins only',
+      setVisibilityHint:
+        'Team-visible sets are open to all members; admins-only sets are visible to you and team admins only',
       itemCount: '{count} problems',
       referencedAt: 'Referenced at {time}',
       arrange: 'Arrange problems',
@@ -108,7 +110,7 @@ export default {
       setArchived: 'Problem set archived',
       contestsEmpty: 'No team contests yet',
       createContest: 'Create contest',
-      contestCreated: 'Team contest created; arrange problems from the contest edit page',
+      contestCreated: 'Team contest created; continue to arrange problems',
       contestTitleRequired: 'Please enter a title',
       contestArrangeHint:
         'Arrange problems from the contest edit page after creation: team problems, public problems and your own private problems are all allowed.',
@@ -117,6 +119,7 @@ export default {
       user: 'Member',
       role: 'Role',
       joinedAt: 'Joined at',
+      you: 'You',
       search: 'Search member nickname',
       empty: 'No members',
       kick: 'Remove',

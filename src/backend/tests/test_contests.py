@@ -1134,6 +1134,105 @@ async def test_announcement_roundtrip(client: httpx.AsyncClient, user_headers) -
     assert resp.json()["code"] == 2003
 
 
+async def _start_contest(_cid: str) -> None:
+    async with SessionLocal() as db:
+        from app.services.contest import ContestService
+
+        await ContestService(db).transition()
+        await db.commit()
+
+
+async def test_extend_running_contest(client: httpx.AsyncClient, user_headers) -> None:
+    """延时：进行中可把结束时间推后；更早 / 赛前 / 非管理分别 1001 / 3002 / 2003。"""
+    tutor = await _tutor_headers(client)
+    payload = _contest_payload(problems=[])
+    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    cid = resp.json()["data"]["id"]
+    await _start_contest(cid)
+
+    detail = (await client.get(f"/api/v1/contests/{cid}")).json()["data"]
+    current_end = datetime.fromisoformat(detail["end_time"].replace("Z", "+00:00"))
+    later = current_end + timedelta(minutes=30)
+
+    resp = await client.post(
+        f"/api/v1/contests/{cid}/extend", json={"end_time": _iso(later)}, headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    assert datetime.fromisoformat(resp.json()["data"]["end_time"].replace("Z", "+00:00")) == later
+
+    earlier = current_end - timedelta(minutes=5)
+    resp = await client.post(
+        f"/api/v1/contests/{cid}/extend", json={"end_time": _iso(earlier)}, headers=tutor
+    )
+    assert resp.json()["code"] == 1001
+
+    resp = await client.post(
+        f"/api/v1/contests/{cid}/extend", json={"end_time": _iso(later + timedelta(hours=1))},
+        headers=user_headers,
+    )
+    assert resp.json()["code"] == 2003
+
+    future = _contest_payload(
+        problems=[], start_offset=3600, end_offset=7200, reg_start_offset=0, reg_end_offset=1800,
+    )
+    resp = await client.post("/api/v1/contests", json=future, headers=tutor)
+    scheduled_id = resp.json()["data"]["id"]
+    resp = await client.post(
+        f"/api/v1/contests/{scheduled_id}/extend",
+        json={"end_time": _iso(datetime.now(timezone.utc) + timedelta(hours=3))},
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 3002
+
+
+async def test_freeze_time_adjust_and_immediate_freeze(
+    client: httpx.AsyncClient, user_headers
+) -> None:
+    """封榜时间：未封榜可改 / 取消；调到过去立即封榜；已封榜再改 3002。"""
+    tutor = await _tutor_headers(client)
+    payload = _contest_payload(problems=[], freeze_before_end=1800)
+    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    cid = resp.json()["data"]["id"]
+    await _start_contest(cid)
+
+    detail = (await client.get(f"/api/v1/contests/{cid}")).json()["data"]
+    end = datetime.fromisoformat(detail["end_time"].replace("Z", "+00:00"))
+    start = datetime.fromisoformat(detail["start_time"].replace("Z", "+00:00"))
+    new_freeze = end - timedelta(minutes=10)
+
+    resp = await client.put(
+        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": _iso(new_freeze)}, headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    assert resp.json()["data"]["board_frozen"] is False
+
+    resp = await client.put(
+        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": None}, headers=tutor
+    )
+    assert resp.json()["code"] == 0
+    assert resp.json()["data"]["freeze_time"] is None
+
+    past = datetime.now(timezone.utc) - timedelta(seconds=1)
+    if not (start < past <= end):
+        past = start + timedelta(seconds=1)
+    resp = await client.put(
+        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": _iso(past)}, headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    assert resp.json()["data"]["board_frozen"] is True
+
+    resp = await client.put(
+        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": _iso(new_freeze)}, headers=tutor
+    )
+    assert resp.json()["code"] == 3002
+
+    resp = await client.put(
+        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": _iso(new_freeze)},
+        headers=user_headers,
+    )
+    assert resp.json()["code"] == 2003
+
+
 async def test_scoreboard_show_reveal_order(client: httpx.AsyncClient, user_headers) -> None:
     """滚榜：揭晓序列按「最终名次从差到好」生成，快照榜为起点、最终榜为终点。"""
     p1 = await _seed_problem("滚榜题 A")

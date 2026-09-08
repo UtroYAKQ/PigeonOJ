@@ -88,7 +88,7 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 | `components/WorkbenchShell.vue` | 视口锁定工作台外壳（page-fill 卡片 + 头部插槽） | 所有管理列表 |
 | `components/RefreshButton.vue` | 刷新按钮（icon-only 圆形幽灵按钮，加载中图标自旋） | 列表 / 状态页 |
 | `constants/languages.ts` | 判题语言选项 | 所有语言选择器 |
-| `components/problemsets/ProblemPicker.vue` | 题库选择器弹窗（支持 `defaultMine` 默认仅本人题目，团队引用场景） | 题单编排 / 团队引用 |
+| `components/problemsets/ProblemPicker.vue` | 题库选择器弹窗（`defaultMine` 默认仅本人题目；`loader` 自定义候选源，团队编排走 arrangeable） | 题单编排 / 团队引用 |
 
 ## 代码组织
 
@@ -142,7 +142,7 @@ src/frontend/
 
 `AppLayout.vue` 对 `router-view` 采用插槽分流：声明 `meta.keepAlive: true` 的页面进入 `<KeepAlive>`（实例 key 为 `route.fullPath`，参数页按 URL 区分、互不串数据），从深层页面（如评测结果）沿面包屑逐级返回（题目详情 → 列表）时沿途页面实例全部命中缓存——筛选、页码、题面、滚动位置等状态保留，不重新拉取；`:max=8` LRU 兜底，最久未用的实例自动释放。缓存 key 绑定当前登录用户 id（`router-view :key="cacheScope"`）：登出 / 换号后缓存整体作废。
 
-- 缓存范围（`meta.keepAlive: true`）：题库 / 题单 / 比赛 / 团队列表，题库 / 题单 / 比赛 / 团队详情与上下文写题页，各类提交列表与评测结果页，管理后台题目 / 题单 / 比赛 / 用户 / 标签 / 团队管理、题单详情、团队管理详情，会话管理
+- 缓存范围（`meta.keepAlive: true`）：题库 / 题单 / 比赛 / 团队列表，题库 / 题单 / 比赛 / 团队详情与上下文写题页，各类提交列表与评测结果页，管理后台题目 / 题单 / 比赛 / 用户 / 标签 / 团队管理、题单详情、团队管理详情，会话管理；赛时工具与比赛编辑向导不缓存（带表单）
 - 不缓存：写题向导各步（create / statement / cases / verify）、题目预览、团队邀请、个人资料 / 安全设置——带表单或与编辑强耦合的页面进出都重新挂载，保证数据新鲜
 - 轮询 / 计时页面（评测结果 ×3、比赛详情）必须实现 `onDeactivated` 暂停 + `onActivated` 恢复，禁止缓存页后台空转
 - 面包屑层级解析收敛于 `router/crumbs.ts` 的 `buildCrumbs`（`TheBreadcrumb` 展示与缓存共用同一来源）；新增上下文页接入链式缓存：路由声明 `meta.keepAlive: true` 即可，带表单页面禁止声明
@@ -160,7 +160,7 @@ src/frontend/
 **禁止把用户带离当前业务上下文**。实例：题库 `/problems/:id`、题单
 `/problem-sets/:setId/problems/:problemId`、比赛 `/contests/:cid/problems/:problemId`、
 团队 `/teams/:teamId/problems/:problemId`、团队题单 `/teams/:teamId/sets/:setId/problems/:pid`、
-团队比赛 `/teams/:teamId/contests/:cid`（详情 / 内题目 / 内评测结果）、
+  团队比赛 `/teams/:teamId/contests/:cid`（详情 / 编辑向导 / 赛时工具 / 内题目 / 内评测结果）、
 管理后台 `/admin/problem-sets/:id/problems/:pid/preview`。
 
 规则：

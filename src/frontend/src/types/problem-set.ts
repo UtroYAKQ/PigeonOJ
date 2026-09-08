@@ -1,7 +1,10 @@
 /**
  * 题单模块类型（docs/contracts/problem-sets.md）。
- * 团队题单（visibility='team'）随 teams 模块开放，当前接口不接受。
+ * 团队题单可见性与团队题目对齐：team_visible（全队可见）/ admin_visible（仅团队管理）。
  */
+
+/** 题单可见性：全站 public/private；团队 team_visible/admin_visible */
+export type ProblemSetVisibilityType = 'public' | 'private' | 'team_visible' | 'admin_visible'
 
 /** 题单内题目项（题目元信息随行返回） */
 export interface ProblemSetItem {
@@ -20,9 +23,11 @@ export interface ProblemSetSummary {
   id: string
   title: string
   description?: string | null
-  visibility: 'public' | 'private' | 'team'
+  visibility: ProblemSetVisibilityType
   status: 'active' | 'archived'
   owner_id: string
+  /** 归属团队（非空 = 团队题单；题单中心 / mine 恒为空，管理视图区分来源用） */
+  team_id?: string | null
   item_count: number
   /** 非空 = 经团队引用进入团队题单（引用时间；团队空间） */
   referenced_at?: string | null
@@ -62,4 +67,10 @@ export interface ProblemSetListQuery {
   keyword?: string
   /** 题单中心「我的」勾选：仅本人未下线题单（含私有；须登录） */
   mine?: boolean
+}
+
+/** 管理视图查询（来源筛选：solo=全站题单 / team=团队题单） */
+export interface AdminProblemSetListQuery extends ProblemSetListQuery {
+  status?: 'active' | 'archived'
+  ownership?: 'solo' | 'team'
 }

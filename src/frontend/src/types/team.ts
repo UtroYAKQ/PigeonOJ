@@ -125,11 +125,12 @@ export interface TeamSetListQuery {
   status?: 'active' | 'archived'
 }
 
-/** 创建团队题单载荷（copy_from_set_id 非空 = 复制本人全站题单条目，快照复制） */
+/** 创建团队题单载荷（visibility 与团队题目对齐，缺省 team_visible；copy_from_set_id 非空 = 复制本人全站题单条目，快照复制） */
 export interface TeamSetCreatePayload {
   title: string
   description?: string | null
   copy_from_set_id?: string
+  visibility?: 'team_visible' | 'admin_visible'
 }
 
 /** 团队比赛列表查询 */

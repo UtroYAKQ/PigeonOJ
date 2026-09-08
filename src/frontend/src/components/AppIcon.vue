@@ -15,8 +15,13 @@ const props = defineProps<{
 }>()
 
 const style = computed<CSSProperties>(() => {
-  const s: CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }
-  if (props.size !== undefined) s.fontSize = typeof props.size === 'number' ? `${props.size}px` : props.size
+  const s: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  }
+  if (props.size !== undefined)
+    s.fontSize = typeof props.size === 'number' ? `${props.size}px` : props.size
   if (props.color) s.color = props.color
   return s
 })

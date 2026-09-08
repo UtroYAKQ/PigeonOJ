@@ -33,7 +33,7 @@ async function flush() {
 const teamSetDetail: ProblemSetDetail = {
   id: '00000000-0000-0000-0000-00000000abcd',
   title: '团队题单A',
-  visibility: 'team',
+  visibility: 'team_visible',
   status: 'active',
   owner_id: '00000000-0000-0000-0000-000000000001',
   item_count: 2,

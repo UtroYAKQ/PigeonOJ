@@ -303,6 +303,54 @@ export const frontRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        path: ':teamId/contests/:cid/tools',
+        name: 'team-contest-tools',
+        component: () => import('@/views/admin/AdminContestToolsView.vue'),
+        meta: {
+          title: '赛时工具',
+          titleKey: 'contests.tools.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        path: ':teamId/contests/:cid/edit/basic',
+        name: 'team-contest-edit-basic',
+        component: () => import('@/views/admin/AdminContestBasicView.vue'),
+        meta: {
+          title: '编辑比赛',
+          titleKey: 'contests.list.editTitle',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        path: ':teamId/contests/:cid/edit/problems',
+        name: 'team-contest-edit-problems',
+        component: () => import('@/views/admin/AdminContestArrangeView.vue'),
+        meta: {
+          title: '编排题目',
+          titleKey: 'contests.wizard.arrange',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
         // 团队比赛详情（限界上下文：路由隔离；数据仍复用比赛统一端点并叠加团队门控）
         path: ':teamId/contests/:cid',
         name: 'team-contest-detail',
@@ -398,6 +446,23 @@ export const frontRoutes: RouteRecordRaw[] = [
                 `/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}`,
             },
           ],
+        },
+      },
+      {
+        // 团队题单编排（与后台题单详情同款页面；候选源走团队 arrangeable 端点）
+        path: ':teamId/sets/:setId/arrange',
+        name: 'team-set-arrange',
+        component: () => import('@/views/admin/AdminProblemSetDetailView.vue'),
+        meta: {
+          title: '编排题目',
+          titleKey: 'problemSets.detail.arrangeTitle',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
         },
       },
       {

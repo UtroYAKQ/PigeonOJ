@@ -2,13 +2,14 @@
 /**
  * 比赛管理（管理后台，admin/tutor；docs/contracts/contests.md）：
  * 全量比赛列表；行点击进入编辑页，创建走全页表单（/admin/contests/create）。
- * 「赛时工具」行内操作跳转独立工具页（公告 / 赛后解榜 / 滚榜大屏）——比赛开始后
- * 结构性字段被后端守卫锁定，赛时调整收敛到工具页（docs/contracts/contests.md「状态守卫与赛时工具」）。
+ * 行内「⋯」：管理比赛 / 赛时工具（公告 / 赛后解榜 / 滚榜大屏）。
+ * 比赛开始后结构性字段被后端守卫锁定，赛时调整收敛到工具页。
  */
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NButton, NTag } from 'naive-ui'
+import { MoreFilled } from '@element-plus/icons-vue'
+import { NButton, NDropdown, NIcon, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import RefreshButton from '@/components/RefreshButton.vue'
@@ -124,39 +125,59 @@ const columns = computed<DataTableColumns<ContestSummary>>(() => [
     render: (row) => t('contests.list.problemCount', { count: row.problem_count }),
   },
   {
-    title: t('contests.tools.title'),
-    key: 'tools',
-    width: 100,
+    title: '',
+    key: 'ops',
+    width: 48,
     render: (row) =>
-      row.status === 'scheduled'
-        ? h('span', { class: 'tools-cell tools-cell--idle' }, '—')
-        : h(
-            NButton,
+      h(
+        NDropdown,
+        {
+          trigger: 'click',
+          options: [
             {
-              size: 'tiny',
-              secondary: true,
-              onClick: (event: MouseEvent) => {
-                event.stopPropagation()
-                router.push(`/admin/contests/${row.id}/tools`)
-              },
+              key: 'manage',
+              label: t('contests.detail.manage'),
+              disabled: row.status !== 'scheduled',
             },
-            { default: () => t('contests.tools.title') },
-          ),
-  },
-  {
-    title: t('action.edit'),
-    key: 'actions',
-    width: 90,
-    render: () =>
-      h(NTag, { size: 'small', bordered: false }, { default: () => t('contests.detail.manage') }),
+            { key: 'tools', label: t('contests.tools.title') },
+          ],
+          onSelect: (key: string | number) => {
+            if (key === 'tools') {
+              void router.push(`/admin/contests/${row.id}/tools`)
+              return
+            }
+            if (row.status !== 'scheduled') return
+            void router.push(`/admin/contests/${row.id}/edit/basic`)
+          },
+        },
+        {
+          default: () =>
+            h(
+              NButton,
+              {
+                circle: true,
+                quaternary: true,
+                size: 'tiny',
+                'aria-label': t('teams.detail.more'),
+                onClick: (event: MouseEvent) => event.stopPropagation(),
+              },
+              { icon: () => h(NIcon, { component: MoreFilled }) },
+            ),
+        },
+      ),
   },
 ])
 
-/** 行点击进入向导第一步（基本信息；下一步编排题目） */
+/** 赛前点进编辑向导；开赛后进赛时工具 */
 function rowProps(row: ContestSummary) {
   return {
     style: 'cursor: pointer;',
-    onClick: () => router.push(`/admin/contests/${row.id}/edit/basic`),
+    onClick: () =>
+      router.push(
+        row.status === 'scheduled'
+          ? `/admin/contests/${row.id}/edit/basic`
+          : `/admin/contests/${row.id}/tools`,
+      ),
   }
 }
 </script>
@@ -233,9 +254,5 @@ function rowProps(row: ContestSummary) {
 .contest-name span {
   color: var(--app-text-secondary);
   font-size: 12px;
-}
-.tools-cell--idle {
-  color: var(--app-text-secondary);
-  opacity: 0.5;
 }
 </style>

@@ -154,23 +154,39 @@
 | GET | /teams/{team_id}/problems/{pid} | team 角色 | 团队题目详情（统一入口）：归属校验 + 团队可见性门（admin_visible 仅团队管理）后复用题库详情装配 | - | problem |
 | POST | /teams/{team_id}/problems/{pid}/submissions | team 角色 | 团队题库内交题（统一入口，`submit_type='practice'`）：门控通过后豁免题库可见性，走统一判题链路 | language/code | submission_id |
 | POST | /teams/{team_id}/problems/{pid}/run-code | team 角色 | 团队题库内用户自测：门控复用详情端点，豁免题库可见性后经网关派发 | language/code/input | self_test_result |
-| GET | /teams/{team_id}/problem-sets | team 角色 | 团队题单列表：默认仅未下线；status 显式传入按值过滤（团队管理视图） | 分页/keyword/status | problem_set[]（含 item_count / referenced_at） |
-| GET | /teams/{team_id}/problem-sets/{set_id} | team 角色 | 团队题单详情（团队上下文统一入口，不走 /problem-sets/{id}）：成员门 + 归属校验后复用题单详情装配 | - | problem_set（含 items / can_manage / owner_name） |
+| GET | /teams/{team_id}/problem-sets | team 角色 | 团队题单列表（可见性与团队题目对齐）：成员仅见 team_visible 且未下线；创建者 / 管理员另见 admin_visible；status 显式传入按值过滤（团队管理视图） | 分页/keyword/status | problem_set[]（含 item_count / referenced_at / visibility） |
+| GET | /teams/{team_id}/problem-sets/{set_id} | team 角色 | 团队题单详情（团队上下文统一入口，不走 /problem-sets/{id}）：成员门 + 归属校验 + 可见性门（admin_visible 仅团队管理）后复用题单详情装配 | - | problem_set（含 items / can_manage / owner_name / visibility） |
 | GET | /teams/{team_id}/problem-sets/{set_id}/problems/{pid} | team 角色 | 团队题单内题目详情（团队上下文统一入口）：归属校验（题目属于该题单）后复用题库详情装配 | - | problem |
 | POST | /teams/{team_id}/problem-sets/{set_id}/problems/{pid}/submissions | team 角色 | 团队题单内交题（团队上下文统一入口）：归属校验后走统一判题链路 | language/code | submission_id |
 | POST | /teams/{team_id}/problem-sets/{set_id}/problems/{pid}/run-code | team 角色 | 团队题单内用户自测：门控复用题目详情端点 | language/code/input | self_test_result |
-| POST | /teams/{team_id}/problem-sets | team_creator/team_admin | 创建团队题单（visibility='team'）；`copy_items_from` 非空 = 复制本人全站题单条目（快照复制，源题单保留；他人题单 2003、已下线 409、团队题单作来源 1001） | title/description?/copy_items_from? | problem_set |
+| POST | /teams/{team_id}/problem-sets | team_creator/team_admin | 创建团队题单（visibility 与团队题目对齐：team_visible 全队可见（缺省）/ admin_visible 仅团队管理）；`copy_items_from` 非空 = 复制本人全站题单条目（快照复制，源题单保留；他人题单 2003、已下线 409、团队题单作来源 1001） | title/description?/visibility?/copy_items_from? | problem_set |
 | PUT | /teams/{team_id}/problem-sets/{set_id}/items | team_creator/team_admin | 编排团队题单：候选 = 已发布且（本团队题目 ∪ 全站公开 ∪ 本人私有）；重复 3003 | items[{problem_id, sort_order}] | - |
 | POST | /teams/{team_id}/problem-sets/{set_id}/archive | team_creator/team_admin | 下线团队题单（不做物理删除） | - | problem_set |
 | GET | /teams/{team_id}/contests | team 角色 | 团队比赛列表：本团队全部状态比赛 | 分页/status/keyword | contest[] |
 | POST | /teams/{team_id}/contests | team_creator/team_admin | 创建团队比赛（contest_type='team'）；编排候选放开本团队题目 | contest 创建载荷 | contest |
+| GET | /teams/{team_id}/contests/{cid} | team 角色 | 团队比赛详情（团队上下文统一入口）：成员门 + 归属校验后复用比赛详情装配 | - | contest |
+| PUT | /teams/{team_id}/contests/{cid} | team_creator/team_admin | 编辑团队比赛 | contest 编辑载荷 | contest |
+| POST | /teams/{team_id}/contests/{cid}/register | team 角色 | 团队比赛报名 | - | - |
+| GET | /teams/{team_id}/contests/{cid}/problems | team 角色 | 团队比赛题目列表 | - | contest_problem[] |
+| GET | /teams/{team_id}/contests/{cid}/problems/search | team_creator/team_admin | 团队比赛编排候选搜索 | 分页/keyword | problem[] |
+| GET | /teams/{team_id}/contests/{cid}/problems/{pid} | team 角色 | 团队比赛内题目详情 | - | problem |
+| POST | /teams/{team_id}/contests/{cid}/problems/{pid}/submissions | team 角色 | 团队比赛内交题 | language/code | submission_id |
+| GET | /teams/{team_id}/contests/{cid}/board | team 角色 | 团队比赛榜单 | - | board |
+| GET | /teams/{team_id}/contests/{cid}/board/{uid}/{pid}/accepted | team 角色 | 榜单单格 AC 提交 | - | submission[] |
+| GET | /teams/{team_id}/contests/{cid}/submissions | team 角色 | 团队比赛提交记录 | 分页/筛选 | submission[] |
+| GET | /teams/{team_id}/contests/{cid}/submissions/{sid} | team 角色 | 团队比赛提交详情 | - | submission |
+| POST | /teams/{team_id}/contests/{cid}/unfreeze | team_creator/team_admin | 解冻榜单 | - | contest |
+| PUT | /teams/{team_id}/contests/{cid}/announcement | team_creator/team_admin | 更新公告 | announcement | contest |
+| POST | /teams/{team_id}/contests/{cid}/extend | team_creator/team_admin | 赛时延时 | end_time | contest |
+| PUT | /teams/{team_id}/contests/{cid}/freeze-time | team_creator/team_admin | 调整封榜时间 | freeze_time | contest |
+| GET | /teams/{team_id}/contests/{cid}/scoreboard-show | team_creator/team_admin | 滚榜数据 | - | scoreboard_show |
 
-> 团队比赛详情浏览、报名、榜单、交题等复用比赛模块统一端点：
-> 团队比赛 `GET /contests/{id}` 对团队成员放行（非成员 2003）、报名叠加团队成员校验。
+> 团队比赛详情 / 报名 / 榜单 / 交题 **必须**走上表团队端点（成员门 + 比赛归属该团队）；
+> 全站 `GET /contests/{id}` 对团队比赛仍对团队成员放行（非成员 2003），供管理端只读浏览。
 > **前端路由限界上下文**：团队比赛以 `/teams/:teamId/contests/:cid` 系列路由呈现
 > （详情 / 内题目 / 内评测结果），面包屑挂在团队层级，内部导航不跳出团队前缀；
-> 数据端点仍为比赛统一端点（本表无独立团队比赛详情端点）。
-> 团队题目与团队**题单**详情 / 交题 / 自测**必须**走上表团队端点
+> 数据端点走本表团队比赛端点。
+> 团队题目与团队**题单**详情 / 交题 / 自测同样必须走上表团队端点
 > （题单统一入口 / 题库裸路径严格拦截，限界上下文隔离）。
 
 ### 管理端视图（admin，只读浏览）
@@ -205,6 +221,14 @@
 
 ## 实现状态
 
+- 已实现（迁移 0032，团队题单可见性双分支）：`problem_sets` 团队分支 visibility
+  对齐团队题目——'team' 更名 'team_visible'（存量回填，原语义即全队可见），
+  新增 'admin_visible'（仅团队创建者 / 管理员可见：列表 / 详情 / 题单内题目 /
+  交题 / 自测均对普通成员拦截）；创建团队题单可选可见性（缺省 team_visible）；
+  题单中心 mine 勾选排除团队题单（封闭空间，后端兜底）。
+  前端：团队题单创建页可见性单选、团队详情题单列表管理视图可见性列。
+  题单管理（/admin/problem-sets）：列表项带 `team_id`，`ownership` 来源筛选
+  （solo=全站题单 / team=团队题单），可见性列映射团队分支（团队可见 / 管理可见）。
 - 已实现（迁移 0031，团队可见性）：`teams` 增 `visibility`（public / private，缺省 private，
   存量回填 private）；`GET /teams` 团队中心列表（仅 public+active，匿名可看，
   `mine=true` 「我的团队」勾选须登录）；私有团队申请须凭邀请链接（无 token 2003）；
@@ -226,6 +250,9 @@
   团队题单（创建 / 编排 / 下线 / 详情复用题单端点）/ 团队比赛（创建 / 列表 /
   报名与看题窗口复用比赛端点）；`problems` / `problem_sets` 增 `referenced_at` 引用字段；
   编排候选隔离（团队题目不得流入全站编排）。
+- 已实现（团队比赛上下文）：团队比赛详情 / 报名 / 题目 / 交题 / 榜单 / 提交记录 /
+  提交详情 / 解冻 / 公告 / 滚榜独立端点（`/teams/{team_id}/contests/{cid}/...` 前缀），
+  成员门 + 比赛归属该团队后复用比赛装配；前端团队比赛路由数据端点走本前缀。
 - 已实现（团队题单上下文）：团队题单详情 / 题单内题目详情 / 题单内交题 / 题单内自测
   独立端点（`/teams/{team_id}/problem-sets/...` 前缀），不再复用题单统一入口
   （限界上下文隔离）；`POST /problems` 补 `team_id` 团队上下文直建
@@ -247,14 +274,18 @@
   邀请落地页（公开解析 + 申请加入）、`/teams/:teamId/problems/:pid` 团队写题页
   （复用题库详情组件，详情 / 交题 / 自测 / 评测结果全部走团队上下文路由，不跳出）。
 - 前端（团队题单上下文路由，限界上下文）：`/teams/:teamId/sets/:setId` 团队题单详情
-  （复用题单详情组件按上下文取参）、`/teams/:teamId/sets/:setId/problems/:pid` 团队题单内写题页、
+  （复用题单详情组件按上下文取参）、`/teams/:teamId/sets/:setId/arrange` 编排页
+  （与后台题单详情同款，候选走 arrangeable）、`/teams/:teamId/sets/:setId/problems/:pid` 团队题单内写题页、
   `/teams/:teamId/sets/:setId/problems/:pid/submissions/:sid` 评测结果——
   读 / 交题 / 自测全部走团队题单端点，与题单统一入口完全隔离。
 - 前端（团队比赛上下文路由，限界上下文）：`/teams/:teamId/contests/:cid` 团队比赛详情、
+  `/teams/:teamId/contests/:cid/edit/basic` 与 `/edit/problems` 编辑向导、
+  `/teams/:teamId/contests/:cid/tools` 赛时工具、
   `/teams/:teamId/contests/:cid/problems/:pid` 内写题页、
   `/teams/:teamId/contests/:cid/problems/:pid/submissions/:sid` 与
   `/teams/:teamId/contests/:cid/submissions/:sid` 评测结果——路由与面包屑隔离在团队层级；
-  数据端点复用比赛统一端点（叠加团队门控，见「团队空间端点」表下注记）。
+  数据端点走团队比赛上下文端点（见「团队空间端点」表）。
+  团队比赛列表（创建者 / 管理员）行内「⋯」提供「赛前管理」（仅 `scheduled`）与「赛时工具」。
 - 前端（团队创建页，模仿后台创建页形态）：`/teams/:teamId/sets/new` 题单创建页
   （单一表单：标题 + Markdown 说明 + 可选「从我的题单复制」下拉）、
   `/teams/:teamId/problems/new` 题目引用页（团队题目 = 引用制；候选走

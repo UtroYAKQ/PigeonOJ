@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.enums import (
+    ProblemSetVisibility,
     ProblemVisibility,
     TeamApplicationStatus,
     TeamMemberStatus,
@@ -180,14 +181,22 @@ class TeamProblemReferenceCreate(BaseModel):
 
 
 class TeamProblemSetCreate(BaseModel):
-    """创建团队题单（team_creator / team_admin；team_id 由路径给定，visibility='team'）。
+    """创建团队题单（team_creator / team_admin；team_id 由路径给定）。
 
-    copy_items_from 非空 = 复制本人全站题单的题目条目（快照复制，源题单保留在全站）。
+    copy_items_from 非空 = 复制本人全站题单的题目条目（快照复制，源题单保留在全站）；
+    visibility 与团队题目对齐（team_visible 全队可见，缺省 / admin_visible 仅团队管理）。
     """
 
     title: str = Field(min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=2000)
     copy_items_from: uuid.UUID | None = None
+    visibility: ProblemSetVisibility = ProblemSetVisibility.TEAM_VISIBLE
+
+    @model_validator(mode="after")
+    def check_visibility(self) -> TeamProblemSetCreate:
+        if self.visibility not in (ProblemSetVisibility.TEAM_VISIBLE, ProblemSetVisibility.ADMIN_VISIBLE):
+            raise ValueError("团队题单可见性仅支持 team_visible / admin_visible")
+        return self
 
 
 class TeamContestCreate(ContestCreate):

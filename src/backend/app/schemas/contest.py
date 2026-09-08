@@ -56,7 +56,7 @@ class ContestUpdate(BaseModel):
     """编辑比赛（缺省不动；problems 传即全量重排；时间合法性在服务层对合并值校验）。
 
     赛时守卫：比赛开始后（status != scheduled）结构性字段被服务层拒绝（3002）——
-    赛中调整走受控端点（公告 PUT /announcement；延时与封榜策略后续迭代）。
+    赛中调整走受控端点（公告 / 延时 / 封榜时间）。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -78,6 +78,22 @@ class AnnouncementUpdate(BaseModel):
     """比赛公告更新（PUT /contests/{id}/announcement；空字符串 = 清空公告）。"""
 
     announcement: str = Field(default="", max_length=64 * 1024)
+
+
+class ContestExtend(BaseModel):
+    """赛时延时（POST /contests/{id}/extend）：新结束时间必须晚于当前结束时间。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    end_time: datetime
+
+
+class FreezeTimeUpdate(BaseModel):
+    """调整封榜时间（PUT /contests/{id}/freeze-time；null = 取消封榜，仅未封榜时）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    freeze_time: datetime | None = None
 
 
 class ContestProblemItemOut(BaseModel):

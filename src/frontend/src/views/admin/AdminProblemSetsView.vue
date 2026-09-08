@@ -18,6 +18,7 @@ import { adminListProblemSets } from '@/api/admin'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
+import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/visibilityLabel'
 import type { PageResult, ProblemSetSummary } from '@/types'
 
 const router = useRouter()
@@ -29,6 +30,8 @@ const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isC
   usePagination()
 const keyword = ref('')
 const statusFilter = ref<'active' | 'archived' | null>(null)
+/** 来源筛选：solo=全站题单 / team=团队题单（空 = 全部来源） */
+const ownershipFilter = ref<'solo' | 'team' | null>(null)
 
 async function load() {
   const seq = beginLoad()
@@ -39,6 +42,7 @@ async function load() {
       page_size: pageSize.value,
       keyword: keyword.value || undefined,
       status: statusFilter.value ?? undefined,
+      ownership: ownershipFilter.value ?? undefined,
     })
     if (!isCurrent(seq)) return
     sets.value = result.items
@@ -76,6 +80,20 @@ const statusValue = computed({
   },
 })
 
+/** 来源筛选（与题目管理 ownership 同语义）：全部来源 / 全站题单 / 团队题单 */
+const ownershipOptions = computed(() => [
+  { label: t('problemSets.list.ownershipAll'), value: 'all' },
+  { label: t('problemSets.list.ownershipSolo'), value: 'solo' },
+  { label: t('problemSets.list.ownershipTeam'), value: 'team' },
+])
+const ownershipValue = computed({
+  get: () => ownershipFilter.value ?? 'all',
+  set: (v: string) => {
+    ownershipFilter.value = v === 'all' ? null : (v as 'solo' | 'team')
+    changeStatus()
+  },
+})
+
 const columns = computed<DataTableColumns<ProblemSetSummary>>(() => [
   {
     title: t('problemSets.list.titleLabel'),
@@ -101,16 +119,9 @@ const columns = computed<DataTableColumns<ProblemSetSummary>>(() => [
         {
           size: 'small',
           bordered: false,
-          type: row.visibility === 'public' ? 'success' : 'default',
+          type: problemSetVisibilityTagType(row.visibility),
         },
-        {
-          default: () =>
-            t(
-              row.visibility === 'public'
-                ? 'problemSets.list.visibilityPublic'
-                : 'problemSets.list.visibilityPrivate',
-            ),
-        },
+        { default: () => t(problemSetVisibilityKey(row.visibility)) },
       ),
   },
   {
@@ -169,6 +180,12 @@ function openCreate() {
         style="width: 130px"
         :options="statusOptions"
         :aria-label="t('problemSets.list.status')"
+      />
+      <n-select
+        v-model:value="ownershipValue"
+        style="width: 130px"
+        :options="ownershipOptions"
+        :aria-label="t('problemSets.list.ownership')"
       />
       <template #actions>
         <n-button type="primary" size="small" @click="openCreate">

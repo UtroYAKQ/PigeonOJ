@@ -442,7 +442,7 @@ async def test_team_problem_set_lifecycle(client: httpx.AsyncClient) -> None:
     )
     assert resp.json()["code"] == 0, resp.text
     copied_set = resp.json()["data"]
-    assert copied_set["visibility"] == "team"
+    assert copied_set["visibility"] == "team_visible"
     assert copied_set["referenced_at"]
     assert copied_set["item_count"] == 1  # 快照复制源题单条目
 
@@ -516,7 +516,7 @@ async def test_team_problem_set_lifecycle(client: httpx.AsyncClient) -> None:
         f"/api/v1/teams/{team_id}/problem-sets/{copied_set['id']}", headers=member
     )
     assert resp.json()["code"] == 0, resp.text
-    assert resp.json()["data"]["visibility"] == "team"
+    assert resp.json()["data"]["visibility"] == "team_visible"
     assert len(resp.json()["data"]["items"]) == 1  # 复制题单继承源题单条目
     assert resp.json()["data"]["items"][0]["title"] == "复制源公开题"
     resp = await client.get(
@@ -540,6 +540,85 @@ async def test_team_problem_set_lifecycle(client: httpx.AsyncClient) -> None:
     resp = await client.get(f"/api/v1/teams/{team_id}/problem-sets", headers=member)
     assert resp.json()["code"] == 0
     assert resp.json()["data"]["total"] == 1  # 队内训练已下线（复制题单仍活跃）
+
+
+async def test_team_set_visibility_admin_visible(client: httpx.AsyncClient) -> None:
+    """团队题单可见性双分支（与团队题目对齐）：admin_visible 题单成员不可见
+    （列表不出现 / 详情 / 内题目 / 交题 403），团队管理可见；team_visible 成员正常；
+    题单中心与 mine 勾选不含团队题单。"""
+    tutor = await _tutor_headers(client)
+    team_id = await _create_team(client, tutor, "题单可见队")
+
+    # 创建 admin_visible 题单 + team_visible 题单
+    resp = await client.post(
+        f"/api/v1/teams/{team_id}/problem-sets",
+        json={"title": "管理层题单", "visibility": "admin_visible"},
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    admin_set_id = resp.json()["data"]["id"]
+    assert resp.json()["data"]["visibility"] == "admin_visible"
+
+    resp = await client.post(
+        f"/api/v1/teams/{team_id}/problem-sets", json={"title": "全员题单"}, headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    team_set_id = resp.json()["data"]["id"]
+    assert resp.json()["data"]["visibility"] == "team_visible"  # 缺省 team_visible
+
+    # 编排一题到 admin_visible 题单（成员交题 / 内题目门控用）
+    pub = await _seed_problem("可见队公开题")
+    resp = await client.put(
+        f"/api/v1/teams/{team_id}/problem-sets/{admin_set_id}/items",
+        json={"items": [{"problem_id": pub, "sort_order": 0}]},
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    member = await _user_headers(client, "setvismember@pigeonoj.dev")
+    resp = await client.post(f"/api/v1/teams/{team_id}/applications", json={}, headers=member)
+    assert resp.json()["code"] == 0
+    await _approve_all(client, team_id, tutor)
+
+    # 成员列表：仅 team_visible；团队管理：两个都见
+    resp = await client.get(f"/api/v1/teams/{team_id}/problem-sets", headers=member)
+    assert resp.json()["code"] == 0, resp.text
+    assert {it["title"] for it in resp.json()["data"]["items"]} == {"全员题单"}
+    resp = await client.get(f"/api/v1/teams/{team_id}/problem-sets", headers=tutor)
+    assert {it["title"] for it in resp.json()["data"]["items"]} == {"管理层题单", "全员题单"}
+
+    # admin_visible：成员详情 / 内题目 / 交题 403；团队管理放行
+    for method, url in (
+        ("GET", f"/api/v1/teams/{team_id}/problem-sets/{admin_set_id}"),
+        ("GET", f"/api/v1/teams/{team_id}/problem-sets/{admin_set_id}/problems/{pub}"),
+        (
+            "POST",
+            f"/api/v1/teams/{team_id}/problem-sets/{admin_set_id}/problems/{pub}/submissions",
+        ),
+    ):
+        if method == "GET":
+            resp = await client.get(url, headers=member)
+        else:
+            resp = await client.post(url, json={"language": "cpp17", "code": "int main(){}"}, headers=member)
+        assert resp.json()["code"] == 2003, resp.text
+        assert resp.status_code == 403, resp.text
+
+    resp = await client.get(
+        f"/api/v1/teams/{team_id}/problem-sets/{admin_set_id}", headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get(
+        f"/api/v1/teams/{team_id}/problem-sets/{admin_set_id}/problems/{pub}", headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    # team_visible：成员详情放行
+    resp = await client.get(f"/api/v1/teams/{team_id}/problem-sets/{team_set_id}", headers=member)
+    assert resp.json()["code"] == 0, resp.text
+
+    # 团队题单不进题单中心 / mine 勾选（封闭空间）
+    resp = await client.get(f"/api/v1/problem-sets?mine=true", headers=tutor)
+    assert all(it["id"] not in (admin_set_id, team_set_id) for it in resp.json()["data"]["items"])
 
 
 async def _uid_by_email(client: httpx.AsyncClient, email: str) -> uuid_mod.UUID:
@@ -648,6 +727,71 @@ async def test_team_contest_flow(client: httpx.AsyncClient) -> None:
         headers=tutor,
     )
     assert resp.json()["code"] == 1001
+
+    # 团队上下文端点：成员可读详情 / 榜单；比赛不属于该团队 → 3001
+    resp = await client.get(
+        f"/api/v1/teams/{team_id}/contests/{contest['id']}", headers=member
+    )
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get(
+        f"/api/v1/teams/{team_id}/contests/{contest['id']}/board", headers=member
+    )
+    assert resp.json()["code"] == 0, resp.text
+    other_team = await _create_team(client, tutor, "另一队赛")
+    resp = await client.get(
+        f"/api/v1/teams/{other_team}/contests/{contest['id']}", headers=tutor
+    )
+    assert resp.json()["code"] == 3001
+    resp = await client.get(
+        f"/api/v1/teams/{team_id}/contests/{contest['id']}", headers=outsider
+    )
+    assert resp.json()["code"] == 2003
+
+
+async def test_team_problem_statement_rejects_extra_team_id(client: httpx.AsyncClient) -> None:
+    """团队题面更新：ProblemUpdate extra=forbid，body 不得携带 team_id（归属由路径给定）。"""
+    tutor = await _tutor_headers(client)
+    team_id = await _create_team(client, tutor, "题面队")
+    resp = await client.post(
+        "/api/v1/problems",
+        json={
+            "title": "队内草稿",
+            "background": "B",
+            "description": "D",
+            "input_description": "I",
+            "output_description": "O",
+            "team_id": team_id,
+            "visibility": "team_visible",
+        },
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    pid = resp.json()["data"]["id"]
+    resp = await client.put(
+        f"/api/v1/teams/{team_id}/problems/{pid}/statement",
+        json={
+            "title": "队内草稿改",
+            "background": "B",
+            "description": "D",
+            "input_description": "I",
+            "output_description": "O",
+            "team_id": team_id,
+        },
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 1001, resp.text
+    resp = await client.put(
+        f"/api/v1/teams/{team_id}/problems/{pid}/statement",
+        json={
+            "title": "队内草稿改",
+            "background": "B",
+            "description": "D",
+            "input_description": "I",
+            "output_description": "O",
+        },
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 0, resp.text
 
 
 async def test_team_problem_bare_path_blocked_after_reference(client: httpx.AsyncClient) -> None:
