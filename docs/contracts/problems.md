@@ -146,7 +146,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 | 团队题目 | 非空 | `admin_visible`（默认）/ `team_visible` | 否 | 团队题库内按可见性展示；不提供进入题库中心的通道 |
 
 - 生命周期（`status`）与可见性（`visibility`）正交：草稿 / 发布 / 归档由 `status` 表达，私有 / 管理可见 / 团队可见 / 全站公开由 `visibility` 表达
-- 团队题目可见性（`admin_visible` / `team_visible`）仅可经团队引用动作设置与切换（见 teams.md 团队空间节）；题库直建恒为全站题目，题库编辑不得越分支改动可见性
+- 团队题目可见性仅可经团队引用 / 团队空间动作设置与切换（docs/contracts/teams.md 团队空间节）；题库裸路径编辑不得**越分支**改动可见性（团队题 team_visible ↔ admin_visible、全站题 public ↔ private 的分支内切换由题目管理者经编辑动线进行，跨分支 1001）
 - 团队引用快照题（`source_problem_id` 非空）：题库裸路径（详情 / 交题 / 自测）一律拦截，只能经团队上下文端点访问（限界上下文隔离，docs/contracts/teams.md）；**例外：全局 admin** 经裸路径只读（管理动线浏览团队资源，docs/contracts/teams.md 管理端）
 - 题目被题单 / 比赛引用时不物理删除，下线走 `status='archived'`；引用后不自动改变题目在题库中心的可见性
 - 用户在题单或比赛中访问题目时，按题单或比赛本身的访问权限展示题面；创建者把私有题编入题单 / 比赛即视为经该上下文分发——引用上下文内（详情 / 交题）放行，题库裸路径仍按可见性门控（见 `problem-sets.md` / `contests.md` 编排规则）
@@ -157,7 +157,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：**admin 见全量题目，其余用户（含 tutor / team_creator）仅见本人创建**，可叠加 `status` 过滤与 `ownership` 来源过滤（`solo`=全站题 team_id 为空 / `team`=团队题 team_id 非空；仅 scope=mine 生效，非法值 1001）；列表项恒带 `needs_reverification` 字段（存在待验证测试点，或样例晚于最近验题通过时间；仅 `scope=mine` 视图有意义，其他场景恒为 `false`）；支持难度分闭区间筛选（未评分题目不落入任何区间，min>max 返回 1001）；`mine=true`（题库中心「我的」勾选，须登录，匿名 401）改为仅本人已发布题目（任意可见性，含私有已发布；草稿 / 归档仍走 `scope=mine` 管理视图）；列表项带 `difficulty` 与 `submission_count` / `accepted_count`；登录请求列表项带 `solved` 作答状态（`true`=已通过：存在 AC 提交；`false`=已尝试未通过；`null`=未提交过；未登录恒 `null`；验题提交不计入口径，与 `problem_counters` 一致） | 分页/标签/关键字/scope/status/mine/ownership/difficulty_min/difficulty_max | problem[] |
+| GET | /problems | public / auth | 题库列表。默认（scope=all）题库中心仅 published+public；`scope=mine` 为管理视图（须登录）：**admin 见全量题目，其余用户（含 tutor / team_creator）仅见本人创建**，可叠加 `status` 过滤与 `ownership` 来源过滤（`solo`=全站题 team_id 为空 / `team`=团队题 team_id 非空；仅 scope=mine 生效，非法值 1001）；列表项恒带 `needs_reverification` 字段（存在待验证测试点，或样例晚于最近验题通过时间；仅 `scope=mine` 视图有意义，其他场景恒为 `false`）；支持难度分闭区间筛选（未评分题目不落入任何区间，min>max 返回 1001）；`mine=true`（题库中心「我的」勾选，须登录，匿名 401）改为仅本人已发布的**全站题**（任意可见性，含私有已发布；团队题目属封闭空间不进题库中心，即使是本人引用 / 直建的快照；草稿 / 归档仍走 `scope=mine` 管理视图）；列表项带 `difficulty` 与 `submission_count` / `accepted_count`；登录请求列表项带 `solved` 作答状态（`true`=已通过：存在 AC 提交；`false`=已尝试未通过；`null`=未提交过；未登录恒 `null`；验题提交不计入口径，与 `problem_counters` 一致） | 分页/标签/关键字/scope/status/mine/ownership/difficulty_min/difficulty_max | problem[] |
 | GET | /problems/tags | public | 激活标签列表（打标选择器与列表筛选用，仅 `status='active'`） | - | tag[]（id/name/color） |
 | GET | /admin/tags | admin | 标签管理全量列表（含已归档） | - | tag[] |
 | POST | /admin/tags | admin | 新增标签（name 唯一，重复返回 1001） | name/color? | tag |

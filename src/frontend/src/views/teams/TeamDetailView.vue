@@ -58,6 +58,7 @@ import {
   updateTeam,
 } from '@/api/teams'
 import { uploadImage } from '@/api/files'
+import { archiveProblem } from '@/api/problems'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
@@ -157,6 +158,36 @@ function openTeamProblem(row: TeamProblemSummary) {
   void router.push(`/teams/${teamId}/problems/${row.id}`)
 }
 
+/** 题库行内操作（⋯ 下拉，仅团队管理可见；backend 仍强校验 owner/admin） */
+type ProblemAction = 'edit' | 'archive'
+
+function problemActions(row: TeamProblemSummary): Array<{ key: ProblemAction; label: string }> {
+  const actions: Array<{ key: ProblemAction; label: string }> = [
+    { key: 'edit', label: t('action.edit') },
+  ]
+  if (row.status === 'published') {
+    actions.push({ key: 'archive', label: t('problems.detail.archive') })
+  }
+  return actions
+}
+
+function onProblemAction(key: ProblemAction, row: TeamProblemSummary) {
+  if (key === 'edit') {
+    void router.push(`/teams/${teamId}/problems/${row.id}/edit/statement`)
+    return
+  }
+  confirmAsyncDialog({
+    title: t('problems.detail.archive'),
+    content: t('problems.mine.archiveConfirm'),
+    positiveText: t('problems.detail.archive'),
+    action: async () => {
+      await archiveProblem(row.id)
+    },
+    successMessage: t('problems.detail.archiveSuccess'),
+    onAfterSuccess: () => loadProblems(),
+  })
+}
+
 /** 引用题目页（团队题目 = 引用制）：tutor / admin 全局身份才拥有可引用的本人题目 */
 const canReference = computed(() => userStore.hasAnyRole(['admin', 'tutor']))
 
@@ -239,6 +270,39 @@ const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
       return `${accepted}/${total}`
     },
   },
+  ...(isAdmin.value
+    ? [
+        {
+          title: '',
+          key: 'ops',
+          width: 48,
+          render: (row: TeamProblemSummary) =>
+            h(
+              NDropdown,
+              {
+                trigger: 'click',
+                options: problemActions(row).map((a) => ({ key: a.key, label: a.label })),
+                onSelect: (key: ProblemAction) => onProblemAction(key, row),
+              },
+              {
+                default: () =>
+                  h(
+                    NButton,
+                    {
+                      circle: true,
+                      quaternary: true,
+                      size: 'tiny',
+                      'aria-label': t('teams.detail.more'),
+                      // 阻断冒泡：行 onClick 会把点击吞成「进入题目」
+                      onClick: (e: MouseEvent) => e.stopPropagation(),
+                    },
+                    { icon: () => h(NIcon, { component: MoreFilled }) },
+                  ),
+              },
+            ),
+        },
+      ]
+    : []),
 ])
 
 function rowKeyOfProblem(row: TeamProblemSummary) {
@@ -252,7 +316,7 @@ function rowPropsOfProblem(row: TeamProblemSummary) {
   }
 }
 
-/** 团队题单列表列（行点击进团队题单详情；编排 / 下线收敛在行内操作列） */
+/** 团队题单列表列（行点击进团队题单详情；编排 / 下线收敛在 ⋯ 下拉） */
 const setColumns = computed<DataTableColumns<ProblemSetSummary>>(() => [
   {
     title: t('problemSets.list.titleLabel'),
@@ -281,36 +345,39 @@ const setColumns = computed<DataTableColumns<ProblemSetSummary>>(() => [
       )
     },
   },
-  {
-    title: '',
-    key: 'actions',
-    width: 150,
-    render(row) {
-      if (!isAdmin.value) return ''
-      const buttons = [
-        h(
-          NButton,
-          { size: 'tiny', secondary: true, onClick: () => openArrange(row) },
-          { default: () => t('teams.space.arrange') },
-        ),
+  ...(isAdmin.value
+    ? [
+        {
+          title: '',
+          key: 'ops',
+          width: 48,
+          render: (row: ProblemSetSummary) =>
+            h(
+              NDropdown,
+              {
+                trigger: 'click',
+                options: setActions(row).map((a) => ({ key: a.key, label: a.label })),
+                onSelect: (key: SetAction) => onSetAction(key, row),
+              },
+              {
+                default: () =>
+                  h(
+                    NButton,
+                    {
+                      circle: true,
+                      quaternary: true,
+                      size: 'tiny',
+                      'aria-label': t('teams.detail.more'),
+                      // 阻断冒泡：行 onClick 会把点击吞成「进入题单详情」
+                      onClick: (e: MouseEvent) => e.stopPropagation(),
+                    },
+                    { icon: () => h(NIcon, { component: MoreFilled }) },
+                  ),
+              },
+            ),
+        },
       ]
-      if (row.status === 'active') {
-        buttons.push(
-          h(
-            NButton,
-            {
-              size: 'tiny',
-              quaternary: true,
-              type: 'error',
-              onClick: () => onArchiveSet(row),
-            },
-            { default: () => t('teams.space.archiveSet') },
-          ),
-        )
-      }
-      return h('div', { class: 'cell-actions' }, buttons)
-    },
-  },
+    : []),
 ])
 
 function rowKeyOfSet(row: ProblemSetSummary) {
@@ -337,6 +404,27 @@ async function onArchiveSet(row: ProblemSetSummary) {
       loadSets()
     },
   })
+}
+
+/** 题单行内操作（⋯ 下拉，仅团队管理可见）：编排 / 下线 */
+type SetAction = 'arrange' | 'archive'
+
+function setActions(row: ProblemSetSummary): Array<{ key: SetAction; label: string }> {
+  const actions: Array<{ key: SetAction; label: string }> = [
+    { key: 'arrange', label: t('teams.space.arrange') },
+  ]
+  if (row.status === 'active') {
+    actions.push({ key: 'archive', label: t('teams.space.archiveSet') })
+  }
+  return actions
+}
+
+function onSetAction(key: SetAction, row: ProblemSetSummary) {
+  if (key === 'arrange') {
+    void openArrange(row)
+    return
+  }
+  void onArchiveSet(row)
 }
 
 /** 编排团队题单弹窗（ProblemPicker 换团队编排候选源） */
@@ -448,7 +536,8 @@ async function loadContests() {
 }
 
 function openContest(row: ContestSummary) {
-  void router.push(`/contests/${row.id}`)
+  // 限界上下文：留在团队路由前缀内（frontend.md 路由上下文隔离）
+  void router.push(`/teams/${teamId}/contests/${row.id}`)
 }
 
 function searchContests() {

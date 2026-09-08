@@ -27,6 +27,19 @@ const loading = ref(false)
 const rows = ref<ContestSummary[]>([])
 const { page, pageSize, total, changePage, changeSize, beginLoad, isCurrent } = usePagination()
 const keyword = ref('')
+const contestType = ref<'' | 'public' | 'team'>('')
+
+/** 类型筛选项：公开 / 团队（缺省 = 全量） */
+const typeOptions = computed(() => [
+  { label: t('contests.list.typePublic'), value: 'public' },
+  { label: t('contests.list.typeTeam'), value: 'team' },
+])
+
+function switchType(value: string | null) {
+  contestType.value = (value ?? '') as '' | 'public' | 'team'
+  changePage(1)
+  load()
+}
 
 async function load() {
   const seq = beginLoad()
@@ -36,6 +49,7 @@ async function load() {
       page: page.value,
       page_size: pageSize.value,
       keyword: keyword.value || undefined,
+      contest_type: contestType.value || undefined,
     })
     if (!isCurrent(seq)) return
     rows.value = result.items
@@ -66,6 +80,20 @@ const columns = computed<DataTableColumns<ContestSummary>>(() => [
     },
   },
   { title: t('contests.list.ruleType'), key: 'rule_type', width: 80 },
+  {
+    title: t('contests.list.type'),
+    key: 'contest_type',
+    width: 80,
+    render: (row) =>
+      h(
+        NTag,
+        { size: 'small', bordered: false, type: row.contest_type === 'team' ? 'warning' : 'info' },
+        {
+          default: () =>
+            t(row.contest_type === 'team' ? 'contests.list.typeTeam' : 'contests.list.typePublic'),
+        },
+      ),
+  },
   {
     title: t('contests.statusRunning'),
     key: 'status',
@@ -148,6 +176,14 @@ function rowProps(row: ContestSummary) {
       @search="load"
       @reset="load"
     >
+      <n-select
+        :value="contestType || null"
+        clearable
+        style="width: 140px"
+        :options="typeOptions"
+        :placeholder="t('contests.list.typeAll')"
+        @update:value="switchType"
+      />
       <template #actions>
         <n-button type="primary" size="small" @click="router.push('/admin/contests/create')">
           {{ t('contests.list.create') }}

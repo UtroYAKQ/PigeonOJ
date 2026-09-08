@@ -401,12 +401,16 @@ class ProblemService:
         if body.solution is not None:
             problem.solution = body.solution
         if body.visibility is not None:
-            # 团队题目可见性仅可经团队引用 / 团队空间切换（题库裸路径编辑不得越分支）
-            if problem.team_id is not None or body.visibility in (
+            # 可见性不得越分支切换（docs/contracts/problems.md）：团队题在
+            # team_visible/admin_visible 之间、全站题在 public/private 之间
+            # 可经题库编辑由题目管理者切换；跨分支仅可经团队引用 / 团队空间动作。
+            is_team_branch = problem.team_id is not None
+            incoming_team_branch = body.visibility in (
                 ProblemVisibility.ADMIN_VISIBLE,
                 ProblemVisibility.TEAM_VISIBLE,
-            ):
-                raise APIError(PARAM_FORMAT_INVALID, "团队题目可见性不可经题库编辑修改", 400)
+            )
+            if is_team_branch != incoming_team_branch:
+                raise APIError(PARAM_FORMAT_INVALID, "题目可见性不可跨分支修改", 400)
             problem.visibility = body.visibility
         if body.time_limit_ms is not None:
             problem.time_limit_ms = body.time_limit_ms

@@ -57,6 +57,16 @@ const detail = ref<ContestDetail | null>(null)
 const registering = ref(false)
 const activeTab = ref<'home' | 'problems' | 'board' | 'submissions'>('home')
 
+/** 比赛 id：全局路由取 params.id，团队上下文路由取 params.cid */
+const contestId = computed(() => String(route.params.cid ?? route.params.id))
+/** 上下文基路径（frontend.md 路由上下文隔离）：团队比赛路由内导航不跳出团队前缀；
+ * 数据端点仍复用比赛统一端点（docs/contracts/teams.md，叠加团队门控） */
+const contextBase = computed(() =>
+  route.params.teamId
+    ? `/teams/${String(route.params.teamId)}/contests/${contestId.value}`
+    : `/contests/${contestId.value}`,
+)
+
 // ---- 提交记录（tab 激活时懒加载；比赛期间仅管理角色可见，赛后对所有登录用户开放） ----
 const submissions = ref<ContestSubmissionItem[]>([])
 const subsLoading = ref(false)
@@ -157,7 +167,7 @@ function changeSubsPageSize(value: number) {
 }
 
 function openSubmission(row: ContestSubmissionItem) {
-  router.push(`/contests/${String(route.params.id)}/submissions/${row.id}`)
+  router.push(`${contextBase.value}/submissions/${row.id}`)
 }
 
 function submissionRowProps(row: ContestSubmissionItem) {
@@ -175,7 +185,7 @@ let pollTimer: number | null = null
 async function load(silent = false) {
   if (!silent) loading.value = true
   try {
-    detail.value = await getContest(String(route.params.id))
+    detail.value = await getContest(contestId.value)
   } catch (error) {
     if (!silent) message.error(error instanceof Error ? error.message : t('common.loadFailed'))
   } finally {
@@ -244,6 +254,8 @@ onDeactivated(() => {
   }
 })
 onActivated(() => {
+  // keepAlive 返回：重拉详情（编排题目后返回不显示旧空数据），恢复计时器
+  if (detail.value) void load()
   startTimers()
 })
 onBeforeUnmount(() => {
@@ -340,17 +352,22 @@ const problemColumns = computed<DataTableColumns<ContestProblemItem>>(() => [
     minWidth: 280,
     render: (row) => h('strong', null, row.title),
   },
-  {
-    title: t('contests.list.problemScore'),
-    key: 'score',
-    width: 100,
-    render: (row) => (row.score > 0 ? String(row.score) : '--'),
-  },
+  // ACM 赛制无 IOI 单题分语义（按通过 / 罚时计），分数列仅 IOI 展示
+  ...(detail.value?.rule_type === 'IOI'
+    ? [
+        {
+          title: t('contests.list.problemScore'),
+          key: 'score',
+          width: 100,
+          render: (row: ContestProblemItem) => (row.score > 0 ? String(row.score) : '--'),
+        },
+      ]
+    : []),
 ])
 
 function goProblem(row: ContestProblemItem) {
   if (!detail.value) return
-  router.push(`/contests/${detail.value.id}/problems/${row.problem_id}`)
+  router.push(`${contextBase.value}/problems/${row.problem_id}`)
 }
 
 function problemRowProps(row: ContestProblemItem) {
@@ -468,7 +485,7 @@ function cellRowProps(row: ContestSubmissionItem) {
     style: 'cursor: pointer;',
     onClick: () => {
       cellModal.value.show = false
-      router.push(`/contests/${String(route.params.id)}/submissions/${row.id}`)
+      router.push(`${contextBase.value}/submissions/${row.id}`)
     },
   }
 }
@@ -586,50 +603,58 @@ function onBoardPageSize(pageSize: number) {
 
 // ---------------- 提交记录 ----------------
 
-const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() => [
-  {
-    title: t('contests.detail.letter'),
-    key: 'letter',
-    width: 70,
-    render: (row) => row.letter ?? '--',
-  },
-  {
-    title: t('contests.submissions.user'),
-    key: 'nickname',
-    minWidth: 120,
-  },
-  {
-    title: t('problems.detail.status'),
-    key: 'status',
-    minWidth: 150,
-    render: (row) => h(StatusTag, { status: row.status }),
-  },
-  {
-    title: t('problems.submission.score'),
-    key: 'score',
-    width: 80,
-    render: (row) => row.score ?? '-',
-  },
-  {
-    title: t('problems.submission.time'),
-    key: 'time',
-    width: 100,
-    render: (row) => `${row.time_used_ms ?? '-'} ms`,
-  },
-  {
-    title: t('problems.submission.memory'),
-    key: 'memory',
-    width: 110,
-    render: (row) => `${row.memory_used_kb ?? '-'} KB`,
-  },
-  { title: t('problems.detail.language'), key: 'language', width: 110 },
-  {
-    title: t('contests.submissions.submitTime'),
-    key: 'created_at',
-    width: 170,
-    render: (row) => formatDateTime(row.created_at),
-  },
-])
+const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() => {
+  // ACM 二值分（AC=满分否则 0）不是部分分，提交记录不展示分数列（IOI 才有意义）
+  const cols: DataTableColumns<ContestSubmissionItem> = [
+    {
+      title: t('contests.detail.letter'),
+      key: 'letter',
+      width: 70,
+      render: (row) => row.letter ?? '--',
+    },
+    {
+      title: t('contests.submissions.user'),
+      key: 'nickname',
+      minWidth: 120,
+    },
+    {
+      title: t('problems.detail.status'),
+      key: 'status',
+      minWidth: 150,
+      render: (row) => h(StatusTag, { status: row.status }),
+    },
+  ]
+  if (detail.value?.rule_type !== 'ACM') {
+    cols.push({
+      title: t('problems.submission.score'),
+      key: 'score',
+      width: 80,
+      render: (row) => row.score ?? '-',
+    })
+  }
+  cols.push(
+    {
+      title: t('problems.submission.time'),
+      key: 'time',
+      width: 100,
+      render: (row) => `${row.time_used_ms ?? '-'} ms`,
+    },
+    {
+      title: t('problems.submission.memory'),
+      key: 'memory',
+      width: 110,
+      render: (row) => `${row.memory_used_kb ?? '-'} KB`,
+    },
+    { title: t('problems.detail.language'), key: 'language', width: 110 },
+    {
+      title: t('contests.submissions.submitTime'),
+      key: 'created_at',
+      width: 170,
+      render: (row) => formatDateTime(row.created_at),
+    },
+  )
+  return cols
+})
 </script>
 
 <template>
@@ -741,11 +766,13 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
           </div>
         </section>
 
-        <!-- ======== 内容模块（tab 线条直连内容） ======== -->
+        <!-- ======== 内容模块（tab 线条直连内容） ========
+             display-directive="show"：pane 挂载后常驻（仅 display 切换），
+             避免 if 模式反复卸载重建在 v-show 互斥节点上引发补丁错位（内容丢失） -->
         <section class="module-area">
           <n-tabs type="line" v-model:value="activeTab" class="module-tabs">
             <!-- ======== 主页 ======== -->
-            <n-tab-pane name="home" :tab="t('contests.detail.tabHome')">
+            <n-tab-pane name="home" :tab="t('contests.detail.tabHome')" display-directive="show">
               <div class="pane-scroll">
                 <!-- 公告条：赛时可由管理角色更新（Markdown） -->
                 <n-alert
@@ -780,7 +807,11 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
             </n-tab-pane>
 
             <!-- ======== 题目 ======== -->
-            <n-tab-pane name="problems" :tab="t('contests.detail.tabProblems')">
+            <n-tab-pane
+              name="problems"
+              :tab="t('contests.detail.tabProblems')"
+              display-directive="show"
+            >
               <div class="pane-scroll">
                 <n-alert v-if="!detail.can_view_problems" type="info" :bordered="false">
                   {{ t('contests.detail.notVisible') }}
@@ -805,7 +836,7 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
             </n-tab-pane>
 
             <!-- ======== 榜单 ======== -->
-            <n-tab-pane name="board" :tab="t('contests.detail.tabBoard')">
+            <n-tab-pane name="board" :tab="t('contests.detail.tabBoard')" display-directive="show">
               <SearchFilterBar
                 :keyword="boardKeyword"
                 :placeholder="t('contests.board.search')"
@@ -886,7 +917,11 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
             </n-tab-pane>
 
             <!-- ======== 提交记录 ======== -->
-            <n-tab-pane name="submissions" :tab="t('contests.detail.tabSubmissions')">
+            <n-tab-pane
+              name="submissions"
+              :tab="t('contests.detail.tabSubmissions')"
+              display-directive="show"
+            >
               <n-alert v-if="subsLocked" type="info" :bordered="false" class="subs-hint">
                 {{ t('contests.submissions.hiddenDuringContest') }}
               </n-alert>

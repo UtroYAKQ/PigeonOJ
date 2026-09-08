@@ -24,7 +24,7 @@ from app.schemas.judge import (
     SelfTestResultOut,
     SubmissionCreatedResponse,
 )
-from app.schemas.problem import ProblemDetail
+from app.schemas.problem import ProblemDetail, ProblemUpdate
 from app.schemas.problem_set import (
     ProblemSetDetail,
     ProblemSetItemsUpdate,
@@ -319,6 +319,24 @@ async def search_team_referenceable_problems(
         user, team_id, keyword=keyword, page=page, page_size=page_size
     )
     return ok(PaginatedResponse(items=rows, total=total, page=page, page_size=page_size))
+
+
+@router.put(
+    "/{team_id}/problems/{problem_id}/statement",
+    response_model=ApiResponse[TeamProblemSummary],
+)
+async def update_team_problem_statement(
+    team_id: uuid.UUID,
+    problem_id: uuid.UUID,
+    body: ProblemUpdate,
+    service: TeamSpaceServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[TeamProblemSummary]:
+    """团队上下文编辑题面（编辑向导第一步）：成员门 + 归属校验后复用题库 update。"""
+    item = await service.update_team_problem_statement(user, team_id, problem_id, body)
+    await db.commit()
+    return ok(item)
 
 
 @router.get("/{team_id}/problems/{problem_id}", response_model=ApiResponse[ProblemDetail])

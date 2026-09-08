@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.enums import SubmissionStatus, SubmitType
+from app.enums import RuleType, SubmissionStatus, SubmitType
 from app.schemas.admin import SandboxNodeOut
 
 
@@ -108,6 +108,8 @@ class SubmissionDetail(BaseModel):
     problem_id: uuid.UUID
     language: str
     submit_type: SubmitType
+    # 赛制快照（创建时落库）：ACM 二值分前端不展示为 IOI 分数
+    rule_type: RuleType | None = None
     code: str
     status: SubmissionStatus
     score: int

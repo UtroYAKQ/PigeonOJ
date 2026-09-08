@@ -37,6 +37,8 @@ const scheduleNextPoll = useTimeoutFn(() => void load(true), POLL_INTERVAL_MS, {
 const isRunning = computed(
   () => submission.value?.status === 'pending' || submission.value?.status === 'judging',
 )
+/** 分数框显隐：ACM 赛制二值分不展示（IOI / 练习 / 缺省赛制展示） */
+const showScoreBox = computed(() => submission.value?.rule_type !== 'ACM')
 const pollingStopped = computed(() => isRunning.value && pollCount.value >= MAX_POLLS)
 const statusLabel = computed(() => t(`problems.status.${submission.value?.status ?? 'pending'}`))
 
@@ -73,6 +75,11 @@ function refreshNow() {
 }
 
 function back() {
+  // 团队比赛上下文：回团队路由内比赛详情
+  if (route.params.teamId) {
+    router.push(`/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}`)
+    return
+  }
   router.push(`/contests/${String(route.params.cid)}`)
 }
 
@@ -80,33 +87,39 @@ onMounted(() => {
   load()
 })
 
-const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
-  { title: '#', key: 'case_name', minWidth: 90 },
-  {
-    title: t('problems.detail.status'),
-    key: 'status',
-    minWidth: 170,
-    render: (row) => h(StatusTag, { status: row.status }),
-  },
-  {
-    title: t('problems.submission.time'),
-    key: 'time',
-    width: 110,
-    render: (row) => `${row.time_used_ms ?? '-'} ms`,
-  },
-  {
-    title: t('problems.submission.memory'),
-    key: 'memory',
-    width: 110,
-    render: (row) => `${row.memory_used_kb ?? '-'} KB`,
-  },
-  {
-    title: t('problems.submission.score'),
-    key: 'score',
-    width: 80,
-    render: (row) => row.score ?? '-',
-  },
-])
+const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => {
+  // ACM：单测试点不计分（短路执行），分数列仅 IOI / 练习展示
+  const cols: DataTableColumns<SubmissionCaseResult> = [
+    { title: '#', key: 'case_name', minWidth: 90 },
+    {
+      title: t('problems.detail.status'),
+      key: 'status',
+      minWidth: 170,
+      render: (row) => h(StatusTag, { status: row.status }),
+    },
+    {
+      title: t('problems.submission.time'),
+      key: 'time',
+      width: 110,
+      render: (row) => `${row.time_used_ms ?? '-'} ms`,
+    },
+    {
+      title: t('problems.submission.memory'),
+      key: 'memory',
+      width: 110,
+      render: (row) => `${row.memory_used_kb ?? '-'} KB`,
+    },
+  ]
+  if (showScoreBox.value) {
+    cols.push({
+      title: t('problems.submission.score'),
+      key: 'score',
+      width: 80,
+      render: (row) => row.score ?? '-',
+    })
+  }
+  return cols
+})
 </script>
 
 <template>
@@ -134,9 +147,10 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
 
           <div
             class="submission-stats"
-            :class="{ 'submission-stats--two': submission.score === null }"
+            :class="{ 'submission-stats--two': showScoreBox === false }"
           >
-            <div v-if="submission.score !== null" class="stat-box">
+            <!-- ACM 二值分（AC=满分否则 0）不展示为 IOI 分数框 -->
+            <div v-if="showScoreBox" class="stat-box">
               <span>{{ t('problems.submission.score') }}</span>
               <strong>{{ submission.score }}</strong>
             </div>

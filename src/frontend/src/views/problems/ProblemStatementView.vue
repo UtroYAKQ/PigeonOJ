@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { NTag } from 'naive-ui'
 
 import { createProblem, getProblem, listActiveTags, updateProblem } from '@/api/problems'
+import { getTeamProblem, updateTeamProblemStatement } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import WizardShell from '@/components/WizardShell.vue'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
@@ -82,7 +83,10 @@ async function loadExisting() {
   if (!isEdit.value) return
   loading.value = true
   try {
-    const loaded: ProblemDetail = await getProblem(String(route.params.id))
+    // 团队上下文回读走团队端点（快照题题库裸路径拦截）；保存仍走题库 PUT（owner/admin）
+    const loaded: ProblemDetail = isTeam.value
+      ? await getTeamProblem(teamId.value!, String(route.params.id))
+      : await getProblem(String(route.params.id))
     if (!loaded.can_manage) throw new Error(t('problems.create.noPermission'))
     Object.assign(form, {
       title: loaded.title,
@@ -148,7 +152,12 @@ async function persist(): Promise<string | null> {
     })
     if (isEdit.value) {
       const id = String(route.params.id)
-      await updateProblem(id, payload())
+      if (isTeam.value) {
+        // 团队上下文：走团队端点（题库裸路径对快照题拦截）；可见性切换已在团队分支内
+        await updateTeamProblemStatement(teamId.value!, id, payload())
+      } else {
+        await updateProblem(id, payload())
+      }
       message.success(t('problems.create.saved'))
       return id
     }
@@ -169,7 +178,7 @@ async function goNext() {
   if (!id) return
   const target = isTeam.value
     ? `/teams/${teamId.value}/problems/${id}/edit/cases`
-    : `/admin/problems/${id}/edit/cases`  // 新建用 replace：浏览器后退不会回到 /new 造成重复建草稿
+    : `/admin/problems/${id}/edit/cases` // 新建用 replace：浏览器后退不会回到 /new 造成重复建草稿
   await (isEdit.value ? router.push(target) : router.replace(target))
 }
 
@@ -197,8 +206,10 @@ onMounted(() => {
 })
 
 const visibilityOptions = computed(() => {
-  if (isTeam.value) {
-    // 团队题目可见性仅团队分支（admin_visible / team_visible，docs/contracts/problems.md）
+  // 分支跟随：团队上下文，或当前可见性已是团队分支（后台编辑团队题）→ 团队分支选项；
+  // 其余（全站题编辑 / 全站新建）→ 全站分支。禁止跨分支由后端强校验。
+  const v = form.visibility
+  if (isTeam.value || v === 'team_visible' || v === 'admin_visible') {
     return [
       { label: t('teams.space.teamVisible'), value: 'team_visible' },
       { label: t('teams.space.adminVisible'), value: 'admin_visible' },

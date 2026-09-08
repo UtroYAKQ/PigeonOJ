@@ -23,7 +23,7 @@ from app.api.deps import (
     UserServiceDep,
 )
 from app.models.user import User
-from app.enums import ContestStatus, ProblemSetStatus, TeamStatus
+from app.enums import ContestStatus, ContestType, ProblemSetStatus, TeamStatus
 from app.schemas.contest import ContestSummary
 from app.schemas.admin import (
     ConfigItemOut,
@@ -258,11 +258,14 @@ async def admin_list_contests(
     page_size: int = Query(default=20, ge=1, le=100),
     status: ContestStatus | None = Query(default=None),
     keyword: str | None = Query(default=None, max_length=128),
+    contest_type: ContestType | None = Query(default=None),
 ) -> ApiResponse[PaginatedResponse[ContestSummary]]:
-    """比赛管理视图：admin 全量比赛、其余管理角色仅本人创建（含全部状态）。"""
+    """比赛管理视图：admin 全量比赛（公开 + 团队，contest_type 过滤）、
+    其余管理角色仅本人创建（含全部状态）。"""
     await service.require_manager(user)
     items, total = await service.list_manage(
-        user=user, page=page, page_size=page_size, status=status, keyword=keyword
+        user=user, page=page, page_size=page_size, status=status, keyword=keyword,
+        contest_type=contest_type,
     )
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
 

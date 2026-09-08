@@ -200,10 +200,12 @@ class ProblemRepository:
             elif query.ownership == "team":
                 conditions.append(Problem.team_id.is_not(None))
         elif query.mine and viewer_id is not None:
-            # 题库中心「我的」勾选：仅本人已发布题目（任意可见性，含私有已发布；草稿/归档走管理视图）
+            # 题库中心「我的」勾选：仅本人已发布的**全站题**（任意可见性，含私有已发布；
+            # 团队题目属封闭空间，即使是自己引用 / 直建的快照也不进题库中心）
             conditions.extend([
                 Problem.owner_id == viewer_id,
                 Problem.status == ProblemStatus.PUBLISHED,
+                Problem.team_id.is_(None),
             ])
         else:
             conditions.extend([Problem.status == ProblemStatus.PUBLISHED, Problem.visibility == ProblemVisibility.PUBLIC])

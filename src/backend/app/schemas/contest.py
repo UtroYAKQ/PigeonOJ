@@ -185,6 +185,9 @@ class ContestSubmissionItem(BaseModel):
     score: int | None = None
     time_used_ms: int | None = None
     memory_used_kb: int | None = None
+    # 赛制快照（创建时落库，docs/contracts/contests.md）：ACM 二值分不展示为 IOI 分数；
+    # 历史数据可能为 NULL（快照列后补），可空
+    rule_type: RuleType | None = None
     nickname: str
     created_at: datetime
 

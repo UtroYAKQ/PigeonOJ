@@ -20,6 +20,8 @@ export interface Submission {
   problem_id?: string
   language?: string
   submit_type?: string
+  /** 赛制快照：ACM 二值分（AC=满分否则 0）不展示为 IOI 分数 */
+  rule_type?: 'ACM' | 'IOI' | null
   code?: string
   status: SubmissionStatus
   /** 赛制计分：ACM 二值（AC=满分否则 0）；IOI / 练习 = 通过测试点比例部分计分 */

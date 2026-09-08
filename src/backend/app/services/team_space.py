@@ -46,7 +46,7 @@ from app.repositories.problem import ProblemRepository
 from app.repositories.problem_set import ProblemSetRepository, to_summary as set_to_summary
 from app.schemas.contest import ContestSummary
 from app.schemas.judge import SubmissionCreate
-from app.schemas.problem import ProblemDetail, TeamProblemSummary
+from app.schemas.problem import ProblemDetail, ProblemUpdate, TeamProblemSummary
 from app.schemas.problem_set import ProblemSetSummary
 from app.schemas.team import (
     TeamContestCreate,
@@ -246,6 +246,24 @@ class TeamSpaceService:
             SubmissionCreate(problem_id=problem_id, language=language, code=code),
             bypass_visibility=True,  # 团队题目豁免题库可见性：团队门控（成员 + 归属）已通过
         )
+
+    async def update_team_problem_statement(
+        self,
+        user: User,
+        team_id: uuid.UUID,
+        problem_id: uuid.UUID,
+        body: ProblemUpdate,
+    ) -> TeamProblemSummary:
+        """团队上下文编辑题面（编辑向导第一步）：团队门（成员）+ 归属校验后
+        复用题库 update（_require_manage 再校验 owner/admin；快照题豁免裸路径拦截）。"""
+        await self.require_member(user, team_id)
+        problem = await self._team_problem_or_404(team_id, problem_id)
+        # 可见性切换收敛到独立编辑动线（ProblemStatementView 下拉），题面更新不携带
+        updated = await self.problems.update(user, problem.id, body)
+        item = TeamProblemSummary.model_validate(updated)
+        await self.problems.attach_counters([item])
+        await self.problems.attach_tags([item])
+        return item
 
     # ---------------- 团队题单 ----------------
 

@@ -67,9 +67,13 @@ class ContestRepository:
     async def list_manage(
         self, *, page: int, page_size: int, status: str | None, keyword: str | None = None,
         owner_id: uuid.UUID | None = None,
+        contest_type: ContestType | None = None,
     ) -> tuple[list[Contest], int]:
-        """管理视图：全部状态比赛；owner_id 非 None 时仅该创建者（单一所有权模型）。"""
-        conditions = [Contest.contest_type == ContestType.PUBLIC]
+        """管理视图：全部状态比赛；owner_id 非 None 时仅该创建者（单一所有权模型）；
+        contest_type 缺省 = 全量（公开 + 团队），显式传入按类型过滤。"""
+        conditions = []
+        if contest_type is not None:
+            conditions.append(Contest.contest_type == contest_type)
         if owner_id is not None:
             conditions.append(Contest.owner_id == owner_id)
         if status:

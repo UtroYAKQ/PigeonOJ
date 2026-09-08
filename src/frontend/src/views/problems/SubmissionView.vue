@@ -85,7 +85,12 @@ function back() {
     router.back()
     return
   }
-  if (route.params.setId && route.params.problemId) {
+  if (route.params.teamId && route.params.cid && route.params.problemId) {
+    // 团队比赛上下文：回团队路由内写题页
+    router.push(
+      `/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}/problems/${String(route.params.problemId)}`,
+    )
+  } else if (route.params.setId && route.params.problemId) {
     router.push(
       `/problem-sets/${String(route.params.setId)}/problems/${String(route.params.problemId)}`,
     )

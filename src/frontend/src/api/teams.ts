@@ -151,6 +151,15 @@ export function getTeamProblem(teamId: string, problemId: string): Promise<Probl
   return apiRequest('GET', `/teams/${teamId}/problems/${problemId}`)
 }
 
+/** 团队上下文编辑题面（编辑向导第一步）：成员门 + 归属校验后复用题库 update */
+export function updateTeamProblemStatement(
+  teamId: string,
+  problemId: string,
+  body: import('@/types').ProblemEditPayload,
+): Promise<TeamProblemSummary> {
+  return apiRequest('PUT', `/teams/${teamId}/problems/${problemId}/statement`, body)
+}
+
 /** 团队题库内交题（统一入口）：团队门控通过后走统一判题链路 */
 export function createTeamProblemSubmission(
   teamId: string,
@@ -178,10 +187,7 @@ export function listTeamProblemSets(
 }
 
 /** 团队题单详情（团队上下文统一入口；不走 /problem-sets/{id}） */
-export function getTeamProblemSet(
-  teamId: string,
-  setId: string,
-): Promise<ProblemSetDetail> {
+export function getTeamProblemSet(teamId: string, setId: string): Promise<ProblemSetDetail> {
   return apiRequest('GET', `/teams/${teamId}/problem-sets/${setId}`)
 }
 

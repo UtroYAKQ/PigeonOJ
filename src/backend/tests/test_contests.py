@@ -271,6 +271,12 @@ async def test_admin_manage_list(client: httpx.AsyncClient, user_headers, admin_
     resp = await client.get("/api/v1/admin/contests?keyword=测试比赛", headers=admin_headers)
     assert resp.json()["data"]["total"] == 2
 
+    # contest_type 过滤：缺省全量（2 场公开）；显式 public / team
+    resp = await client.get("/api/v1/admin/contests?contest_type=public", headers=admin_headers)
+    assert resp.json()["data"]["total"] == 2
+    resp = await client.get("/api/v1/admin/contests?contest_type=team", headers=admin_headers)
+    assert resp.json()["data"]["total"] == 0
+
 
 async def test_register_window(client: httpx.AsyncClient, user_headers) -> None:
     """报名窗口：未开始/已截止 → 3002；窗口内 → 0；重复 → 3003。"""
@@ -691,6 +697,34 @@ async def test_acm_ranking_and_manual_unfreeze(client: httpx.AsyncClient, user_h
     assert resp.json()["code"] == 2003
 
 
+async def test_ioi_default_score_when_unset(client: httpx.AsyncClient) -> None:
+    """IOI 编排未配置分值 → 落库默认 100；ACM 恒 0（无单题分值语义）。"""
+    tutor = await _tutor_headers(client)
+    p1 = await _seed_problem("IOI 默认分题")
+    p2 = await _seed_problem("ACM 默认分题")
+
+    resp = await client.post(
+        "/api/v1/contests",
+        json=_contest_payload(problems=[{"problem_id": p1}], rule="IOI"),
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    ioi_cid = resp.json()["data"]["id"]
+
+    resp = await client.post(
+        "/api/v1/contests",
+        json=_contest_payload(problems=[{"problem_id": p2}], rule="ACM"),
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    acm_cid = resp.json()["data"]["id"]
+
+    resp = await client.get(f"/api/v1/contests/{ioi_cid}", headers=tutor)
+    assert resp.json()["data"]["problems"][0]["score"] == 100, resp.text
+    resp = await client.get(f"/api/v1/contests/{acm_cid}", headers=tutor)
+    assert resp.json()["data"]["problems"][0]["score"] == 0
+
+
 async def test_ioi_ranking_takes_max_score(client: httpx.AsyncClient, user_headers) -> None:
     """IOI：每题取历史最高分，多次提交不互相覆盖。"""
     p1 = await _seed_problem("IOI 榜单题")
@@ -710,7 +744,6 @@ async def test_ioi_ranking_takes_max_score(client: httpx.AsyncClient, user_heade
 
     from app.models.judge import Submission
     from app.services.contest import ContestService
-
     async with SessionLocal() as db:
         async with SessionLocal() as db2:
             for score, status in ((30, "wrong_answer"), (80, "wrong_answer"), (55, "wrong_answer")):

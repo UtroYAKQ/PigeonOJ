@@ -253,8 +253,8 @@ async def get_contest_board(
     service: ContestServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[BoardOut]:
-    """榜单（封榜时按冻结快照展示；解冻由 admin/tutor 手动触发）。"""
-    return ok(await service.board(contest_id))
+    """榜单（封榜时按冻结快照展示；解冻由 admin/tutor 手动触发）。团队比赛限团队成员。"""
+    return ok(await service.board(contest_id, user))
 
 
 @router.post("/{contest_id}/unfreeze", response_model=ApiResponse[ContestSummary])

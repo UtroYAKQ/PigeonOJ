@@ -303,6 +303,104 @@ export const frontRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        // 团队比赛详情（限界上下文：路由隔离；数据仍复用比赛统一端点并叠加团队门控）
+        path: ':teamId/contests/:cid',
+        name: 'team-contest-detail',
+        component: () => import('@/views/contests/ContestDetailView.vue'),
+        meta: {
+          title: '比赛详情',
+          titleKey: 'contests.detail.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队比赛内题目详情：面包屑 团队 / 比赛详情 / 题目详情
+        path: ':teamId/contests/:cid/problems/:problemId',
+        name: 'team-contest-problem',
+        component: () => import('@/views/problems/ProblemDetailView.vue'),
+        meta: {
+          title: '题目详情',
+          titleKey: 'problems.detail.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: [
+            {
+              titleKey: 'teams.detail.title',
+              path: (route) => `/teams/${String(route.params.teamId)}`,
+            },
+            {
+              titleKey: 'contests.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}`,
+            },
+          ],
+        },
+      },
+      {
+        // 团队比赛内题目评测结果
+        path: ':teamId/contests/:cid/problems/:problemId/submissions/:id',
+        name: 'team-contest-problem-submission',
+        component: () => import('@/views/problems/SubmissionView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: [
+            {
+              titleKey: 'teams.detail.title',
+              path: (route) => `/teams/${String(route.params.teamId)}`,
+            },
+            {
+              titleKey: 'contests.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}`,
+            },
+            {
+              titleKey: 'problems.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}/problems/${String(route.params.problemId)}`,
+            },
+          ],
+        },
+      },
+      {
+        // 团队比赛提交记录的评测结果
+        path: ':teamId/contests/:cid/submissions/:sid',
+        name: 'team-contest-submission-detail',
+        component: () => import('@/views/contests/ContestSubmissionView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: [
+            {
+              titleKey: 'teams.detail.title',
+              path: (route) => `/teams/${String(route.params.teamId)}`,
+            },
+            {
+              titleKey: 'contests.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}`,
+            },
+          ],
+        },
+      },
+      {
         // 团队题单详情（限界上下文：读 / 交题 / 自测均走团队端点，不走题单统一入口）
         // 复用题单详情组件，按上下文取参（route.params.teamId 分派团队端点与路由）
         path: ':teamId/sets/:setId',
@@ -340,7 +438,8 @@ export const frontRoutes: RouteRecordRaw[] = [
             },
             {
               titleKey: 'problemSets.detail.title',
-              path: (route) => `/teams/${String(route.params.teamId)}/sets/${String(route.params.setId)}`,
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/sets/${String(route.params.setId)}`,
             },
           ],
         },
@@ -364,7 +463,8 @@ export const frontRoutes: RouteRecordRaw[] = [
             },
             {
               titleKey: 'problemSets.detail.title',
-              path: (route) => `/teams/${String(route.params.teamId)}/sets/${String(route.params.setId)}`,
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/sets/${String(route.params.setId)}`,
             },
             {
               titleKey: 'problems.detail.title',
@@ -382,6 +482,23 @@ export const frontRoutes: RouteRecordRaw[] = [
         meta: {
           title: '创建题目',
           titleKey: 'problems.create.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队题目编辑向导第一步（题面）：回读 / 更新走团队端点（豁免题库可见性）
+        path: ':teamId/problems/:id/edit/statement',
+        name: 'team-problem-edit-statement',
+        component: () => import('@/views/problems/ProblemStatementView.vue'),
+        meta: {
+          title: '编辑题目',
+          titleKey: 'problems.create.editTitle',
           requiresAuth: true,
           hidden: true,
           contextPage: true,

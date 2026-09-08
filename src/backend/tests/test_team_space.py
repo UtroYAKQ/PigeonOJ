@@ -219,10 +219,33 @@ async def test_team_problem_reference_and_isolation(
     )
     assert resp.json()["code"] == 2003
 
+    # 题库编辑可见性：团队题分支内切换（team_visible ↔ admin_visible）放行；
+    # 跨分支（团队题 → public）拒绝 1001（回归：编辑页团队可见性下拉）
+    resp = await client.put(
+        f"/api/v1/problems/{team_copy_id}",
+        json={"visibility": "admin_visible"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.put(
+        f"/api/v1/problems/{team_copy_id}",
+        json={"visibility": "public"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 1001
+
     # 团队快照题不出现在题库中心（公开列表隔离）
     resp = await client.get("/api/v1/problems")
     titles = [it["title"] for it in resp.json()["data"]["items"]]
     assert "我的私有题" not in titles
+
+    # 题库中心「我的」勾选同样不进团队快照题（封闭空间，回归：mine=true 不含 team_id 题；
+    # 源题是本人全站题，仍应出现在本人列表——按 id 区分源题与快照）
+    resp = await client.get("/api/v1/problems?mine=true", headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    mine_ids = {it["id"] for it in resp.json()["data"]["items"]}
+    assert team_copy_id not in mine_ids
+    assert my_problem_id in mine_ids
 
 
 async def test_team_arrangeable_search_excludes_others(client: httpx.AsyncClient) -> None:
@@ -474,6 +497,24 @@ async def test_team_contest_flow(client: httpx.AsyncClient) -> None:
     assert resp.json()["code"] == 2003
     resp = await client.get("/api/v1/contests")
     assert all(it["id"] != contest["id"] for it in resp.json()["data"]["items"])
+
+    # 封闭空间：赛后看题 / 榜单 / 提交记录 / 单格成功提交均对非成员 2003
+    # （回归：复用比赛统一端点时团队门不得缺位）
+    resp = await client.get(f"/api/v1/contests/{contest['id']}/problems", headers=outsider)
+    assert resp.json()["code"] == 2003, resp.text
+    resp = await client.get(f"/api/v1/contests/{contest['id']}/board", headers=outsider)
+    assert resp.json()["code"] == 2003, resp.text
+    resp = await client.get(f"/api/v1/contests/{contest['id']}/submissions", headers=outsider)
+    assert resp.json()["code"] == 2003, resp.text
+    resp = await client.get(
+        f"/api/v1/contests/{contest['id']}/board/00000000-0000-0000-0000-000000000001/00000000-0000-0000-0000-000000000002/accepted",
+        headers=outsider,
+    )
+    assert resp.json()["code"] in (2003, 3001, 404)  # 团队门先于存在性
+
+    # 团队成员：看题窗口未开（未来比赛）403，但详情可见；榜单可见（成员）
+    resp = await client.get(f"/api/v1/contests/{contest['id']}/board", headers=member)
+    assert resp.json()["code"] == 0, resp.text
 
     # 团队成员可见详情（复用比赛端点）
     resp = await client.get(f"/api/v1/contests/{contest['id']}", headers=member)

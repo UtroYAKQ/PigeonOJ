@@ -45,7 +45,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | problem_id | UUID | NOT NULL, FK → problems.id | |
 | letter | VARCHAR(4) | NULL | 题目编号（A/B/C…） |
 | sort_order | INT | NOT NULL DEFAULT 0 | |
-| score | INT | NOT NULL DEFAULT 0 | IOI 单题分值 |
+| score | INT | NOT NULL DEFAULT 0 | IOI 单题分值（编排未配置时落库默认 100；ACM 恒 0，无单题分值语义） |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
 索引：UNIQUE(`contest_id`, `problem_id`)、INDEX(`problem_id`)
@@ -100,7 +100,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | GET | /contests | public | 比赛中心列表（公开） | 分页/状态/keyword（名称模糊） | contest[] |
-| GET | /admin/contests | admin/tutor | 比赛管理视图：admin 全量、tutor 仅本人创建（单一所有权模型，全部状态） | 分页/状态/keyword（名称模糊） | contest[] |
+| GET | /admin/contests | admin/tutor | 比赛管理视图：admin 全量（公开 + 团队，`contest_type` 过滤）、tutor 仅本人创建（单一所有权模型，全部状态） | 分页/状态/keyword（名称模糊）/contest_type（public/team，缺省全量） | contest[]（含 contest_type） |
 | GET | /contests/{id} | public/owner | 比赛详情（题目/规则/报名状态）；登录请求题目条目带 `solved` 本场作答状态（`true`=本场 AC / `false`=本场已尝试未通过 / `null`=未提交，匿名恒 `null`；仅统计本场比赛提交，练习 / 验题通过不计入） | - | contest |
 | GET | /contests/{id}/problems | auth（赛中：已报名；赛后：所有登录用户） | 比赛题目列表（同带 `solved` 本场作答状态；未报名者仅见公开题） | - | problem[] |
 | GET | /contests/{id}/problems/search | admin/tutor（require_manage） | **编排页题目搜索（统一入口）**：已发布且（全站公开 或 本人私有）题目，标题模糊；仅比赛管理角色可调 | 分页/keyword | problem[]（problem_id/title/difficulty） |
@@ -175,6 +175,9 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
      `GET /submissions/{id}`，后者仍仅限本人）；装配复用 `SubmissionService.build_detail`
    - 详情校验按 `(contest_id, submission_id, submit_type='contest')` 归属查询，
      不信任客户端 contest_id
+   - **赛制计分展示口径**：提交记录 / 详情响应携带赛制快照 `rule_type`（历史数据可空）；
+     ACM 的分数为二值满分（AC=单题满分否则 0，judge.md「赛制计分」），不是部分分——
+     前端 ACM 比赛（题目列表分值列 / 提交记录分数列 / 评测结果分数框与测试点分数列）不展示 IOI 分数
 8. **榜单单格成功提交**：榜单 BoardCell 携带 `problem_score`（单题满分，前端做分母）；
    赛后（管理角色随时）点击通过格可调 `GET /contests/{id}/board/{user_id}/{problem_id}/accepted`
    查看该格「当时成功」的提交——仅该 (选手, 题目) 比赛内 AC（不含补题，时间正序）；

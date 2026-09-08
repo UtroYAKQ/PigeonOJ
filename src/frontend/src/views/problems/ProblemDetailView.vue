@@ -34,21 +34,26 @@ const mySubmissions = ref<Submission[]>([])
 
 /** 题目 id：题库路由取 params.id；题单 / 比赛 / 团队上下文路由取 params.problemId */
 const problemId = computed(() => String(route.params.problemId ?? route.params.id))
-/** 上下文标识（同一组件复用于 题库 / 题单 / 比赛 / 团队 / 团队题单 五种上下文）：
- * 团队题单（teamId + setId）为独立上下文，读 / 交题 / 自测全部走团队题单端点 */
-const context = computed<'problems' | 'problem-sets' | 'contests' | 'teams' | 'team-sets'>(() =>
-  route.params.cid
-    ? 'contests'
-    : route.params.setId && route.params.teamId
-      ? 'team-sets'
-      : route.params.setId
-        ? 'problem-sets'
-        : route.params.teamId
-          ? 'teams'
-          : 'problems',
+/** 上下文标识（同一组件复用于 题库 / 题单 / 比赛 / 团队 / 团队题单 / 团队比赛 六种上下文）：
+ * 团队题单（teamId + setId）、团队比赛（teamId + cid）为独立上下文，
+ * 读 / 交题 / 自测按上下文分派端点 */
+const context = computed<
+  'problems' | 'problem-sets' | 'contests' | 'teams' | 'team-sets' | 'team-contests'
+>(() =>
+  route.params.teamId && route.params.cid
+    ? 'team-contests'
+    : route.params.cid
+      ? 'contests'
+      : route.params.setId && route.params.teamId
+        ? 'team-sets'
+        : route.params.setId
+          ? 'problem-sets'
+          : route.params.teamId
+            ? 'teams'
+            : 'problems',
 )
 const contextId = computed(() =>
-  context.value === 'contests'
+  context.value === 'contests' || context.value === 'team-contests'
     ? String(route.params.cid)
     : context.value === 'team-sets'
       ? String(route.params.setId)
@@ -58,16 +63,17 @@ const contextId = computed(() =>
           ? String(route.params.teamId)
           : '',
 )
-/** 团队上下文 id（team-sets 时为 teamId，供团队端点拼装） */
+/** 团队上下文 id（team-sets / teams 时为 teamId，供团队端点拼装） */
 const teamContextId = computed(() =>
-  context.value === 'team-sets' || context.value === 'teams'
-    ? String(route.params.teamId)
-    : '',
+  context.value === 'team-sets' || context.value === 'teams' ? String(route.params.teamId) : '',
 )
 /** 评测结果路由基路径：上下文内保持不跳出（评测结果页同构复用） */
 const submissionsBase = computed(() => {
   if (context.value === 'contests') {
     return `/contests/${contextId.value}/problems/${problemId.value}`
+  }
+  if (context.value === 'team-contests') {
+    return `/teams/${String(route.params.teamId)}/contests/${contextId.value}/problems/${problemId.value}`
   }
   if (context.value === 'team-sets') {
     return `/teams/${teamContextId.value}/sets/${contextId.value}/problems/${problemId.value}`
@@ -117,9 +123,10 @@ const {
 
 async function load() {
   try {
-    // 统一入口：各上下文走本模块详情端点（归属 / 窗口校验），题库走题库端点
+    // 统一入口：各上下文走本模块详情端点（归属 / 窗口校验），题库走题库端点；
+    // 团队比赛复用比赛端点（叠加团队门控，docs/contracts/teams.md）
     problem.value =
-      context.value === 'contests'
+      context.value === 'contests' || context.value === 'team-contests'
         ? await getContestProblem(contextId.value, problemId.value)
         : context.value === 'team-sets'
           ? await getTeamSetProblem(teamContextId.value, contextId.value, problemId.value)
@@ -166,7 +173,8 @@ async function submit() {
         // 统一入口：各上下文走本模块交题端点（题单：归属校验；比赛：窗口校验，赛后自动补题；
         // 团队：团队门控）
         let result: { submission_id: string; status: string }
-        if (context.value === 'contests') {
+        if (context.value === 'contests' || context.value === 'team-contests') {
+          // 团队比赛复用比赛交题端点（叠加团队门控，docs/contracts/teams.md）
           result = await createContestSubmission(contextId.value, current.id, {
             language: language.value,
             code: code.value,

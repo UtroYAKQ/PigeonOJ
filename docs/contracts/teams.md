@@ -147,6 +147,7 @@
 | POST | /teams/{team_id}/problems/references | team_creator/team_admin | 引用本人全站题目进团队（单向；二次引用 1001、他人题目 2003、归档题 409 语义同题库） | problem_id, visibility（team_visible/admin_visible，默认 team_visible） | problem |
 | GET | /teams/{team_id}/problems/referenceable | team_creator/team_admin | 团队题目引用候选搜索（引用页列表）：本人创建 + 已发布 + 全站题 + 未被该团队引用过（同团队同源仅一份快照，服务端排除已引用源题） | 分页/keyword | problem[] |
 | GET | /teams/{team_id}/problems/arrangeable | team_creator/team_admin | 团队编排候选搜索（题单编排挑题）：已发布且（本团队题目 ∪ 全站公开 ∪ 本人私有） | 分页/keyword | problem[] |
+| PUT | /teams/{team_id}/problems/{pid}/statement | team 角色（题目管理者） | 团队上下文编辑题面（编辑向导第一步）：成员门 + 归属校验后复用题库 update（owner/admin 强校验） | 题面编辑载荷 | problem |
 | GET | /teams/{team_id}/problems/{pid} | team 角色 | 团队题目详情（统一入口）：归属校验 + 团队可见性门（admin_visible 仅团队管理）后复用题库详情装配 | - | problem |
 | POST | /teams/{team_id}/problems/{pid}/submissions | team 角色 | 团队题库内交题（统一入口，`submit_type='practice'`）：门控通过后豁免题库可见性，走统一判题链路 | language/code | submission_id |
 | POST | /teams/{team_id}/problems/{pid}/run-code | team 角色 | 团队题库内用户自测：门控复用详情端点，豁免题库可见性后经网关派发 | language/code/input | self_test_result |
@@ -163,6 +164,9 @@
 
 > 团队比赛详情浏览、报名、榜单、交题等复用比赛模块统一端点：
 > 团队比赛 `GET /contests/{id}` 对团队成员放行（非成员 2003）、报名叠加团队成员校验。
+> **前端路由限界上下文**：团队比赛以 `/teams/:teamId/contests/:cid` 系列路由呈现
+> （详情 / 内题目 / 内评测结果），面包屑挂在团队层级，内部导航不跳出团队前缀；
+> 数据端点仍为比赛统一端点（本表无独立团队比赛详情端点）。
 > 团队题目与团队**题单**详情 / 交题 / 自测**必须**走上表团队端点
 > （题单统一入口 / 题库裸路径严格拦截，限界上下文隔离）。
 
@@ -227,6 +231,11 @@
   （复用题单详情组件按上下文取参）、`/teams/:teamId/sets/:setId/problems/:pid` 团队题单内写题页、
   `/teams/:teamId/sets/:setId/problems/:pid/submissions/:sid` 评测结果——
   读 / 交题 / 自测全部走团队题单端点，与题单统一入口完全隔离。
+- 前端（团队比赛上下文路由，限界上下文）：`/teams/:teamId/contests/:cid` 团队比赛详情、
+  `/teams/:teamId/contests/:cid/problems/:pid` 内写题页、
+  `/teams/:teamId/contests/:cid/problems/:pid/submissions/:sid` 与
+  `/teams/:teamId/contests/:cid/submissions/:sid` 评测结果——路由与面包屑隔离在团队层级；
+  数据端点复用比赛统一端点（叠加团队门控，见「团队空间端点」表下注记）。
 - 前端（团队创建页，模仿后台创建页形态）：`/teams/:teamId/sets/new` 题单创建页
   （单一表单：标题 + Markdown 说明 + 可选「从我的题单复制」下拉）、
   `/teams/:teamId/problems/new` 题目引用页（团队题目 = 引用制；候选走

@@ -79,7 +79,8 @@ function addFromPool(problem: { id: string; title: string; difficulty: number | 
   draftProblems.value.push({
     problem_id: problem.id,
     letter: null,
-    score: 0,
+    // IOI 未填分值默认 100（后端 _replace_problems 同款兜底，docs/contracts/contests.md）
+    score: isIOI.value ? 100 : 0,
     sort_order: draftProblems.value.length,
     title: problem.title,
     difficulty: problem.difficulty ?? null,
