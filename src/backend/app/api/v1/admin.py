@@ -17,6 +17,7 @@ from app.api.deps import (
     ReportServiceDep,
     SandboxServiceDep,
     SessionDep,
+    SubmissionServiceDep,
     TagServiceDep,
     TeamServiceDep,
     TeamSpaceServiceDep,
@@ -25,6 +26,7 @@ from app.api.deps import (
 from app.models.user import User
 from app.enums import ContestStatus, ContestType, ProblemSetStatus, TeamStatus
 from app.schemas.contest import ContestSummary
+from app.schemas.judge import AdminSubmissionItem
 from app.schemas.admin import (
     ConfigItemOut,
     ConfigUpdateRequest,
@@ -74,11 +76,44 @@ async def list_online_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ) -> ApiResponse[PaginatedResponse[OnlineUserOut]]:
-    """在线用户面板：10 分钟窗口内有活跃回写的有效会话（活跃时间倒序）。
+    """在线用户面板：10 分钟窗口内有活跃回写的有效会话（活跃时间倒序分页）。
 
     同设备去重下每行 = 一台在线设备（一个用户可多台设备同时在线，分行展示）。
     """
     return ok(await service.admin_list_online_users(page, page_size))
+
+
+@router.get(
+    "/submissions", response_model=ApiResponse[PaginatedResponse[AdminSubmissionItem]]
+)
+async def list_all_submissions(
+    service: SubmissionServiceDep,
+    admin: User = _admin,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    submit_type: str | None = Query(default=None, max_length=32),
+    user_id: uuid.UUID | None = Query(default=None),
+    problem_id: uuid.UUID | None = Query(default=None),
+    status: str | None = Query(default=None),
+    language: str | None = Query(default=None, max_length=32),
+    keyword: str | None = Query(default=None, max_length=64),
+) -> ApiResponse[PaginatedResponse[AdminSubmissionItem]]:
+    """全站提交面板（admin）：提交类型 / 用户 / 题目 / 状态 / 语言筛选，keyword 模糊匹配昵称。
+
+    user_id 亦可经「提交人昵称」搜索定位；行内含题目标题，点击行进入题目管理视角评测详情。
+    """
+    from app.enums import SubmissionStatus, SubmitType
+
+    try:
+        status_value = SubmissionStatus(status) if status else None
+        submit_type_value = SubmitType(submit_type) if submit_type else None
+    except ValueError as exc:
+        raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
+    items, total = await service.list_admin_summaries(
+        submit_type=submit_type_value, user_id=user_id, problem_id=problem_id,
+        status=status_value, language=language, keyword=keyword, page=page, page_size=page_size,
+    )
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
 
 
 @router.put("/users/{user_id}/roles", response_model=ApiResponse[None])

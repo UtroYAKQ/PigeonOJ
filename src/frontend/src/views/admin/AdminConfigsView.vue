@@ -5,7 +5,7 @@ import { NButton } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import * as adminApi from '@/api/admin'
-import { uploadSiteLogo } from '@/api/files'
+import { uploadImage, uploadSiteLogo } from '@/api/files'
 import type { ConfigCategory, SystemConfigItem } from '@/types'
 import { configCategories } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
@@ -47,7 +47,9 @@ const selectOptions = computed<Record<string, Array<{ label: string; value: stri
 const DEPRECATED_KEYS = new Set(['email.smtp.use_ssl'])
 
 // 多行 / 富文本类配置键（用 textarea 编辑，避免单行输入框吞掉换行）
-const MULTILINE_KEYS = new Set(['email.template.code_html'])
+// site.banners 结构化编辑（海报列表：图片上传 / 标题 / 跳转链接），存 JSON
+const MULTILINE_KEYS = new Set(['email.template.code_html', 'site.announcement'])
+const BANNERS_KEY = 'site.banners'
 
 // 多行配置编辑时的占位符提示
 const multilineHint = computed(() => {
@@ -69,9 +71,11 @@ const emailPreviewHtml = computed(() => {
 })
 
 const editorKind = computed<
-  'boolean' | 'image' | 'number' | 'select' | 'text' | 'switches' | 'multiline'
+  'boolean' | 'banners' | 'image' | 'number' | 'select' | 'text' | 'switches' | 'multiline'
 >(() => {
   if (editTarget.value && MULTILINE_KEYS.has(editTarget.value.config_key)) return 'multiline'
+  // site.banners：结构化海报列表编辑（图片上传 / 标题 / 跳转链接）
+  if (editTarget.value?.config_key === BANNERS_KEY) return 'banners'
   // site.logo：上传图片（存 MinIO site/logo/）与外链 URL 双形态编辑
   if (editTarget.value?.config_key === 'site.logo') return 'image'
   if (typeof editValue.value === 'boolean') return 'boolean'
@@ -106,12 +110,28 @@ function openEdit(item: SystemConfigItem) {
     typeof item.config_value === 'object' && item.config_value !== null
       ? structuredClone(item.config_value)
       : item.config_value
+  // 海报列表：以独立草稿数组承载编辑态（保存时整体写回）
+  if (item.config_key === BANNERS_KEY) {
+    bannerDraft.value = Array.isArray(editValue.value)
+      ? (editValue.value as BannerDraft[]).map((b) => ({
+          image: String(b?.image ?? ''),
+          title: String(b?.title ?? ''),
+          link: String(b?.link ?? ''),
+        }))
+      : []
+  }
   editDialog.value = true
 }
 
 function displayValue(value: unknown, key?: string) {
+  if (key === 'site.announcement') return t('config.announcementLabel')
+  if (key === BANNERS_KEY) {
+    const count = Array.isArray(value) ? value.length : 0
+    return t('config.itemsCount', { count })
+  }
   if (key && MULTILINE_KEYS.has(key)) return t('config.htmlTemplateLabel')
   if (typeof value === 'boolean') return value ? t('config.booleanOn') : t('config.booleanOff')
+  if (typeof value === 'string' && value.length > 60) return `${value.slice(0, 60)}…`
   if (value && typeof value === 'object')
     return (
       Object.entries(value as Record<string, unknown>)
@@ -124,6 +144,54 @@ function displayValue(value: unknown, key?: string) {
 
 function switches(): Record<string, boolean> {
   return (editValue.value ?? {}) as Record<string, boolean>
+}
+
+// ---- 海报列表编辑器（site.banners）：独立草稿数组，单个隐藏 file input 按行复用 ----
+interface BannerDraft {
+  image: string
+  title: string
+  link: string
+}
+
+const bannerDraft = ref<BannerDraft[]>([])
+const bannerUploadIndex = ref<number | null>(null)
+const bannerUploading = ref(false)
+const bannerInput = ref<HTMLInputElement | null>(null)
+
+function addBanner() {
+  if (bannerDraft.value.length >= 10) {
+    message.warning(t('config.bannersMax'))
+    return
+  }
+  bannerDraft.value.push({ image: '', title: '', link: '' })
+}
+
+function removeBanner(index: number) {
+  bannerDraft.value.splice(index, 1)
+}
+
+function pickBannerImage(index: number) {
+  bannerUploadIndex.value = index
+  bannerInput.value?.click()
+}
+
+async function onBannerFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  const index = bannerUploadIndex.value
+  if (!file || index === null || !bannerDraft.value[index]) return
+  bannerUploading.value = true
+  try {
+    const result = await uploadImage(file)
+    bannerDraft.value[index].image = result.url
+    message.success(t('common.success'))
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.imageUploadFailed'))
+  } finally {
+    bannerUploading.value = false
+    bannerUploadIndex.value = null
+  }
 }
 
 /** site.logo 预览：仅渲染可识别形态（外链 / 站内文件 URL） */
@@ -155,6 +223,10 @@ async function onLogoFileChange(event: Event) {
 
 async function saveEdit() {
   if (!editTarget.value) return
+  // 海报列表：草稿写回（无图片的半成品条目自动丢弃）
+  if (editTarget.value.config_key === BANNERS_KEY) {
+    editValue.value = bannerDraft.value.filter((b) => b.image.trim())
+  }
   saving.value = true
   try {
     await adminApi.adminUpdateConfigs([{ id: editTarget.value.id, config_value: editValue.value }])
@@ -268,6 +340,46 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
         :min="0"
         class="configs__number"
       />
+      <!-- 海报列表编辑器：图片上传 + 标题 + 跳转链接，最多 10 条 -->
+      <div v-else-if="editorKind === 'banners'" class="configs__banners">
+        <div v-for="(banner, index) in bannerDraft" :key="index" class="configs__banner">
+          <div class="configs__banner-thumb">
+            <img v-if="banner.image" :src="banner.image" alt="" />
+            <n-button
+              size="tiny"
+              :loading="bannerUploadIndex === index && bannerUploading"
+              @click="pickBannerImage(index)"
+            >
+              {{ banner.image ? t('config.changeImage') : t('config.uploadImage') }}
+            </n-button>
+          </div>
+          <div class="configs__banner-fields">
+            <n-input
+              v-model:value="banner.title"
+              :placeholder="t('config.bannerTitle')"
+              maxlength="60"
+            />
+            <n-input
+              v-model:value="banner.link"
+              :placeholder="t('config.bannerLink')"
+              maxlength="255"
+            />
+          </div>
+          <n-button quaternary type="error" size="small" @click="removeBanner(index)">
+            {{ t('config.removeBanner') }}
+          </n-button>
+        </div>
+        <input
+          ref="bannerInput"
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          hidden
+          @change="onBannerFileChange"
+        />
+        <n-button dashed block @click="addBanner" :disabled="bannerDraft.length >= 10">
+          + {{ t('config.addBanner') }}
+        </n-button>
+      </div>
       <template v-else-if="editorKind === 'multiline'">
         <div class="configs__split">
           <div class="configs__editor">
@@ -339,6 +451,9 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
   margin: 8px 0 0;
   color: var(--app-text-secondary);
   font-size: 12px;
+}
+.configs__hint--error {
+  color: var(--app-error, #d03050);
 }
 .configs__hint--inline {
   margin: 0;
@@ -436,6 +551,49 @@ const columns = computed<DataTableColumns<SystemConfigItem>>(() => [
 }
 .configs__number {
   max-width: 220px;
+}
+/* 海报列表编辑器 */
+.configs__banners {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.configs__banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+}
+.configs__banner-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 120px;
+  height: 56px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px dashed var(--app-border);
+  border-radius: 4px;
+  background: var(--app-muted-bg);
+}
+.configs__banner-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.configs__banner-thumb--empty {
+  display: grid;
+  place-items: center;
+}
+.configs__banner-fields {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
 }
 .configs__switches {
   display: flex;

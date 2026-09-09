@@ -22,6 +22,7 @@ from app.models.problem import Problem, TestCase
 from app.repositories.judge import JudgeRepository, SubmissionRepository, TestCaseRepository
 from app.repositories.problem import ProblemRepository
 from app.schemas.judge import (
+    AdminSubmissionItem,
     ProblemSubmissionItem,
     SelfTestRequest,
     SubmissionCreate,
@@ -196,6 +197,35 @@ class SubmissionService:
         """本人提交历史摘要。"""
         rows, total = await self.list_for_user(user, query)
         return [SubmissionSummary.model_validate(row) for row in rows], total
+
+    async def list_admin_summaries(
+        self, *, submit_type: str | None, user_id: uuid.UUID | None,
+        problem_id: uuid.UUID | None, status: str | None, language: str | None,
+        keyword: str | None, page: int, page_size: int,
+    ) -> tuple[list[AdminSubmissionItem], int]:
+        """全站提交面板（admin 专用，docs/contracts/admin.md）：跨题目 / 跨用户，
+        submit_type / user_id / problem_id / status / language 精确过滤，keyword 模糊匹配昵称。"""
+        rows, title_map, total = await self.submissions.list_all_for_admin(
+            submit_type=submit_type, user_id=user_id, problem_id=problem_id,
+            status=status, language=language, keyword=keyword, page=page, page_size=page_size,
+        )
+        return [
+            AdminSubmissionItem(
+                id=submission.id,
+                problem_id=submission.problem_id,
+                problem_title=title_map.get(submission.problem_id),
+                user_id=submission.user_id,
+                nickname=user_row.nickname,
+                language=submission.language,
+                submit_type=submission.submit_type,
+                status=submission.status,
+                score=submission.score,
+                time_used_ms=submission.time_used_ms,
+                memory_used_kb=submission.memory_used_kb,
+                created_at=submission.created_at,
+            )
+            for submission, user_row in rows
+        ], total
 
     async def list_problem_summaries(
         self, user: object, problem_id: uuid.UUID, status: str | None, keyword: str | None,

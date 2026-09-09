@@ -3,12 +3,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.system_config import SystemConfig
 from app.repositories.system_config import ConfigRepository
-from app.schemas.admin import EmailCodePolicy, SMTPConfig, SitePublicConfig
+from app.schemas.admin import EmailCodePolicy, SMTPConfig, SiteBanner, SitePublicConfig
 
 
 # 邮箱验证码安全策略默认值（docs/contracts/admin.md auth_email 域；可经系统配置覆盖）
@@ -156,6 +157,8 @@ SITE_PUBLIC_DEFAULTS: dict[str, Any] = {
     "default_theme": "light",
     "register_enabled": True,
     "email_verify_enabled": True,
+    "banners": [],
+    "announcement": "",
 }
 
 # 配置键 → 公开字段名（site 域 + auth_email 域的注册验证开关）；仅暴露白名单，不透传整表
@@ -165,24 +168,46 @@ _SITE_PUBLIC_KEYS = {
     ("site", "site.icp"): "icp",
     ("site", "site.default_theme"): "default_theme",
     ("site", "site.register_enabled"): "register_enabled",
+    ("site", "site.banners"): "banners",
+    ("site", "site.announcement"): "announcement",
     ("auth_email", "email.verify_enabled"): "email_verify_enabled",
 }
+
+# 首页轮播海报上限：防误配超大列表拖慢首屏（管理端为 JSON 文本编辑，无结构硬约束）
+_SITE_BANNERS_MAX = 10
+
+
+def _parse_banners(raw: Any) -> list[SiteBanner]:
+    """解析 site.banners（JSONB 数组 [{image, title?, link?}]）：
+    非 dict / 缺 image 的条目跳过，截断至上限。"""
+    if not isinstance(raw, list):
+        return []
+    banners: list[SiteBanner] = []
+    for item in raw[:_SITE_BANNERS_MAX]:
+        try:
+            banners.append(SiteBanner.model_validate(item))
+        except ValidationError:
+            continue
+    return banners
 
 
 async def get_site_public_configs(db: AsyncSession) -> SitePublicConfig:
     """公开站点配置（GET /site-config，未登录可读）：
-    站点名 / Logo / ICP / 默认主题 / 注册开关 / 注册邮箱验证开关。"""
+    站点名 / Logo / ICP / 默认主题 / 注册开关 / 注册邮箱验证开关 / 首页轮播海报 / 系统公告。"""
     rows = (
         await db.execute(
             select(SystemConfig).where(SystemConfig.category.in_(["site", "auth_email"]))
         )
     ).scalars().all()
     kv = {(row.category, row.config_key): row.config_value for row in rows}
+    announcement = kv.get(("site", "site.announcement"), SITE_PUBLIC_DEFAULTS["announcement"])
     return SitePublicConfig(
         name=kv.get(("site", "site.name"), SITE_PUBLIC_DEFAULTS["name"]),
         logo=kv.get(("site", "site.logo"), SITE_PUBLIC_DEFAULTS["logo"]),
         icp=kv.get(("site", "site.icp"), SITE_PUBLIC_DEFAULTS["icp"]),
         default_theme=kv.get(("site", "site.default_theme"), SITE_PUBLIC_DEFAULTS["default_theme"]),
         register_enabled=kv.get(("site", "site.register_enabled"), SITE_PUBLIC_DEFAULTS["register_enabled"]),
+        banners=_parse_banners(kv.get(("site", "site.banners"), SITE_PUBLIC_DEFAULTS["banners"])),
+        announcement=announcement if isinstance(announcement, str) else "",
         email_verify_enabled=kv.get(("auth_email", "email.verify_enabled"), SITE_PUBLIC_DEFAULTS["email_verify_enabled"]),
     )

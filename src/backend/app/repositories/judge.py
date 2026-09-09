@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.judge import Submission, SubmissionTestCaseResult
-from app.models.problem import TestCase
+from app.models.problem import Problem, TestCase
 from app.models.user import User
 
 
@@ -116,6 +116,52 @@ class SubmissionRepository:
             )
         ).all()
         return [(submission, user) for submission, user in rows], int(total)
+
+    async def list_all_for_admin(
+        self, *, submit_type: str | None, user_id: uuid.UUID | None,
+        problem_id: uuid.UUID | None, status: str | None, language: str | None,
+        keyword: str | None, page: int, page_size: int,
+    ) -> tuple[list[tuple[Submission, User]], dict[uuid.UUID, str], int]:
+        """全站提交（admin 管理面板）：submit_type / user / problem / status / language 精确过滤，
+        keyword 模糊匹配提交人昵称；join 用户 + join 题目取标题，提交时间倒序分页。
+
+        返回 (行, 题目标题映射, total)；标题映射供 service 组装（列表项含题号短 ID + 标题）。
+        """
+        conditions = []
+        if submit_type:
+            conditions.append(Submission.submit_type == submit_type)
+        if user_id:
+            conditions.append(Submission.user_id == user_id)
+        if problem_id:
+            conditions.append(Submission.problem_id == problem_id)
+        if status:
+            conditions.append(Submission.status == status)
+        if language:
+            conditions.append(Submission.language == language)
+        if keyword:
+            conditions.append(User.nickname.ilike(f"%{keyword}%"))
+
+        count_stmt = select(func.count()).select_from(Submission)
+        rows_stmt = select(Submission, User, Problem.title).join(
+            User, User.id == Submission.user_id
+        )
+        if conditions:
+            count_stmt = count_stmt.join(User, User.id == Submission.user_id).where(*conditions)
+            rows_stmt = rows_stmt.where(*conditions)
+        total = (await self.db.scalar(count_stmt)) or 0
+        rows = (
+            await self.db.execute(
+                rows_stmt.order_by(Submission.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        ).all()
+        title_map = {submission.problem_id: title for submission, _user, title in rows}
+        return (
+            [(submission, user) for submission, user, _title in rows],
+            title_map,
+            int(total),
+        )
 
 
 class TestCaseRepository:

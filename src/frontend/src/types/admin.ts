@@ -17,6 +17,22 @@ export interface OnlineUser {
   session_created_at: string
 }
 
+/** 全站提交面板条目（admin，docs/contracts/admin.md） */
+export interface AdminSubmission {
+  id: string
+  problem_id: string
+  problem_title: string | null
+  user_id: string
+  nickname: string
+  language: string
+  submit_type: 'practice' | 'contest' | 'verify'
+  status: string
+  score: number
+  time_used_ms: number | null
+  memory_used_kb: number | null
+  created_at: string
+}
+
 // ---------------- 系统配置 ----------------
 
 export type ConfigCategory =

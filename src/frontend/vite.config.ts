@@ -29,5 +29,8 @@ export default defineConfig({
     // dict.ts / http.ts 在模块加载期读取 localStorage，需要 DOM 环境；
     // 选 jsdom 而非 happy-dom：DOMPurify 在 happy-dom 下会误剥块级标签（环境缺陷，浏览器无此问题）
     environment: 'jsdom',
+    // naive-ui 内部依赖 @juggle/resize-observer，其 Scheduler.stop 在 jsdom 的
+    // 全局对象上缺 removeEventListener / dispatchEvent，组件卸载时抛错污染测试输出
+    setupFiles: ['./src/test-setup.ts'],
   },
 })

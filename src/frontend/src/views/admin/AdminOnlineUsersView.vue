@@ -172,17 +172,6 @@ const columns = computed<DataTableColumns<OnlineUser>>(() => [
 </template>
 
 <style scoped>
-.cell-user {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.cell-user__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .cell-email {
   color: var(--app-text-secondary);
 }

@@ -355,6 +355,19 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        // 首页配置：轮播海报 + 系统公告（独立面板，不经通用配置表格）
+        path: 'home',
+        name: 'admin-home-config',
+        component: () => import('@/views/admin/AdminHomeView.vue'),
+        meta: {
+          title: '首页配置',
+          titleKey: 'nav.homeConfig',
+          icon: 'Picture',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
         // 在线用户面板：10 分钟窗口内有活跃回写的有效会话（15s 轮询）
         path: 'online',
         name: 'admin-online-users',
@@ -363,6 +376,19 @@ export const adminRoutes: RouteRecordRaw[] = [
           title: '在线用户',
           titleKey: 'nav.onlineUsers',
           icon: 'Aim',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        // 全站提交面板：提交类型 / 用户 / 题目 / 状态 / 语言筛选（admin）
+        path: 'submissions',
+        name: 'admin-submissions',
+        component: () => import('@/views/admin/AdminSubmissionsView.vue'),
+        meta: {
+          title: '提交查看',
+          titleKey: 'nav.submissionsManage',
+          icon: 'Document',
           roles: ['admin'],
           keepAlive: true,
         },

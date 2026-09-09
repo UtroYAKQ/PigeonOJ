@@ -17,6 +17,8 @@ const DEFAULT_SITE_CONFIG: SiteConfig = {
   default_theme: 'light',
   register_enabled: true,
   email_verify_enabled: true,
+  banners: [],
+  announcement: '',
 }
 
 function readBool(key: string): boolean {

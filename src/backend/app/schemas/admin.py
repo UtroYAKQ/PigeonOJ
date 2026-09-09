@@ -163,6 +163,14 @@ class SandboxNodeOut(BaseModel):
     last_heartbeat_at: str
 
 
+class SiteBanner(BaseModel):
+    """首页轮播海报项（site.banners 配置项元素；image 必填，title / link 可选）。"""
+
+    image: str
+    title: str = ""
+    link: str = ""
+
+
 class SitePublicConfig(BaseModel):
     """公开站点配置（GET /site-config）。"""
 
@@ -172,6 +180,8 @@ class SitePublicConfig(BaseModel):
     default_theme: str
     register_enabled: bool
     email_verify_enabled: bool
+    banners: list[SiteBanner] = []
+    announcement: str = ""
 
 
 class EmailCodePolicy(BaseModel):

@@ -7,6 +7,7 @@ import { apiRequest } from './http'
 import { buildQuery } from '@/utils/query'
 import type {
   AdminProblemSetListQuery,
+  AdminSubmission,
   AdminTeamListQuery,
   AdminUserQuery,
   ConfigCategory,
@@ -35,6 +36,21 @@ import type {
 /** GET /admin/users/online — 在线用户面板（10 分钟窗口内有活跃回写的有效会话） */
 export function adminListOnlineUsers(query: { page?: number; page_size?: number } = {}) {
   return apiRequest<PageResult<OnlineUser>>('GET', `/admin/users/online${buildQuery(query)}`)
+}
+
+export interface AdminSubmissionQuery {
+  page?: number
+  page_size?: number
+  submit_type?: string
+  status?: string
+  language?: string
+  keyword?: string
+  problem_id?: string
+}
+
+/** GET /admin/submissions — 全站提交面板（提交类型 / 用户 / 题目 / 状态 / 语言筛选） */
+export function adminListSubmissions(query: AdminSubmissionQuery = {}) {
+  return apiRequest<PageResult<AdminSubmission>>('GET', `/admin/submissions${buildQuery(query)}`)
 }
 
 /** GET /admin/contests — 比赛管理视图（admin 全量、tutor 仅本人创建，全部状态） */

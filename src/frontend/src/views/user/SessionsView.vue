@@ -115,18 +115,16 @@ function deviceIcon(session: UserSession) {
                 <n-tag v-if="session.current" size="small" type="success" round>
                   {{ t('common.current') }}
                 </n-tag>
-                <n-tag
-                  v-else-if="session.online"
-                  size="small"
-                  type="info"
-                  round
-                  :bordered="false"
-                >
+                <n-tag v-else-if="session.online" size="small" type="info" round :bordered="false">
                   {{ t('sessions.online') }}
                 </n-tag>
               </div>
               <div class="session-times">
-                <span>{{ t('sessions.lastActive') }}：{{ formatDateTime(session.last_active_at) }}</span>
+                <span
+                  >{{ t('sessions.lastActive') }}：{{
+                    formatDateTime(session.last_active_at)
+                  }}</span
+                >
                 <span>{{ t('sessions.loginAt') }}：{{ formatDateTime(session.created_at) }}</span>
                 <span>{{ t('sessions.expiresAt') }}：{{ formatDateTime(session.expires_at) }}</span>
               </div>

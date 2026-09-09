@@ -59,6 +59,8 @@ CONFIG_SEEDS = [
     ("site", "site.icp", "", "ICP 备案号"),
     ("site", "site.default_theme", "light", "默认主题样式"),
     ("site", "site.register_enabled", True, "是否开放注册"),
+    ("site", "site.banners", [], "首页轮播海报（JSON 数组 [{image, title?, link?}]）"),
+    ("site", "site.announcement", "", "首页系统公告（空串 = 不展示）"),
     ("auth_email", "email.code.expire_seconds", 600, "验证码有效期（秒）"),
     ("auth_email", "email.code.resend_seconds", 60, "验证码重发间隔（秒）"),
     ("auth_email", "email.code.max_attempts", 5, "验证码最大尝试次数"),

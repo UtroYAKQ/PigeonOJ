@@ -99,6 +99,23 @@ class ProblemSubmissionItem(BaseModel):
     created_at: datetime
 
 
+class AdminSubmissionItem(BaseModel):
+    """全站提交面板条目（admin 专用：跨题目 / 跨用户，附题目标题）。"""
+
+    id: uuid.UUID
+    problem_id: uuid.UUID
+    problem_title: str | None = None
+    user_id: uuid.UUID
+    nickname: str
+    language: str
+    submit_type: SubmitType
+    status: SubmissionStatus
+    score: int
+    time_used_ms: int | None
+    memory_used_kb: int | None
+    created_at: datetime
+
+
 class SubmissionDetail(BaseModel):
     """提交详情（含代码和测试点结果）。"""
 

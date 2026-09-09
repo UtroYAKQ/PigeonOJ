@@ -1,21 +1,21 @@
 <script setup lang="ts">
 /**
- * 出题向导壳：卡片头（标题 + 步骤序号 + 右侧动作）。
- * 三个步骤页（题面 / 样例与测试点 / 验题与发布）共用，各页只提供标题、动作按钮与主体内容；
- * 线性导航由各页「上一步 / 下一步」按钮承担，不展示横向步骤条。
+ * 页眉卡片壳：卡片头（标题 + 可选步骤序号 + 右侧动作）。
+ * 出题向导三步骤页传 step / total 展示序号；非向导页（如首页）不传 step，
+ * 仅复用「标题 + 动作」的页眉结构。线性导航由各页动作按钮承担。
  */
 import { computed } from 'vue'
 
 const props = defineProps<{
-  /** 当前步骤（1 起），用于卡片头步骤序号 */
-  step: 1 | 2 | 3
+  /** 当前步骤（1 起）；不传 = 非向导复用，隐藏步骤序号 */
+  step?: 1 | 2 | 3
   /** 步骤总数（出题向导 3 步；两步向导传 2） */
   total?: 2 | 3
   /** 卡片头标题 */
   title: string
 }>()
 
-const stepLabel = computed(() => `${props.step} / ${props.total ?? 3}`)
+const stepLabel = computed(() => (props.step ? `${props.step} / ${props.total ?? 3}` : ''))
 </script>
 
 <template>
@@ -29,7 +29,7 @@ const stepLabel = computed(() => `${props.step} / ${props.total ?? 3}`)
       <div class="wizard-shell__head">
         <div class="card-head__title">
           <span>{{ title }}</span>
-          <span class="card-head__step">{{ stepLabel }}</span>
+          <span v-if="stepLabel" class="card-head__step">{{ stepLabel }}</span>
         </div>
         <!-- 向导导航收进卡片头：无需滚动即可见（上一步 / 下一步 / 取消等由各页放置） -->
         <div class="wizard-shell__actions">
