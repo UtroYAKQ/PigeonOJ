@@ -1310,7 +1310,6 @@ onMounted(load)
                       v-for="contest in contests"
                       :key="contest.id"
                       class="tile tile--contest tile--link"
-                      :class="`tile--contest-${contest.status}`"
                       role="button"
                       tabindex="0"
                       @click="openContest(contest)"
@@ -1807,7 +1806,7 @@ onMounted(load)
 }
 .tile-grid--contest {
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 .tile {
   display: flex;
@@ -1827,19 +1826,12 @@ onMounted(load)
   cursor: pointer;
 }
 .tile--contest {
-  --contest-rail: var(--app-text-muted);
   flex-direction: column;
   align-items: stretch;
   gap: 12px;
-  padding: 16px 18px 14px 20px;
-  box-shadow: inset 3px 0 0 var(--contest-rail);
-}
-.tile--contest-running {
-  --contest-rail: var(--app-success);
-  background: color-mix(in srgb, var(--app-success) 5%, var(--app-card-bg, #fff));
-}
-.tile--contest-scheduled {
-  --contest-rail: var(--app-info);
+  padding: 20px 20px 18px;
+  /* 对齐公开比赛卡片范式：平面方角、纯 1px 边框，无彩条 / 着色底 / 动画 */
+  border-radius: 0;
 }
 .tile--link:hover .tile__title {
   color: var(--app-primary);
@@ -1866,7 +1858,7 @@ onMounted(load)
   place-items: center;
   background: var(--app-muted-bg);
   color: var(--app-text-secondary);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 650;
 }
 .tile__body {
@@ -1898,6 +1890,7 @@ onMounted(load)
 .tile--contest .tile__title {
   font-size: 15px;
   font-weight: 600;
+  line-height: 1.4;
 }
 .tile__you {
   flex-shrink: 0;
@@ -2006,30 +1999,9 @@ onMounted(load)
 .dot-chip--admin .dot-chip__dot {
   background: var(--app-info);
 }
-.dot-chip--running {
-  color: var(--app-success);
-}
+/* 比赛状态点标与公开比赛卡片同范式：文本次级色，仅点着色（running 呼吸灯已随彩条样式移除） */
 .dot-chip--running .dot-chip__dot {
   background: var(--app-success);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--app-success) 50%, transparent);
-  animation: tile-pulse 1.6s ease-in-out infinite;
-}
-@keyframes tile-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--app-success) 45%, transparent);
-  }
-  60% {
-    box-shadow: 0 0 0 4px transparent;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .dot-chip--running .dot-chip__dot {
-    animation: none;
-  }
-}
-.dot-chip--scheduled {
-  color: var(--app-info);
 }
 .dot-chip--scheduled .dot-chip__dot {
   background: var(--app-info);

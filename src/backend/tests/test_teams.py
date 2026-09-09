@@ -84,7 +84,10 @@ async def test_create_team_and_permissions(client: httpx.AsyncClient) -> None:
 async def test_invite_apply_review_flow(client: httpx.AsyncClient) -> None:
     """邀请 → 申请 → 审批闭环：通过后在册 + team_member 授权；重复申请 3003。"""
     tutor = await _tutor_headers(client)
-    resp = await client.post("/api/v1/teams", json={"name": "算法小组"}, headers=tutor)
+    avatar = "https://cdn.pigeonoj.dev/team/算法小组.png"
+    resp = await client.post(
+        "/api/v1/teams", json={"name": "算法小组", "avatar_url": avatar}, headers=tutor
+    )
     team_id = resp.json()["data"]["id"]
 
     # 生成邀请链接（public 解析）
@@ -97,6 +100,8 @@ async def test_invite_apply_review_flow(client: httpx.AsyncClient) -> None:
     assert resp.json()["code"] == 0
     assert resp.json()["data"]["team_id"] == team_id
     assert resp.json()["data"]["team_name"] == "算法小组"
+    # 解析响应携带团队头像（落地页渲染用），未设置时为 null
+    assert resp.json()["data"]["avatar_url"] == avatar
 
     # 无效 token：解析与申请均 3001
     resp = await client.get("/api/v1/teams/invites/no-such-token")

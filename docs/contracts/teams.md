@@ -86,7 +86,7 @@
 | GET | /teams/{id} | auth（成员） | 团队详情 | - | team |
 | GET | /teams/{id}/members | team 角色 | 成员列表 | 分页/keyword（昵称模糊）/状态 | member[] |
 | POST | /teams/{id}/invites | team_creator/team_admin | 生成邀请链接（写 Redis） | - | {token, expires_at} |
-| GET | /teams/invites/{token} | public | 解析邀请链接（返回团队与有效期） | - | {team_id, team_name, expires_at} |
+| GET | /teams/invites/{token} | public | 解析邀请链接（返回团队与有效期） | - | {team_id, team_name, avatar_url, expires_at} |
 | POST | /teams/{id}/applications | auth | 提交加入申请（public 团队可直接申请；private 团队无 invite_token 返回 2003，凭有效邀请链接放行；invite_token 经私有团队申请时记录来源） | invite_token | - |
 | GET | /teams/{id}/applications | team_creator/team_admin | 申请列表 | 分页/状态 | application[] |
 | POST | /teams/{id}/applications/{aid}/review | team_creator/team_admin | 审批（通过写 `user_roles` team_member） | approve, comment? | - |

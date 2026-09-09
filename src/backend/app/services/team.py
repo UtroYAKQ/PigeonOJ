@@ -358,7 +358,9 @@ class TeamService:
             raise APIError(RESOURCE_STATE_CONFLICT, "团队已解散", 409)
         ttl = int(await get_redis().ttl(f"{_INVITE_KEY_PREFIX}{token}"))
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=max(ttl, 1))
-        return TeamInviteResolved(team_id=team.id, team_name=team.name, expires_at=expires_at)
+        return TeamInviteResolved(
+            team_id=team.id, team_name=team.name, avatar_url=team.avatar_url, expires_at=expires_at
+        )
 
     # ---------------- 加入申请 / 审批 ----------------
 

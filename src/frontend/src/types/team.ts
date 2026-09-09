@@ -61,6 +61,7 @@ export interface TeamInviteCreated {
 export interface TeamInviteResolved {
   team_id: string
   team_name: string
+  avatar_url?: string | null
   expires_at: string
 }
 

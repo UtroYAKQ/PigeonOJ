@@ -106,12 +106,12 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 | `team:invite:<token>` | 团队邀请链接 → {team_id} | 链接有效期 |
 | `verify_invite:{token}` | 验题邀请链接 → {"problem_id": "..."} | 有效期（发起时指定小时数） |
 | `session:<token>` | 会话热点缓存 | 会话有效期 |
+| `session:active:<token>` | 会话活跃节流标记（到期回写 `last_active_at`；会话列表「在线中」判定依据） | 5 分钟 |
 | `email:code:<email>:<purpose>` | 邮箱验证码 + 错误计数 | 验证码有效期 |
 | `email:resend:<email>:<purpose>` | 验证码重发间隔计数 | 重发间隔 |
 | `rank:contest:<id>` | 榜单读缓存（权威在 `contest_rankings`） | 进行中 20s / 封榜 60s / 完赛已解冻 永久 |
 | `rank:contest:<id>:lock` | 榜单缓存重建互斥锁（防击穿，未抢到方等待重读后兜底回源） | 10s |
-| `login:fail:<email>` | 登录失败计数（窗口内超次触发临时锁定） | 15 分钟 |
-| `login:lock:<email>` | 登录临时锁定标记（到期自动恢复，不改动账号状态） | 15 分钟 |
+| `login:fail:<email>` | 登录失败计数（窗口内超次落库短时冻结 `frozen`） | 15 分钟 |
 | `sandbox:node:<id>` | 判题节点运行时状态 | 心跳周期（过期视为离线） |
 | `judge:cooldown:<user_id>:<problem_id>` | 提交冷却 | 冷却时长 |
 | `judge:selftest:<user_id>:<problem_id>` | 用户自测冷却 | 复用冷却配置 |

@@ -172,5 +172,18 @@ async def revoke_session(
     return ok(None)
 
 
+@_users.delete("/me/sessions", response_model=ApiResponse[None])
+async def revoke_other_sessions(
+    request: Request,
+    service: UserServiceDep,
+    current_user: User = Depends(get_current_user),
+) -> ApiResponse[None]:
+    """下线其他设备：**物理删除**除当前会话外的全部会话行（与登出同语义），保留当前登录。"""
+    raw_token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    current_hash = hash_token(raw_token) if raw_token else ""
+    await service.revoke_other_sessions(current_user, current_hash)
+    return ok(None)
+
+
 router.include_router(_auth)
 router.include_router(_users)

@@ -2,6 +2,21 @@
  * 管理 / 运维模块类型（docs/contracts/admin.md）。
  */
 
+/** 在线用户面板条目（每活跃会话一行，docs/contracts/admin.md） */
+export interface OnlineUser {
+  user_id: string
+  nickname: string
+  email: string
+  avatar_url: string | null
+  role: string | null
+  status: string
+  device_info: string | null
+  ip_address: string | null
+  location: string | null
+  last_active_at: string
+  session_created_at: string
+}
+
 // ---------------- 系统配置 ----------------
 
 export type ConfigCategory =

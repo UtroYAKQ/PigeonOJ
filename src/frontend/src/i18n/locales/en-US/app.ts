@@ -21,6 +21,7 @@
     userSettings: 'User settings',
     admin: 'Administration',
     users: 'Users',
+    onlineUsers: 'Online Users',
     configs: 'Configuration',
     logs: 'Logs',
     sandbox: 'Sandbox status',

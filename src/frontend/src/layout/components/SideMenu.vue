@@ -110,9 +110,14 @@ const menuOptions = computed<MenuOption[]>(() =>
  */
 const activePath = computed(() => {
   if (isAdminArea.value) {
-    // 后台上下文页（如 /admin/problems/new）归属其区块菜单项
-    const segments = route.path.split('/')
-    return segments.length > 3 ? segments.slice(0, 3).join('/') : route.path
+    // 后台高亮：在菜单项路径中做最长前缀匹配——
+    // /admin/users/online 命中自身（而非被 3 段截断规则归入 /admin/users）；
+    // /admin/contests/:cid/tools 这类无自身菜单项的区块子页归入 /admin/contests
+    const hits = adminMenus.value
+      .map((m) => m.path)
+      .filter((p) => route.path === p || route.path.startsWith(`${p}/`))
+      .sort((a, b) => b.length - a.length)
+    return hits[0] ?? route.path
   }
   const sectionPath = (route.matched[1]?.path ?? '').replace(/\/$/, '')
   if (!sectionPath) return route.path

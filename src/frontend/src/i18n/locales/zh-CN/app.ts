@@ -21,6 +21,7 @@
     userSettings: '用户设置',
     admin: '管理后台',
     users: '用户管理',
+    onlineUsers: '在线用户',
     configs: '系统配置',
     logs: '日志',
     sandbox: '沙箱状态',

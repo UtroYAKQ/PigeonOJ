@@ -95,8 +95,16 @@ export default {
     expiresAt: 'Expires at',
     empty: 'No login sessions',
     currentSession: 'Current session',
+    online: 'Online',
     revokeConfirm: 'Revoke the login session for "{device}"?',
     revokeTitle: 'Revoke session',
     revoked: 'Session revoked',
+    revokeOthers: 'Sign out other devices',
+    revokeOthersTitle: 'Sign out other devices',
+    revokeOthersConfirm:
+      'Sign out {count} other device session(s)? Your current device stays logged in.',
+    revokedOthers: 'Signed out {count} other device(s)',
+    footnote:
+      'Repeated logins from the same device keep only the latest session; online = active within the last 5 minutes.',
   },
 }

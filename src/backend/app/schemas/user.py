@@ -28,6 +28,7 @@ class UserPublic(BaseModel):
     signature: str | None
     theme: Theme
     status: UserStatus
+    frozen_until: datetime | None = None
     last_login_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -67,6 +68,7 @@ class SessionOut(BaseModel):
     last_active_at: datetime | None = None
     created_at: datetime
     current: bool = False
+    online: bool = False
 
     @field_validator("ip_address", mode="before")
     @classmethod

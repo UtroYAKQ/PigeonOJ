@@ -30,11 +30,12 @@ const roleTarget = ref<User | null>(null)
 const roleId = ref<GlobalRoleCode | null>(null)
 const roleSaving = ref(false)
 
-/** 封禁 / 冻结原因弹窗（可选输入，替代原 prompt） */
+/** 封禁 / 冻结原因弹窗（可选输入，替代原 prompt）；冻结额外选择截止时刻 */
 const reasonVisible = ref(false)
 const reasonAction = ref<'ban' | 'freeze'>('ban')
 const reasonTarget = ref<User | null>(null)
 const reasonText = ref('')
+const freezeUntil = ref<number | null>(null)
 const reasonSubmitting = ref(false)
 
 async function load() {
@@ -100,25 +101,38 @@ async function saveRoles() {
   }
 }
 
-/** 封禁 / 冻结：打开原因输入弹窗 */
+/** 封禁 / 冻结：打开原因输入弹窗；冻结缺省冻结到 15 分钟后 */
 function openReason(action: 'ban' | 'freeze', user: User) {
   reasonAction.value = action
   reasonTarget.value = user
   reasonText.value = ''
+  freezeUntil.value = action === 'freeze' ? Date.now() + 15 * 60 * 1000 : null
   reasonVisible.value = true
 }
 async function submitReason() {
   const action = reasonAction.value
   const user = reasonTarget.value
-  if (!user) return
+  if (!user) return false
   if (reasonText.value.length > 255) {
     message.warning(t('admin.users.reasonTooLong'))
-    return
+    return false
+  }
+  let durationMinutes: number | undefined
+  if (action === 'freeze') {
+    if (!freezeUntil.value) {
+      message.warning(t('admin.users.freezeUntilInvalid'))
+      return false
+    }
+    durationMinutes = Math.round((freezeUntil.value - Date.now()) / 60000)
+    if (durationMinutes < 1 || durationMinutes > 7 * 24 * 60) {
+      message.warning(t('admin.users.freezeUntilInvalid'))
+      return false
+    }
   }
   reasonSubmitting.value = true
   try {
     if (action === 'ban') await adminApi.adminBanUser(user.id, reasonText.value)
-    else await adminApi.adminFreezeUser(user.id, reasonText.value)
+    else await adminApi.adminFreezeUser(user.id, reasonText.value, durationMinutes)
     message.success(t('common.success'))
     reasonVisible.value = false
     await load()
@@ -193,9 +207,19 @@ const columns = computed<DataTableColumns<User>>(() => [
     width: 90,
     render(row) {
       const meta = USER_STATUS[row.status as keyof typeof USER_STATUS]
+      // 冻结为短时封禁：标签悬浮提示自动恢复时刻
+      const frozenTip =
+        row.status === 'frozen' && row.frozen_until
+          ? `${t('admin.users.freezeUntil')} ${formatDateTime(row.frozen_until)}`
+          : undefined
       return h(
         NTag,
-        { size: 'small', type: toNaiveTagType(meta?.tag ?? 'info'), bordered: false },
+        {
+          size: 'small',
+          type: toNaiveTagType(meta?.tag ?? 'info'),
+          bordered: false,
+          title: frozenTip,
+        },
         { default: () => meta?.label ?? row.status },
       )
     },
@@ -361,6 +385,17 @@ const columns = computed<DataTableColumns<User>>(() => [
           reasonAction === 'ban' ? t('admin.users.banReason') : t('admin.users.freezeReason')
         "
       />
+      <div v-if="reasonAction === 'freeze'" class="freeze-until">
+        <span class="freeze-until__label">{{ t('admin.users.freezeUntil') }}</span>
+        <n-date-picker
+          v-model:value="freezeUntil"
+          type="datetime"
+          clearable
+          style="flex: 1"
+          :is-date-disabled="(ts: number) => ts <= Date.now()"
+        />
+      </div>
+      <p class="freeze-hint">{{ t('admin.users.freezeHint') }}</p>
     </n-modal>
   </WorkbenchShell>
 </template>
@@ -373,5 +408,21 @@ const columns = computed<DataTableColumns<User>>(() => [
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.freeze-until {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.freeze-until__label {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+.freeze-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--app-text-secondary);
 }
 </style>

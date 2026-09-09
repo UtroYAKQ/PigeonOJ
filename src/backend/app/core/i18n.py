@@ -76,7 +76,7 @@ _MESSAGES: dict[str, str] = {
     "当前站点未开放注册": "Registration is currently disabled",
     "邮箱已注册": "Email already registered",
     "该邮箱已被使用": "This email is already in use",
-    "账号已冻结，请联系管理员": "Account is frozen, please contact the administrator",
+    "账号已临时冻结，请稍后再试或联系管理员": "Account is temporarily frozen, please try again later or contact the administrator",
     "账号已封禁，请联系管理员": "Account is banned, please contact the administrator",
     "账号已注销，请联系管理员": "Account is deleted, please contact the administrator",
     "登录失败次数过多，请稍后再试": "Too many failed login attempts, please try again later",

@@ -30,12 +30,14 @@ from app.schemas.admin import (
     ConfigUpdateRequest,
     ExceptionLogOut,
     LoginLogOut,
+    OnlineUserOut,
     ReportHandleRequest,
     ReportOut,
     RequestLogOut,
     RoleUpdateRequest,
     SandboxNodeOut,
     StatusReasonRequest,
+    FreezeRequest,
 )
 from app.schemas.problem import TagCreate, TagOut, TagUpdate, TeamProblemSummary
 from app.schemas.problem_set import ProblemSetSummary
@@ -63,6 +65,20 @@ async def list_users(
     status: str | None = None,
 ) -> ApiResponse[PaginatedResponse[UserPublic]]:
     return ok(await service.admin_list_users(page, page_size, keyword, status))
+
+
+@router.get("/users/online", response_model=ApiResponse[PaginatedResponse[OnlineUserOut]])
+async def list_online_users(
+    service: UserServiceDep,
+    admin: User = _admin,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+) -> ApiResponse[PaginatedResponse[OnlineUserOut]]:
+    """在线用户面板：10 分钟窗口内有活跃回写的有效会话（活跃时间倒序）。
+
+    同设备去重下每行 = 一台在线设备（一个用户可多台设备同时在线，分行展示）。
+    """
+    return ok(await service.admin_list_online_users(page, page_size))
 
 
 @router.put("/users/{user_id}/roles", response_model=ApiResponse[None])
@@ -101,10 +117,14 @@ async def unban_user(
 async def freeze_user(
     user_id: uuid.UUID,
     service: UserServiceDep,
-    body: StatusReasonRequest | None = None,
+    body: FreezeRequest | None = None,
     admin: User = _admin,
 ) -> ApiResponse[None]:
-    await service.admin_freeze(user_id, body.reason if body else None)
+    await service.admin_freeze(
+        user_id,
+        body.reason if body else None,
+        duration_minutes=body.duration_minutes if body else 15,
+    )
     return ok(None)
 
 

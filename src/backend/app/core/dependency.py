@@ -2,14 +2,16 @@
 
 - 会话 Token 从 Authorization: Bearer <token> 提取，哈希后查 user_sessions（有效 / 未过期 / 未撤销）
 - 会话热点缓存：Redis `session:<token_hash>` → user_id，TTL 与会话过期时间一致
-- 账号状态：frozen / banned / deleted 拦截接口访问
+- 会话活跃回写：Redis `session:active:<token_hash>` 节流阀（TTL 5min），到期回写 last_active_at
+- 账号状态：frozen（短时，到期自动恢复）/ banned / deleted 拦截接口访问
 - 题目管理角色检查
 """
 from __future__ import annotations
 
 import ipaddress
+import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,11 +25,18 @@ from app.core.exceptions import (
     AUTH_SESSION_EXPIRED,
     APIError,
 )
-from app.core.redis import SESSION_KEY_PREFIX, redis_get, redis_set
+from app.core.redis import SESSION_ACTIVE_KEY_PREFIX, SESSION_KEY_PREFIX, redis_get, redis_set
 from app.enums import UserStatus
 from app.utils.security import hash_token
 
+logger = logging.getLogger(__name__)
+
 _SESSION_CACHE_TTL_BUFFER = 60  # 秒；缓存 TTL 略长于数据库过期时间，避免边界竞态
+SESSION_ACTIVE_THROTTLE_SECONDS = 300  # 会话活跃回写节流窗口（秒），与用户域常量保持一致
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
 
 # 认证成功后 user_id 在 request.state 上的键名（写：_load_user；读：请求日志中间件落库）
 REQUEST_STATE_USER_ID = "log_user_id"
@@ -58,6 +67,29 @@ def get_bearer_token(request: Request) -> str | None:
     return None
 
 
+async def _touch_session_activity(token_hash: str, db: AsyncSession) -> None:
+    """节流回写会话活跃时间：Redis 活跃标记（TTL = 节流窗口）做节流阀，
+    窗口内重复请求零成本；窗口到期才回写 DB 一次 + 重置标记。
+
+    last_active_at 驱动会话管理页「在线中」判定（5 分钟内有活动视为在线）。
+    Redis 异常静默降级（仅失去节流，不影响认证）。
+    """
+    throttle_key = f"{SESSION_ACTIVE_KEY_PREFIX}{token_hash}"
+    try:
+        if await redis_get(throttle_key) is not None:
+            return
+    except Exception:
+        pass
+    try:
+        await redis_set(throttle_key, "1", SESSION_ACTIVE_THROTTLE_SECONDS)
+    except Exception:
+        pass
+    try:
+        await SessionRepository(db).touch_activity(token_hash, _utcnow())
+    except Exception:
+        logger.warning("会话活跃回写失败（不影响本次请求）", exc_info=True)
+
+
 async def _load_user(request: Request, db: AsyncSession, raw_token: str) -> User:
     """加载并验证用户会话（Redis 热点缓存 → 数据库回源）。
 
@@ -81,12 +113,20 @@ async def _load_user(request: Request, db: AsyncSession, raw_token: str) -> User
         ttl = int((session.expires_at - datetime.now()).total_seconds()) + _SESSION_CACHE_TTL_BUFFER
         await redis_set(cache_key, str(user_id), max(ttl, 1))
 
+    # 会话活跃节流回写（失败不影响认证；get_db 统一 commit）
+    await _touch_session_activity(token_hash, db)
+
     user = await UserRepository(db).get_by_id(user_id)
     if user is None:
         raise APIError(AUTH_NOT_LOGGED_IN, "用户不存在", 401)
 
     # 账号状态拦截（frozen / banned / deleted 语义见 docs/contracts/users.md「账号状态语义」）
-    if user.status != UserStatus.ACTIVE:
+    # frozen 为短时封禁：frozen_until 已到期视为恢复 active（只读判定不回写，状态在下次登录时治愈）
+    if user.status == UserStatus.FROZEN:
+        frozen_active = user.frozen_until is None or user.frozen_until > _utcnow()
+        if frozen_active:
+            raise APIError(AUTH_FORBIDDEN, "账号状态异常，请联系管理员", 403)
+    elif user.status != UserStatus.ACTIVE:
         raise APIError(AUTH_FORBIDDEN, "账号状态异常，请联系管理员", 403)
 
     setattr(request.state, REQUEST_STATE_USER_ID, user.id)

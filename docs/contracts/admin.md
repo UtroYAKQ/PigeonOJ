@@ -114,10 +114,11 @@ ORDER BY r.created_at DESC, r.id DESC
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | GET | /admin/users | admin | 用户列表 | 分页/关键字/状态 | user[] |
+| GET | /admin/users/online | admin | **在线用户面板**：10 分钟窗口内有活跃回写的有效会话（活跃回写节流 5min + 在线判定缓冲；活跃时间倒序分页；同设备去重下每行 = 一台在线设备） | 分页 | onlineUser[]（用户 / 角色 / 状态 / 设备 / IP·归属地 / 登录与最近活跃时间） |
 | PUT | /admin/users/{id}/roles | admin | 全局角色授权（**单一角色模型**：整体替换该用户唯一全局角色，写 `user_roles` scope='global'） | role_id | - |
 | POST | /admin/users/{id}/ban | admin | 封禁（违规 / 异常，仅可人工解封） | reason | - |
 | POST | /admin/users/{id}/unban | admin | 解封 | - | - |
-| POST | /admin/users/{id}/freeze | admin | 冻结（立即拦截登录；人工解冻） | reason | - |
+| POST | /admin/users/{id}/freeze | admin | 冻结（**短时封禁**：置 `frozen` + `frozen_until = now + duration_minutes`，到期自动恢复 active；`duration_minutes` 缺省 15，范围 1–10080） | reason?, duration_minutes? | - |
 | POST | /admin/users/{id}/unfreeze | admin | 解冻 | - | - |
 | GET/PUT | /admin/configs | admin | 系统配置（分域） | - | - |
 | GET | /site-config | public | 公开站点配置（白名单字段：name / logo / icp / default_theme / register_enabled / email_verify_enabled；前端壳层与注册页消费） | - | siteConfig |
@@ -132,7 +133,7 @@ ORDER BY r.created_at DESC, r.id DESC
 
 > **实现状态**：上表端点均已实现。
 
-> **账号状态语义**：`frozen`（冻结：管理员手动冻结，人工解冻）与 `banned`（封禁：管理员主动封禁，仅可人工解封）均拦截登录；登录失败超次为 Redis 临时锁定（到期自动恢复），不涉及账号状态。区分见 `users.md`「账号状态语义」。
+> **账号状态语义**：`frozen`（冻结 = **短时封禁**：带 `frozen_until` 到期自动恢复，登录失败超次与管理员限时冻结共用；`frozen_until` 为空的历史数据仍为人工解冻）与 `banned`（封禁：管理员主动封禁，仅可人工解封）均拦截登录。区分见 `users.md`「账号状态语义」。
 
 ## 错误码
 
@@ -145,7 +146,7 @@ ORDER BY r.created_at DESC, r.id DESC
 ## 关键流程 / 验收条件
 
 1. **全局角色授权**：`PUT /admin/users/{id}/roles` 写 `user_roles`（`scope='global'`、`object_id=NULL`）；**单一角色模型**——每个用户恰好持有一个全局角色（`admin` / `tutor` / `user`），授权为整体替换而非叠加；唯一索引兜底防重复。
-2. **封禁 / 解封、冻结 / 解冻**：写 `users.status`（`banned` / `frozen`），均立即拦截登录；`frozen` 可到期自动解冻，`banned` 仅人工解封。
+2. **封禁 / 解封、冻结 / 解冻**：写 `users.status`（`banned` / `frozen`），均立即拦截登录；`frozen` 带 `frozen_until` 到期自动解冻（解冻端点可提前结束），`banned` 仅人工解封。
 3. **系统配置**：按 `category` 分域读写 `system_configs`；修改人记录 `updated_by`。业务侧实时读库（无缓存），保存后立即生效；已接线消费方：`auth_email` 验证码策略 / 注册邮箱验证开关 / SMTP 发信、`sandbox` 冷却 / 并发、`site.register_enabled` 注册开关、`site` 公开展示字段（经 `/site-config`）。
 4. **日志**：`request_logs`（含沙箱子记录）、`login_logs`、`exception_logs` 按条件查询 / 导出。
 

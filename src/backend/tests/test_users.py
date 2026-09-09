@@ -9,10 +9,24 @@ from sqlalchemy import select
 
 from app.core.database import SessionLocal
 from app.models.system_config import SystemConfig
+from app.models.user import User, UserSession
 
 from .conftest import api_login, register_user
 
 PASSWORD = "Pass@123"
+
+
+async def _login_with_ua(
+    client: httpx.AsyncClient, email: str, user_agent: str
+) -> str:
+    """带指定 UA 登录（device_info 由后端 UA 解析生成，同 UA = 同设备）。"""
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": PASSWORD},
+        headers={"User-Agent": user_agent},
+    )
+    assert resp.json()["code"] == 0, resp.text
+    return resp.json()["data"]["token"]
 
 
 async def _set_config(category: str, key: str, value) -> None:
@@ -128,8 +142,8 @@ async def test_soft_delete(client: httpx.AsyncClient) -> None:
 
 async def test_sessions_list_and_revoke(client: httpx.AsyncClient) -> None:
     await register_user(client, "sess@pigeonoj.dev")
-    token1 = await api_login(client, "sess@pigeonoj.dev", PASSWORD)
-    token2 = await api_login(client, "sess@pigeonoj.dev", PASSWORD)
+    token1 = await _login_with_ua(client, "sess@pigeonoj.dev", "pytest-a")
+    token2 = await _login_with_ua(client, "sess@pigeonoj.dev", "pytest-b")
     headers2 = {"Authorization": f"Bearer {token2}"}
 
     resp = await client.get("/api/v1/users/me/sessions", headers=headers2)
@@ -149,6 +163,125 @@ async def test_sessions_list_and_revoke(client: httpx.AsyncClient) -> None:
     assert resp.json()["code"] == 0
     resp = await client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token1}"})
     assert resp.json()["code"] == 2002
+
+
+async def test_same_device_login_replaces_session(client: httpx.AsyncClient) -> None:
+    """同设备去重（users.md 关键流程 5）：同设备标识重复登录只保留最新会话，
+    旧会话立即失效；不同设备（UA 不同）    互不影响。"""
+    await register_user(client, "dup@pigeonoj.dev")
+    ua = "Mozilla/5.0 (Windows NT 10.0) Chrome/120.0.0.0"
+    token1 = await _login_with_ua(client, "dup@pigeonoj.dev", ua)
+    headers1 = {"Authorization": f"Bearer {token1}"}
+
+    # 会话带稳定设备标识（无版本号）
+    resp = await client.get("/api/v1/users/me/sessions", headers=headers1)
+    sessions = resp.json()["data"]
+    assert len(sessions) == 1
+    assert sessions[0]["device_info"] == "Chrome · Windows"
+    assert sessions[0]["online"] is True  # 当前会话恒在线
+
+    # 同设备再登录 → 旧会话被替换，token1 失效
+    token2 = await _login_with_ua(client, "dup@pigeonoj.dev", ua)
+    resp = await client.get("/api/v1/users/me", headers=headers1)
+    assert resp.json()["code"] == 2002
+
+    # 会话列表仅剩最新会话（同设备只有一个活跃会话）
+    resp = await client.get(
+        "/api/v1/users/me/sessions", headers={"Authorization": f"Bearer {token2}"}
+    )
+    sessions = resp.json()["data"]
+    assert len(sessions) == 1
+    assert sessions[0]["current"] is True
+
+    # 另一台设备（不同 UA）登录 → 各自保留，不互踢
+    token3 = await _login_with_ua(
+        client, "dup@pigeonoj.dev", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Version/17.0 Mobile Safari"
+    )
+    resp = await client.get(
+        "/api/v1/users/me/sessions", headers={"Authorization": f"Bearer {token3}"}
+    )
+    sessions = resp.json()["data"]
+    assert len(sessions) == 2
+    assert {s["device_info"] for s in sessions} == {"Chrome · Windows", "Safari · iOS · 移动端"}
+
+    # UA 无法识别（device_info=None）→ 不参与去重，可并存多个
+    token4 = await _login_with_ua(client, "dup@pigeonoj.dev", "unknown-agent/0.9")
+    token5 = await _login_with_ua(client, "dup@pigeonoj.dev", "unknown-agent/0.9")
+    resp = await client.get(
+        "/api/v1/users/me/sessions", headers={"Authorization": f"Bearer {token5}"}
+    )
+    assert len(resp.json()["data"]) == 4
+
+
+async def test_revoke_other_sessions(client: httpx.AsyncClient) -> None:
+    """下线其他设备：**物理删除**除当前会话外的全部会话行（与登出同语义，无撤销记录残留）；
+    被下线 token 立即失效，当前会话保持登录。"""
+    await register_user(client, "kick@pigeonoj.dev")
+    token1 = await _login_with_ua(client, "kick@pigeonoj.dev", "ua-device-1")
+    token2 = await _login_with_ua(client, "kick@pigeonoj.dev", "ua-device-2")
+    token3 = await _login_with_ua(client, "kick@pigeonoj.dev", "ua-device-3")
+    headers3 = {"Authorization": f"Bearer {token3}"}
+
+    resp = await client.delete("/api/v1/users/me/sessions", headers=headers3)
+    assert resp.json()["code"] == 0
+
+    # token1 / token2 全部失效；当前会话 token3 保持登录
+    resp = await client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token1}"})
+    assert resp.json()["code"] == 2002
+    resp = await client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token2}"})
+    assert resp.json()["code"] == 2002
+    resp = await client.get("/api/v1/users/me", headers=headers3)
+    assert resp.json()["code"] == 0
+
+    # 物理删除：仅剩当前会话行，被下线会话无 revoked_at 残留
+    async with SessionLocal() as db:
+        user = (
+            await db.execute(select(User).where(User.email == "kick@pigeonoj.dev"))
+        ).scalar_one()
+        rows = (
+            (await db.execute(select(UserSession).where(UserSession.user_id == user.id)))
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].revoked_at is None
+
+
+async def test_session_activity_touched(client: httpx.AsyncClient) -> None:
+    """认证链路节流回写 last_active_at（users.md 关键流程 6）：活跃窗口到期后，
+    下一次认证请求把最近活跃更新为当前时刻（会话列表在线判定的数据源）。"""
+    from datetime import datetime, timedelta
+
+    await register_user(client, "active@pigeonoj.dev")
+    token = await api_login(client, "active@pigeonoj.dev", PASSWORD)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 回拨最近活跃 30 分钟 → 已超出 5 分钟节流窗口
+    from datetime import timezone as _tz
+
+    async with SessionLocal() as db:
+        user = (
+            await db.execute(select(User).where(User.email == "active@pigeonoj.dev"))
+        ).scalar_one()
+        session = (
+            await db.execute(select(UserSession).where(UserSession.user_id == user.id))
+        ).scalar_one()
+        stale = (session.last_active_at or datetime.now(_tz.utc)) - timedelta(minutes=30)
+        session.last_active_at = stale
+        await db.commit()
+
+    resp = await client.get("/api/v1/users/me", headers=headers)
+    assert resp.json()["code"] == 0
+
+    async with SessionLocal() as db:
+        user = (
+            await db.execute(select(User).where(User.email == "active@pigeonoj.dev"))
+        ).scalar_one()
+        session = (
+            await db.execute(select(UserSession).where(UserSession.user_id == user.id))
+        ).scalar_one()
+        assert session.last_active_at > stale
+        assert session.token  # 同一会话行被活跃回写更新
 
 
 async def test_revoke_others_session_forbidden(client: httpx.AsyncClient) -> None:

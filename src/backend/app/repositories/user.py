@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -103,6 +103,15 @@ class SessionRepository:
     async def get_by_id(self, session_id: uuid.UUID) -> UserSession | None:
         return await self.db.get(UserSession, session_id)
 
+    async def touch_activity(self, token_hash: str, now: datetime) -> None:
+        """按 token 回写会话活跃时间（认证链路节流调用；无需先查行，条件 UPDATE 即可）。"""
+        await self.db.execute(
+            update(UserSession)
+            .where(UserSession.token == token_hash, UserSession.revoked_at.is_(None))
+            .values(last_active_at=now)
+            .execution_options(synchronize_session=False)
+        )
+
     async def list_active_by_user(self, user_id: uuid.UUID) -> list[UserSession]:
         stmt = (
             select(UserSession)
@@ -114,6 +123,55 @@ class SessionRepository:
             .order_by(UserSession.created_at.desc())
         )
         return list((await self.db.execute(stmt)).scalars().all())
+
+    async def list_online_sessions(
+        self, window_seconds: int, page: int, page_size: int
+    ) -> tuple[list[tuple[UserSession, User]], int]:
+        """在线用户（管理端）：每用户最近活跃会话（last_active_at 在窗口内且会话有效）。
+
+        返回 (会话, 用户) 行按活跃时间倒序分页；total 为在线会话数（= 面板「在线设备数」，
+        同设备去重下与在线用户数一致）。
+        """
+        deadline = datetime.now() - timedelta(seconds=window_seconds)
+        conditions = [
+            UserSession.revoked_at.is_(None),
+            UserSession.expires_at > datetime.now(),
+            UserSession.last_active_at > deadline,
+        ]
+        count_stmt = select(func.count()).select_from(UserSession).where(*conditions)
+        total = (await self.db.execute(count_stmt)).scalar_one()
+        stmt = (
+            select(UserSession, User)
+            .join(User, User.id == UserSession.user_id)
+            .where(*conditions)
+            .order_by(UserSession.last_active_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list((await self.db.execute(stmt)).all()), total
+
+    async def list_valid_by_device(
+        self, user_id: uuid.UUID, device_info: str, exclude_token: str | None = None
+    ) -> list[UserSession]:
+        """同用户同设备标识的有效会话（同设备去重：登录替换旧会话用）。"""
+        stmt = select(UserSession).where(
+            UserSession.user_id == user_id,
+            UserSession.device_info == device_info,
+            UserSession.revoked_at.is_(None),
+            UserSession.expires_at > datetime.now(),
+        )
+        if exclude_token:
+            stmt = stmt.where(UserSession.token != exclude_token)
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    async def delete_others_by_user(self, user_id: uuid.UUID, keep_token: str) -> int:
+        """物理删除该用户除 keep_token 外的全部会话行（一键下线其他设备，与登出同语义），返回删除数。"""
+        result = await self.db.execute(
+            delete(UserSession)
+            .where(UserSession.user_id == user_id, UserSession.token != keep_token)
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount or 0
 
     async def revoke(self, session: UserSession, now: datetime) -> None:
         session.revoked_at = now

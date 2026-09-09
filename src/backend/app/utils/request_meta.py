@@ -94,3 +94,17 @@ def parse_user_agent(ua: str | None) -> dict[str, str | None]:
     else:
         device = "desktop" if browser else None
     return {"browser": browser, "os": os_name, "device": device}
+
+
+def format_device_info(ua: str | None) -> str | None:
+    """UA → 稳定设备标识（无版本号，浏览器升级不产生新会话）：
+    'Chrome · Windows' / 'Safari · iOS · 移动端'；无法识别返回 None（不做同设备去重）。"""
+    meta = parse_user_agent(ua)
+    browser = (meta["browser"] or "").split(" ")[0] or None
+    os_name = (meta["os"] or "").split(" ")[0] or None
+    parts = [p for p in (browser, os_name) if p]
+    if meta["device"] == "mobile":
+        parts.append("移动端")
+    elif meta["device"] == "tablet":
+        parts.append("平板")
+    return " · ".join(parts) if parts else None

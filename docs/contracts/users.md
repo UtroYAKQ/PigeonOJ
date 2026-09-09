@@ -16,7 +16,8 @@
 | avatar_url | VARCHAR(512) | NULL | 头像：站内完整文件 URL（`/api/v1/files/users/{uid}/avatar/{uuid}`，即 `POST /files/upload/avatar` 返回的 `url`）或可信外链 `http(s)://…`；前端直接渲染，无需再拼接前缀 |
 | signature | VARCHAR(255) | NULL | 个性签名 |
 | theme | VARCHAR(32) | NOT NULL DEFAULT 'light' | 页面主题样式偏好 |
-| status | VARCHAR(16) | NOT NULL DEFAULT 'active' | `active` 正常 / `frozen` 冻结 / `banned` 封禁 / `deleted` 已注销 |
+| status | VARCHAR(16) | NOT NULL DEFAULT 'active' | `active` 正常 / `frozen` 冻结（短时封禁）/ `banned` 封禁 / `deleted` 已注销 |
+| frozen_until | TIMESTAMPTZ | NULL | 冻结到期时刻：非空 = 短时冻结（登录失败超次自动置入 / 管理员限时冻结），到期自动恢复 `active`；NULL = 人工冻结（无限期，仅人工解冻，迁移 0033 存量语义不变） |
 | last_login_at | TIMESTAMPTZ | NULL | 最近登录时间 |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
@@ -63,11 +64,12 @@
 | 状态 | 触发 | 恢复 | 登录 |
 | --- | --- | --- | --- |
 | `active` | 正常 | — | 允许 |
-| `frozen` 冻结 | 管理员手动冻结（登录失败超次不冻结，改为 Redis 临时锁定） | 人工解冻 | 拦截 |
+| `frozen` 冻结（短时封禁） | 登录失败超次自动触发（15 分钟）；管理员手动冻结（可指定时长） | `frozen_until` 到期自动恢复 `active`（登录 / 接口访问时判定）；管理员可提前解冻 | 拦截（提示临时冻结） |
 | `banned` 封禁 | 管理员对违规 / 异常账号主动封禁 | 仅可人工解封 | 拦截 |
 | `deleted` 注销 | 用户主动注销 | 不可恢复 | 拒绝 |
 
-> 冻结不涉及违规定性；封禁为管理员主动行为。两者均拦截登录，管理接口见 `admin.md`。
+> 冻结为短时封禁（不涉及违规定性，到期自动恢复，`frozen_until` 为空的历史冻结仍需人工解冻）；封禁为管理员主动行为、仅人工解封。两者均拦截登录，管理接口见 `admin.md`。
+> 登录失败超次（15 分钟窗口 5 次）→ 自动置 `frozen` + `frozen_until = now + 15 分钟`，同时清零失败计数；冻结到期后首次登录自动恢复并放行。
 
 ## 端点
 
@@ -86,8 +88,9 @@
 | PUT | /users/me | auth | 更新资料 | nickname/signature/theme/avatar_url（头像存站内完整文件 URL `/api/v1/files/users/{uid}/avatar/…`——前端直接使用 `POST /files/upload/avatar` 返回的 `url`——或可信外链 `http(s)://…`；不接受裸 `oss_id`；替换时 best-effort 删除被替换的站内旧头像对象） | user |
 | POST | /files/upload/avatar | auth | 上传头像（频控 ≤10 次/小时/用户，超次 4002） | multipart file，≤2MB，JPG/PNG/WEBP/GIF | url（站内文件 URL） |
 | DELETE | /users/me | auth | 注销账号（软注销） | password | - |
-| GET | /users/me/sessions | auth | 会话列表 | - | session[] |
+| GET | /users/me/sessions | auth | 会话列表（仅有效会话；`current` 当前会话、`online` 在线中——服务端按 5 分钟活跃窗口判定） | - | session[] |
 | DELETE | /users/me/sessions/{sid} | owner | 注销指定会话 | - | - |
+| DELETE | /users/me/sessions | auth | **下线其他设备**：**物理删除**除当前会话外的全部会话行（与登出同语义，不留撤销记录），同步清 Redis 缓存与活跃标记 | - | - |
 
 > 用户管理（角色授权 / 封禁）端点见 `admin.md`。
 
@@ -107,10 +110,12 @@
 ## 关键流程 / 验收条件
 
 1. **注册**：`POST /auth/email-code`（purpose=register）→ 用户收码 → `POST /auth/register` 校验通过后创建 `users`（`email_verified=true`），验证码从 Redis 删除（一次性）。站点关闭注册（`site.register_enabled=false`）时返回 `2005` 且不消耗验证码；关闭邮箱验证（`email.verify_enabled=false`）时无需验证码直接注册。
-2. **登录**：校验密码 + 会话写入 `user_sessions` + Redis 热点缓存；登录失败超次触发临时锁定（Redis `login:lock:*`，15 分钟内拒绝全部登录尝试，到期自动恢复；不改动账号状态，管理员手动冻结仍走 admin 接口）。
+2. **登录**：校验密码 + 会话写入 `user_sessions` + Redis 热点缓存；登录失败超次触发短时冻结（`frozen` + `frozen_until`，15 分钟内拒绝全部登录尝试，到期自动恢复 active；管理员手动冻结走 admin 接口，可指定时长）。
 3. **找回密码**：`email-code`（purpose=reset_password）→ `reset-password` 重置。
 4. **换绑邮箱**：`email-code`（purpose=change_email）→ `change-email`。
-5. **会话管理**：登出 / 注销指定会话时 `revoked_at` 置位，同步清 Redis 缓存。
+5. **会话管理**：登录会话记录稳定设备标识 `device_info`（UA 轻量解析，无版本号：`Chrome · Windows` / `Safari · iOS · 移动端`）；
+   **同设备去重**——同 `user_id + device_info` 的旧有效会话在新登录时立即失效（revoked + 清 Redis 缓存），同一设备恒只保留一个活跃会话（UA 无法识别的会话不参与去重）；登出 / 注销指定会话时 `revoked_at` 置位，同步清 Redis 缓存；「下线其他设备」**物理删除**除当前会话外的全部会话行（与登出同语义），并清 Redis 缓存与活跃标记。
+6. **会话活跃回写**：认证链路以 Redis `session:active:<token_hash>`（TTL 5 分钟）为节流阀，窗口内重复请求不回写；窗口到期回写 `user_sessions.last_active_at` 并重置标记。会话列表以最近 5 分钟内有活动判定「在线中」（`online`）。
 
 ## 明确不做
 

@@ -15,6 +15,7 @@ import type {
   GlobalRoleCode,
   LogQuery,
   LogType,
+  OnlineUser,
   PageResult,
   ProblemSetSummary,
   ProblemTagItem,
@@ -30,6 +31,11 @@ import type {
 } from '@/types'
 
 // ---------------- 管理列表（单一所有权模型：admin 全量、tutor 等仅本人创建） ----------------
+
+/** GET /admin/users/online — 在线用户面板（10 分钟窗口内有活跃回写的有效会话） */
+export function adminListOnlineUsers(query: { page?: number; page_size?: number } = {}) {
+  return apiRequest<PageResult<OnlineUser>>('GET', `/admin/users/online${buildQuery(query)}`)
+}
 
 /** GET /admin/contests — 比赛管理视图（admin 全量、tutor 仅本人创建，全部状态） */
 export function adminListContests(query: ContestListQuery = {}) {
@@ -135,9 +141,12 @@ export function adminUnbanUser(userId: string) {
   return apiRequest<null>('POST', `/admin/users/${userId}/unban`)
 }
 
-/** POST /admin/users/:id/freeze — 冻结 */
-export function adminFreezeUser(userId: string, reason: string) {
-  return apiRequest<null>('POST', `/admin/users/${userId}/freeze`, { reason })
+/** POST /admin/users/:id/freeze — 冻结（短时封禁：duration_minutes 到期自动恢复，缺省 15 分钟） */
+export function adminFreezeUser(userId: string, reason: string, durationMinutes?: number) {
+  return apiRequest<null>('POST', `/admin/users/${userId}/freeze`, {
+    reason,
+    duration_minutes: durationMinutes,
+  })
 }
 
 /** POST /admin/users/:id/unfreeze — 解冻 */

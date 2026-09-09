@@ -278,7 +278,7 @@ async def test_admin_manage_list(client: httpx.AsyncClient, user_headers, admin_
     assert resp.json()["data"]["total"] == 0
 
 
-async def test_register_window(client: httpx.AsyncClient, user_headers) -> None:
+async def test_register_window(client: httpx.AsyncClient, user_headers, admin_headers) -> None:
     """报名窗口：未开始/已截止 → 3002；窗口内 → 0；重复 → 3003。"""
     p1 = await _seed_problem("报名题")
     tutor = await _tutor_headers(client)
@@ -303,6 +303,23 @@ async def test_register_window(client: httpx.AsyncClient, user_headers) -> None:
     assert resp.json()["code"] == 0
     resp = await client.get(f"/api/v1/contests/{cid}/problems", headers=user_headers)
     assert resp.json()["code"] == 2003
+    resp = await client.get(f"/api/v1/contests/{cid}/problems/{p1}", headers=user_headers)
+    assert resp.json()["code"] == 2003
+    # 赛前响应不得携带题目数据（详情 problems 为空）
+    detail = (await client.get(f"/api/v1/contests/{cid}", headers=user_headers)).json()["data"]
+    assert detail["can_view_problems"] is False
+    assert detail["problems"] == []
+
+    # 赛前管理者（创建者 / admin）可看题（列表 + 详情），与详情 can_view_problems 口径一致
+    resp = await client.get(f"/api/v1/contests/{cid}/problems", headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    assert [it["problem_id"] for it in resp.json()["data"]] == [p1]
+    resp = await client.get(f"/api/v1/contests/{cid}/problems/{p1}", headers=tutor)
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get(f"/api/v1/contests/{cid}/problems", headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+    tutor_detail = (await client.get(f"/api/v1/contests/{cid}", headers=tutor)).json()["data"]
+    assert tutor_detail["can_view_problems"] is True
 
     # 重复报名 → 3003
     resp = await client.post(f"/api/v1/contests/{cid}/register", headers=user_headers)

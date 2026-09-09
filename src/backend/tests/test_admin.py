@@ -66,11 +66,22 @@ async def test_admin_ban_freeze_flow(client: httpx.AsyncClient, admin_headers: d
     users = (await client.get("/api/v1/admin/users?keyword=ban@pigeonoj.dev", headers=admin_headers)).json()["data"]["items"]
     uid = users[0]["id"]
 
-    resp = await client.post(f"/api/v1/admin/users/{uid}/freeze", json={"reason": "测试冻结"}, headers=admin_headers)
+    # 冻结 = 短时封禁：落库 frozen + frozen_until（缺省 15 分钟），期内登录 3002
+    resp = await client.post(
+        f"/api/v1/admin/users/{uid}/freeze", json={"reason": "测试冻结"}, headers=admin_headers
+    )
     assert resp.json()["code"] == 0
+    async with SessionLocal() as db:
+        row = (await db.execute(select(User).where(User.email == "ban@pigeonoj.dev"))).scalar_one()
+        assert row.status == "frozen"
+        assert row.frozen_until is not None
     resp = await client.post("/api/v1/auth/login", json={"email": "ban@pigeonoj.dev", "password": PASSWORD})
     assert resp.json()["code"] == 3002
     await client.post(f"/api/v1/admin/users/{uid}/unfreeze", headers=admin_headers)
+    async with SessionLocal() as db:
+        row = (await db.execute(select(User).where(User.email == "ban@pigeonoj.dev"))).scalar_one()
+        assert row.status == "active"
+        assert row.frozen_until is None
 
     resp = await client.post(f"/api/v1/admin/users/{uid}/ban", json={"reason": "违规"}, headers=admin_headers)
     assert resp.json()["code"] == 0
@@ -80,6 +91,37 @@ async def test_admin_ban_freeze_flow(client: httpx.AsyncClient, admin_headers: d
     assert resp.json()["code"] == 0
     resp = await client.post("/api/v1/auth/login", json={"email": "ban@pigeonoj.dev", "password": PASSWORD})
     assert resp.json()["code"] == 0
+
+
+async def test_admin_online_users(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:
+    """在线用户面板：窗口内有活跃回写的会话按活跃倒序展示；非在线用户不出现。"""
+    await register_user(client, "surfer@pigeonoj.dev")
+    # 登录即创建会话（last_active_at = 登录时刻），再发一次认证请求驱动活跃回写
+    token = await api_login(client, "surfer@pigeonoj.dev", PASSWORD)
+    resp = await client.get(
+        "/api/v1/users/me", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.json()["code"] == 0
+
+    resp = await client.get("/api/v1/admin/users/online", headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+    data = resp.json()["data"]
+    assert data["total"] >= 1
+    emails = [it["email"] for it in data["items"]]
+    assert "surfer@pigeonoj.dev" in emails
+    assert "admin@pigeonoj.dev" in emails  # 发起本次请求的 admin 自身必然在线
+
+    # 条目字段完整性（最近活跃倒序）
+    first = data["items"][0]
+    for field in ("user_id", "nickname", "email", "role", "status", "last_active_at"):
+        assert field in first
+    times = [it["last_active_at"] for it in data["items"]]
+    assert times == sorted(times, reverse=True)
+
+    # 非管理员访问 → 2003
+    user_headers = {"Authorization": f"Bearer {token}"}
+    resp = await client.get("/api/v1/admin/users/online", headers=user_headers)
+    assert resp.json()["code"] == 2003
 
 
 async def test_admin_configs(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:

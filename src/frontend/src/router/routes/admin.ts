@@ -355,6 +355,19 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        // 在线用户面板：10 分钟窗口内有活跃回写的有效会话（15s 轮询）
+        path: 'online',
+        name: 'admin-online-users',
+        component: () => import('@/views/admin/AdminOnlineUsersView.vue'),
+        meta: {
+          title: '在线用户',
+          titleKey: 'nav.onlineUsers',
+          icon: 'Aim',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
         path: 'configs',
         name: 'admin-configs',
         component: () => import('@/views/admin/AdminConfigsView.vue'),

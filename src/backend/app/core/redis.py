@@ -4,8 +4,8 @@ Key 约定见 docs/operations.md「Redis 约定」：
 - `email:code:<email>:<purpose>`  邮箱验证码 + 错误计数（不落库）
 - `email:resend:<email>:<purpose>` 验证码重发间隔
 - `session:<token_hash>`          会话热点缓存（token 哈希为 key，见 shared/security.py）
-- `login:fail:<email>`            登录失败计数（超次触发临时锁定）
-- `login:lock:<email>`            登录临时锁定标记（TTL 到期自动恢复，不改动账号状态）
+- `session:active:<token_hash>`   会话活跃节流标记（TTL 5min；到期回写 last_active_at）
+- `login:fail:<email>`            登录失败计数（超次落库短时冻结，不再使用 Redis 锁定标记）
 - `rank:contest:<id>`             榜单读缓存（权威在 contest_rankings，写路径主动失效）
 - `sandbox:node:<id>`             沙箱节点运行时状态
 - `upload:rate:<kind>:<user_id>`  文件上传固定窗口计数（频控）
@@ -30,6 +30,7 @@ _client_loop_id: int | None = None
 # Key 前缀约定（docs/operations.md「Redis 约定」）
 SANDBOX_NODE_KEY_PREFIX = "sandbox:node:"
 SESSION_KEY_PREFIX = "session:"
+SESSION_ACTIVE_KEY_PREFIX = "session:active:"
 EMAIL_CODE_KEY_PREFIX = "email:code:"
 EMAIL_RESEND_KEY_PREFIX = "email:resend:"
 RANK_CONTEST_KEY_PREFIX = "rank:contest:"

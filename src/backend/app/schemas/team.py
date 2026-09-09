@@ -138,6 +138,7 @@ class TeamInviteResolved(BaseModel):
 
     team_id: uuid.UUID
     team_name: str
+    avatar_url: str | None = None
     expires_at: datetime
 
 

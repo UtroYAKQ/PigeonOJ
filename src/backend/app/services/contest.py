@@ -377,9 +377,13 @@ class ContestService:
             raise APIError(AUTH_FORBIDDEN, "比赛期间提交记录不可见，结束后开放查看", 403)
 
     async def _ensure_problems_visible(self, contest: Contest, user: User) -> None:
-        """看题窗口（docs/contracts/contests.md 第 2 条）：团队比赛限团队成员（封闭空间）；
-        赛前不开放；赛中仅报名者；赛后向全站比赛的所有登录用户开放（补题浏览）。"""
+        """看题窗口（docs/contracts/contests.md 第 2 条）：比赛管理者随时可看
+        （编排 / 验题需要，与详情 can_view_problems 的 can_manage 口径一致）；
+        团队比赛限团队成员（封闭空间）；其余用户赛前不开放，赛中仅报名者，
+        赛后向全站比赛的所有登录用户开放（补题浏览）。"""
         await self._ensure_team_view(contest, user)
+        if await self._can_manage(user, contest):
+            return
         now = _now()
         if now < _aware(contest.start_time):
             raise APIError(AUTH_FORBIDDEN, "比赛尚未开始，题目不可见", 403)

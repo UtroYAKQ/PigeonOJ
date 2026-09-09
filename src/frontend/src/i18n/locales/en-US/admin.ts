@@ -47,6 +47,10 @@
       reasonTooLong: 'Reason is too long',
       banReason: 'Violation / anomaly reason',
       freezeReason: 'Freeze reason',
+      freezeUntil: 'Freeze until',
+      freezeHint:
+        'Freeze is a short-term ban that auto-expires; the end time must be in the future and within 7 days.',
+      freezeUntilInvalid: 'Invalid freeze end time: must be in the future and within 7 days',
       ban: 'Ban',
       unban: 'Unban',
       freeze: 'Freeze',
@@ -63,6 +67,14 @@
       tasks: 'Running tasks',
       version: 'Sandbox version',
       empty: 'No sandbox nodes',
+    },
+    online: {
+      summary: '{count} online now',
+      avatar: 'Avatar',
+      user: 'User',
+      device: 'Device',
+      ip: 'IP / Location',
+      empty: 'No online users',
     },
     reports: {
       title: 'Reports',
