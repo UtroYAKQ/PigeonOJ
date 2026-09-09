@@ -156,6 +156,7 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
         </n-button>
       </div>
 
+      <!-- 空态收敛为表格 #empty 插槽单一来源（表格自带空态 + 独立 n-empty 会双图标叠显） -->
       <n-data-table
         size="small"
         :columns="columns"
@@ -164,13 +165,11 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
         :bottom-bordered="false"
         :row-key="rowKey"
         class="tag-picker-table"
-      />
-      <n-empty
-        v-if="!items.length"
-        size="small"
-        :description="t('problems.create.noTagsFound')"
-        class="tag-picker-empty"
-      />
+      >
+        <template #empty>
+          <n-empty size="small" :description="t('problems.create.noTagsFound')" />
+        </template>
+      </n-data-table>
       <div class="tag-picker-pager">
         <n-pagination
           size="small"
@@ -200,9 +199,6 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
 }
 .tag-picker-table {
   min-height: 220px;
-}
-.tag-picker-empty {
-  padding: 12px 0;
 }
 .tag-picker-pager {
   display: flex;

@@ -78,12 +78,7 @@ onMounted(load)
       </div>
 
       <!-- spin 只包主内容；空态为兄弟节点以 table-fill-empty 居中（frontend.md 空态样板） -->
-      <n-spin
-        v-show="loading || invite"
-        :show="loading"
-        class="table-fill"
-        content-style="height: 100%; overflow: auto"
-      >
+      <n-spin v-show="loading || invite" :show="loading" class="table-fill invite-spin">
         <div v-if="invite" class="invite-stage">
           <div class="invite-hero">
             <span class="invite-hero__badge">{{ t('teams.invite.badge') }}</span>
@@ -206,9 +201,20 @@ onMounted(load)
   border: 1px solid color-mix(in srgb, var(--app-primary) 22%, transparent);
 }
 
-/* ======== 居中舞台与邀请卡主体 ======== */
+/* ======== 居中舞台与邀请卡主体 ========
+   高度链用 flex 拉伸（同 TeamDetailView.pane-spin 模式）：
+   .page-fill 链上只有 min-height，height:100% 百分比解析会失败导致卡片不居中；
+   spin-content 以 flex:1 吃满 spin-container，stage 再 place-items 居中 */
+.invite-spin :deep(.n-spin-content) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
 .invite-stage {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: grid;
   place-items: center;
   padding: 48px 24px;

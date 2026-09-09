@@ -5,7 +5,7 @@
  * 无标题头部，切换 / 筛选 / 动作统一在工具栏；表格自然高度、整页滚动到底
  * （不锁定一屏，不用 flex-height / PaginatedDataTable）。
  */
-import { computed, h, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NButton, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
@@ -359,6 +359,8 @@ const searchPlaceholder = computed(() =>
         : 'admin.logs.exceptionSearch',
   ),
 )
+
+onMounted(load)
 </script>
 
 <template>

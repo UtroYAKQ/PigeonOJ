@@ -193,7 +193,7 @@ onMounted(load)
         :page="page"
         :page-size="pageSize"
         :item-count="total"
-        :page-sizes="[12, 24, 48]"
+        :page-sizes="[20, 30, 50]"
         show-size-picker
         @update:page="
           (p: number) => {
