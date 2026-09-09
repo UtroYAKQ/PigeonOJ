@@ -394,6 +394,47 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        // 提交查看 · 题目预览（复用预览组件；返回与面包屑挂回提交查看，不入题目管理动线）
+        path: 'submissions/problems/:problemId/preview',
+        name: 'admin-submission-problem-preview',
+        component: () => import('@/views/problems/ProblemPreviewView.vue'),
+        meta: {
+          title: '题目预览',
+          titleKey: 'problems.preview.title',
+          roles: ['admin'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          backFallback: '/admin/submissions',
+          backLabelKey: 'nav.submissionsManage',
+          breadcrumbParent: {
+            titleKey: 'nav.submissionsManage',
+            path: '/admin/submissions',
+          },
+        },
+      },
+      {
+        // 提交查看 · 评测详情（复用题目管理详情组件，problemId 参数名对齐；
+        // 返回与面包屑挂回提交查看，不入题目管理动线）
+        path: 'submissions/problems/:problemId/submissions/:sid',
+        name: 'admin-submission-detail',
+        component: () => import('@/views/problems/ProblemSubmissionDetailView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          roles: ['admin'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          backFallback: '/admin/submissions',
+          backLabelKey: 'nav.submissionsManage',
+          breadcrumbParent: {
+            titleKey: 'nav.submissionsManage',
+            path: '/admin/submissions',
+          },
+        },
+      },
+      {
         path: 'configs',
         name: 'admin-configs',
         component: () => import('@/views/admin/AdminConfigsView.vue'),

@@ -94,11 +94,13 @@
       empty: 'No online users',
     },
     submissions: {
+      problemId: 'ID',
       problem: 'Problem',
       submitter: 'Submitter',
       searchUser: 'Search submitter nickname',
       problemQuery: 'Problem ID',
       problemNotFound: 'No problem matches this ID',
+      viewProblem: 'View problem',
       empty: 'No matching submissions',
     },
     reports: {

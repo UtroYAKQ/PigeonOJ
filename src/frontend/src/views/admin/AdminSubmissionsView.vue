@@ -2,12 +2,12 @@
 /**
  * 全站提交面板（/admin/submissions）：跨题目 / 跨用户提交查看（admin 专用）。
  * 筛选：提交类型（练习 / 比赛 / 验题）/ 提交人（昵称模糊）/ 题号（短 ID 或完整 UUID 文本输入）/
- * 状态 / 语言；点击行进入题目管理视角评测详情。
+ * 状态 / 语言；点击行进提交查看上下文评测详情；行内「查看题目」进提交查看上下文题目预览。
  */
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NTag } from 'naive-ui'
+import { NButton, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import * as adminApi from '@/api/admin'
@@ -120,21 +120,46 @@ function clearProblem() {
 }
 
 function goDetail(row: AdminSubmission) {
-  // 题目管理视角评测详情（admin 对全站题目具备管理权，可经该统一入口查看）
-  router.push(`/admin/problems/${row.problem_id}/submissions/${row.id}`)
+  // 提交查看上下文评测详情（复用题目管理详情组件；返回与面包屑留在提交查看动线）
+  router.push(`/admin/submissions/problems/${row.problem_id}/submissions/${row.id}`)
+}
+
+/** 行内「查看题目」：提交查看上下文只读预览（留在提交查看动线，不跳题目管理） */
+function goProblem(row: AdminSubmission) {
+  router.push(`/admin/submissions/problems/${row.problem_id}/preview`)
 }
 
 const columns = computed<DataTableColumns<AdminSubmission>>(() => [
+  {
+    title: t('admin.submissions.problemId'),
+    key: 'problem_id',
+    width: 110,
+    render: (row) => h('code', null, `#${row.problem_id.slice(0, 8)}`),
+  },
   {
     title: t('admin.submissions.problem'),
     key: 'problem',
     minWidth: 200,
     ellipsis: { tooltip: true },
+    render: (row) => row.problem_title ?? '—',
+  },
+  {
+    title: t('action.view'),
+    key: 'actions',
+    width: 100,
     render(row) {
-      return h('div', { class: 'cell-problem' }, [
-        h('code', null, `#${row.problem_id.slice(0, 8)}`),
-        h('span', null, row.problem_title ?? '—'),
-      ])
+      return h(
+        NButton,
+        {
+          text: true,
+          type: 'primary',
+          onClick: (e: MouseEvent) => {
+            e.stopPropagation()
+            goProblem(row)
+          },
+        },
+        { default: () => t('admin.submissions.viewProblem') },
+      )
     },
   },
   {
@@ -262,7 +287,7 @@ onMounted(load)
       v-model:page-size="pageSize"
       :page-sizes="[20, 50, 100]"
       :empty-text="t('admin.submissions.empty')"
-      :table-props="{ scrollX: 1150, rowProps }"
+      :table-props="{ scrollX: 1160, rowProps }"
       @update:page="
         (p: number) => {
           changePage(p)
@@ -285,19 +310,4 @@ onMounted(load)
   </WorkbenchShell>
 </template>
 
-<style scoped>
-.cell-problem {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-.cell-problem code {
-  color: var(--app-text-secondary);
-  font-size: 11px;
-}
-.cell-problem span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-</style>
+<style scoped></style>

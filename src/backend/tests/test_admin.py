@@ -24,6 +24,13 @@ async def test_admin_requires_admin_role(client: httpx.AsyncClient, user_headers
     assert resp.json()["code"] == 2001
 
 
+async def test_admin_requires_admin_role(client: httpx.AsyncClient, user_headers: dict[str, str]) -> None:
+    resp = await client.get("/api/v1/admin/users", headers=user_headers)
+    assert resp.json()["code"] == 2003
+    resp = await client.get("/api/v1/admin/users")
+    assert resp.json()["code"] == 2001
+
+
 async def test_admin_list_users(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:
     resp = await client.get("/api/v1/admin/users?page=1&page_size=5", headers=admin_headers)
     assert resp.json()["code"] == 0
@@ -152,7 +159,9 @@ async def test_site_config_public(client: httpx.AsyncClient, admin_headers: dict
     assert set(data) == {
         "name", "logo", "icp", "default_theme",
         "register_enabled", "email_verify_enabled",
+        "banners", "announcement",
     }
+    assert data["banners"] == [] and data["announcement"] == ""
     assert data["register_enabled"] is True
     assert data["email_verify_enabled"] is True
 
@@ -466,3 +475,59 @@ async def test_admin_reports(client: httpx.AsyncClient, admin_headers: dict[str,
     # 重复处理 → 3002
     resp = await client.post(f"/api/v1/admin/reports/{report_id}/handle", json={"action": "ignored"}, headers=admin_headers)
     assert resp.json()["code"] == 3002
+
+
+async def test_admin_submissions_no_cross_join(
+    client: httpx.AsyncClient, admin_headers: dict[str, str], user_headers: dict[str, str]
+) -> None:
+    """全站提交面板（docs/contracts/admin.md /admin/submissions）：多题目场景行数不放大
+    （回归：rows_stmt 缺 Problem join 退化为笛卡尔积，同一提交重复多行）。"""
+    from app.models.judge import Submission
+    from app.models.problem import Problem
+
+    # 种子两个已发布题目（跨题场景是放大的必要条件：题目数 ≥ 2）
+    async with SessionLocal() as db:
+        uid = (await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))).scalar_one().id
+        pids = []
+        for title in ("面板题一", "面板题二"):
+            problem = Problem(
+                title=title, description="D", owner_id=uid, status="published",
+                visibility="public", verified_at=datetime.now(),
+            )
+            db.add(problem)
+            await db.flush()
+            pids.append(str(problem.id))
+        await db.commit()
+
+    # 两个用户各提交一次
+    for headers in (admin_headers, user_headers):
+        resp = await client.post(
+            "/api/v1/submissions",
+            json={"problem_id": pids[0], "language": "cpp17", "code": "int main(){}"},
+            headers=headers,
+        )
+        assert resp.json()["code"] == 0, resp.text
+
+    resp = await client.get("/api/v1/admin/submissions", headers=admin_headers)
+    body = resp.json()
+    assert body["code"] == 0, body
+    assert body["data"]["total"] == 2
+    assert len(body["data"]["items"]) == 2  # 笛卡尔积 bug 下会被题目数放大为 4
+    ids = [i["id"] for i in body["data"]["items"]]
+    assert len(set(ids)) == 2
+    assert all(i["problem_title"] == "面板题一" for i in body["data"]["items"])
+
+    # problem_id 精确过滤
+    resp = await client.get(f"/api/v1/admin/submissions?problem_id={pids[1]}", headers=admin_headers)
+    assert resp.json()["data"]["total"] == 0
+
+    # 行点击入口的详情端点可读（题目管理视角统一入口）
+    submission_id = ids[0]
+    resp = await client.get(
+        f"/api/v1/problems/{pids[0]}/submissions/{submission_id}", headers=admin_headers
+    )
+    assert resp.json()["code"] == 0
+
+    # 非管理角色 → 2003
+    resp = await client.get("/api/v1/admin/submissions", headers=user_headers)
+    assert resp.json()["code"] == 2003

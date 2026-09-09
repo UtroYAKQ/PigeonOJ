@@ -142,8 +142,12 @@ class SubmissionRepository:
             conditions.append(User.nickname.ilike(f"%{keyword}%"))
 
         count_stmt = select(func.count()).select_from(Submission)
-        rows_stmt = select(Submission, User, Problem.title).join(
-            User, User.id == Submission.user_id
+        rows_stmt = (
+            select(Submission, User, Problem.title)
+            # 显式 join：rows_stmt 引用 Problem.title，缺 join 会退化为笛卡尔积
+            # （每行被题目总数放大，列表出现同一提交重复多行，回归修复）
+            .join(User, User.id == Submission.user_id)
+            .join(Problem, Problem.id == Submission.problem_id)
         )
         if conditions:
             count_stmt = count_stmt.join(User, User.id == Submission.user_id).where(*conditions)

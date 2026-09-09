@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
- * 题目管理 · 提交评测详情（上下文路由 /admin/problems/:id/submissions/:sid）：
- * 经题目上下文统一入口读取（管理权限 + 归属校验，docs/contracts/judge.md），
- * 不跳出管理动线；面包屑回提交列表。
+ * 管理视角 · 提交评测详情（复用组件，两个上下文路由）：
+ * 题目管理 /admin/problems/:id/submissions/:sid、提交查看 /admin/submissions/problems/:problemId/submissions/:sid。
+ * 经题目上下文统一入口读取（管理权限 + 归属校验，docs/contracts/judge.md）；
+ * 返回与面包屑按上下文挂回（提交查看上下文经 meta.backFallback 声明，不入题目管理动线）。
  */
 import { computed, h, onActivated, onDeactivated, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -22,7 +23,12 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 
-const problemId = String(route.params.id)
+/** 题目 id：题目管理上下文取 params.id；提交查看上下文取 params.problemId */
+const problemId = String(route.params.problemId ?? route.params.id)
+/** 返回按钮文案：提交查看上下文回提交查看，缺省回提交列表 */
+const backLabel = computed(() =>
+  route.meta.backLabelKey ? t(String(route.meta.backLabelKey)) : t('problems.submissionsManage.backToList'),
+)
 const submission = ref<Submission | null>(null)
 const loading = ref(false)
 const showCode = ref(true)
@@ -75,8 +81,12 @@ function refreshNow() {
   void load()
 }
 
+/** 返回来源工作台：提交查看上下文按 meta.backFallback 回提交查看，其余回题目提交列表 */
 function back() {
-  goBackOrFallback(router, `/admin/problems/${problemId}/submissions`)
+  goBackOrFallback(
+    router,
+    String(route.meta.backFallback ?? `/admin/problems/${problemId}/submissions`),
+  )
 }
 
 onMounted(() => {
@@ -134,7 +144,7 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
               @click="refreshNow"
             />
             <n-button text type="primary" class="result-back" @click="back">
-              {{ t('problems.submissionsManage.backToList') }}
+              {{ backLabel }}
             </n-button>
           </div>
 
@@ -181,7 +191,7 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
         >
           <template #extra>
             <NButton size="small" @click="back">
-              {{ t('problems.submissionsManage.backToList') }}
+              {{ backLabel }}
             </NButton>
           </template>
         </n-empty>

@@ -92,11 +92,13 @@
       empty: '当前没有在线用户',
     },
     submissions: {
+      problemId: '题号',
       problem: '题目',
       submitter: '提交人',
       searchUser: '搜索提交人昵称',
       problemQuery: '题号',
       problemNotFound: '未找到匹配的题目，请检查题号',
+      viewProblem: '查看题目',
       empty: '暂无符合条件的提交',
     },
     reports: {

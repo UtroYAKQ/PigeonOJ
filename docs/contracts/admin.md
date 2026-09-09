@@ -115,13 +115,14 @@ ORDER BY r.created_at DESC, r.id DESC
 | --- | --- | --- | --- | --- | --- |
 | GET | /admin/users | admin | 用户列表 | 分页/关键字/状态 | user[] |
 | GET | /admin/users/online | admin | **在线用户面板**：10 分钟窗口内有活跃回写的有效会话（活跃回写节流 5min + 在线判定缓冲；活跃时间倒序分页；同设备去重下每行 = 一台在线设备） | 分页 | onlineUser[]（用户 / 角色 / 状态 / 设备 / IP·归属地 / 登录与最近活跃时间） |
+| GET | /admin/submissions | admin | **全站提交面板**：跨题目 / 跨用户提交列表，提交时间倒序分页；行内含题目标题（submit_type / user_id / problem_id / status / language 精确过滤，keyword 模糊匹配提交人昵称；前端「查看题目」与「评测结果」分别经 `/admin/submissions/preview/{problem_id}` 与 `/admin/submissions/problems/{problem_id}/submissions/{sid}` 只读查看，返回与面包屑留在提交查看上下文、不入题目管理动线） | 分页/submit_type/user_id/problem_id/status/language/keyword | submission[]（含 problem_title / nickname） |
 | PUT | /admin/users/{id}/roles | admin | 全局角色授权（**单一角色模型**：整体替换该用户唯一全局角色，写 `user_roles` scope='global'） | role_id | - |
 | POST | /admin/users/{id}/ban | admin | 封禁（违规 / 异常，仅可人工解封） | reason | - |
 | POST | /admin/users/{id}/unban | admin | 解封 | - | - |
 | POST | /admin/users/{id}/freeze | admin | 冻结（**短时封禁**：置 `frozen` + `frozen_until = now + duration_minutes`，到期自动恢复 active；`duration_minutes` 缺省 15，范围 1–10080） | reason?, duration_minutes? | - |
 | POST | /admin/users/{id}/unfreeze | admin | 解冻 | - | - |
 | GET/PUT | /admin/configs | admin | 系统配置（分域） | - | - |
-| GET | /site-config | public | 公开站点配置（白名单字段：name / logo / icp / default_theme / register_enabled / email_verify_enabled；前端壳层与注册页消费） | - | siteConfig |
+| GET | /site-config | public | 公开站点配置（白名单字段：name / logo / icp / default_theme / register_enabled / email_verify_enabled / banners（首页轮播海报）/ announcement（系统公告）；前端壳层 / 首页 / 注册页消费） | - | siteConfig |
 | POST | /files/upload/avatar | auth | 上传当前用户头像到 MinIO（频控：≤10 次/小时/用户，超次 4002） | multipart file（≤2MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL，供 `avatar_url` 直接存储/渲染） |
 | POST | /files/upload/image | auth | 公共图片上传（题面插图等 Markdown 引用场景，登录用户可用），存 MinIO `users/{uid}/images/`（频控：≤30 次/小时/用户） | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
 | POST | /files/upload/site-logo | admin | 站点 Logo 上传（站点配置 `site.logo` 引用），存 MinIO `site/logo/`（频控：≤10 次/小时/用户） | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
