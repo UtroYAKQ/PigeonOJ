@@ -114,6 +114,11 @@ export function kickTeamMember(id: string, userId: string): Promise<null> {
   return apiRequest('DELETE', `/teams/${id}/members/${userId}`)
 }
 
+/** 设置成员备注（本人可备注自己；团队创建者 / 管理员可备注任意成员；null = 清除） */
+export function setTeamMemberNote(id: string, userId: string, note: string | null): Promise<null> {
+  return apiRequest('PUT', `/teams/${id}/members/${userId}/note`, { note })
+}
+
 /** 主动退出（成员本人；创建者不可退出） */
 export function exitTeam(id: string): Promise<null> {
   return apiRequest('POST', `/teams/${id}/exit`)

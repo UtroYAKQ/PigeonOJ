@@ -53,6 +53,7 @@ import {
   listTeamProblems,
   reviewTeamApplication,
   setTeamAdmin,
+  setTeamMemberNote,
   submitTeamApplication,
   updateTeam,
 } from '@/api/teams'
@@ -661,11 +662,15 @@ function searchSets() {
   loadSets()
 }
 
-/** 成员行操作（⋯ 下拉）：设 / 撤管理员（仅创建者）、移出（管理员） */
-type MemberAction = 'grant' | 'revoke' | 'kick'
+/** 成员行操作（⋯ 下拉）：设 / 撤管理员（仅创建者）、移出（管理员）、备注（本人 / 管理员） */
+type MemberAction = 'grant' | 'revoke' | 'kick' | 'note'
 
 function memberActions(row: TeamMemberItem): Array<{ key: MemberAction; label: string }> {
   const actions: Array<{ key: MemberAction; label: string }> = []
+  // 备注：本人可备注自己（普通成员唯一可见的行操作），团队创建者 / 管理员可备注任意成员
+  if (row.user_id === userStore.user?.id || isAdmin.value) {
+    actions.push({ key: 'note', label: t('teams.members.note') })
+  }
   if (isCreator.value && !row.is_creator) {
     actions.push({
       key: row.is_admin ? 'revoke' : 'grant',
@@ -684,7 +689,34 @@ function onMemberAction(action: MemberAction, row: TeamMemberItem) {
     void onSetAdmin(row, action === 'grant')
     return
   }
+  if (action === 'note') {
+    noteTarget.value = row
+    noteValue.value = row.note ?? ''
+    noteVisible.value = true
+    return
+  }
   onKick(row)
+}
+
+/** 备注编辑弹窗（本人 / 管理员共用；空值 = 清除备注） */
+const noteVisible = ref(false)
+const noteTarget = ref<TeamMemberItem | null>(null)
+const noteValue = ref('')
+const noteSaving = ref(false)
+
+async function onNoteSave() {
+  if (!noteTarget.value) return
+  noteSaving.value = true
+  try {
+    await setTeamMemberNote(teamId, noteTarget.value.user_id, noteValue.value.trim() || null)
+    message.success(t('teams.members.noteSuccess'))
+    noteVisible.value = false
+    await loadMembers()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
+  } finally {
+    noteSaving.value = false
+  }
 }
 
 async function onSetAdmin(row: TeamMemberItem, grant: boolean) {
@@ -1094,6 +1126,13 @@ onMounted(load)
                               <span class="tile__title" :title="member.nickname">{{
                                 member.nickname
                               }}</span>
+                              <span
+                                v-if="member.note"
+                                class="tile__note"
+                                :title="t('teams.members.note') + '：' + member.note"
+                              >
+                                {{ member.note }}
+                              </span>
                               <span v-if="member.user_id === userStore.user?.id" class="tile__you">
                                 {{ t('teams.members.you') }}
                               </span>
@@ -1468,6 +1507,33 @@ onMounted(load)
       </div>
     </NModal>
 
+    <!-- 成员备注弹窗：本人 / 管理员共用；空值 = 清除备注 -->
+    <NModal
+      v-model:show="noteVisible"
+      preset="card"
+      style="width: 400px"
+      :title="t('teams.members.noteTarget', { name: noteTarget?.nickname ?? '' })"
+    >
+      <NInput
+        v-model:value="noteValue"
+        :placeholder="t('teams.members.notePlaceholder')"
+        :maxlength="64"
+        show-count
+        clearable
+        @keyup.enter="onNoteSave"
+      />
+      <template #footer>
+        <div class="note-modal__actions">
+          <NButton size="small" quaternary @click="noteVisible = false">
+            {{ t('action.cancel') }}
+          </NButton>
+          <NButton size="small" type="primary" :loading="noteSaving" @click="onNoteSave">
+            {{ t('action.save') }}
+          </NButton>
+        </div>
+      </template>
+    </NModal>
+
     <!-- 编辑信息抽屉 -->
     <NDrawer v-model:show="showSettings" :width="440" placement="right">
       <NDrawerContent :title="t('teams.settings.infoTitle')" closable>
@@ -1834,6 +1900,26 @@ onMounted(load)
   border-radius: 999px;
   color: var(--app-primary);
   background: color-mix(in srgb, var(--app-primary) 12%, transparent);
+}
+/* 成员备注：与昵称区分子字体与颜色（小号 / 次要色 / 中性底 chip），截断防挤压 */
+.tile__note {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--app-text-secondary);
+  background: var(--app-muted-bg);
+}
+.note-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .tile__ops {
   flex-shrink: 0;

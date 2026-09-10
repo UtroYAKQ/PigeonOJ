@@ -480,3 +480,70 @@ async def test_kick_exit_disband(client: httpx.AsyncClient) -> None:
     assert resp.json()["data"]["total"] == 0
     resp = await client.delete(f"/api/v1/teams/{team_id}", headers=tutor)
     assert resp.json()["code"] == 409 or resp.json()["code"] == 2003  # 幂等：再次解散拒绝
+
+
+async def test_member_note(client: httpx.AsyncClient) -> None:
+    """成员备注：本人自备注；创建者备注他人；普通成员不可备注他人（2003）；空串清除；超长 1001。"""
+    tutor = await _tutor_headers(client)
+    resp = await client.post("/api/v1/teams", json={"name": "备注队"}, headers=tutor)
+    team_id = resp.json()["data"]["id"]
+
+    member = await _extra_user_headers(client, "noteme@pigeonoj.dev")
+    other = await _extra_user_headers(client, "notetarget@pigeonoj.dev")
+    for headers in (member, other):
+        resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=tutor)
+        invite_token = resp.json()["data"]["token"]
+        resp = await client.post(
+            f"/api/v1/teams/{team_id}/applications",
+            json={"invite_token": invite_token},
+            headers=headers,
+        )
+        assert resp.json()["code"] == 0
+    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=tutor)
+    for application in resp.json()["data"]["items"]:
+        resp = await client.post(
+            f"/api/v1/teams/{team_id}/applications/{application['id']}/review",
+            json={"approve": True},
+            headers=tutor,
+        )
+        assert resp.json()["code"] == 0
+
+    member_uid = await _uid_of(client, member)
+    other_uid = await _uid_of(client, other)
+
+    # 本人自备注；创建者备注他人，成员列表回带 note
+    resp = await client.put(
+        f"/api/v1/teams/{team_id}/members/{member_uid}/note", json={"note": "我是备注"}, headers=member
+    )
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.put(
+        f"/api/v1/teams/{team_id}/members/{other_uid}/note", json={"note": "目标备注"}, headers=tutor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get(f"/api/v1/teams/{team_id}/members", headers=tutor)
+    notes = {m["user_id"]: m["note"] for m in resp.json()["data"]["items"]}
+    assert notes[member_uid] == "我是备注"
+    assert notes[other_uid] == "目标备注"
+
+    # 普通成员不可备注他人
+    resp = await client.put(
+        f"/api/v1/teams/{team_id}/members/{other_uid}/note", json={"note": "越权"}, headers=member
+    )
+    assert resp.json()["code"] == 2003
+
+    # 空白串视为清除
+    resp = await client.put(
+        f"/api/v1/teams/{team_id}/members/{member_uid}/note", json={"note": "  "}, headers=member
+    )
+    assert resp.json()["code"] == 0
+    resp = await client.get(f"/api/v1/teams/{team_id}/members", headers=member)
+    notes = {m["user_id"]: m["note"] for m in resp.json()["data"]["items"]}
+    assert notes[member_uid] is None
+
+    # 超长（>64）→ 参数校验统一信封 1001
+    resp = await client.put(
+        f"/api/v1/teams/{team_id}/members/{member_uid}/note",
+        json={"note": "长" * 65},
+        headers=member,
+    )
+    assert resp.json()["code"] == 1001

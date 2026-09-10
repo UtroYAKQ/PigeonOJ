@@ -66,6 +66,10 @@ export default {
       grantSuccess: '已设为管理员',
       revokeAdmin: '取消管理员',
       revokeSuccess: '已取消管理员',
+      note: '备注',
+      notePlaceholder: '输入备注（留空清除）',
+      noteSuccess: '备注已保存',
+      noteTarget: '为 {name} 设置备注',
     },
     applications: {
       applicant: '申请人',

@@ -110,6 +110,14 @@ class TeamMemberOut(BaseModel):
     joined_at: datetime
     is_creator: bool = False
     is_admin: bool = False
+    # 成员备注：本人 / 团队管理可设置；展示于昵称之后
+    note: str | None = None
+
+
+class TeamMemberNote(BaseModel):
+    """设置成员备注（本人可备注自己；团队创建者 / 管理员可备注任意成员；空串 = 清除）。"""
+
+    note: str | None = Field(default=None, max_length=64)
 
 
 class TeamApplicationOut(BaseModel):

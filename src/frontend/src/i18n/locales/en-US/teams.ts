@@ -134,6 +134,10 @@ export default {
       grantSuccess: 'Admin granted',
       revokeAdmin: 'Revoke admin',
       revokeSuccess: 'Admin revoked',
+      note: 'Note',
+      notePlaceholder: 'Enter a note (leave empty to clear)',
+      noteSuccess: 'Note saved',
+      noteTarget: 'Set a note for {name}',
     },
     applications: {
       applicant: 'Applicant',

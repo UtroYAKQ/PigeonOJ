@@ -41,6 +41,7 @@ from app.schemas.team import (
     TeamDetail,
     TeamInviteCreated,
     TeamInviteResolved,
+    TeamMemberNote,
     TeamMemberOut,
     TeamSummary,
     TeamUpdate,
@@ -480,6 +481,7 @@ class TeamService:
                 joined_at=member.joined_at,
                 is_creator=self._is_creator(team, member.user_id),
                 is_admin=member.user_id in admin_ids,
+                note=member.note,
             )
             for member, member_user in rows
         ], total
@@ -514,6 +516,21 @@ class TeamService:
             await self.roles.grant_team_role(target_uid, team.id, ROLE_ADMIN)
         else:
             await self.roles.revoke_team_roles(target_uid, team.id, {ROLE_ADMIN})
+
+    async def set_member_note(
+        self, user: User, team_id: uuid.UUID, target_uid: uuid.UUID, body: TeamMemberNote
+    ) -> None:
+        """设置成员备注：本人可备注自己；团队创建者 / 管理员可备注任意成员。
+
+        空串 / 空白视为清除备注（note 置 NULL）；备注只影响展示，无任何权限语义。
+        """
+        team = await self._team_or_404(team_id)
+        if target_uid != user.id:
+            await self._require_team_roles(user, team.id, level="admin")
+        member = await self.teams.get_active_member(team.id, target_uid)
+        if member is None:
+            raise APIError(RESOURCE_NOT_FOUND, "成员不存在", 404)
+        member.note = (body.note or "").strip() or None
 
     async def kick(self, user: User, team_id: uuid.UUID, target_uid: uuid.UUID) -> None:
         """踢出成员（team_creator / team_admin；清理成员状态与团队授权）。

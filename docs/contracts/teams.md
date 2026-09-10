@@ -30,6 +30,7 @@
 | status | VARCHAR(16) | NOT NULL DEFAULT 'active' | `active` / `exited` 主动退出 / `kicked` 被踢出 |
 | joined_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | 入队时间 |
 | left_at | TIMESTAMPTZ | NULL | 离开时间 |
+| note | VARCHAR(64) | NULL | 成员备注：本人可备注自己，团队创建者 / 管理员可备注任意成员（迁移 0035）；展示于成员昵称之后，无权限语义 |
 
 索引：
 
@@ -91,6 +92,7 @@
 | GET | /teams/{id}/applications | team_creator/team_admin | 申请列表 | 分页/状态 | application[] |
 | POST | /teams/{id}/applications/{aid}/review | team_creator/team_admin | 审批（通过写 `user_roles` team_member） | approve, comment? | - |
 | POST | /teams/{id}/members/{uid}/admin | team_creator/team_admin（仅创建者） | 分配 / 取消团队管理员 | is_admin | - |
+| PUT | /teams/{id}/members/{uid}/note | 本人 或 team_creator/team_admin | 设置成员备注（≤64 字符；空串 = 清除；`member` 响应带 `note`） | note | - |
 | DELETE | /teams/{id}/members/{uid} | team_creator/team_admin | 踢出成员（清理授权；不可移除创建者，不可移除自己——自退走 exit） | - | - |
 | POST | /teams/{id}/exit | auth（成员） | 主动退出（清理授权） | - | - |
 | DELETE | /teams/{id} | team_creator/team_admin（仅创建者） | 解散团队 | - | - |

@@ -43,6 +43,7 @@ from app.schemas.team import (
     TeamDetail,
     TeamInviteCreated,
     TeamInviteResolved,
+    TeamMemberNote,
     TeamMemberOut,
     TeamProblemReferenceCreate,
     TeamProblemSetCreate,
@@ -228,6 +229,21 @@ async def set_member_admin(
 ) -> ApiResponse[None]:
     """分配 / 取消团队管理员（仅创建者；分配即写授权，取消即删除）。"""
     await service.set_admin(user, team_id, user_id, body)
+    await db.commit()
+    return ok(None)
+
+
+@router.put("/{team_id}/members/{user_id}/note", response_model=ApiResponse[None])
+async def set_member_note(
+    team_id: uuid.UUID,
+    user_id: uuid.UUID,
+    body: TeamMemberNote,
+    service: TeamServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[None]:
+    """设置成员备注（本人可备注自己；团队创建者 / 管理员可备注任意成员；空串 = 清除）。"""
+    await service.set_member_note(user, team_id, user_id, body)
     await db.commit()
     return ok(None)
 

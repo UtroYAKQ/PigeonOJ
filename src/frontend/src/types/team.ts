@@ -36,6 +36,8 @@ export interface TeamMemberItem {
   joined_at: string
   is_creator: boolean
   is_admin: boolean
+  /** 成员备注：本人 / 团队管理可设置；展示于昵称之后 */
+  note: string | null
 }
 
 /** 加入申请列表项 */

@@ -76,6 +76,8 @@ class TeamMember(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 成员备注：本人可备注自己，团队创建者 / 管理员可备注任意成员；展示于昵称之后
+    note: Mapped[str | None] = mapped_column(String(64))
 
     __table_args__ = (
         Index(

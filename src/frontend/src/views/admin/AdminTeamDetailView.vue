@@ -143,6 +143,14 @@ const memberColumns = computed<DataTableColumns<TeamMemberItem>>(() => [
     width: 170,
     render: (row) => formatDateTime(row.joined_at),
   },
+  {
+    // 成员备注（本人 / 团队管理在团队空间设置；管理端只读展示）
+    title: t('teams.members.note'),
+    key: 'note',
+    minWidth: 140,
+    ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'cell-note' }, row.note ?? '—'),
+  },
 ])
 
 // ---------------- 团队题库 ----------------
@@ -841,6 +849,11 @@ watch(activeModule, ensureModuleLoaded, { immediate: true })
 }
 .cell-strong {
   font-weight: 600;
+}
+/* 成员备注：次要色弱化展示（区别于昵称主文本） */
+.cell-note {
+  color: var(--app-text-secondary);
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {
