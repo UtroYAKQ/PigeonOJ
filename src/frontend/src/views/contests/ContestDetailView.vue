@@ -70,7 +70,22 @@ function tabFromQuery(raw: unknown): ContestTab {
   const value = typeof raw === 'string' ? raw : ''
   return (TAB_KEYS as string[]).includes(value) ? (value as ContestTab) : 'home'
 }
-const activeTab = ref<ContestTab>(tabFromQuery(route.query.tab))
+/** 模块 tab（题目 / 榜单 / 提交记录）可见性：管理角色随时可见（编排 / 巡查）；
+ *  赛前对非管理角色隐藏；比赛期间仅已报名者可见（未报名者从主页 tab 报名）；
+ *  赛后对所有用户开放（看题 / 补题，contests.md 第 2 / 6 条口径） */
+const moduleTabsVisible = computed(() => {
+  const d = detail.value
+  if (!d) return false
+  if (d.can_manage) return true
+  if (d.status === 'scheduled') return false
+  if (d.status === 'running') return d.my_registration === 'registered'
+  return true
+})
+/** 被赛前隐藏的模块 tab 一律回落主页（直链 ?tab=… / 查询参数同步共用） */
+function clampTab(tab: ContestTab): ContestTab {
+  return tab === 'home' || moduleTabsVisible.value ? tab : 'home'
+}
+const activeTab = ref<ContestTab>(clampTab(tabFromQuery(route.query.tab)))
 
 /** 比赛 id：全局路由取 params.id，团队上下文路由取 params.cid */
 const contestId = computed(() => String(route.params.cid ?? route.params.id))
@@ -241,10 +256,15 @@ watch(activeTab, (tab) => {
 watch(
   () => route.query.tab,
   (raw) => {
-    const next = tabFromQuery(raw)
+    const next = clampTab(tabFromQuery(raw))
     if (next !== activeTab.value) activeTab.value = next
   },
 )
+
+// 详情就绪 / 状态变化后校正：当前 tab 若已被赛前隐藏（直链进入）回落主页
+watch(moduleTabsVisible, (visible) => {
+  if (!visible && activeTab.value !== 'home') activeTab.value = 'home'
+})
 
 function stopPolling() {
   if (pollTimer !== null) {
@@ -875,8 +895,9 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
               </div>
             </n-tab-pane>
 
-            <!-- ======== 题目 ======== -->
+            <!-- ======== 题目（赛前 / 未报名对非管理角色隐藏） ======== -->
             <n-tab-pane
+              v-if="moduleTabsVisible"
               name="problems"
               :tab="t('contests.detail.tabProblems')"
               display-directive="show"
@@ -904,8 +925,13 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
               </div>
             </n-tab-pane>
 
-            <!-- ======== 榜单 ======== -->
-            <n-tab-pane name="board" :tab="t('contests.detail.tabBoard')" display-directive="show">
+            <!-- ======== 榜单（赛前 / 未报名对非管理角色隐藏） ======== -->
+            <n-tab-pane
+              v-if="moduleTabsVisible"
+              name="board"
+              :tab="t('contests.detail.tabBoard')"
+              display-directive="show"
+            >
               <SearchFilterBar
                 :keyword="boardKeyword"
                 :placeholder="t('contests.board.search')"
@@ -974,8 +1000,9 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
               </n-modal>
             </n-tab-pane>
 
-            <!-- ======== 提交记录 ======== -->
+            <!-- ======== 提交记录（赛前 / 未报名对非管理角色隐藏） ======== -->
             <n-tab-pane
+              v-if="moduleTabsVisible"
               name="submissions"
               :tab="t('contests.detail.tabSubmissions')"
               display-directive="show"
