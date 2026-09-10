@@ -6,12 +6,13 @@
  * 卡片范式与比赛列表（ContestListView）一致：单行头部（头像 + 名称 + 右侧角色点标）、
  * 描述两行截断、成员数元信息、底部创建时间；悬停仅边框加深 + 题题主色。
  */
-import { onMounted, ref } from 'vue'
+import { onActivated, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { listMyTeams, listTeams, submitTeamApplication } from '@/api/teams'
 import BaseAvatar from '@/components/BaseAvatar.vue'
+import { useTeamsStore } from '@/stores/teams'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import RefreshButton from '@/components/RefreshButton.vue'
@@ -108,6 +109,12 @@ async function onApply(team: TeamSummary) {
 }
 
 onMounted(load)
+
+// keepAlive 缓存页：退出 / 解散团队回退到本页时（脏标记）重拉，
+// 避免「我的团队」与角色标签显示过期成员关系；其余返回仍由刷新按钮兜底
+onActivated(() => {
+  if (useTeamsStore().consumeMembershipDirty()) void load()
+})
 </script>
 
 <template>

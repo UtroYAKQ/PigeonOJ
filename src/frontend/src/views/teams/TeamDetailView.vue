@@ -65,6 +65,7 @@ import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/vi
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
 import { useUserStore } from '@/stores/user'
+import { useTeamsStore } from '@/stores/teams'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
@@ -869,6 +870,8 @@ function onExit() {
     },
     successMessage: t('teams.detail.exitSuccess'),
     onAfterSuccess: () => {
+      // 成员关系已变更：列表页经脏标记重拉，路由回退前台团队页
+      useTeamsStore().markMembershipChanged()
       void router.push('/teams/mine')
     },
   })
@@ -884,6 +887,7 @@ function onDisband() {
     },
     successMessage: t('teams.detail.disbandSuccess'),
     onAfterSuccess: () => {
+      useTeamsStore().markMembershipChanged()
       void router.push('/teams/mine')
     },
   })

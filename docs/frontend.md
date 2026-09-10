@@ -147,7 +147,9 @@ src/frontend/
 - 不缓存：写题向导各步（create / statement / cases / verify）、题目预览、团队邀请、个人资料 / 安全设置——带表单或与编辑强耦合的页面进出都重新挂载，保证数据新鲜
 - 轮询 / 计时页面（评测结果 ×3、比赛详情）必须实现 `onDeactivated` 暂停 + `onActivated` 恢复，禁止缓存页后台空转
 - 面包屑层级解析收敛于 `router/crumbs.ts` 的 `buildCrumbs`（`TheBreadcrumb` 展示与缓存共用同一来源）；新增上下文页接入链式缓存：路由声明 `meta.keepAlive: true` 即可，带表单页面禁止声明
-- 数据时效由各列表页刷新按钮兜底（如新建题目后返回列表需手动刷新）
+- 数据时效由各列表页刷新按钮兜底（如新建题目后返回列表需手动刷新）；
+  **例外**：退出 / 解散团队后回退团队列表，本人成员关系必然过期——经 `stores/teams` 脏标记
+  （`markMembershipChanged`）在列表页 `onActivated` 时重拉，不走手动刷新兜底
 
 ### 路由上下文隔离（契约级规范）
 
