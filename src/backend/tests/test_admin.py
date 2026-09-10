@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import httpx
 from sqlalchemy import select
 
-from app.models.user import User
+from app.models.user import User, UserSession
 from app.core.database import SessionLocal
 from app.models.system_config import SystemConfig
 
@@ -129,6 +129,54 @@ async def test_admin_online_users(client: httpx.AsyncClient, admin_headers: dict
     user_headers = {"Authorization": f"Bearer {token}"}
     resp = await client.get("/api/v1/admin/users/online", headers=user_headers)
     assert resp.json()["code"] == 2003
+
+
+async def test_admin_online_users_dedup_per_device(
+    client: httpx.AsyncClient, admin_headers: dict[str, str]
+) -> None:
+    """在线面板同设备去重：同 user + 同 device 多会话只展示最近活跃一行（登录竞态残留收敛）；
+    UA 无法识别（device_info=NULL）不参与去重，各自成行。"""
+    await register_user(client, "ghost@pigeonoj.dev")
+    async with SessionLocal() as db:
+        row = (
+            await db.execute(select(User).where(User.email == "ghost@pigeonoj.dev"))
+        ).scalar_one()
+        now = datetime.now()
+        late = now - timedelta(seconds=10)
+        early = now - timedelta(seconds=60)
+        db.add_all(
+            [
+                # 同设备（Chrome · Windows）双会话：模拟并发登录竞态残留
+                UserSession(
+                    user_id=row.id, token="b" * 64, device_info="Chrome · Windows",
+                    expires_at=now + timedelta(days=1), last_active_at=early,
+                ),
+                UserSession(
+                    user_id=row.id, token="c" * 64, device_info="Chrome · Windows",
+                    expires_at=now + timedelta(days=1), last_active_at=late,
+                ),
+                # UA 无法识别（NULL 设备）：各自成行
+                UserSession(
+                    user_id=row.id, token="d" * 64, device_info=None,
+                    expires_at=now + timedelta(days=1), last_active_at=now - timedelta(seconds=50),
+                ),
+                UserSession(
+                    user_id=row.id, token="e" * 64, device_info=None,
+                    expires_at=now + timedelta(days=1), last_active_at=now - timedelta(seconds=20),
+                ),
+            ]
+        )
+        await db.commit()
+
+    resp = await client.get("/api/v1/admin/users/online", headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+    items = [it for it in resp.json()["data"]["items"] if it["email"] == "ghost@pigeonoj.dev"]
+    assert len(items) == 3  # 同设备 2 → 1 + NULL 设备 2
+    device_rows = [it for it in items if it["device_info"] == "Chrome · Windows"]
+    assert len(device_rows) == 1
+    # 保留的是最近活跃（-10s）那条：晚于 NULL 设备中较新的 -20s 行
+    null_rows = [it for it in items if it["device_info"] is None]
+    assert device_rows[0]["last_active_at"] > max(it["last_active_at"] for it in null_rows)
 
 
 async def test_admin_configs(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:

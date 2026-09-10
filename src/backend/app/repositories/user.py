@@ -4,8 +4,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, update, String
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.enums import UserRoleScope
 from app.models.user import Role, User, UserRole, UserSession
@@ -127,10 +128,13 @@ class SessionRepository:
     async def list_online_sessions(
         self, window_seconds: int, page: int, page_size: int
     ) -> tuple[list[tuple[UserSession, User]], int]:
-        """在线用户（管理端）：每用户最近活跃会话（last_active_at 在窗口内且会话有效）。
+        """在线用户（管理端）：每用户每设备最近活跃会话（last_active_at 在窗口内且会话有效）。
 
-        返回 (会话, 用户) 行按活跃时间倒序分页；total 为在线会话数（= 面板「在线设备数」，
-        同设备去重下与在线用户数一致）。
+        同 (user_id, device_info) 只保留最近活跃一行——登录侧同设备去重存在并发窗口
+        （并发登录事务互不可见，见 services/user.py login），可能残留同设备双会话；
+        展示层在此收敛，保证「每行 = 一台在线设备」（admin.md 在线用户面板）。
+        device_info 为 NULL（UA 无法识别）不参与去重，与登录侧语义一致：各自成行。
+        返回 (会话, 用户) 行按活跃时间倒序分页；total 为去重后的在线设备数。
         """
         deadline = datetime.now() - timedelta(seconds=window_seconds)
         conditions = [
@@ -138,13 +142,32 @@ class SessionRepository:
             UserSession.expires_at > datetime.now(),
             UserSession.last_active_at > deadline,
         ]
-        count_stmt = select(func.count()).select_from(UserSession).where(*conditions)
-        total = (await self.db.execute(count_stmt)).scalar_one()
-        stmt = (
-            select(UserSession, User)
+        # NULL 设备标识须以会话 id 充当分组键：PostgreSQL 窗口分区把 NULL 视为同组，
+        # 直接按 device_info 分区会把所有「未知设备」会话错误合并成一行
+        device_key = func.coalesce(UserSession.device_info, func.cast(UserSession.id, String))
+        ranked = (
+            select(
+                UserSession,
+                User,
+                func.row_number()
+                .over(
+                    partition_by=(UserSession.user_id, device_key),
+                    order_by=(UserSession.last_active_at.desc(), UserSession.created_at.desc()),
+                )
+                .label("rn"),
+            )
             .join(User, User.id == UserSession.user_id)
             .where(*conditions)
-            .order_by(UserSession.last_active_at.desc())
+            .subquery()
+        )
+        session_row = aliased(UserSession, ranked)
+        user_row = aliased(User, ranked)
+        deduped = select(session_row, user_row).where(ranked.c.rn == 1)
+        total = (
+            await self.db.execute(select(func.count()).select_from(deduped.subquery()))
+        ).scalar_one()
+        stmt = (
+            deduped.order_by(ranked.c.last_active_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )

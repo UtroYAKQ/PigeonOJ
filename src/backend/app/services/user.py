@@ -509,12 +509,11 @@ class AuthService:
         now = datetime.now()
         expires_at = now + timedelta(days=SESSION_TTL_DAYS)
         # 同设备去重（users.md 关键流程 5）：同设备标识的旧有效会话立即失效，
-        # 同一浏览器 / 设备恒只保留一个活跃会话；UA 无法识别（device_info=None）不参与去重
+        # 同一浏览器 / 设备恒只保留一个活跃会话；UA 无法识别（device_info=None）不参与去重。
+        # 先建新会话再清理（排除新 token）：并发登录事务互不可见，「先查后建」双方都
+        # 查不到对方未提交的会话而各建一个（同设备双会话残留 → 在线面板重复显示）；
+        # 「先建后清」让后提交事务必然清掉先到会话，最终收敛为一台设备一个会话
         device_info = format_device_info(user_agent)
-        if device_info is not None:
-            for stale in await self.sessions.list_valid_by_device(user.id, device_info):
-                await self.sessions.revoke(stale, now)
-                await redis_delete(f"{SESSION_KEY_PREFIX}{stale.token}")
         await self.sessions.create(
             user_id=user.id, token_hash=token_hash, expires_at=expires_at,
             device_info=device_info, ip_address=ip, user_agent=user_agent,
@@ -523,6 +522,12 @@ class AuthService:
         # Redis 热点缓存（deps.py 校验使用）
         ttl = int((expires_at - now).total_seconds())
         await redis_set(f"{SESSION_KEY_PREFIX}{token_hash}", str(user.id), ttl)
+        if device_info is not None:
+            for stale in await self.sessions.list_valid_by_device(
+                user.id, device_info, exclude_token=token_hash
+            ):
+                await self.sessions.revoke(stale, now)
+                await redis_delete(f"{SESSION_KEY_PREFIX}{stale.token}")
         await self.users.touch_last_login(user, now)
         await write_login_log(self.db, LoginAction.LOGIN, True, user_id=user.id, email=req.email,
                               ip_address=ip, user_agent=user_agent)

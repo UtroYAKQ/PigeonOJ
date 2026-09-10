@@ -114,7 +114,10 @@
 3. **找回密码**：`email-code`（purpose=reset_password）→ `reset-password` 重置。
 4. **换绑邮箱**：`email-code`（purpose=change_email）→ `change-email`。
 5. **会话管理**：登录会话记录稳定设备标识 `device_info`（UA 轻量解析，无版本号：`Chrome · Windows` / `Safari · iOS · 移动端`）；
-   **同设备去重**——同 `user_id + device_info` 的旧有效会话在新登录时立即失效（revoked + 清 Redis 缓存），同一设备恒只保留一个活跃会话（UA 无法识别的会话不参与去重）；登出 / 注销指定会话时 `revoked_at` 置位，同步清 Redis 缓存；「下线其他设备」**物理删除**除当前会话外的全部会话行（与登出同语义），并清 Redis 缓存与活跃标记。
+   **同设备去重**——同 `user_id + device_info` 的旧有效会话在新登录时立即失效（revoked + 清 Redis 缓存），同一设备恒只保留一个活跃会话（UA 无法识别的会话不参与去重）；
+   去重顺序为**先建新会话、后清理同设备旧会话（排除新 token）**——并发登录事务互不可见，
+   「先查后建」会各建一个留下同设备双会话，「先建后清」使后提交事务必然清掉先到会话，最终收敛为一台设备一个会话；
+   登出 / 注销指定会话时 `revoked_at` 置位，同步清 Redis 缓存；「下线其他设备」**物理删除**除当前会话外的全部会话行（与登出同语义），并清 Redis 缓存与活跃标记。
 6. **会话活跃回写**：认证链路以 Redis `session:active:<token_hash>`（TTL 5 分钟）为节流阀，窗口内重复请求不回写；窗口到期回写 `user_sessions.last_active_at` 并重置标记。会话列表以最近 5 分钟内有活动判定「在线中」（`online`）。
 
 ## 明确不做
