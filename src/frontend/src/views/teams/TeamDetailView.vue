@@ -54,9 +54,11 @@ import {
   listTeamProblems,
   reviewTeamApplication,
   setTeamAdmin,
+  submitTeamApplication,
   updateTeam,
 } from '@/api/teams'
 import { uploadImage } from '@/api/files'
+import { ApiError } from '@/api/http'
 import { archiveProblem } from '@/api/problems'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/visibilityLabel'
@@ -84,6 +86,8 @@ const userStore = useUserStore()
 const teamId = String(route.params.id)
 const team = ref<TeamDetail | null>(null)
 const loadFailed = ref(false)
+/** 403（非团队成员）标志：失败态下切换为「申请加入」引导而非裸错误 */
+const forbidden = ref(false)
 const loading = ref(false)
 
 const isCreator = computed(() => team.value?.my_role === 'creator')
@@ -595,12 +599,29 @@ async function load() {
   try {
     team.value = await getTeam(teamId)
     loadFailed.value = false
+    forbidden.value = false
   } catch (error) {
     loadFailed.value = true
+    // 2003 = 非团队成员（详情仅成员可见）：给出申请加入出口而非裸错误
+    forbidden.value = error instanceof ApiError && error.code === 2003
     message.error(error instanceof Error ? error.message : t('teams.detail.loadFailed'))
   } finally {
     loading.value = false
   }
+}
+
+/** 非成员兜底：提交加入申请（公开团队可直接申请，私有团队 403 提示走邀请链接） */
+const applying = ref(false)
+function applyFromForbidden() {
+  applying.value = true
+  submitTeamApplication(teamId)
+    .then(() => message.success(t('teams.list.applySuccess')))
+    .catch((error) => {
+      message.error(error instanceof Error ? error.message : t('common.operationFailed'))
+    })
+    .finally(() => {
+      applying.value = false
+    })
 }
 
 // ---------------- 成员 ----------------
@@ -907,11 +928,27 @@ onMounted(load)
           <NSkeleton text style="width: 60%" />
         </div>
 
-        <!-- 加载失败 -->
+        <!-- 加载失败（403 = 非成员：提供申请加入出口） -->
         <div v-else-if="!team && loadFailed" class="hero hero--failed">
-          <NEmpty :description="t('teams.detail.loadFailed')" size="large">
+          <NEmpty
+            :description="
+              forbidden ? t('teams.detail.forbidden') : t('teams.detail.loadFailed')
+            "
+            size="large"
+          >
             <template #extra>
-              <NButton @click="load">{{ t('action.refresh') }}</NButton>
+              <div class="hero__failed-actions">
+                <NButton
+                  v-if="forbidden"
+                  type="primary"
+                  secondary
+                  :loading="applying"
+                  @click="applyFromForbidden"
+                >
+                  {{ t('teams.list.applyJoin') }}
+                </NButton>
+                <NButton @click="load">{{ t('action.refresh') }}</NButton>
+              </div>
             </template>
           </NEmpty>
         </div>
@@ -1521,6 +1558,11 @@ onMounted(load)
   padding: 48px 24px;
   display: flex;
   justify-content: center;
+}
+.hero__failed-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
 }
 .hero__avatar--skeleton {
   margin: -44px 0 0 28px;

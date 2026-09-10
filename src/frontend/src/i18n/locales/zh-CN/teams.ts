@@ -12,6 +12,9 @@ export default {
       myTeams: '我的团队',
       publicTeam: '公开',
       applyJoin: '申请加入',
+      applyTitle: '申请加入团队',
+      applyConfirm: '确认申请加入「{name}」？申请将由团队管理员审核。',
+      appliedHint: '已提交申请，等待团队管理员审核',
       applySuccess: '申请已提交，等待团队管理员审核',
       create: '创建团队',
       loadFailed: '加载团队列表失败',
@@ -33,6 +36,7 @@ export default {
     detail: {
       title: '团队详情',
       loadFailed: '加载团队详情失败',
+      forbidden: '您不是该团队成员，可申请加入（私有团队请使用邀请链接）',
       tabMembers: '成员',
       tabApplications: '加入申请',
       tabSettings: '团队设置',

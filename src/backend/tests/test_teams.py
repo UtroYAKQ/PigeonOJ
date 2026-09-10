@@ -255,6 +255,75 @@ async def test_team_visibility_public_list_and_private_gate(
     assert public_id in {it["id"] for it in resp.json()["data"]["items"]}
 
 
+async def test_exit_then_public_list_role_not_stale(client: httpx.AsyncClient) -> None:
+    """退出后公开列表 my_role 必须回落 None（回归）：
+    成员判定以 team_members.active 为唯一口径，user_roles 角色残留（历史脏数据）
+    不得让卡片显示「成员」并挡住重新申请。"""
+    from app.enums import UserRoleScope
+
+    from app.models.user import Role
+
+    tutor = await _tutor_headers(client)
+    resp = await client.post(
+        "/api/v1/teams", json={"name": "复进队", "visibility": "public"}, headers=tutor
+    )
+    team_id = resp.json()["data"]["id"]
+    user = await _extra_user_headers(client, "rejoiner@pigeonoj.dev")
+
+    # 加入 → 审批 → 公开列表显示成员
+    resp = await client.post(f"/api/v1/teams/{team_id}/applications", json={}, headers=user)
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=tutor)
+    application = next(a for a in resp.json()["data"]["items"] if a["status"] == "pending")
+    resp = await client.post(
+        f"/api/v1/teams/{team_id}/applications/{application['id']}/review",
+        json={"approve": True},
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get("/api/v1/teams", headers=user)
+    items = {it["id"]: it for it in resp.json()["data"]["items"]}
+    assert items[team_id]["my_role"] == "member"
+
+    # 退出 → 授权清理 → 公开列表回落非成员视图
+    resp = await client.post(f"/api/v1/teams/{team_id}/exit", headers=user)
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get("/api/v1/teams", headers=user)
+    items = {it["id"]: it for it in resp.json()["data"]["items"]}
+    assert items[team_id]["my_role"] is None
+
+    # 模拟历史脏数据：手动回插一条 team 作用域角色行（旧版本退出未清理的形态）
+    async with SessionLocal() as db:
+        uid = (await db.execute(select(User).where(User.email == "rejoiner@pigeonoj.dev"))).scalar_one().id
+        role_id = (
+            await db.execute(select(Role.id).where(Role.code == "team_member"))
+        ).scalar_one()
+        db.add(UserRole(user_id=uid, role_id=role_id, scope=UserRoleScope.TEAM, object_id=uuid_mod.UUID(team_id)))
+        await db.commit()
+
+    # 脏角色不得让卡片显示「成员」；详情仍 2003；重新申请入口保持可用
+    resp = await client.get("/api/v1/teams", headers=user)
+    items = {it["id"]: it for it in resp.json()["data"]["items"]}
+    assert items[team_id]["my_role"] is None
+    resp = await client.get(f"/api/v1/teams/{team_id}", headers=user)
+    assert resp.json()["code"] == 2003
+
+    # 重新申请 → 审批 → 恢复成员
+    resp = await client.post(f"/api/v1/teams/{team_id}/applications", json={}, headers=user)
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=tutor)
+    application = next(a for a in resp.json()["data"]["items"] if a["status"] == "pending")
+    resp = await client.post(
+        f"/api/v1/teams/{team_id}/applications/{application['id']}/review",
+        json={"approve": True},
+        headers=tutor,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get("/api/v1/teams", headers=user)
+    items = {it["id"]: it for it in resp.json()["data"]["items"]}
+    assert items[team_id]["my_role"] == "member"
+
+
 async def test_admin_assignment(client: httpx.AsyncClient) -> None:
     """分配 / 取消管理员：仅创建者；分配后可执行团队管理操作；取消后权限回收。"""
     tutor = await _tutor_headers(client)

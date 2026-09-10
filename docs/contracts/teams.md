@@ -81,9 +81,9 @@
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | POST | /teams | admin/tutor | 创建团队（入口在管理后台 `/admin/teams`；自动写创建者成员记录 + team_creator 授权；visibility 缺省 private） | name, description?, avatar_url?, visibility? | team |
-| GET | /teams | public / auth | 团队中心列表：仅 public + active 团队（创建时间倒序，匿名可看；在册成员带 my_role，非成员 my_role=null）；`mine=true`（「我的团队」勾选，须登录，匿名 401）改为本人在册团队（公开 + 私有） | 分页/keyword（名称模糊）/mine | team[]（TeamSummary，含 visibility / member_count / my_role） |
+| GET | /teams | public / auth | 团队中心列表：仅 public + active 团队（创建时间倒序，匿名可看；在册成员带 my_role，非成员 my_role=null；**成员判定以 `team_members.active` 为唯一口径**，`user_roles` 角色行仅用于细化角色层级——角色残留不得令非成员带 my_role，避免卡片态与详情权限不一致挡住重新申请）；`mine=true`（「我的团队」勾选，须登录，匿名 401）改为本人在册团队（公开 + 私有）；前端非成员点卡片弹申请确认（详情仅成员可见） | 分页/keyword（名称模糊）/mine | team[]（TeamSummary，含 visibility / member_count / my_role） |
 | GET | /teams/mine | auth | 我的团队列表（在册成员；带成员数与我的角色；与 /contests/me 同款资源域内 me 端点） | 分页/keyword（名称模糊） | team[] |
-| GET | /teams/{id} | auth（成员） | 团队详情 | - | team |
+| GET | /teams/{id} | auth（成员） | 团队详情（非成员 2003；前端详情页对 2003 提供申请加入出口） | - | team |
 | GET | /teams/{id}/members | team 角色 | 成员列表 | 分页/keyword（昵称模糊）/状态 | member[] |
 | POST | /teams/{id}/invites | team_creator/team_admin | 生成邀请链接（写 Redis） | - | {token, expires_at} |
 | GET | /teams/invites/{token} | public | 解析邀请链接（返回团队与有效期） | - | {team_id, team_name, avatar_url, expires_at} |

@@ -33,6 +33,23 @@ class TeamRepository:
         )
         return (await self.db.execute(stmt)).scalar_one_or_none()
 
+    async def active_member_team_ids(
+        self, user_id: uuid.UUID, team_ids: list[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """用户在这些团队中在册（team_members.active）的团队 id 集合。
+
+        成员判定唯一口径（与 get_detail 的 get_active_member 一致）；
+        user_roles 角色行不作为成员依据（历史脏数据会导致卡片态与详情权限不一致）。
+        """
+        if not team_ids:
+            return set()
+        stmt = select(TeamMember.team_id).where(
+            TeamMember.team_id.in_(team_ids),
+            TeamMember.user_id == user_id,
+            TeamMember.status == TeamMemberStatus.ACTIVE,
+        )
+        return set((await self.db.execute(stmt)).scalars().all())
+
     async def get_application(self, application_id: uuid.UUID) -> TeamMemberApplication | None:
         return await self.db.get(TeamMemberApplication, application_id)
 

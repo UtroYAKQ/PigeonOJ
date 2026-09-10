@@ -12,6 +12,9 @@ export default {
       myTeams: 'My teams',
       publicTeam: 'Public',
       applyJoin: 'Apply to join',
+      applyTitle: 'Apply to join team',
+      applyConfirm: 'Apply to join "{name}"? Your application will be reviewed by team admins.',
+      appliedHint: 'Application submitted; waiting for team admin review',
       applySuccess: 'Application submitted; waiting for team admin review',
       create: 'Create team',
       loadFailed: 'Failed to load teams',
@@ -33,6 +36,7 @@ export default {
     detail: {
       title: 'Team detail',
       loadFailed: 'Failed to load team',
+      forbidden: 'You are not a member of this team. You may apply to join (private teams require an invite link).',
       tabMembers: 'Members',
       tabApplications: 'Applications',
       tabSettings: 'Settings',

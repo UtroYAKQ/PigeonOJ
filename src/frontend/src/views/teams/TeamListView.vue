@@ -11,7 +11,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { listMyTeams, listTeams, submitTeamApplication } from '@/api/teams'
-import { message } from '@/utils/feedback'
+import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
@@ -75,9 +75,26 @@ function onToggleMine(checked: boolean) {
 }
 
 function openTeam(team: TeamSummary) {
-  // 团队详情仅成员可见（后端 2003）：公开团队非成员经卡片「申请加入」入队
-  if (!team.my_role) return
-  void router.push(`/teams/${team.id}`)
+  // 成员进详情；公开团队非成员点卡片弹出申请确认（详情仅成员可见，后端 2003）
+  if (team.my_role) {
+    void router.push(`/teams/${team.id}`)
+    return
+  }
+  if (mineOnly.value) return
+  if (appliedIds.value.has(team.id)) {
+    message.info(t('teams.list.appliedHint'))
+    return
+  }
+  confirmAsyncDialog({
+    title: t('teams.list.applyTitle'),
+    content: t('teams.list.applyConfirm', { name: team.name }),
+    positiveText: t('teams.list.applyJoin'),
+    action: () => submitTeamApplication(team.id),
+    successMessage: t('teams.list.applySuccess'),
+    onAfterSuccess: () => {
+      appliedIds.value.add(team.id)
+    },
+  })
 }
 
 async function onApply(team: TeamSummary) {

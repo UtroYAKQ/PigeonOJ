@@ -261,19 +261,26 @@ class TeamService:
             return items, total
         rows, total = await self.teams.list_public(page, page_size, keyword=keyword)
         counts = await self.teams.count_active_members_by_team([t.id for t in rows])
+        # 成员判定以 team_members.active 为唯一口径（与 get_detail 权限校验一致）；
+        # user_roles 角色行仅用于细化角色层级——两者混用时角色残留会让卡片显示
+        # 「成员」而详情 2003，且申请按钮被隐藏，用户无法重新加入（回归修复）
         member_team_ids: set[uuid.UUID] = set()
         role_map: dict[uuid.UUID, set[str]] = {}
         if user is not None and rows:
-            role_map = await self.roles.get_team_roles_for_teams(user.id, [t.id for t in rows])
-            member_team_ids = set(role_map.keys())
+            team_ids = [t.id for t in rows]
+            member_team_ids = await self.teams.active_member_team_ids(user.id, team_ids)
+            role_map = await self.roles.get_team_roles_for_teams(user.id, team_ids)
         items = []
         for team in rows:
-            codes = role_map.get(team.id, set())
-            my_role = (
-                "creator"
-                if self._is_creator(team, user.id)
-                else "admin" if ROLE_ADMIN in codes else "member"
-            ) if team.id in member_team_ids else None
+            if team.id not in member_team_ids:
+                my_role = None
+            else:
+                codes = role_map.get(team.id, set())
+                my_role = (
+                    "creator"
+                    if self._is_creator(team, user.id)
+                    else "admin" if ROLE_ADMIN in codes else "member"
+                )
             items.append(
                 TeamSummary(
                     id=team.id,
