@@ -158,12 +158,12 @@ function rowKey(row: ProblemSetItem) {
                   :source="detail.description"
                   class="info-main__desc"
                 />
-                <n-empty
-                  v-else
-                  size="small"
-                  :description="t('problemSets.detail.noDescription')"
-                  class="table-fill-empty info-main__empty"
-                />
+                <!-- 介绍为空：空态图标 + 文案（对齐全站空态样板）。
+                     table-fill-empty 挂外层容器——直接挂 n-empty 会以 grid 覆盖其
+                     flex 布局，图标与文字被两行拉伸分离（此前展示怪异的根因） -->
+                <div v-else class="table-fill-empty info-main__empty">
+                  <n-empty size="small" :description="t('problemSets.detail.noDescription')" />
+                </div>
               </div>
 
               <aside class="info-aside">
@@ -283,7 +283,8 @@ function rowKey(row: ProblemSetItem) {
   display: flex;
   flex-direction: column;
 }
-/* 空态拉伸居中（全局 table-fill-empty）；格子有界，去掉 320px 下限 */
+/* 空态：全局 table-fill-empty 拉伸居中；n-empty 原生布局（图标上 / 文字下 8px）；
+   有界栏去掉 320px 下限 */
 .info-main__empty {
   min-height: 0;
 }

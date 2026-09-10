@@ -138,7 +138,6 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
               t('problems.submission.verifyType')
             }}</span>
             <RefreshButton
-              v-if="isRunning"
               :loading="loading"
               :aria-label="t('action.refresh')"
               @click="refreshNow"

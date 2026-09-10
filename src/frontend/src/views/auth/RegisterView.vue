@@ -13,7 +13,6 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const registrationClosed = computed(() => !appStore.siteConfig.register_enabled)
 const emailVerifyEnabled = computed(() => appStore.siteConfig.email_verify_enabled)
-const siteName = computed(() => appStore.siteConfig.name || 'PigeonOJ')
 const form = reactive({ email: '', nickname: '', code: '', password: '', confirm: '' })
 const loading = ref(false)
 async function onSubmit() {
@@ -51,13 +50,13 @@ async function onSubmit() {
 <template>
   <div class="register-page">
     <header class="register-page__brand" @click="router.push('/')">
-      <span>🐦</span><strong>{{ siteName }}</strong>
+      <span>🐦</span><strong>{{ appStore.siteName }}</strong>
     </header>
     <main class="register-pane">
       <n-card class="register-card" :bordered="false">
         <div class="register-card__heading">
           <p>{{ t('app.tagline') }}</p>
-          <h1>{{ t('auth.registerTitle') }}</h1>
+          <h1>{{ t('auth.registerTitle', { name: appStore.siteName }) }}</h1>
           <span>{{ t('home.intro') }}</span>
         </div>
         <n-alert v-if="registrationClosed" type="warning" class="register-card__closed">

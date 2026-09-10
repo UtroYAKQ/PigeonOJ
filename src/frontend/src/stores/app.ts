@@ -51,6 +51,8 @@ export const useAppStore = defineStore('app', {
 
   getters: {
     isDark: (state) => state.themeMode === 'dark',
+    /** 站点名（含兜底回退）：页面展示与 tab 标题统一从此取值，禁止各处自行兜底 */
+    siteName: (state) => state.siteConfig.name || 'PigeonOJ',
   },
 
   actions: {
@@ -59,6 +61,8 @@ export const useAppStore = defineStore('app', {
         const cfg = await fetchSiteConfig()
         this.siteConfig = { ...DEFAULT_SITE_CONFIG, ...cfg }
         applyFavicon(this.siteConfig.logo)
+        // 站点配置就绪后刷新 tab 标题：首次路由守卫执行早于本请求，标题此前用兜底值
+        window.dispatchEvent(new Event('pigeonoj:site-config-change'))
         // 用户从未显式选过主题时，跟随站点默认主题；只应用不落盘，便于管理员后续切换默认值
         if (
           readStoredTheme() === null &&

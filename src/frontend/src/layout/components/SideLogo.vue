@@ -5,7 +5,8 @@ import { useAppStore } from '@/stores/app'
 import { isRenderableLogo } from '@/utils/logo'
 
 const appStore = useAppStore()
-const name = computed(() => appStore.siteConfig.name || 'PigeonOJ')
+// 站点名兜底收敛到 app store（siteName getter）
+const name = computed(() => appStore.siteName)
 // 外链 URL 或站内文件 URL 直接渲染；空值 / 不可识别形态回退默认图标
 const logoUrl = computed(() =>
   isRenderableLogo(appStore.siteConfig.logo) ? appStore.siteConfig.logo : '',

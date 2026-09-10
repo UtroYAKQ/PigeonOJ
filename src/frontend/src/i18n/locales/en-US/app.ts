@@ -1,6 +1,5 @@
 ﻿export default {
   app: {
-    name: 'PigeonOJ',
     tagline: 'Online programming platform',
     language: 'Language',
     localeZh: 'Chinese',

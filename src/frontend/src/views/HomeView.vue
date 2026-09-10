@@ -32,11 +32,9 @@ const appStore = useAppStore()
 const userStore = useUserStore()
 const { t } = useI18n()
 
-const siteName = computed(() => appStore.siteConfig.name || 'PigeonOJ')
-
 /** 时段问候（登录用户）；访客展示站点欢迎语 */
 const greeting = computed(() => {
-  if (!userStore.isLoggedIn) return t('home.welcome', { name: siteName.value })
+  if (!userStore.isLoggedIn) return t('home.welcome', { name: appStore.siteName })
   const hour = new Date().getHours()
   const key =
     hour < 6
@@ -167,7 +165,7 @@ function openBanner(banner: SiteBanner) {
           </n-carousel-item>
         </n-carousel>
         <div v-else class="home__brand">
-          <p class="home__kicker">{{ siteName }}</p>
+          <p class="home__kicker">{{ appStore.siteName }}</p>
           <h1 class="home__brand-title">{{ t('home.intro') }}</h1>
           <div class="home__brand-actions">
             <n-button type="primary" @click="router.push('/problems')">

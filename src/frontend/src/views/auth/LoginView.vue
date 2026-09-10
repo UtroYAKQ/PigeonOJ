@@ -40,10 +40,10 @@ async function onSubmit() {
     <section class="brand-pane">
       <header class="brand-pane__top" @click="router.push('/')">
         <span class="brand-pane__mark">🐦</span>
-        <strong>{{ appStore.siteConfig.name || 'PigeonOJ' }}</strong>
+        <strong>{{ appStore.siteName }}</strong>
       </header>
       <div class="brand-pane__body">
-        <h1>{{ t('auth.loginTitle') }}</h1>
+        <h1>{{ t('auth.loginTitle', { name: appStore.siteName }) }}</h1>
         <p>{{ t('home.intro') }}</p>
       </div>
       <footer class="brand-pane__foot">{{ t('app.tagline') }}</footer>

@@ -59,9 +59,14 @@ const lightColors: Record<string, string> = {
   'editorSuggestWidget.background': '#ffffff',
   'editorSuggestWidget.border': '#efeff5',
   'editorSuggestWidget.foreground': '#333639',
-  'editorSuggestWidget.selectedBackground': '#f4511e1f',
+  // 选中底加深（12% → 18%）：淡底上选中态不明显
+  'editorSuggestWidget.selectedBackground': '#f4511e2e',
   'editorSuggestWidget.selectedForeground': '#333639',
-  'editorSuggestWidget.highlightForeground': '#f4511e',
+  // 匹配字符高亮用主色 pressed（#f4511e 白底对比仅 3.5:1，偏浅看不清）；
+  // focusHighlightForeground 为聚焦行（当前选中项）匹配高亮，未覆盖时继承
+  // vs 基础主题的浅青蓝默认值（0.52+ 拆分键），须一并覆盖
+  'editorSuggestWidget.highlightForeground': '#d84315',
+  'editorSuggestWidget.focusHighlightForeground': '#d84315',
   'editorSuggestWidgetStatus.background': '#fafafc',
   'editorHoverWidget.background': '#ffffff',
   'editorHoverWidget.border': '#efeff5',
@@ -82,9 +87,11 @@ const darkColors: Record<string, string> = {
   'editorSuggestWidget.background': '#18181c',
   'editorSuggestWidget.border': '#2c2c30',
   'editorSuggestWidget.foreground': '#d2d2d6',
-  'editorSuggestWidget.selectedBackground': '#f4511e33',
+  'editorSuggestWidget.selectedBackground': '#f4511e47',
   'editorSuggestWidget.selectedForeground': '#d2d2d6',
-  'editorSuggestWidget.highlightForeground': '#ff7a45',
+  // GitHub dark 橙：暗底上比 #ff7a45 更亮更醒目；聚焦行匹配高亮同源（默认浅青蓝）
+  'editorSuggestWidget.highlightForeground': '#ffa657',
+  'editorSuggestWidget.focusHighlightForeground': '#ffa657',
   'editorSuggestWidgetStatus.background': '#202024',
   'editorHoverWidget.background': '#18181c',
   'editorHoverWidget.border': '#2c2c30',

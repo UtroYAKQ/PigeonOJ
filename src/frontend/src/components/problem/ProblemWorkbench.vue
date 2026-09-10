@@ -303,11 +303,19 @@ watch(
                     }}</span
                   >
                 </div>
-                <pre v-if="selfTestResult.error_message" class="console__stderr">{{
-                  selfTestResult.error_message
-                }}</pre>
-                <pre class="console__stdout">{{
-                  selfTestResult.output || t('problems.detail.noOutput')
+                <!-- 输出 / 报错共用一个展示框（有报错即无正常输出，互斥展示）；
+                     底色与自测输入框一致（卡片底 + 边框），报错仅文字转红 -->
+                <pre
+                  class="console__output"
+                  :class="{
+                    'console__output--error': selfTestResult.error_message,
+                    'console__output--empty':
+                      !selfTestResult.error_message && !selfTestResult.output,
+                  }"
+                  >{{
+                  selfTestResult.error_message ||
+                  selfTestResult.output ||
+                  t('problems.detail.noOutput')
                 }}</pre>
               </div>
             </template>
@@ -517,8 +525,8 @@ watch(
   font-size: 12px;
   color: var(--app-text-secondary);
 }
-.console__stderr,
-.console__stdout {
+/* 输出 / 报错单框：底色与自测输入框一致（卡片底 + 边框），报错仅文字转红 */
+.console__output {
   flex: 1;
   margin: 0;
   overflow: auto;
@@ -526,18 +534,17 @@ watch(
   word-break: break-word;
   font-size: 12.5px;
   line-height: 1.55;
+  border: 1px solid var(--app-border);
   border-radius: var(--app-radius-sm, 4px);
   padding: 8px 10px;
   min-height: 0;
+  color: var(--app-text);
 }
-.console__stderr {
-  flex: 0 1 auto;
-  max-height: 45%;
+.console__output--error {
   color: var(--app-error);
-  background: color-mix(in srgb, var(--app-error) 8%, transparent);
 }
-.console__stdout {
-  background: var(--app-surface-muted);
+.console__output--empty {
+  color: var(--app-text-muted);
 }
 
 @media (max-width: 899px) {

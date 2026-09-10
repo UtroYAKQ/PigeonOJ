@@ -1,6 +1,5 @@
 ﻿export default {
   app: {
-    name: 'PigeonOJ',
     tagline: '在线编程平台',
     language: '语言',
     localeZh: '中文',
