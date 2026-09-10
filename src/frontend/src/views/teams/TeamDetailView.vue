@@ -671,7 +671,8 @@ function memberActions(row: TeamMemberItem): Array<{ key: MemberAction; label: s
       label: t(row.is_admin ? 'teams.members.revokeAdmin' : 'teams.members.grantAdmin'),
     })
   }
-  if (isAdmin.value && !row.is_creator) {
+  // 移出不提供给自己一行：退出走「退出团队」入口（exited 语义，非 kicked）
+  if (isAdmin.value && !row.is_creator && row.user_id !== userStore.user?.id) {
     actions.push({ key: 'kick', label: t('teams.members.kick') })
   }
   return actions

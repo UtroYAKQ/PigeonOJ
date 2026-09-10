@@ -516,9 +516,15 @@ class TeamService:
             await self.roles.revoke_team_roles(target_uid, team.id, {ROLE_ADMIN})
 
     async def kick(self, user: User, team_id: uuid.UUID, target_uid: uuid.UUID) -> None:
-        """踢出成员（team_creator / team_admin；清理成员状态与团队授权）。"""
+        """踢出成员（team_creator / team_admin；清理成员状态与团队授权）。
+
+        不可移除创建者（只能解散）；不可移除自己——退出走 exit 通道，
+        避免 kicked 状态语义污染与授权误清（bugfix：管理员可自踢）。
+        """
         team = await self._team_or_404(team_id)
         await self._require_team_roles(user, team.id, level="admin")
+        if target_uid == user.id:
+            raise APIError(AUTH_FORBIDDEN, "不能移除自己，请使用退出团队", 403)
         if target_uid == team.creator_id:
             raise APIError(AUTH_FORBIDDEN, "不能移除团队创建者", 403)
         member = await self.teams.get_active_member(team.id, target_uid)

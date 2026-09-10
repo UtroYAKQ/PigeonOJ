@@ -91,7 +91,7 @@
 | GET | /teams/{id}/applications | team_creator/team_admin | 申请列表 | 分页/状态 | application[] |
 | POST | /teams/{id}/applications/{aid}/review | team_creator/team_admin | 审批（通过写 `user_roles` team_member） | approve, comment? | - |
 | POST | /teams/{id}/members/{uid}/admin | team_creator/team_admin（仅创建者） | 分配 / 取消团队管理员 | is_admin | - |
-| DELETE | /teams/{id}/members/{uid} | team_creator/team_admin | 踢出成员（清理授权） | - | - |
+| DELETE | /teams/{id}/members/{uid} | team_creator/team_admin | 踢出成员（清理授权；不可移除创建者，不可移除自己——自退走 exit） | - | - |
 | POST | /teams/{id}/exit | auth（成员） | 主动退出（清理授权） | - | - |
 | DELETE | /teams/{id} | team_creator/team_admin（仅创建者） | 解散团队 | - | - |
 
@@ -113,6 +113,8 @@
 4. **加入审批**：用户提交申请（pending）→ 创建者 / 管理员审批；通过 → 写 `team_members`（active）+ `user_roles`（`team_member`）+ 通知；拒绝 → 记录状态 + 通知（通知随通知模块开放，当前仅记录申请状态与审批人 / 时间）。
 5. **分配管理员**：仅创建者可执行 `POST /teams/{id}/members/{uid}/admin`；分配即写 `team_admin` 授权，取消即删除。
 6. **退出 / 踢出 / 解散**：同步清理成员记录状态与 `user_roles` 团队授权。
+   踢出（kicked）与退出（exited）是互斥通道：`DELETE .../members/{uid}` 不可作用于操作者本人
+   （2003，主动退出走 `POST /teams/{id}/exit`），也不可作用于创建者（2003，创建者只能解散）。
 
 ## 团队空间（题库 / 题单 / 比赛，限界上下文）
 

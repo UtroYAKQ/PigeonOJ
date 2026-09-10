@@ -438,6 +438,12 @@ async def test_kick_exit_disband(client: httpx.AsyncClient) -> None:
     )
     assert resp.json()["code"] == 0
 
+    # 管理员不可移除自己（应走 exit 通道，kicked 语义不适用于主动退出）
+    resp = await client.delete(
+        f"/api/v1/teams/{team_id}/members/{admin_uid}", headers=member_a
+    )
+    assert resp.json()["code"] == 2003
+
     # 踢出 member_a：授权清理（我的团队为空、不可见详情）；创建者不可被踢
     resp = await client.delete(
         f"/api/v1/teams/{team_id}/members/{await _uid_of(client, member_a)}", headers=tutor
