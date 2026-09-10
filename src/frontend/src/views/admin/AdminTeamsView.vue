@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 /**
  * 团队管理（管理后台，admin；docs/contracts/teams.md 管理端）：
  * 全量团队列表（含已解散）+ 创建团队入口（创建动作自前台团队中心收敛到后台）；
@@ -228,6 +228,7 @@ async function doCreate() {
     </SearchFilterBar>
 
     <PaginatedDataTable
+      show-size-picker
       :columns="columns"
       :data="list"
       :loading="loading"

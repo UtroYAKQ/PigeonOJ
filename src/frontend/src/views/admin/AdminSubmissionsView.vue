@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 /**
  * 全站提交面板（/admin/submissions）：跨题目 / 跨用户提交查看（admin 专用）。
  * 筛选：提交类型（练习 / 比赛 / 验题）/ 提交人（昵称模糊）/ 题号（短 ID 或完整 UUID 文本输入）/
@@ -279,6 +279,7 @@ onMounted(load)
     </SearchFilterBar>
 
     <PaginatedDataTable
+      show-size-picker
       :columns="columns"
       :data="list"
       :loading="loading"

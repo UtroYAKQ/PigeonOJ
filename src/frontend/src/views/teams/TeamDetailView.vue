@@ -66,6 +66,7 @@ import { useUserStore } from '@/stores/user'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import type {
   ContestSummary,
   ProblemSetSummary,
@@ -148,9 +149,8 @@ const {
   pageSize: problemPageSize,
   total: problemTotal,
   changePage: changeProblemPage,
-  changeSize: changeProblemSize,
   resetPage: resetProblemPage,
-} = usePagination({ defaultPageSize: 10 })
+} = usePagination()
 
 async function loadProblems() {
   problemsLoading.value = true
@@ -240,9 +240,8 @@ const {
   pageSize: setPageSize,
   total: setTotal,
   changePage: changeSetPage,
-  changeSize: changeSetSize,
   resetPage: resetSetPage,
-} = usePagination({ defaultPageSize: 10 })
+} = usePagination()
 
 async function loadSets() {
   setsLoading.value = true
@@ -528,9 +527,8 @@ const {
   pageSize: contestPageSize,
   total: contestTotal,
   changePage: changeContestPage,
-  changeSize: changeContestSize,
   resetPage: resetContestPage,
-} = usePagination({ defaultPageSize: 10 })
+} = usePagination()
 
 async function loadContests() {
   contestsLoading.value = true
@@ -615,9 +613,8 @@ const {
   pageSize: memberPageSize,
   total: memberTotal,
   changePage: changeMemberPage,
-  changeSize: changeMemberSize,
   resetPage: resetMemberPage,
-} = usePagination({ defaultPageSize: 10 })
+} = usePagination()
 
 async function loadMembers() {
   membersLoading.value = true
@@ -1025,92 +1022,79 @@ onMounted(load)
                   />
                 </template>
               </SearchFilterBar>
-              <div class="pane-scroll">
-                <NSpin :show="membersLoading" class="pane-spin">
-                  <ul v-if="members.length" class="tile-grid">
-                    <li v-for="member in members" :key="member.user_id" class="tile">
-                      <NAvatar
-                        :src="member.avatar_url || undefined"
-                        round
-                        :size="40"
-                        class="tile__avatar"
-                      >
-                        <template v-if="!member.avatar_url">{{
-                          initialOf(member.nickname)
-                        }}</template>
-                      </NAvatar>
-                      <div class="tile__body">
-                        <div class="tile__head">
-                          <span class="tile__title" :title="member.nickname">{{
-                            member.nickname
-                          }}</span>
-                          <span v-if="member.user_id === userStore.user?.id" class="tile__you">
-                            {{ t('teams.members.you') }}
-                          </span>
-                          <NDropdown
-                            v-if="memberActions(member).length"
-                            class="tile__ops"
-                            trigger="click"
-                            :options="memberActions(member)"
-                            @select="(action: MemberAction) => onMemberAction(action, member)"
+              <PaginatedDataTable
+                :data="members"
+                :loading="membersLoading"
+                :total="memberTotal"
+                :page="memberPage"
+                :page-size="memberPageSize"
+                :empty-text="t('teams.members.empty')"
+                @update:page="
+                  (p: number) => {
+                    changeMemberPage(p)
+                    loadMembers()
+                  }
+                "
+              >
+                <template #content>
+                  <div class="pane-scroll">
+                    <NSpin :show="membersLoading" class="pane-spin">
+                      <ul v-if="members.length" class="tile-grid">
+                        <li v-for="member in members" :key="member.user_id" class="tile">
+                          <NAvatar
+                            :src="member.avatar_url || undefined"
+                            round
+                            :size="40"
+                            class="tile__avatar"
                           >
-                            <NButton
-                              circle
-                              quaternary
-                              size="tiny"
-                              :aria-label="t('teams.detail.more')"
-                            >
-                              <template #icon>
-                                <NIcon :component="MoreFilled" />
-                              </template>
-                            </NButton>
-                          </NDropdown>
-                        </div>
-                        <div class="tile__foot">
-                          <span class="dot-chip" :class="`dot-chip--${memberRoleOf(member)}`">
-                            <span class="dot-chip__dot" aria-hidden="true" />
-                            {{ t(`teams.role.${memberRoleOf(member)}`) }}
-                          </span>
-                          <span class="tile__meta">
-                            {{ t('teams.members.joinedAt') }} {{ formatCompact(member.joined_at) }}
-                          </span>
-                        </div>
-                      </div>
+                            <template v-if="!member.avatar_url">{{
+                              initialOf(member.nickname)
+                            }}</template>
+                          </NAvatar>
+                          <div class="tile__body">
+                            <div class="tile__head">
+                              <span class="tile__title" :title="member.nickname">{{
+                                member.nickname
+                              }}</span>
+                              <span v-if="member.user_id === userStore.user?.id" class="tile__you">
+                                {{ t('teams.members.you') }}
+                              </span>
+                              <NDropdown
+                                v-if="memberActions(member).length"
+                                class="tile__ops"
+                                trigger="click"
+                                :options="memberActions(member)"
+                                @select="(action: MemberAction) => onMemberAction(action, member)"
+                              >
+                                <NButton
+                                  circle
+                                  quaternary
+                                  size="tiny"
+                                  :aria-label="t('teams.detail.more')"
+                                >
+                                  <template #icon>
+                                    <NIcon :component="MoreFilled" />
+                                  </template>
+                                </NButton>
+                              </NDropdown>
+                            </div>
+                            <div class="tile__foot">
+                              <span class="dot-chip" :class="`dot-chip--${memberRoleOf(member)}`">
+                                <span class="dot-chip__dot" aria-hidden="true" />
+                                {{ t(`teams.role.${memberRoleOf(member)}`) }}
+                              </span>
+                              <span class="tile__meta">
+                                {{ t('teams.members.joinedAt') }}
+                                {{ formatCompact(member.joined_at) }}
+                              </span>
+                            </div>
+                          </div>
                     </li>
                   </ul>
-                  <NEmpty
-                    v-else-if="!membersLoading"
-                    :description="t('teams.members.empty')"
-                    size="large"
-                    class="pane-empty"
-                  />
                 </NSpin>
               </div>
-
-              <div class="pane-pager">
-                <span class="pane-pager__total">
-                  {{ t('teams.pane.memberTotal', { count: memberTotal }) }}
-                </span>
-                <n-pagination
-                  :page="memberPage"
-                  :page-size="memberPageSize"
-                  :item-count="memberTotal"
-                  :page-sizes="[10, 20, 50]"
-                  show-size-picker
-                  @update:page="
-                    (p: number) => {
-                      changeMemberPage(p)
-                      loadMembers()
-                    }
-                  "
-                  @update:page-size="
-                    (s: number) => {
-                      changeMemberSize(s)
-                      loadMembers()
-                    }
-                  "
-                />
-              </div>
+                </template>
+              </PaginatedDataTable>
             </template>
 
             <!-- 团队题库 -->
@@ -1155,55 +1139,26 @@ onMounted(load)
                   />
                 </template>
               </SearchFilterBar>
-              <div class="pane-scroll">
-                <n-data-table
-                  v-show="problems.length || problemsLoading"
-                  size="small"
-                  class="pane-table"
-                  :columns="problemColumns"
-                  :data="problems"
-                  :loading="problemsLoading"
-                  :bordered="false"
-                  :bottom-bordered="false"
-                  :row-key="rowKeyOfProblem"
-                  :row-props="rowPropsOfProblem"
-                />
-                <div
-                  v-show="!problems.length && !problemsLoading"
-                  class="table-fill-empty pane-empty"
-                >
-                  <NEmpty
-                    :description="
-                      t(draftOnly ? 'teams.space.draftsEmpty' : 'teams.space.problemsEmpty')
-                    "
-                    size="large"
-                  />
-                </div>
-              </div>
-              <div class="pane-pager">
-                <span class="pane-pager__total">
-                  {{ t('teams.pane.problemTotal', { count: problemTotal }) }}
-                </span>
-                <n-pagination
-                  :page="problemPage"
-                  :page-size="problemPageSize"
-                  :item-count="problemTotal"
-                  :page-sizes="[10, 20, 50]"
-                  show-size-picker
-                  @update:page="
-                    (p: number) => {
-                      changeProblemPage(p)
-                      loadProblems()
-                    }
-                  "
-                  @update:page-size="
-                    (s: number) => {
-                      changeProblemSize(s)
-                      loadProblems()
-                    }
-                  "
-                />
-              </div>
+              <PaginatedDataTable
+                :columns="problemColumns"
+                :data="problems"
+                :loading="problemsLoading"
+                :total="problemTotal"
+                :page="problemPage"
+                :page-size="problemPageSize"
+                :empty-text="t(draftOnly ? 'teams.space.draftsEmpty' : 'teams.space.problemsEmpty')"
+                :table-props="{
+                  size: 'small',
+                  rowKey: rowKeyOfProblem,
+                  rowProps: rowPropsOfProblem,
+                }"
+                @update:page="
+                  (p: number) => {
+                    changeProblemPage(p)
+                    loadProblems()
+                  }
+                "
+              />
             </template>
 
             <!-- 团队题单 -->
@@ -1233,47 +1188,26 @@ onMounted(load)
                   />
                 </template>
               </SearchFilterBar>
-              <div class="pane-scroll">
-                <n-data-table
-                  v-show="sets.length || setsLoading"
-                  size="small"
-                  class="pane-table"
-                  :columns="setColumns"
-                  :data="sets"
-                  :loading="setsLoading"
-                  :bordered="false"
-                  :bottom-bordered="false"
-                  :row-key="rowKeyOfSet"
-                  :row-props="rowPropsOfSet"
-                />
-                <div v-show="!sets.length && !setsLoading" class="table-fill-empty pane-empty">
-                  <NEmpty :description="t('teams.space.setsEmpty')" size="large" />
-                </div>
-              </div>
-              <div class="pane-pager">
-                <span class="pane-pager__total">
-                  {{ t('teams.pane.setTotal', { count: setTotal }) }}
-                </span>
-                <n-pagination
-                  :page="setPage"
-                  :page-size="setPageSize"
-                  :item-count="setTotal"
-                  :page-sizes="[10, 20, 50]"
-                  show-size-picker
-                  @update:page="
-                    (p: number) => {
-                      changeSetPage(p)
-                      loadSets()
-                    }
-                  "
-                  @update:page-size="
-                    (s: number) => {
-                      changeSetSize(s)
-                      loadSets()
-                    }
-                  "
-                />
-              </div>
+              <PaginatedDataTable
+                :columns="setColumns"
+                :data="sets"
+                :loading="setsLoading"
+                :total="setTotal"
+                :page="setPage"
+                :page-size="setPageSize"
+                :empty-text="t('teams.space.setsEmpty')"
+                :table-props="{
+                  size: 'small',
+                  rowKey: rowKeyOfSet,
+                  rowProps: rowPropsOfSet,
+                }"
+                @update:page="
+                  (p: number) => {
+                    changeSetPage(p)
+                    loadSets()
+                  }
+                "
+              />
             </template>
 
             <!-- 团队比赛 -->
@@ -1303,9 +1237,24 @@ onMounted(load)
                   />
                 </template>
               </SearchFilterBar>
-              <div class="pane-scroll">
-                <NSpin :show="contestsLoading" class="pane-spin">
-                  <ul v-if="contests.length" class="tile-grid tile-grid--contest">
+              <PaginatedDataTable
+                :data="contests"
+                :loading="contestsLoading"
+                :total="contestTotal"
+                :page="contestPage"
+                :page-size="contestPageSize"
+                :empty-text="t('teams.space.contestsEmpty')"
+                @update:page="
+                  (p: number) => {
+                    changeContestPage(p)
+                    loadContests()
+                  }
+                "
+              >
+                <template #content>
+                  <div class="pane-scroll">
+                    <NSpin :show="contestsLoading" class="pane-spin">
+                      <ul v-if="contests.length" class="tile-grid tile-grid--contest">
                     <li
                       v-for="contest in contests"
                       :key="contest.id"
@@ -1374,38 +1323,10 @@ onMounted(load)
                       </div>
                     </li>
                   </ul>
-                  <NEmpty
-                    v-else-if="!contestsLoading"
-                    :description="t('teams.space.contestsEmpty')"
-                    size="large"
-                    class="pane-empty"
-                  />
                 </NSpin>
               </div>
-              <div class="pane-pager">
-                <span class="pane-pager__total">
-                  {{ t('teams.pane.contestTotal', { count: contestTotal }) }}
-                </span>
-                <n-pagination
-                  :page="contestPage"
-                  :page-size="contestPageSize"
-                  :item-count="contestTotal"
-                  :page-sizes="[10, 20, 50]"
-                  show-size-picker
-                  @update:page="
-                    (p: number) => {
-                      changeContestPage(p)
-                      loadContests()
-                    }
-                  "
-                  @update:page-size="
-                    (s: number) => {
-                      changeContestSize(s)
-                      loadContests()
-                    }
-                  "
-                />
-              </div>
+                </template>
+              </PaginatedDataTable>
             </template>
 
             <!-- 加入申请（管理员） -->
@@ -2037,23 +1958,7 @@ onMounted(load)
   gap: 8px;
 }
 
-/* 分页钉底 */
-.pane-pager {
-  flex-shrink: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--app-border);
-}
-.pane-pager__total {
-  font-size: 12px;
-  color: var(--app-text-secondary);
-  font-variant-numeric: tabular-nums;
-}
+/* 分页条由 PaginatedDataTable 统一渲染（.pager 全局间距） */
 
 /* 团队空间模块：工具行（搜索 / 管理动作） */
 .pane-toolbar {

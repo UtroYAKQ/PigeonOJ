@@ -180,6 +180,7 @@ const columns = computed<DataTableColumns<Report>>(() => [
     </SearchFilterBar>
 
     <PaginatedDataTable
+      show-size-picker
       :columns="columns"
       :data="list"
       :loading="loading"

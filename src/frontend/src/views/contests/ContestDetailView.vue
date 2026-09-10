@@ -652,11 +652,6 @@ function onBoardPage(page: number) {
   boardPagination.page = page
 }
 
-function onBoardPageSize(pageSize: number) {
-  boardPagination.pageSize = pageSize
-  boardPagination.page = 1
-}
-
 // ---------------- 提交记录 ----------------
 
 const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() => {
@@ -933,34 +928,23 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
               >
                 {{ t('contests.frozenHint') }}
               </n-alert>
-              <n-data-table
-                v-show="filteredBoardRows.length"
-                class="board-table"
+              <PaginatedDataTable
                 :columns="boardColumns"
                 :data="pagedBoardRows"
                 :loading="boardLoading"
-                :bordered="false"
-                :bottom-bordered="false"
-                :scroll-x="1000"
-                flex-height
-              />
-              <div v-show="!filteredBoardRows.length" class="table-fill-empty detail-empty">
-                <n-empty size="large" :description="t('contests.board.empty')" />
-              </div>
-              <div class="board-pager">
-                <span class="pager__total">
-                  {{ t('contests.board.totalCount', { count: filteredBoardRows.length }) }}
-                </span>
-                <n-pagination
-                  :page="boardPagination.page"
-                  :page-size="boardPagination.pageSize"
-                  :item-count="filteredBoardRows.length"
-                  :page-sizes="[10, 20, 50]"
-                  show-size-picker
-                  @update:page="onBoardPage"
-                  @update:page-size="onBoardPageSize"
-                />
-              </div>
+                :total="filteredBoardRows.length"
+                :page="boardPagination.page"
+                :page-size="boardPagination.pageSize"
+                :empty-text="t('contests.board.empty')"
+                :table-props="{ class: 'board-table', scrollX: 1000, flexHeight: true }"
+                @update:page="onBoardPage"
+              >
+                <template #pager-left>
+                  <span class="pager__total">
+                    {{ t('contests.board.totalCount', { count: filteredBoardRows.length }) }}
+                  </span>
+                </template>
+              </PaginatedDataTable>
 
               <!-- 榜单单格成功提交（赛后点击 AC 格） -->
               <n-modal
@@ -1042,7 +1026,6 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
                   :total="subsTotal"
                   v-model:page="subsPage"
                   v-model:page-size="subsPageSize"
-                  :page-sizes="[20, 50, 100]"
                   :empty-text="t('contests.submissions.empty')"
                   :table-props="{ scrollX: 900, flexHeight: true, rowProps: submissionRowProps }"
                   @update:page="changeSubsPage"
@@ -1404,23 +1387,7 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   flex: 1;
   min-height: 0;
 }
-/* 榜单分页条：钉在 pane 底部（表格 flex:1 吃掉剩余空间） */
-.board-pager {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--app-border);
-  flex-shrink: 0;
-}
-.pager__total {
-  font-size: 12px;
-  color: var(--app-text-secondary);
-  font-variant-numeric: tabular-nums;
-}
+/* 榜单分页条：由 PaginatedDataTable 统一渲染 */
 
 /* ---- 主页面板 ---- */
 .announcement {

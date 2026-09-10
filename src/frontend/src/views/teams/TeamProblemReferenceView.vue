@@ -32,8 +32,7 @@ const canReference = computed(() => userStore.hasAnyRole(['admin', 'tutor']))
 const items = ref<TeamProblemSummary[]>([])
 const loading = ref(false)
 const keyword = ref('')
-const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
-  usePagination()
+const { page, pageSize, total, changePage, resetPage, beginLoad, isCurrent } = usePagination()
 
 async function load() {
   const seq = beginLoad()
@@ -148,41 +147,26 @@ onMounted(() => {
         @search="onSearch"
         @reset="onSearch"
       />
-      <n-data-table
-        size="small"
-        class="table-fill"
+      <PaginatedDataTable
         :columns="columns"
         :data="items"
         :loading="loading"
-        :bordered="false"
-        :bottom-bordered="false"
-        :flex-height="true"
-        :row-key="(row: TeamProblemSummary) => row.id"
-      />
-      <div class="pane-pager">
-        <span class="pane-pager__total">
-          {{ t('teams.pane.problemTotal', { count: total }) }}
-        </span>
-        <n-pagination
-          :page="page"
-          :page-size="pageSize"
-          :item-count="total"
-          :page-sizes="[10, 20, 50]"
-          show-size-picker
-          @update:page="
-            (p: number) => {
-              changePage(p)
-              load()
-            }
-          "
-          @update:page-size="
-            (s: number) => {
-              changeSize(s)
-              load()
-            }
-          "
-        />
-      </div>
+        :total="total"
+        :page="page"
+        :page-size="pageSize"
+        :empty-text="t('teams.space.referenceEmpty')"
+        :table-props="{ flexHeight: true, rowKey: (row: TeamProblemSummary) => row.id }"
+        @update:page="
+          (p: number) => {
+            changePage(p)
+            load()
+          }
+        "
+      >
+        <template #pager-left>
+          <span class="pager__total">{{ t('teams.pane.problemTotal', { count: total }) }}</span>
+        </template>
+      </PaginatedDataTable>
     </template>
     <div v-else class="table-fill-empty">
       <n-empty :description="t('teams.space.referenceNoPermission')" size="large" />
@@ -195,21 +179,6 @@ onMounted(() => {
   margin: 0 0 10px;
   font-size: 12px;
   color: var(--app-text-secondary);
-}
-.pane-pager {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--app-border);
-}
-.pane-pager__total {
-  font-size: 12px;
-  color: var(--app-text-secondary);
-  font-variant-numeric: tabular-nums;
 }
 .cell-strong {
   font-weight: 600;

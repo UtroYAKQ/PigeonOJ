@@ -532,6 +532,7 @@ watch(activeModule, ensureModuleLoaded, { immediate: true })
               </template>
             </SearchFilterBar>
             <PaginatedDataTable
+              show-size-picker
               :columns="memberColumns"
               :data="members"
               :loading="membersLoading"
@@ -578,6 +579,7 @@ watch(activeModule, ensureModuleLoaded, { immediate: true })
               </template>
             </SearchFilterBar>
             <PaginatedDataTable
+              show-size-picker
               :columns="problemColumns"
               :data="problems"
               :loading="problemsLoading"
@@ -624,6 +626,7 @@ watch(activeModule, ensureModuleLoaded, { immediate: true })
               </template>
             </SearchFilterBar>
             <PaginatedDataTable
+              show-size-picker
               :columns="setColumns"
               :data="sets"
               :loading="setsLoading"
@@ -670,6 +673,7 @@ watch(activeModule, ensureModuleLoaded, { immediate: true })
               </template>
             </SearchFilterBar>
             <PaginatedDataTable
+              show-size-picker
               :columns="contestColumns"
               :data="contests"
               :loading="contestsLoading"

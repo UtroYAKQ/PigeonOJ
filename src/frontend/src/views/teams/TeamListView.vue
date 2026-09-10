@@ -16,6 +16,7 @@ import { usePagination } from '@/composables/usePagination'
 import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import { formatDateTime } from '@/utils/format'
 import type { TeamRoleType, TeamSummary } from '@/types'
 
@@ -24,7 +25,7 @@ const { t } = useI18n()
 
 const loading = ref(false)
 const list = ref<TeamSummary[]>([])
-const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
+const { page, pageSize, total, changePage, resetPage } = usePagination()
 const keyword = ref('')
 /** 「我的团队」勾选：默认公开团队列表，勾选后查询本人在册团队（公开 + 私有） */
 const mineOnly = ref(false)
@@ -117,98 +118,96 @@ onMounted(load)
       </template>
     </SearchFilterBar>
 
-    <!-- 与题库 / 题单（PaginatedDataTable）同构：spin 只渲染卡片墙（全局类 table-fill 吃满），
-         空态为其兄弟节点、用全局类 table-fill-empty 拉伸居中；
-         v-show 而非 v-if（分支锚点增删会触发 Vue patch 崩溃，同 PaginatedDataTable 注释） -->
-    <n-spin
-      v-show="loading || list.length"
-      :show="loading"
-      class="table-fill"
-      content-style="height: 100%; overflow: auto"
+    <!-- 与题库 / 题单同一分页组件（PaginatedDataTable）：卡片墙经 #content 注入，
+         空态与分页条由组件统一渲染；v-show 而非 v-if（分支锚点增删会触发 Vue patch 崩溃） -->
+    <PaginatedDataTable
+      :data="list"
+      :loading="loading"
+      :total="total"
+      :page="page"
+      :page-size="pageSize"
+      :empty-text="t(mineOnly ? 'teams.list.empty' : 'teams.list.emptyPublic')"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
     >
-      <div class="cards">
-        <article
-          v-for="team in list"
-          :key="team.id"
-          class="team-card"
-          role="button"
-          tabindex="0"
-          @click="openTeam(team)"
-          @keyup.enter="openTeam(team)"
+      <template #content>
+        <n-spin
+          v-show="loading || list.length"
+          :show="loading"
+          class="table-fill"
+          content-style="height: 100%; overflow: auto"
         >
-          <div class="team-card__top">
-            <img v-if="team.avatar_url" :src="team.avatar_url" alt="" class="team-card__avatar" />
-            <div v-else class="team-card__avatar team-card__avatar--fallback" aria-hidden="true">
-              {{ initialOf(team) }}
-            </div>
-            <h3 class="team-card__title" :title="team.name">{{ team.name }}</h3>
-            <span v-if="team.my_role" class="role-chip" :class="roleMeta[team.my_role].cls">
-              <span class="role-chip__dot" aria-hidden="true" />
-              {{ t(roleMeta[team.my_role].labelKey) }}
-            </span>
-            <span v-else-if="!mineOnly" class="role-chip role-chip--public">
-              <span class="role-chip__dot" aria-hidden="true" />
-              {{ t('teams.list.publicTeam') }}
-            </span>
-          </div>
-
-          <p class="team-card__desc" :class="{ 'team-card__desc--empty': !team.description }">
-            {{ team.description ?? '—' }}
-          </p>
-
-          <div class="team-card__meta">
-            <span class="team-card__count">
-              {{ t('teams.list.memberCount') }}
-              <strong>{{ team.member_count }}</strong>
-            </span>
-            <n-button
-              v-if="!mineOnly && !team.my_role && !appliedIds.has(team.id)"
-              size="tiny"
-              type="primary"
-              secondary
-              :loading="applyingId === team.id"
-              @click.stop="onApply(team)"
+          <div class="cards">
+            <article
+              v-for="team in list"
+              :key="team.id"
+              class="team-card"
+              role="button"
+              tabindex="0"
+              @click="openTeam(team)"
+              @keyup.enter="openTeam(team)"
             >
-              {{ t('teams.list.applyJoin') }}
-            </n-button>
-          </div>
+              <div class="team-card__top">
+                <img
+                  v-if="team.avatar_url"
+                  :src="team.avatar_url"
+                  alt=""
+                  class="team-card__avatar"
+                />
+                <div
+                  v-else
+                  class="team-card__avatar team-card__avatar--fallback"
+                  aria-hidden="true"
+                >
+                  {{ initialOf(team) }}
+                </div>
+                <h3 class="team-card__title" :title="team.name">{{ team.name }}</h3>
+                <span v-if="team.my_role" class="role-chip" :class="roleMeta[team.my_role].cls">
+                  <span class="role-chip__dot" aria-hidden="true" />
+                  {{ t(roleMeta[team.my_role].labelKey) }}
+                </span>
+                <span v-else-if="!mineOnly" class="role-chip role-chip--public">
+                  <span class="role-chip__dot" aria-hidden="true" />
+                  {{ t('teams.list.publicTeam') }}
+                </span>
+              </div>
 
-          <div class="team-card__footer">
-            <span>{{ formatDateTime(team.created_at) }}</span>
-          </div>
-        </article>
-      </div>
-    </n-spin>
-    <div v-show="!loading && !list.length" class="table-fill-empty">
-      <n-empty
-        size="large"
-        :description="t(mineOnly ? 'teams.list.empty' : 'teams.list.emptyPublic')"
-      />
-    </div>
+              <p class="team-card__desc" :class="{ 'team-card__desc--empty': !team.description }">
+                {{ team.description ?? '—' }}
+              </p>
 
-    <div v-if="total > 0" class="pager">
-      <span class="pager__total">{{ t('teams.list.totalCount', { count: total }) }}</span>
-      <div class="pager__spacer" />
-      <n-pagination
-        :page="page"
-        :page-size="pageSize"
-        :item-count="total"
-        :page-sizes="[20, 30, 50]"
-        show-size-picker
-        @update:page="
-          (p: number) => {
-            changePage(p)
-            load()
-          }
-        "
-        @update:page-size="
-          (s: number) => {
-            changeSize(s)
-            load()
-          }
-        "
-      />
-    </div>
+              <div class="team-card__meta">
+                <span class="team-card__count">
+                  {{ t('teams.list.memberCount') }}
+                  <strong>{{ team.member_count }}</strong>
+                </span>
+                <n-button
+                  v-if="!mineOnly && !team.my_role && !appliedIds.has(team.id)"
+                  size="tiny"
+                  type="primary"
+                  secondary
+                  :loading="applyingId === team.id"
+                  @click.stop="onApply(team)"
+                >
+                  {{ t('teams.list.applyJoin') }}
+                </n-button>
+              </div>
+
+              <div class="team-card__footer">
+                <span>{{ formatDateTime(team.created_at) }}</span>
+              </div>
+            </article>
+          </div>
+        </n-spin>
+      </template>
+      <template #pager-left>
+        <span class="pager__total">{{ t('teams.list.totalCount', { count: total }) }}</span>
+      </template>
+    </PaginatedDataTable>
   </WorkbenchShell>
 </template>
 
@@ -354,22 +353,5 @@ onMounted(load)
   font-size: 11px;
   color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
-}
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 18px;
-  padding-top: 12px;
-  border-top: 1px solid var(--app-border);
-}
-.pager__spacer {
-  flex: 1;
-}
-@media (max-width: 700px) {
-  .pager {
-    justify-content: center;
-  }
 }
 </style>

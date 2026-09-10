@@ -196,6 +196,7 @@ function openCreate() {
     </SearchFilterBar>
 
     <PaginatedDataTable
+      show-size-picker
       :columns="columns"
       :data="sets"
       :loading="loading"

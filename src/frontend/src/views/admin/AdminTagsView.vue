@@ -202,6 +202,7 @@ const columns = computed<DataTableColumns<ProblemTagItem>>(() => [
     </SearchFilterBar>
 
     <PaginatedDataTable
+      show-size-picker
       :columns="columns"
       :data="list"
       :loading="loading"

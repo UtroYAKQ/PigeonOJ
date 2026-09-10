@@ -12,6 +12,7 @@ import { useI18n } from 'vue-i18n'
 import RefreshButton from '@/components/RefreshButton.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import { listContests } from '@/api/contests'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
@@ -22,8 +23,7 @@ const router = useRouter()
 const { t } = useI18n()
 const loading = ref(false)
 const rows = ref<ContestSummary[]>([])
-const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
-  usePagination()
+const { page, pageSize, total, changePage, resetPage, beginLoad, isCurrent } = usePagination()
 const keyword = ref('')
 const statusFilter = ref<'running' | 'scheduled' | 'finished' | null>(null)
 
@@ -109,92 +109,88 @@ function openContest(row: ContestSummary) {
       </template>
     </SearchFilterBar>
 
-    <!-- 与题库 / 题单（PaginatedDataTable）同构：spin 只渲染卡片墙（全局类 table-fill 吃满），
-         空态为其兄弟节点、用全局类 table-fill-empty 拉伸居中；
-         v-show 而非 v-if（分支锚点增删会触发 Vue patch 崩溃，同 PaginatedDataTable 注释） -->
-    <n-spin
-      v-show="loading || rows.length"
-      :show="loading"
-      class="table-fill"
-      content-style="height: 100%; overflow: auto"
+    <!-- 与题库 / 题单同一分页组件（PaginatedDataTable）：卡片墙经 #content 注入，
+         空态与分页条由组件统一渲染；v-show 而非 v-if（分支锚点增删会触发 Vue patch 崩溃） -->
+    <PaginatedDataTable
+      :data="rows"
+      :loading="loading"
+      :total="total"
+      :page="page"
+      :page-size="pageSize"
+      :empty-text="t('contests.list.empty')"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
     >
-      <div class="cards">
-        <article
-          v-for="row in rows"
-          :key="row.id"
-          class="contest-card"
-          role="button"
-          tabindex="0"
-          @click="openContest(row)"
-          @keyup.enter="openContest(row)"
+      <template #content>
+        <n-spin
+          v-show="loading || rows.length"
+          :show="loading"
+          class="table-fill"
+          content-style="height: 100%; overflow: auto"
         >
-          <div class="contest-card__top">
-            <img v-if="row.logo" :src="row.logo" alt="" class="contest-card__logo" />
-            <div v-else class="contest-card__logo contest-card__logo--fallback" aria-hidden="true">
-              {{ initialOf(row) }}
-            </div>
-            <h3 class="contest-card__title" :title="row.title">{{ row.title }}</h3>
-            <span class="state-chip" :class="`state-chip--${row.status}`">
-              <span class="state-chip__dot" aria-hidden="true" />
-              {{ statusLabel[row.status] }}
-            </span>
-            <span
-              v-if="row.board_frozen"
-              class="state-chip state-chip--frozen"
-              :title="t('contests.frozenHint')"
+          <div class="cards">
+            <article
+              v-for="row in rows"
+              :key="row.id"
+              class="contest-card"
+              role="button"
+              tabindex="0"
+              @click="openContest(row)"
+              @keyup.enter="openContest(row)"
             >
-              <span class="state-chip__dot" aria-hidden="true" />
-              {{ t('contests.boardFrozenTag') }}
-            </span>
+              <div class="contest-card__top">
+                <img v-if="row.logo" :src="row.logo" alt="" class="contest-card__logo" />
+                <div
+                  v-else
+                  class="contest-card__logo contest-card__logo--fallback"
+                  aria-hidden="true"
+                >
+                  {{ initialOf(row) }}
+                </div>
+                <h3 class="contest-card__title" :title="row.title">{{ row.title }}</h3>
+                <span class="state-chip" :class="`state-chip--${row.status}`">
+                  <span class="state-chip__dot" aria-hidden="true" />
+                  {{ statusLabel[row.status] }}
+                </span>
+                <span
+                  v-if="row.board_frozen"
+                  class="state-chip state-chip--frozen"
+                  :title="t('contests.frozenHint')"
+                >
+                  <span class="state-chip__dot" aria-hidden="true" />
+                  {{ t('contests.boardFrozenTag') }}
+                </span>
+              </div>
+
+              <p class="contest-card__desc" :class="{ 'contest-card__desc--empty': !row.description }">
+                {{ row.description ?? '—' }}
+              </p>
+
+              <div class="contest-card__meta">
+                <span class="contest-card__rule">{{ row.rule_type }}</span>
+                <span class="contest-card__sep" aria-hidden="true">·</span>
+                <span>{{ t('contests.list.problemCount', { count: row.problem_count }) }}</span>
+                <span class="contest-card__sep" aria-hidden="true">·</span>
+                <span>{{ t('contests.list.registeredCount', { count: row.registered_count }) }}</span>
+              </div>
+
+              <div class="contest-card__footer">
+                <span>{{ formatDateTime(row.start_time) }}</span>
+                <span class="contest-card__range" aria-hidden="true">→</span>
+                <span>{{ formatDateTime(row.end_time) }}</span>
+              </div>
+            </article>
           </div>
-
-          <p class="contest-card__desc" :class="{ 'contest-card__desc--empty': !row.description }">
-            {{ row.description ?? '—' }}
-          </p>
-
-          <div class="contest-card__meta">
-            <span class="contest-card__rule">{{ row.rule_type }}</span>
-            <span class="contest-card__sep" aria-hidden="true">·</span>
-            <span>{{ t('contests.list.problemCount', { count: row.problem_count }) }}</span>
-            <span class="contest-card__sep" aria-hidden="true">·</span>
-            <span>{{ t('contests.list.registeredCount', { count: row.registered_count }) }}</span>
-          </div>
-
-          <div class="contest-card__footer">
-            <span>{{ formatDateTime(row.start_time) }}</span>
-            <span class="contest-card__range" aria-hidden="true">→</span>
-            <span>{{ formatDateTime(row.end_time) }}</span>
-          </div>
-        </article>
-      </div>
-    </n-spin>
-    <div v-show="!loading && !rows.length" class="table-fill-empty">
-      <n-empty size="large" :description="t('contests.list.empty')" />
-    </div>
-
-    <div v-if="total > 0" class="pager">
-      <span class="pager__total">{{ t('contests.list.totalCount', { count: total }) }}</span>
-      <div class="pager__spacer" />
-      <n-pagination
-        :page="page"
-        :page-size="pageSize"
-        :item-count="total"
-        :page-sizes="[12, 24, 48]"
-        show-size-picker
-        @update:page="
-          (p: number) => {
-            changePage(p)
-            load()
-          }
-        "
-        @update:page-size="
-          (s: number) => {
-            changeSize(s)
-            load()
-          }
-        "
-      />
-    </div>
+        </n-spin>
+      </template>
+      <template #pager-left>
+        <span class="pager__total">{{ t('contests.list.totalCount', { count: total }) }}</span>
+      </template>
+    </PaginatedDataTable>
   </WorkbenchShell>
 </template>
 
@@ -343,17 +339,5 @@ function openContest(row: ContestSummary) {
 }
 .contest-card__range {
   opacity: 0.55;
-}
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 18px;
-  padding-top: 12px;
-  border-top: 1px solid var(--app-border);
-}
-.pager__spacer {
-  flex: 1;
 }
 </style>

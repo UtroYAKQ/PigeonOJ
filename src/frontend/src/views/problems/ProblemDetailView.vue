@@ -19,8 +19,10 @@ import {
 } from '@/api/teams'
 import { useCodeDraft } from '@/composables/useCodeDraft'
 import { useSelfTest } from '@/composables/useSelfTest'
+import { usePagination } from '@/composables/usePagination'
 import { dialog, message } from '@/utils/feedback'
 import StatusTag from '@/components/StatusTag.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import ProblemWorkbench from '@/components/problem/ProblemWorkbench.vue'
 import type { ProblemDetail, ProblemLanguage, Submission } from '@/types'
 
@@ -32,6 +34,9 @@ const submitting = ref(false)
 const subsVisible = ref(false)
 const language = ref<ProblemLanguage>('cpp17')
 const mySubmissions = ref<Submission[]>([])
+/** 我的提交弹窗：懒加载 + 分页（进入题目页不请求提交记录） */
+const subsLoading = ref(false)
+const subsPaging = usePagination({ defaultPageSize: 10 })
 
 /** 题目 id：题库路由取 params.id；题单 / 比赛 / 团队上下文路由取 params.problemId */
 const problemId = computed(() => String(route.params.problemId ?? route.params.id))
@@ -135,21 +140,48 @@ async function load() {
             ? await getTeamSetProblem(teamContextId.value, contextId.value, problemId.value)
             : context.value === 'problem-sets'
               ? await getProblemSetProblem(contextId.value, problemId.value)
-              : context.value === 'teams'
-                ? await getTeamProblem(contextId.value, problemId.value)
-                : await getProblem(problemId.value)
-    await loadMySubmissions()
+            : context.value === 'teams'
+              ? await getTeamProblem(contextId.value, problemId.value)
+              : await getProblem(problemId.value)
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
   }
 }
+
+/** 我的提交：仅弹窗打开 / 翻页时请求（beginLoad/isCurrent 防慢响应竞态） */
 async function loadMySubmissions() {
+  const seq = subsPaging.beginLoad()
+  subsLoading.value = true
   try {
-    const result = await listSubmissions({ problem_id: problemId.value, page_size: 5 })
+    const result = await listSubmissions({
+      problem_id: problemId.value,
+      page: subsPaging.page.value,
+      page_size: subsPaging.pageSize.value,
+    })
+    if (!subsPaging.isCurrent(seq)) return
     mySubmissions.value = result.items
+    subsPaging.total.value = result.total
   } catch {
     /* 未登录等场景静默 */
+  } finally {
+    if (subsPaging.isCurrent(seq)) subsLoading.value = false
   }
+}
+
+function openSubs() {
+  subsVisible.value = true
+  subsPaging.resetPage()
+  void loadMySubmissions()
+}
+
+function onSubsPage(page: number) {
+  subsPaging.changePage(page)
+  void loadMySubmissions()
+}
+
+function onSubsPageSize(pageSize: number) {
+  subsPaging.changeSize(pageSize)
+  void loadMySubmissions()
 }
 
 function openSubmission(row: Submission) {
@@ -275,28 +307,36 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
       :self-testing="selfTesting"
       :self-test-result="selfTestResult"
       hide-published-status
-      @show-submissions="subsVisible = true"
+      @show-submissions="openSubs"
       @submit="submit"
       @self-test="runSelfTest"
     />
 
-    <!-- 提交历史弹窗 -->
+    <!-- 提交历史弹窗（懒加载 + 分页） -->
     <n-modal
       v-model:show="subsVisible"
       preset="card"
       :title="t('problems.detail.mySubmissions')"
       style="width: min(720px, 92vw)"
     >
-      <n-data-table
-        v-if="mySubmissions.length"
-        size="small"
+      <PaginatedDataTable
         :columns="submissionColumns"
         :data="mySubmissions"
-        :row-props="
-          (row: Submission) => ({ style: 'cursor: pointer;', onClick: () => openSubmission(row) })
-        "
+        :loading="subsLoading"
+        :total="subsPaging.total.value"
+        :page="subsPaging.page.value"
+        :page-size="subsPaging.pageSize.value"
+        :empty-text="t('problems.detail.noSubmissions')"
+        :table-props="{
+          size: 'small',
+          rowProps: (row: Submission) => ({
+            style: 'cursor: pointer;',
+            onClick: () => openSubmission(row),
+          }),
+        }"
+        @update:page="onSubsPage"
+        @update:page-size="onSubsPageSize"
       />
-      <n-empty v-else :description="t('problems.detail.noSubmissions')" />
     </n-modal>
   </div>
 </template>

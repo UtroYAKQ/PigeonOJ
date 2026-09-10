@@ -83,6 +83,7 @@ function mountHarness() {
           total: total.value,
           page: page.value,
           pageSize: pageSize.value,
+          showSizePicker: true,
           pageSizes: [10, 20, 50],
           tableProps: { remote: true },
           // 真实页面 v-model:page + @update:page 合并为同一监听器数组：先同步 page，再触发加载

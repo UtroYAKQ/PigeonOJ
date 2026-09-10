@@ -79,6 +79,7 @@ export default {
       referenceProblem: 'Reference problem',
       referenceProblemHint:
         'Pick from your own published public problems; referencing moves ownership to this team (one-way).',
+      referenceEmpty: 'No problems available to reference',
       referenced: 'Referenced',
       created: 'Created',
       setCopied: 'Copied',

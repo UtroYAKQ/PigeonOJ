@@ -295,6 +295,7 @@ function rowProps(row: ProblemSummary) {
     </n-tabs>
 
     <PaginatedDataTable
+      show-size-picker
       :columns="columns"
       :data="list"
       :loading="loading"

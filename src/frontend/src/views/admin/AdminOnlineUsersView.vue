@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 /**
  * 在线用户面板（/admin/users/online）：10 分钟窗口内有活跃回写的有效会话。
  * 同设备去重下每行 = 一台在线设备；数据随刷新按钮 / 15s 轮询更新（页面隐藏时暂停）。
@@ -146,6 +146,7 @@ const columns = computed<DataTableColumns<OnlineUser>>(() => [
     </template>
 
     <PaginatedDataTable
+      show-size-picker
       :columns="columns"
       :data="rows"
       :loading="loading"

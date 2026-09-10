@@ -102,6 +102,7 @@ export default {
       referenceProblem: '引用题目',
       referenceProblemHint:
         '从你自己创建的已发布公开题目中挑选，引用后归属本团队（单向，不可移出）。',
+      referenceEmpty: '没有可引用的题目',
       referenced: '引用',
       created: '自建',
       setCopied: '复制',

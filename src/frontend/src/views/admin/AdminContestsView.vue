@@ -214,6 +214,7 @@ function rowProps(row: ContestSummary) {
     </SearchFilterBar>
 
     <PaginatedDataTable
+      show-size-picker
       :columns="columns"
       :data="rows"
       :loading="loading"

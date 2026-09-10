@@ -21,11 +21,13 @@ import {
 import { getTeamProblem } from '@/api/teams'
 import { listSubmissions } from '@/api/judge'
 import { useSelfTest } from '@/composables/useSelfTest'
+import { usePagination } from '@/composables/usePagination'
 import type { ProblemDetail, ProblemLanguage, Submission } from '@/types'
 import { dialog, message } from '@/utils/feedback'
 import { copyToClipboard } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/format'
 import StatusTag from '@/components/StatusTag.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import ProblemWorkbench from '@/components/problem/ProblemWorkbench.vue'
 import WizardShell from '@/components/WizardShell.vue'
 
@@ -117,21 +119,46 @@ async function onSubmit() {
   }
 }
 
-// ---- 我的提交弹窗（工作台「我的提交」按钮触发，与做题页同款）----
+// ---- 我的提交弹窗（工作台「我的提交」按钮触发时才请求 + 分页）----
 const subsVisible = ref(false)
 const mySubmissions = ref<Submission[]>([])
+const subsLoading = ref(false)
+const subsPaging = usePagination({ defaultPageSize: 10 })
 
 function openSubs() {
   subsVisible.value = true
+  subsPaging.resetPage()
   void loadMySubmissions()
 }
+
+/** beginLoad/isCurrent 防慢响应竞态（快翻页时旧响应丢弃） */
 async function loadMySubmissions() {
+  const seq = subsPaging.beginLoad()
+  subsLoading.value = true
   try {
-    const result = await listSubmissions({ problem_id: problemId, page_size: 5 })
+    const result = await listSubmissions({
+      problem_id: problemId,
+      page: subsPaging.page.value,
+      page_size: subsPaging.pageSize.value,
+    })
+    if (!subsPaging.isCurrent(seq)) return
     mySubmissions.value = result.items
+    subsPaging.total.value = result.total
   } catch {
     mySubmissions.value = []
+  } finally {
+    if (subsPaging.isCurrent(seq)) subsLoading.value = false
   }
+}
+
+function onSubsPage(page: number) {
+  subsPaging.changePage(page)
+  void loadMySubmissions()
+}
+
+function onSubsPageSize(pageSize: number) {
+  subsPaging.changeSize(pageSize)
+  void loadMySubmissions()
 }
 
 function openSubmission(row: Submission) {
@@ -374,23 +401,31 @@ onMounted(() => void loadExisting())
       </n-spin>
     </WizardShell>
 
-    <!-- 我的提交弹窗（本人该题最近提交，点击行跳评测结果页） -->
+    <!-- 我的提交弹窗（本人该题提交，懒加载 + 分页，点击行跳评测结果页） -->
     <n-modal
       v-model:show="subsVisible"
       preset="card"
       :title="t('problems.detail.mySubmissions')"
       style="width: min(720px, 92vw)"
     >
-      <n-data-table
-        v-if="mySubmissions.length"
-        size="small"
+      <PaginatedDataTable
         :columns="submissionColumns"
         :data="mySubmissions"
-        :row-props="
-          (row: Submission) => ({ style: 'cursor: pointer;', onClick: () => openSubmission(row) })
-        "
+        :loading="subsLoading"
+        :total="subsPaging.total.value"
+        :page="subsPaging.page.value"
+        :page-size="subsPaging.pageSize.value"
+        :empty-text="t('problems.detail.noSubmissions')"
+        :table-props="{
+          size: 'small',
+          rowProps: (row: Submission) => ({
+            style: 'cursor: pointer;',
+            onClick: () => openSubmission(row),
+          }),
+        }"
+        @update:page="onSubsPage"
+        @update:page-size="onSubsPageSize"
       />
-      <n-empty v-else :description="t('problems.detail.noSubmissions')" />
     </n-modal>
 
     <!-- 邀请验题弹窗 -->
