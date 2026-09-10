@@ -14,6 +14,7 @@ import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import { listContests } from '@/api/contests'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
@@ -74,10 +75,6 @@ const statusLabel = computed<Record<string, string>>(() => ({
   scheduled: t('contests.statusScheduled'),
   finished: t('contests.statusFinished'),
 }))
-
-function initialOf(row: ContestSummary): string {
-  return (row.title || '?').trim().charAt(0).toUpperCase()
-}
 
 function openContest(row: ContestSummary) {
   router.push(`/contests/${row.id}`)
@@ -143,14 +140,15 @@ function openContest(row: ContestSummary) {
               @keyup.enter="openContest(row)"
             >
               <div class="contest-card__top">
-                <img v-if="row.logo" :src="row.logo" alt="" class="contest-card__logo" />
-                <div
-                  v-else
-                  class="contest-card__logo contest-card__logo--fallback"
-                  aria-hidden="true"
-                >
-                  {{ initialOf(row) }}
-                </div>
+                <BaseAvatar
+                  kind="contest"
+                  :src="row.logo"
+                  :name="row.title"
+                  :size="40"
+                  :round="false"
+                  :radius="8"
+                  bordered
+                />
                 <h3 class="contest-card__title" :title="row.title">{{ row.title }}</h3>
                 <span class="state-chip" :class="`state-chip--${row.status}`">
                   <span class="state-chip__dot" aria-hidden="true" />
@@ -231,24 +229,6 @@ function openContest(row: ContestSummary) {
   align-items: center;
   gap: 10px;
   min-width: 0;
-}
-.contest-card__logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  object-fit: cover;
-  border: 1px solid var(--app-border);
-  flex-shrink: 0;
-}
-.contest-card__logo--fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--app-muted-bg);
-  border: 1px solid var(--app-border);
-  color: var(--app-text-secondary);
-  font-size: 16px;
-  font-weight: 650;
 }
 .contest-card__title {
   flex: 1;

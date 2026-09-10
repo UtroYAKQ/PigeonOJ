@@ -11,6 +11,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { listMyTeams, listTeams, submitTeamApplication } from '@/api/teams'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import RefreshButton from '@/components/RefreshButton.vue'
@@ -39,10 +40,6 @@ const roleMeta: Record<TeamRoleType, { cls: string; labelKey: string }> = {
   creator: { cls: 'role-chip--creator', labelKey: 'teams.role.creator' },
   admin: { cls: 'role-chip--admin', labelKey: 'teams.role.admin' },
   member: { cls: 'role-chip--member', labelKey: 'teams.role.member' },
-}
-
-function initialOf(team: TeamSummary) {
-  return team.name?.trim()?.charAt(0).toUpperCase() || 'T'
 }
 
 async function load() {
@@ -169,19 +166,15 @@ onMounted(load)
               @keyup.enter="openTeam(team)"
             >
               <div class="team-card__top">
-                <img
-                  v-if="team.avatar_url"
+                <BaseAvatar
+                  kind="team"
                   :src="team.avatar_url"
-                  alt=""
-                  class="team-card__avatar"
+                  :name="team.name"
+                  :size="40"
+                  :round="false"
+                  :radius="8"
+                  bordered
                 />
-                <div
-                  v-else
-                  class="team-card__avatar team-card__avatar--fallback"
-                  aria-hidden="true"
-                >
-                  {{ initialOf(team) }}
-                </div>
                 <h3 class="team-card__title" :title="team.name">{{ team.name }}</h3>
                 <span v-if="team.my_role" class="role-chip" :class="roleMeta[team.my_role].cls">
                   <span class="role-chip__dot" aria-hidden="true" />
@@ -265,24 +258,6 @@ onMounted(load)
   align-items: center;
   gap: 10px;
   min-width: 0;
-}
-.team-card__avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  object-fit: cover;
-  border: 1px solid var(--app-border);
-  flex-shrink: 0;
-}
-.team-card__avatar--fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--app-muted-bg);
-  border: 1px solid var(--app-border);
-  color: var(--app-text-secondary);
-  font-size: 16px;
-  font-weight: 650;
 }
 .team-card__title {
   flex: 1;

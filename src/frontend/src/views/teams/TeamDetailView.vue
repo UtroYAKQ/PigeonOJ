@@ -22,7 +22,6 @@ import {
   Trophy,
 } from '@element-plus/icons-vue'
 import {
-  NAvatar,
   NButton,
   NCheckbox,
   NDropdown,
@@ -60,6 +59,7 @@ import {
 import { uploadImage } from '@/api/files'
 import { ApiError } from '@/api/http'
 import { archiveProblem } from '@/api/problems'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/visibilityLabel'
 import { usePagination } from '@/composables/usePagination'
@@ -92,10 +92,6 @@ const loading = ref(false)
 
 const isCreator = computed(() => team.value?.my_role === 'creator')
 const isAdmin = computed(() => team.value?.my_role === 'creator' || team.value?.my_role === 'admin')
-
-function initialOf(name: string | null | undefined) {
-  return name?.trim()?.charAt(0).toUpperCase() || 'T'
-}
 
 function formatCompact(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -961,10 +957,15 @@ onMounted(load)
           <span class="hero__ring"></span>
         </div>
         <div class="hero__body">
-          <img v-if="team.avatar_url" :src="team.avatar_url" alt="" class="hero__avatar" />
-          <div v-else class="hero__avatar hero__avatar--fallback" aria-hidden="true">
-            {{ initialOf(team.name) }}
-          </div>
+          <BaseAvatar
+            class="hero__avatar"
+            kind="team"
+            :src="team.avatar_url"
+            :name="team.name"
+            :size="88"
+            :round="false"
+            :radius="10"
+          />
 
           <div class="hero__main">
             <div class="hero__title-row">
@@ -1078,16 +1079,11 @@ onMounted(load)
                     <NSpin :show="membersLoading" class="pane-spin">
                       <ul v-if="members.length" class="tile-grid">
                         <li v-for="member in members" :key="member.user_id" class="tile">
-                          <NAvatar
-                            :src="member.avatar_url || undefined"
-                            round
+                          <BaseAvatar
+                            :src="member.avatar_url"
+                            :name="member.nickname"
                             :size="40"
-                            class="tile__avatar"
-                          >
-                            <template v-if="!member.avatar_url">{{
-                              initialOf(member.nickname)
-                            }}</template>
-                          </NAvatar>
+                          />
                           <div class="tile__body">
                             <div class="tile__head">
                               <span class="tile__title" :title="member.nickname">{{
@@ -1302,10 +1298,15 @@ onMounted(load)
                       @keyup.enter="openContest(contest)"
                     >
                       <div class="tile__head">
-                        <img v-if="contest.logo" :src="contest.logo" alt="" class="tile__face" />
-                        <span v-else class="tile__face tile__face--fallback" aria-hidden="true">
-                          {{ initialOf(contest.title) }}
-                        </span>
+                        <BaseAvatar
+                          kind="contest"
+                          :src="contest.logo"
+                          :name="contest.title"
+                          :size="40"
+                          :round="false"
+                          :radius="8"
+                          bordered
+                        />
                         <h3 class="tile__title" :title="contest.title">{{ contest.title }}</h3>
                         <span class="dot-chip" :class="`dot-chip--${contest.status}`">
                           <span class="dot-chip__dot" aria-hidden="true" />
@@ -1372,9 +1373,7 @@ onMounted(load)
                 <NSpin :show="applicationsLoading" class="pane-spin">
                   <ul v-if="applications.length" class="tile-grid">
                     <li v-for="application in applications" :key="application.id" class="tile">
-                      <NAvatar round :size="40" class="tile__avatar">
-                        {{ initialOf(application.nickname) }}
-                      </NAvatar>
+                      <BaseAvatar :name="application.nickname" :size="40" />
                       <div class="tile__body">
                         <div class="tile__head">
                           <span class="tile__title" :title="application.nickname">
@@ -1605,23 +1604,10 @@ onMounted(load)
   width: 100%;
   box-sizing: border-box;
 }
+/* 头像框架由 BaseAvatar（尺寸 / 圆角 / 回退图）承担，这里只保留 Hero 描边与投影 */
 .hero__avatar {
-  width: 88px;
-  height: 88px;
-  border-radius: 10px;
-  object-fit: cover;
   border: 3px solid var(--app-card-bg, #fff);
   box-shadow: 0 2px 12px rgb(0 0 0 / 8%);
-  flex-shrink: 0;
-  background: var(--app-muted-bg);
-}
-.hero__avatar--fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--app-text-secondary);
-  font-size: 32px;
-  font-weight: 800;
 }
 .hero__main {
   flex: 1;
@@ -1802,27 +1788,6 @@ onMounted(load)
 .tile--link:focus-visible {
   outline: 2px solid var(--app-primary);
   outline-offset: 2px;
-}
-.tile__avatar {
-  flex-shrink: 0;
-  color: var(--app-text-secondary);
-  font-size: 14px;
-}
-.tile__face {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  object-fit: cover;
-  border: 1px solid var(--app-border);
-  flex-shrink: 0;
-}
-.tile__face--fallback {
-  display: grid;
-  place-items: center;
-  background: var(--app-muted-bg);
-  color: var(--app-text-secondary);
-  font-size: 16px;
-  font-weight: 650;
 }
 .tile__body {
   flex: 1;

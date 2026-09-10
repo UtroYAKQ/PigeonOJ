@@ -76,6 +76,7 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 
 | 组件 | 用途 | 共用页面 |
 | --- | --- | --- |
+| `components/BaseAvatar.vue` | 统一头像 / logo 展示：`src` 为空或**加载失败**（外链失效）时回退默认头像图（`assets/avatars/`，按 `kind` 区分 user / team / contest，透明底 SVG + `--app-muted-bg` 适配明暗）；props：`src` / `name`（alt 与 aria）/ `size` / `round`（默认圆形）/ `radius` / `bordered` / `kind`；页面只保留描边、投影等附加框架样式，禁止再手写首字母占位或 v-if 分支回退 | 顶栏 / 个人资料 / 管理用户 / 在线用户 / 团队列表 / 团队详情 / 邀请落地页 / 管理团队 / 比赛列表 / 比赛详情 |
 | `components/problem/ProblemWorkbench.vue` | 题面 + 编辑器双栏 | 题目详情 / 编辑向导 |
 | `components/problem/ProblemMetaBar.vue` | 标题 + 限制 + 标签 | 题目详情 / 管理 |
 | `components/problem/ProblemStatement.vue` | 描述 + 输入输出 + 样例 + 题面说明 | 题目详情 / 管理 |

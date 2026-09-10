@@ -6,12 +6,13 @@
  * 布局复用 WorkbenchShell（page-fill 占满应用壳），内部居中舞台 +
  * 主色几何装饰，风格对齐 TeamDetailView 的 Hero（主色仅小面积点缀）。
  */
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AlarmClock } from '@element-plus/icons-vue'
 
 import { resolveTeamInvite, submitTeamApplication } from '@/api/teams'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 import { message } from '@/utils/feedback'
 import { useUserStore } from '@/stores/user'
 import { formatDateTime } from '@/utils/format'
@@ -28,10 +29,6 @@ const invite = ref<TeamInviteResolved | null>(null)
 const loading = ref(false)
 const submitting = ref(false)
 const submitted = ref(false)
-
-const initial = computed(
-  () => (invite.value?.team_name ?? '').trim().charAt(0).toUpperCase() || 'T',
-)
 
 async function load() {
   loading.value = true
@@ -82,13 +79,15 @@ onMounted(load)
         <div v-if="invite" class="invite-stage">
           <div class="invite-hero">
             <span class="invite-hero__badge">{{ t('teams.invite.badge') }}</span>
-            <img
-              v-if="invite.avatar_url"
-              :src="invite.avatar_url"
-              alt=""
+            <BaseAvatar
               class="invite-hero__avatar"
+              kind="team"
+              :src="invite.avatar_url"
+              :name="invite.team_name"
+              :size="80"
+              :round="false"
+              :radius="18"
             />
-            <div v-else class="invite-hero__avatar" aria-hidden="true">{{ initial }}</div>
             <p class="invite-hero__kicker">{{ t('teams.invite.subtitle') }}</p>
             <h1 class="invite-hero__name">{{ invite.team_name }}</h1>
             <p class="invite-hero__meta">
@@ -238,28 +237,7 @@ onMounted(load)
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-primary) 22%, transparent);
 }
 .invite-hero__avatar {
-  width: 80px;
-  height: 80px;
   margin-top: 20px;
-  border-radius: 18px;
-  display: grid;
-  place-items: center;
-  font-size: 32px;
-  font-weight: 800;
-  color: var(--app-primary);
-  background:
-    radial-gradient(
-      120% 120% at 20% 12%,
-      color-mix(in srgb, var(--app-primary) 14%, transparent) 0%,
-      transparent 60%
-    ),
-    var(--app-muted-bg);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-primary) 24%, transparent);
-}
-/* 团队头像图片：盖住占位底色，object-fit 防拉伸 */
-img.invite-hero__avatar {
-  object-fit: cover;
-  background: var(--app-muted-bg);
 }
 .invite-hero__kicker {
   margin: 20px 0 0;

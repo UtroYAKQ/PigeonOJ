@@ -25,6 +25,7 @@ import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import {
   getContest,
@@ -320,8 +321,6 @@ const statusMeta = computed(() => {
   }
   return map[detail.value?.status ?? 'scheduled']
 })
-
-const initial = computed(() => (detail.value?.title || '?').trim().charAt(0).toUpperCase())
 
 const manageOptions = computed<DropdownOption[]>(() => {
   if (!detail.value?.can_manage) return []
@@ -737,8 +736,14 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
           <div class="hero__body">
             <div class="hero__row hero__row--top">
               <div class="hero__logo">
-                <img v-if="detail.logo" :src="detail.logo" alt="logo" />
-                <span v-else>{{ initial }}</span>
+                <BaseAvatar
+                  kind="contest"
+                  :src="detail.logo"
+                  :name="detail.title"
+                  :size="88"
+                  :round="false"
+                  :radius="10"
+                />
               </div>
               <div class="hero__id">
                 <h1 class="hero__title">{{ detail.title }}</h1>
@@ -1145,27 +1150,11 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
   gap: 16px;
   flex-wrap: wrap;
 }
-/* 比赛Logo：团队头像同款尺寸与描边 */
+/* 比赛Logo：团队头像同款描边与投影；尺寸 / 圆角 / 回退图由 BaseAvatar 承担 */
 .hero__logo {
-  width: 88px;
-  height: 88px;
-  border-radius: 10px;
-  overflow: hidden;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--app-card-bg, #fff);
   border: 3px solid var(--app-card-bg, #fff);
   box-shadow: 0 2px 12px rgb(0 0 0 / 8%);
-  font-size: 32px;
-  font-weight: 800;
-  color: var(--app-text-secondary);
-}
-.hero__logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .hero__id {
   flex: 1;

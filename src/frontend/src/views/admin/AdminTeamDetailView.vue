@@ -9,7 +9,7 @@
 import { computed, h, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NAvatar, NTag } from 'naive-ui'
+import { NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import {
@@ -22,6 +22,7 @@ import {
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
@@ -43,10 +44,6 @@ const teamId = String(route.params.id)
 const loading = ref(false)
 const detail = ref<TeamAdminDetail | null>(null)
 const loadFailed = ref(false)
-
-function initialOf(name: string | null | undefined) {
-  return name?.trim()?.charAt(0).toUpperCase() || 'T'
-}
 
 async function load() {
   loading.value = true
@@ -116,11 +113,7 @@ const memberColumns = computed<DataTableColumns<TeamMemberItem>>(() => [
     width: 72,
     align: 'center',
     render(row) {
-      return h(
-        NAvatar,
-        { size: 36, round: true, src: row.avatar_url || undefined },
-        row.avatar_url ? {} : { default: () => initialOf(row.nickname) },
-      )
+      return h(BaseAvatar, { src: row.avatar_url, name: row.nickname, size: 36 })
     },
   },
   {
@@ -455,10 +448,14 @@ watch(activeModule, ensureModuleLoaded, { immediate: true })
     <template v-else>
       <!-- ======== 团队信息卡 ======== -->
       <section class="team-hero">
-        <img v-if="detail.avatar_url" :src="detail.avatar_url" alt="" class="team-hero__avatar" />
-        <div v-else class="team-hero__avatar team-hero__avatar--fallback" aria-hidden="true">
-          {{ initialOf(detail.name) }}
-        </div>
+        <BaseAvatar
+          kind="team"
+          :src="detail.avatar_url"
+          :name="detail.name"
+          :size="72"
+          :round="false"
+          :radius="12"
+        />
         <div class="team-hero__main">
           <div class="team-hero__title-row">
             <h2 class="team-hero__title">{{ detail.name }}</h2>
@@ -715,22 +712,6 @@ watch(activeModule, ensureModuleLoaded, { immediate: true })
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius, 8px);
   background: var(--app-card-bg);
-}
-.team-hero__avatar {
-  width: 72px;
-  height: 72px;
-  border-radius: 12px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-.team-hero__avatar--fallback {
-  display: grid;
-  place-items: center;
-  font-size: 28px;
-  font-weight: 700;
-  color: #fff;
-  background: var(--app-primary);
-  user-select: none;
 }
 .team-hero__main {
   flex: 1;

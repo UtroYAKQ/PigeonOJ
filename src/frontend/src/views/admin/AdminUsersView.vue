@@ -1,10 +1,11 @@
 ﻿<script setup lang="ts">
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NAvatar, NButton, NTag } from 'naive-ui'
+import { NButton, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import * as adminApi from '@/api/admin'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 import type { GlobalRoleCode, User, UserStatus } from '@/types'
 import { ROLE_NAME, USER_STATUS, toNaiveTagType } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
@@ -164,11 +165,7 @@ const columns = computed<DataTableColumns<User>>(() => [
     width: 70,
     align: 'center',
     render(row) {
-      return h(
-        NAvatar,
-        { size: 32, round: true, src: row.avatar_url || undefined },
-        row.avatar_url ? {} : { default: () => (row.nickname ?? '?').slice(0, 1) },
-      )
+      return h(BaseAvatar, { src: row.avatar_url, name: row.nickname, size: 32 })
     },
   },
   {

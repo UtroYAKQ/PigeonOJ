@@ -215,7 +215,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
   AC / 部分分 / 尝试 / 未提交药丸格 + 图例，flex-height 表体滚动 + 分页贴底）；
   赛后点击 AC 格弹窗查看该格成功提交（`GET .../board/{user_id}/{problem_id}/accepted`，第 8 条）
 - 前端：比赛中心为**卡片流**（头像横幅 + 状态徽标 + 赛制 / 题数 / 报名数 / 时间窗，整卡点击进详情；
-  无头像回退渐变底 + 标题首字），建赛 / 编辑为**全页表单**（`/admin/contests/create`、
+  无头像回退 `BaseAvatar` 默认图标，见 frontend.md 共享组件），建赛 / 编辑为**全页表单**（`/admin/contests/create`、
   `/admin/contests/:id/edit`：logo 上传 + Markdown 说明 + 时间四元组 + 题目编排），
   详情页带 logo 横幅与 Markdown 说明渲染；榜单页轮询刷新
 - 已实现（迁移 0029，随 teams.md 团队空间节）：团队比赛——创建（团队端点，

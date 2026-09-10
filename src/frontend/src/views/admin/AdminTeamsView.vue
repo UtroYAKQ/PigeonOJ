@@ -8,10 +8,11 @@ import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { CirclePlus } from '@element-plus/icons-vue'
-import { NAvatar, NButton, NIcon, NTag } from 'naive-ui'
+import { NButton, NIcon, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import { adminListTeams } from '@/api/admin'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 import { createTeam } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
@@ -74,10 +75,6 @@ const statusValue = computed({
   },
 })
 
-function initialOf(team: TeamAdminSummary) {
-  return team.name?.trim()?.charAt(0).toUpperCase() || 'T'
-}
-
 const columns = computed<DataTableColumns<TeamAdminSummary>>(() => [
   {
     // 头像独立一列（圆形 36px），与名称列拉开间距
@@ -86,11 +83,7 @@ const columns = computed<DataTableColumns<TeamAdminSummary>>(() => [
     width: 72,
     align: 'center',
     render(row) {
-      return h(
-        NAvatar,
-        { size: 36, round: true, src: row.avatar_url || undefined },
-        row.avatar_url ? {} : { default: () => initialOf(row) },
-      )
+      return h(BaseAvatar, { src: row.avatar_url, name: row.name, size: 36, kind: 'team' })
     },
   },
   {
