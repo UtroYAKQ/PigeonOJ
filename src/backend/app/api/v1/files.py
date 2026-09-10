@@ -1,7 +1,9 @@
 """通用文件上传路由（统一前缀 /api/v1）。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Response, UploadFile
+import hashlib
+
+from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 
 from app.api.deps import FileServiceDep
 from app.models.user import User
@@ -15,6 +17,8 @@ router = APIRouter(prefix="/files", tags=["files"])
 
 # 公开读取白名单：用户头像 / 公共图片、站点 Logo（判题测试点不在其列）
 _PUBLIC_FILE_PREFIXES = ("users/", "site/logo/")
+# 站内对象 key 含 uuid、内容不可变：可放心长缓存（浏览器无须重复回源拉大图）
+_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 
 @router.post("/upload/avatar", response_model=ApiResponse[AvatarUploadResult])
@@ -47,15 +51,26 @@ async def upload_site_logo(
 
 
 @router.get("/{object_key:path}")
-async def read_file(object_key: str):
-    """读取用户头像等公开展示文件；判题测试点不使用此接口。"""
+async def read_file(object_key: str, request: Request):
+    """读取用户头像等公开展示文件；判题测试点不使用此接口。
+
+    对象 key 含 uuid 且内容不可变，返回长缓存头（immutable）+ ETag；
+    命中 If-None-Match 时回 304，避免重复回源 MinIO 拉整图。
+    """
     if not object_key.startswith(_PUBLIC_FILE_PREFIXES):
         raise APIError(RESOURCE_NOT_FOUND, "文件不存在", 404)
     try:
         content, content_type = await get_storage().get_bytes(object_key)
     except (OSError, S3Error) as exc:
         raise APIError(RESOURCE_NOT_FOUND, "文件不存在", 404) from exc
+    etag = f'"{hashlib.sha256(object_key.encode()).hexdigest()[:16]}-{len(content):x}"'
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": _CACHE_CONTROL})
     # 内容已在内存（MinIO get_bytes），用 Response 而非 FileResponse：
     # starlette 1.0 的 FileResponse 仅接受 path（0.38~0.4x 的 content= 参数已移除），
     # Response 全版本兼容且语义正确
-    return Response(content=content, media_type=content_type)
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": _CACHE_CONTROL, "ETag": etag},
+    )

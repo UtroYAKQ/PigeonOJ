@@ -163,7 +163,7 @@ async function save() {
               :disabled="uploadIndex === index && uploading"
               @click="pickImage(index)"
             >
-              <img v-if="banner.image" :src="banner.image" alt="" />
+              <img v-if="banner.image" :src="banner.image" alt="" decoding="async" />
               <span v-else class="homecfg-thumb-placeholder">
                 <n-icon :component="Plus" />
                 {{ t('config.uploadImage') }}

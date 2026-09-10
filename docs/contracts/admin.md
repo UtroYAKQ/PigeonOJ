@@ -126,7 +126,7 @@ ORDER BY r.created_at DESC, r.id DESC
 | POST | /files/upload/avatar | auth | 上传当前用户头像到 MinIO（频控：≤10 次/小时/用户，超次 4002） | multipart file（≤2MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL，供 `avatar_url` 直接存储/渲染） |
 | POST | /files/upload/image | auth | 公共图片上传（题面插图等 Markdown 引用场景，登录用户可用），存 MinIO `users/{uid}/images/`（频控：≤30 次/小时/用户） | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
 | POST | /files/upload/site-logo | admin | 站点 Logo 上传（站点配置 `site.logo` 引用），存 MinIO `site/logo/`（频控：≤10 次/小时/用户） | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
-| GET | /files/{object_key} | public | 读取头像 / 公共图片 / 站点 Logo 等公开文件；不允许读取测试点 | object_key（仅 `users/` 或 `site/logo/` 前缀） | binary |
+| GET | /files/{object_key} | public | 读取头像 / 公共图片 / 站点 Logo 等公开文件；不允许读取测试点。对象 key 含 uuid、内容不可变：响应带 `Cache-Control: public, max-age=31536000, immutable` + `ETag`，命中 `If-None-Match` 回 304（浏览器长缓存，首页轮播大图不重复回源） | object_key（仅 `users/` 或 `site/logo/` 前缀） | binary（304 时无 body） |
 | GET | /admin/logs/{type} | admin | 日志查询 / 筛选 / 导出（keyword：request=请求号/路径，login=邮箱/动作，exception=消息/堆栈；nickname：按用户昵称模糊过滤，经 `users.nickname` 关联，与 keyword 可叠加） | 分页/keyword/nickname/时间范围 | log[] |
 | DELETE | /admin/logs/{type} | admin | 一键清空指定类型日志（全表删除，危险操作；type ∈ request / login / exception，非法值 3001） | - | - |
 | GET | /admin/sandbox/status | admin | 沙箱状态展示（读 Redis `sandbox:node:<id>`；指标由网关心跳写入） | - | nodes[{id, name, status, channel, load, cpu_usage, memory_usage, running_tasks, capacity, version, last_heartbeat_at}] |

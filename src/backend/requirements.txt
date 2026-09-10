@@ -28,6 +28,7 @@ py-ip2region==3.0.4
 # ============ 对象存储 ============
 minio==7.2.20          # MinIO SDK（生产部署）
 python-multipart==0.0.32   # FastAPI multipart/form-data 上传
+pillow==12.1.1         # 上传图片降采样（超大图整图解码是前端卡顿主因）
 
 # ============ 测试（开发依赖）============
 # 运行 pytest 前安装：pip install -r requirements-dev.txt

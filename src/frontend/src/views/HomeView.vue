@@ -6,6 +6,8 @@
  * 下方快捷入口磁贴（题库 / 题单 / 比赛 / 团队）与算法小贴士栏（随机换一条）。
  * 内容全部由公开站点配置驱动，未配置海报时左侧回退品牌横幅（不空窗），
  * 未配置公告时右侧弱化占位。
+ * 性能：海报图最大 5MB 不受控，轮播仅挂载「当前 + 相邻」slide 的 src（其余懒加载），
+ * 避免一次性解码全部大图导致掉帧；loop 复制的首尾副本与真身共用 banner 序号判定。
  */
 import {
   ArrowRight,
@@ -56,6 +58,16 @@ const banners = computed<SiteBanner[]>(() =>
   (appStore.siteConfig.banners ?? []).filter((b) => !!b.image),
 )
 const announcement = computed(() => (appStore.siteConfig.announcement ?? '').trim())
+
+/**
+ * 轮播懒加载：用 CarouselItem 插槽参数（isActive/isPrev/isNext）判断是否挂真实 src。
+ * 仅「当前 + 前后相邻」加载：autoplay 推进前下一张已提前挂载预载，切换不空窗；
+ * 其余 slide 渲染无 src 的 <img>，不发起请求也不解码，避免 10 张大图一次性全解。
+ * 无需记录「已加载」状态：src 移除后浏览器已有缓存（immutable），再切入瞬时恢复。
+ * 注意：单张 banner 时 naive 内部 realIndex(+1 偏移) 与未复制的轨道对不上，
+ * isActive/isPrev/isNext 恒为 false（naive 的 --current 类同样失效，仅对滑动无感），
+ * 故单张退化为静态 banner，不做门控直接挂图。
+ */
 
 const cards = [
   {
@@ -129,21 +141,30 @@ function openBanner(banner: SiteBanner) {
           draggable
           class="home__carousel"
         >
-          <component
-            :is="banner.link ? 'button' : 'div'"
-            v-for="(banner, index) in banners"
-            :key="index"
-            type="button"
-            class="home__slide"
-            :class="{ 'home__slide--link': banner.link }"
-            :aria-label="banner.title || undefined"
-            @click="openBanner(banner)"
-          >
-            <img :src="banner.image" :alt="banner.title" class="home__slide-img" />
-            <div v-if="banner.title" class="home__slide-caption">
-              <span>{{ banner.title }}</span>
-            </div>
-          </component>
+          <!-- 多张：仅当前 + 相邻 slide 挂真实 src（懒加载，见脚本注释）；单张：静态直挂 -->
+          <n-carousel-item v-for="(banner, index) in banners" :key="index">
+            <template #default="{ isActive, isPrev, isNext }">
+              <component
+                :is="banner.link ? 'button' : 'div'"
+                type="button"
+                class="home__slide"
+                :class="{ 'home__slide--link': banner.link }"
+                :aria-label="banner.title || undefined"
+                @click="openBanner(banner)"
+              >
+                <img
+                  v-if="banners.length === 1 || isActive || isPrev || isNext"
+                  :src="banner.image"
+                  :alt="banner.title"
+                  class="home__slide-img"
+                  decoding="async"
+                />
+                <div v-if="banner.title" class="home__slide-caption">
+                  <span>{{ banner.title }}</span>
+                </div>
+              </component>
+            </template>
+          </n-carousel-item>
         </n-carousel>
         <div v-else class="home__brand">
           <p class="home__kicker">{{ siteName }}</p>
@@ -257,12 +278,13 @@ function openBanner(banner: SiteBanner) {
 
 /* 轮播：圆角贴设计系统，图片 cover 防拉伸。
    clip-path 内裁 1px：抵消相邻滑片亚像素取整渗色（边缘 1px 邻图细线），
-   视觉边缘由面板自身 1px 边框承担 */
+   视觉边缘由面板自身 1px 边框承担。
+   clip-path 放在 slide img（静态层）而非做 transform 过渡的 slides 轨道：
+   动画容器带裁剪会放大合成/重绘开销 */
 .home__carousel {
   flex: 1;
   min-height: 0;
   width: 100%;
-  clip-path: inset(1px);
 }
 .home__slide {
   position: relative;
@@ -293,6 +315,7 @@ function openBanner(banner: SiteBanner) {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  clip-path: inset(1px);
 }
 /* 底部渐变遮罩 + 标题（暗色模式同样可读） */
 .home__slide-caption {
