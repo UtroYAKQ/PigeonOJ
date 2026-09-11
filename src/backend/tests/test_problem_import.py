@@ -85,6 +85,9 @@ async def test_import_zip_creates_published_and_draft(client, admin_headers, fak
     assert len(row.active_case_ids) == 2  # 1 组内嵌 + 2 组 test_input/test_output 对
     assert row.status == "published" and row.verified_at is not None
     assert row.owner_id is not None
+    # imported published 是「已验题」状态：samples_updated_at 不得晚于 verified_at
+    #（否则测 needs_reverification 误判「需重新验题」，见 problem.py needs_reverification）
+    assert row.samples_updated_at <= row.verified_at
     # 测试点内容已落对象存储
     assert any(key.startswith(f"problems/{row.id}/cases/") for key in fake_storage.store)
 
@@ -187,8 +190,12 @@ async def _seed_export_problem(
     with_tests: bool = True,
     with_spj: bool = False,
     fake_storage=None,
-) -> str:
-    """种子导出用题目：2 个生效测试点（内容入 fake storage）+ 样例 + 可选生效特判。"""
+    description: str = "求 A+B",
+) -> tuple[str, str]:
+    """种子导出用题目：2 个生效测试点（内容入 fake storage）+ 样例 + 可选生效特判。
+
+    返回 (题目 id, owner id)。
+    """
     async with SessionLocal() as db:
         uid = (await db.execute(select(User).limit(1))).scalar_one().id
         spj_key = None
@@ -198,7 +205,7 @@ async def _seed_export_problem(
         problem = Problem(
             title=title,
             background="导出测试背景",
-            description="求 A+B",
+            description=description,
             input_description="一行两个整数",
             output_description="一行输出和",
             note="导出提示",
@@ -232,7 +239,7 @@ async def _seed_export_problem(
         await db.flush()
         problem.active_case_ids = [str(row.id) for row in case_ids]
         await db.commit()
-        return str(problem.id)
+        return str(problem.id), str(uid)
 
 
 def _parse_items(xml_bytes: bytes) -> list[ET.Element]:
@@ -244,7 +251,7 @@ def _parse_items(xml_bytes: bytes) -> list[ET.Element]:
 @pytest.mark.asyncio
 async def test_export_single_problem_xml(client, admin_headers, fake_storage):
     """单题导出：fps.xml 附件，字段与生效集数据完整（title/limits/样例/测试点/spj）。"""
-    pid = await _seed_export_problem(
+    pid, _uid = await _seed_export_problem(
         "导出单题", with_spj=True, fake_storage=fake_storage,
     )
     resp = await client.get(f"/api/v1/admin/problems/{pid}/export", headers=admin_headers)
@@ -268,8 +275,8 @@ async def test_export_single_problem_xml(client, admin_headers, fake_storage):
 @pytest.mark.asyncio
 async def test_export_batch_zip(client, admin_headers, fake_storage):
     """批量导出：ZIP 内含单文件 fps.xml，一题一 item；缺失 id 跳过。"""
-    pid_a = await _seed_export_problem("导出批量甲", fake_storage=fake_storage)
-    pid_b = await _seed_export_problem(
+    pid_a, _ = await _seed_export_problem("导出批量甲", fake_storage=fake_storage)
+    pid_b, _ = await _seed_export_problem(
         "导出批量乙", with_tests=False, fake_storage=fake_storage,
     )
     resp = await client.get(
@@ -309,3 +316,79 @@ async def test_export_guards(client, admin_headers, user_headers, fake_storage):
         f"/api/v1/admin/problems/{uuid_mod.uuid4()}/export", headers=user_headers,
     )
     assert resp.status_code == 403
+
+
+# ---- 题面图片双向转换（docs/contracts/problems.md「FPS 题库导入 / 导出」） ----
+
+
+@pytest.mark.asyncio
+async def test_import_inline_base64_image(client, admin_headers, fake_storage, monkeypatch):
+    """导入：Markdown 内嵌图（Hydro 系 fps 形态）小图落 MinIO（导入人 images 空间）；
+    超限 / 不支持格式（svg）替换为占位文本；HTML <img> 形态不识别（原样保留）。"""
+    import base64 as b64mod
+
+    from app.services import problem_import
+
+    monkeypatch.setattr(problem_import, "MAX_INLINE_IMAGE_BYTES", 16)
+    png = b64mod.b64encode(b"\x89PNG-fake-img").decode()
+    oversize = b64mod.b64encode(b"x" * 32).decode()
+    svg = b64mod.b64encode(b"<svg/>").decode()
+    desc = (
+        "题面 "
+        f"![正常图](data:image/png;base64,{png}) "
+        f"![超限图](data:image/jpeg;base64,{oversize}) "
+        f"![svg](data:image/svg+xml;base64,{svg}) "
+        f"<img src='data:image/png;base64,{png}'>"
+    )
+    xml = _fps_xml([
+        "<item><title>插图导入题</title>"
+        f"<description><![CDATA[{desc}]]></description>"
+        "<test_input><![CDATA[1]]></test_input>"
+        "<test_output><![CDATA[2]]></test_output></item>",
+    ])
+    resp = await client.post(
+        "/api/v1/admin/problems/import",
+        files={"file": ("fps.zip", _zip_bytes(xml), "application/zip")},
+        headers=admin_headers,
+    )
+    assert resp.json()["data"]["imported"] == 1, resp.text
+
+    row = await _problem_by_title("插图导入题")
+    assert row is not None
+    hits = [
+        (key, value)
+        for key, value in fake_storage.store.items()
+        if key.startswith("users/") and value[0] == b"\x89PNG-fake-img"
+    ]
+    assert len(hits) == 1  # 仅 Markdown 形态被转换（HTML img 不识别，不重复入库）
+    (key, (_content, content_type)) = hits[0]
+    assert content_type == "image/png"
+    assert f"![](/api/v1/files/{key})" in row.description
+    assert row.description.count("（图片无法迁移") == 2  # 超限 jpeg + svg
+    assert row.description.count("base64,") == 1  # 仅未识别的 HTML img 原样保留
+
+
+@pytest.mark.asyncio
+async def test_export_embeds_site_images(client, admin_headers, fake_storage):
+    """导出：站内插图 Markdown → `![alt](data:image/...;base64,...)`（自包含）；
+    失效引用保留原样。"""
+    import base64 as b64mod
+
+    image_key = f"users/seed-owner/images/{'a' * 32}"
+    missing_key = f"users/seed-owner/images/{'b' * 32}"
+    fake_storage.store[image_key] = (b"img-bytes-123", "image/png")
+    desc = (
+        f"题面含图 ![示意图](/api/v1/files/{image_key}) "
+        f"和失效图 ![](/api/v1/files/{missing_key})"
+    )
+    pid, _uid = await _seed_export_problem(
+        "导出插图题", fake_storage=fake_storage, description=desc,
+    )
+    resp = await client.get(f"/api/v1/admin/problems/{pid}/export", headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    # XML 文本节点经转义，断言须基于解析后的字段值
+    desc_out = _parse_items(resp.content)[0].findtext("description") or ""
+    assert "![示意图](data:image/png;base64," in desc_out  # alt 保留
+    payload = desc_out.split("base64,", 1)[1].split(")", 1)[0]
+    assert b64mod.b64decode(payload) == b"img-bytes-123"
+    assert missing_key in desc_out  # 对象缺失的引用不动

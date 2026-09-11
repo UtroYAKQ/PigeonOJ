@@ -215,7 +215,7 @@ export default {
       tabImport: '导入',
       tabExport: '导出',
       hint:
-        '上传 ZIP 压缩包（内含 FPS 格式 XML，HUSTOJ 题库交换格式）或单个 XML 文件（≤64MB）。' +
+        '上传 ZIP 压缩包（内含 FPS 格式 XML，HUSTOJ 题库交换格式）或单个 XML 文件（无大小限制）。' +
         '有测试点的题直接发布；带特判程序的导入为草稿（checker 进入暂存集，验题后生效）；' +
         '与现有题目同标题的自动跳过；单次最多导入 20 题，超出请分批上传。',
       exportHint: '在列表中勾选题目后导出（仅导出生效集内容：测试点、生效特判、样例）；批量导出为 ZIP（内含 fps.xml），单题可导出 fps.xml；单次最多 20 题。',
@@ -230,7 +230,6 @@ export default {
       truncated: '本次已达单次上限（20 题），剩余题目请分批导入',
       failed: '导入失败',
       invalidType: '仅支持 .zip / .xml 文件',
-      tooLarge: '文件不能超过 64MB',
       status_published: '已发布',
       status_draft: '草稿',
       status_draft_spj: '草稿（含特判）',

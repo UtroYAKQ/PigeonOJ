@@ -216,7 +216,7 @@ export default {
       tabImport: 'Import',
       tabExport: 'Export',
       hint:
-        'Upload a ZIP archive containing FPS-format XML (HUSTOJ problem exchange format) or a single XML file (≤64MB). ' +
+        'Upload a ZIP archive containing FPS-format XML (HUSTOJ problem exchange format) or a single XML file (no size limit). ' +
         'Problems with test cases are published directly; problems with a checker are imported as drafts (checker goes to the staged set, effective after verification); ' +
         'titles duplicating existing problems are skipped; at most 20 problems per import — split large archives into batches.',
       exportHint:
@@ -232,7 +232,6 @@ export default {
       truncated: 'Per-import limit reached (20 problems) — import the rest in batches',
       failed: 'Import failed',
       invalidType: 'Only .zip / .xml files are supported',
-      tooLarge: 'File must be smaller than 64MB',
       status_published: 'Published',
       status_draft: 'Draft',
       status_draft_spj: 'Draft (with checker)',

@@ -53,3 +53,4 @@ Desktop.ini
 .agents/
 # ---- 题库爬取产物（本地数据，不入库） ----
 loj_problems/
+nk_problems/

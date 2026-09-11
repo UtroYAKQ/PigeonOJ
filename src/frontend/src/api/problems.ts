@@ -103,7 +103,7 @@ export function deleteProblemSpj(id: string): Promise<null> {
   return apiRequest('DELETE', `/problems/${id}/spj`)
 }
 
-/** FPS 题库一键导入（admin）：ZIP（内含 fps XML）或单个 XML，≤64MB；
+/** FPS 题库一键导入（admin）：ZIP（内含 fps XML）或单个 XML，无大小限制；
  * 单次最多尝试 20 题，超出分批上传（docs/contracts/problems.md「FPS 题库导入」） */
 export function importFpsProblems(file: File): Promise<FpsImportResult> {
   const form = new FormData()

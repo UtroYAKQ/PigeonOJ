@@ -191,7 +191,7 @@ C++17 特判程序源码（判定协议与沙箱执行见 `judge.md`「SPJ 特�
 | PUT | /problems/{id}/spj | admin/tutor/team_creator/team_admin | 设置 / 覆盖暂存特判程序（C++17 源码 ≤256KB UTF-8，存 MinIO；生效集不动，验题通过后随 apply 晋升；写入清除 `pending_verified`） | code | - |
 | DELETE | /problems/{id}/spj | admin/tutor/team_creator/team_admin | 暂存移除特判程序（写 `pending_spj_oss_id=''`，apply 晋升后生效集置 NULL；题目无特判程序时返回 3002） | - | - |
 | GET | /problems/{id}/spj | admin/tutor/team_creator/team_admin | 回读特判程序目标状态（暂存优先，用于编辑器；普通用户 2003、匿名 2001） | - | { code?, staged } |
-| POST | /admin/problems/import | admin | **FPS 题库一键导入**：multipart 上传 ZIP（内含 fps 格式 XML，兼容 cp437 中文文件名）或单个 XML（≤64MB），逐题建库；解析 / 入库核心与 CLI 脚本共用（`app/services/problem_import.py`）；格式错误 1001 | file（multipart） | { total_parsed, imported, truncated, results[{title, status, problem_id?, message?}] } |
+| POST | /admin/problems/import | admin | **FPS 题库一键导入**：multipart 上传 ZIP（内含 fps 格式 XML，兼容 cp437 中文文件名）或单个 XML（无大小限制），逐题建库；解析 / 入库核心与 CLI 脚本共用（`app/services/problem_import.py`）；格式错误 1001 | file（multipart） | { total_parsed, imported, truncated, results[{title, status, problem_id?, message?}] } |
 | GET | /admin/problems/{id}/export | admin | **单题导出 fps.xml**（附件下载，原始响应不经统一信封）；仅导出生效集内容（见「FPS 题库导入 / 导出」）；题目不存在 3001 | - | fps.xml（application/xml） |
 | GET | /admin/problems/export | admin | **批量导出 ZIP**：`ids` 逗号分隔题目 id（≤20，超出 1001）；ZIP 内含单文件 fps.xml（一题一 item，可直接经导入端点回灌）；缺失 id 跳过、全部不存在 3001 | ids | fps-export-{date}.zip（application/zip） |
 | PUT | /problems/{id}/samples | admin/tutor/team_creator/team_admin | 全量替换展示样例（写 `problems.samples`，同时更新 `samples_updated_at`；不上传 MinIO；仅解释变更同样更新时间戳触发重验口径） | samples[]（input、output、explanation?），≤10 组、input / output 各 ≤64KB、explanation ≤64KB | - |
@@ -216,10 +216,11 @@ C++17 特判程序源码（判定协议与沙箱执行见 `judge.md`「SPJ 特�
 - **`<spj>` 携带源码** → 恒为 `draft` 且特判程序写暂存集（`status=draft_spj`）：
   走「验题 → apply 晋升」流程后生效，不按标准比对发布
 - **`<spj>` 仅有标记无源码** → 跳过（`skipped_spj`，无法重建 checker，按标准比对会误判）
+- **`<difficulty>`** → 写入 `problems.difficulty`（非负整数，CF 难度分；NULL 或无效值不写入）
 - **同标题**（与库内现有题或本批已导入题重复）→ 跳过（`duplicate`）
 - 单题失败不阻断（`failed`，携带原因）；导入人即题目 owner（owner_id），可见性 public
 
-护栏：上传 ≤64MB（与网关 `client_max_body_size` 对齐）；单侧测试点 ≤8MB、样例 ≤64KB、
+护栏：上传无大小限制（需同步调整网关 `client_max_body_size`）；单侧测试点 ≤8MB、样例 ≤64KB、
 checker ≤256KB（超限侧跳过）；**单次请求最多尝试 20 题**（超出 `truncated=true`，前端提示分批导入；
 nginx `/api/` 读写超时放宽至 300s 承载单请求数十秒的导入耗时）。
 
@@ -229,10 +230,22 @@ nginx `/api/` 读写超时放宽至 300s 承载单请求数十秒的导入耗时
   `problems.samples` 展示样例；暂存未晋升的改动不导出
 - 字段映射与导入反向一致：`time_limit` unit=ms / `memory_limit` unit=mb / `note` → `hint` /
   `background` → `source`（「无」不导出）/ 官方题解 → `solution language="markdown"` /
-  生效特判源码 → `<spj>`；导出的 fps.xml 可直接经导入端点回灌（回灌因同标题跳过，
-  换标题即可建新题）
+  生效特判源码 → `<spj>` / `difficulty` → `<difficulty>`（CF 难度分，NULL 不导出）；导出的 fps.xml
+  可直接经导入端点回灌（回灌因同标题跳过，换标题即可建新题）
 - 护栏：单次 ≤20 题、原始内容总量 ≤256MB（超出 1001 / 1001）；附件下载为原始响应
   （`Content-Disposition: attachment`），不经统一信封
+
+**题面图片双向转换**（只认 Markdown 生态，Hydro 系 fps 导出同款；HTML `<img>` 形态不识别，
+原样保留——前端 markdown-it `html:false` 下本就不渲染）：
+
+- **导入**：题面字段里的 `![alt](data:image/...;base64,...)` 解出后落 MinIO
+  `users/{owner_id}/images/{uuid}`（导入人插图空间，`/api/v1/files/{key}` 公开读链路与手工插图一致），
+  替换为 `![](url)` 站内 Markdown；单张 ≤5MB、单题总量 ≤20MB（与题面插图契约一致），
+  非 JPG/PNG/WEBP/GIF 或超限/解码失败替换为占位文本（不保留 base64 噪音）
+- **导出**：题面里的站内插图 `![alt](/api/v1/files/key)` 从对象存储拉回并转回
+  `![alt](data:image/...;base64,...)`（保留 alt），导出的 XML 自包含、跨站可迁移；
+  对象缺失 / 非图片类型的引用保留原样；图片字节数计入 256MB 导出总量护栏；
+  官方题解（solution）字段不做图片转换
 
 ## 错误码
 

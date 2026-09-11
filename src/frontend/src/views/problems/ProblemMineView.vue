@@ -36,7 +36,6 @@ const importVisible = ref(false)
 const importing = ref(false)
 const importFile = ref<File | null>(null)
 const importResult = ref<FpsImportResult | null>(null)
-const IMPORT_MAX_BYTES = 64 * 1024 * 1024
 const importInput = ref<HTMLInputElement>()
 const modalTab = ref<'import' | 'export'>('import')
 const exporting = ref(false)
@@ -49,10 +48,6 @@ function chooseImportFile(event: Event) {
   if (!file) return
   if (!/\.(zip|xml|fps)$/i.test(file.name)) {
     message.error(t('problems.importFps.invalidType'))
-    return
-  }
-  if (file.size > IMPORT_MAX_BYTES) {
-    message.error(t('problems.importFps.tooLarge'))
     return
   }
   importFile.value = file
