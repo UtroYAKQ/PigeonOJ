@@ -1,12 +1,14 @@
-import { apiRequest } from './http'
+import { apiRequest, downloadBinary, requestUpload } from './http'
 import { buildQuery } from '@/utils/query'
 import type {
+  FpsImportResult,
   PageResult,
   ProblemCreatePayload,
   ProblemDetail,
   ProblemEditPayload,
   ProblemLanguage,
   ProblemListQuery,
+  ProblemSpj,
   ProblemSubmissionItem,
   ProblemSummary,
   ProblemTagItem,
@@ -84,6 +86,39 @@ export function patchTestCases(
   body: { upserts: TestCaseUpsertPayload[]; delete_ids: string[] },
 ): Promise<{ cases: ProblemTestCase[] }> {
   return apiRequest('PATCH', `/problems/${id}/test-cases`, body)
+}
+
+/** 特判程序目标状态回读（暂存优先；仅题目管理者可读，docs/contracts/problems.md「SPJ 特判程序」） */
+export function getProblemSpj(id: string): Promise<ProblemSpj> {
+  return apiRequest('GET', `/problems/${id}/spj`)
+}
+
+/** 设置 / 覆盖暂存特判程序（C++17 源码 ≤256KB；生效集不动，验题通过后随 apply 晋升） */
+export function replaceProblemSpj(id: string, code: string): Promise<null> {
+  return apiRequest('PUT', `/problems/${id}/spj`, { code })
+}
+
+/** 暂存移除特判程序（写 pending_spj_oss_id=''，apply 晋升后生效集置 NULL） */
+export function deleteProblemSpj(id: string): Promise<null> {
+  return apiRequest('DELETE', `/problems/${id}/spj`)
+}
+
+/** FPS 题库一键导入（admin）：ZIP（内含 fps XML）或单个 XML，≤64MB；
+ * 单次最多尝试 20 题，超出分批上传（docs/contracts/problems.md「FPS 题库导入」） */
+export function importFpsProblems(file: File): Promise<FpsImportResult> {
+  const form = new FormData()
+  form.append('file', file)
+  return requestUpload<FpsImportResult>('/admin/problems/import', form)
+}
+
+/** 批量导出为 ZIP（admin；ids ≤20，附件下载触发浏览器保存） */
+export function exportProblemsZip(ids: string[]): Promise<void> {
+  return downloadBinary(`/admin/problems/export?ids=${ids.join(',')}`, 'fps-export.zip')
+}
+
+/** 单题导出为 fps.xml 附件（admin） */
+export function exportProblemXml(id: string): Promise<void> {
+  return downloadBinary(`/admin/problems/${id}/export`, 'fps.xml')
 }
 
 /** 全量替换展示样例（存 problems.samples，不参与判题；≤10 组、单项各 ≤64KB，explanation 选填） */

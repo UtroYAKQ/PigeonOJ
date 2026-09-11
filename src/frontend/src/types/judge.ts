@@ -41,6 +41,8 @@ export interface SubmissionCaseResult {
   memory_used_kb: number | null
   score: number | null
   output: string | null
+  /** SPJ 判定信息（特判程序输出，如 "wrong answer expected 3, found 4"；非 SPJ 为 null） */
+  message?: string | null
 }
 
 export interface SubmissionListQuery {

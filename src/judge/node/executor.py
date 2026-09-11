@@ -37,6 +37,8 @@ class ExecutionResult:
     memory_used_kb: int | None
     exit_code: int | None
     compile: bool = False
+    # SPJ 判定信息（特判程序 stdout，≤2KB；非 SPJ 运行为空，docs/contracts/judge.md「SPJ 特判」）
+    message: bytes = b""
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,31 @@ class JudgeCase:
 
 class JudgeWorkerError(RuntimeError):
     """配置或执行器错误，不应把宿主机异常原文返回给用户。"""
+
+
+class SpjCompileError(JudgeWorkerError):
+    """特判程序编译失败（题目数据问题 → 服务端按 system_error 处理）。"""
+
+
+@dataclass(frozen=True)
+class SpjProgram:
+    """已编译特判程序（jail 内二进制绝对路径），每个提交作业编译一次。"""
+
+    binary: str
+
+
+# SPJ 特判文件名（作业目录内，jail 视角 /workspace/<relative>/...）
+SPJ_SOURCE_NAME = "spj.cpp"
+SPJ_BINARY_NAME = "spj"
+# 特判运行时的三文件（testlib 风格 argv：input / user_out / answer）
+_SPJ_INPUT_NAME = "spj_input"
+_SPJ_USER_OUT_NAME = "spj_user_out"
+_SPJ_ANSWER_NAME = "spj_answer"
+# 特判程序 stdout 作为判定信息的截断上限（服务端再截 ≤2KB 落库）
+_SPJ_MESSAGE_LIMIT = 2048
+# testlib 退出码语义：_died=3 / _fail=4 为 checker 自身故障 → 平台错误；
+# 0=accepted（_ok / _ac），其余（含 _wa=1、_pe=2、部分分 16+分值）= wrong_answer
+_SPJ_FAILURE_EXIT_CODES = {3, 4}
 
 
 class NsjailExecutor:
@@ -284,7 +311,47 @@ class PreparedSubmission:
     def compile_failed(self) -> bool:
         return self.compile_result is not None and self.compile_result.status != "ok"
 
-    def run_case(self, stdin: bytes, expected_stdout: bytes | None, limits: ResourceLimits) -> ExecutionResult:
+    def prepare_spj(self, source: bytes, compile_limits: ResourceLimits) -> SpjProgram:
+        """编译题目特判程序（每个提交作业一次，与提交代码共用编译预算口径）。
+
+        失败抛 SpjCompileError（不带编译器输出，防特判源码片段泄露给提交者）。
+        """
+        if self._closed:
+            raise JudgeWorkerError("submission workspace is closed")
+        if self.compile_failed:
+            raise JudgeWorkerError("submission compile failed")
+        src_path = self.workdir / SPJ_SOURCE_NAME
+        src_path.write_bytes(source)
+        binary_path = self.workdir / SPJ_BINARY_NAME
+        _grant_jail_access(self.workdir, src_path)
+        jail_dir = self._jail_workdir()
+        # 与 cpp17 提交编译同款工具链参数（绝对路径，见 _commands 注释）
+        command = [
+            "/usr/bin/g++", "-B/usr/bin/", "-std=c++17", "-O2", "-pipe",
+            "-o", f"{jail_dir}/{SPJ_BINARY_NAME}", f"{jail_dir}/{SPJ_SOURCE_NAME}",
+        ]
+        result = self.worker.executor.run(
+            command,
+            cwd=self.workdir,
+            stdin=b"",
+            limits=compile_limits,
+            output_limit=compile_limits.output_limit_kb * 1024,
+            as_limit_mb=compile_limits.memory_limit_mb,
+        )
+        if result.status != "ok":
+            raise SpjCompileError("special judge program compile failed")
+        _grant_jail_access(self.workdir, binary_path)
+        return SpjProgram(binary=f"{jail_dir}/{SPJ_BINARY_NAME}")
+
+    def run_case(
+        self,
+        stdin: bytes,
+        expected_stdout: bytes | None,
+        limits: ResourceLimits,
+        *,
+        spj: SpjProgram | None = None,
+        spj_limits: ResourceLimits | None = None,
+    ) -> ExecutionResult:
         if self._closed:
             raise JudgeWorkerError("submission workspace is closed")
         if self.compile_failed:
@@ -308,12 +375,48 @@ class PreparedSubmission:
         )
         if result.status != "ok":
             return result
+        if spj is not None:
+            return self._judge_with_spj(result, stdin, expected_stdout, spj, spj_limits or limits)
         if expected_stdout is not None:
             return ExecutionResult(
                 "accepted" if _same_output(result.stdout, expected_stdout) else "wrong_answer",
                 result.stdout, result.stderr, result.time_used_ms, result.memory_used_kb, result.exit_code,
             )
         return result
+
+    def _judge_with_spj(
+        self,
+        user_result: ExecutionResult,
+        stdin: bytes,
+        expected_stdout: bytes | None,
+        spj: SpjProgram,
+        spj_limits: ResourceLimits,
+    ) -> ExecutionResult:
+        """SPJ 判定：三文件 argv（input / user_out / answer）运行特判程序，退出码定论。
+
+        用户程序已运行成功（status=ok）；此处仅判定。特判程序自身故障
+        （超时 / 崩溃 / 输出超限 / testlib _died / _fail）→ 整个提交 system_error，
+        stderr 不回传（防源码泄露，docs/contracts/judge.md「SPJ 特判」）。
+        返回结果的 time / memory / stdout 保持用户程序口径（逐点落库依据）。
+        """
+        input_path = self.workdir / _SPJ_INPUT_NAME
+        user_out_path = self.workdir / _SPJ_USER_OUT_NAME
+        answer_path = self.workdir / _SPJ_ANSWER_NAME
+        input_path.write_bytes(stdin)
+        user_out_path.write_bytes(user_result.stdout)
+        answer_path.write_bytes(expected_stdout or b"")
+        _grant_jail_access(self.workdir, input_path, user_out_path, answer_path)
+        jail_dir = self._jail_workdir()
+        command = [spj.binary, f"{jail_dir}/{_SPJ_INPUT_NAME}", f"{jail_dir}/{_SPJ_USER_OUT_NAME}", f"{jail_dir}/{_SPJ_ANSWER_NAME}"]
+        result = self.worker.executor.run(
+            command,
+            cwd=self.workdir,
+            stdin=b"",
+            limits=spj_limits,
+            output_limit=max(_SPJ_MESSAGE_LIMIT * 8, spj_limits.output_limit_kb * 1024),
+            as_limit_mb=spj_limits.memory_limit_mb,
+        )
+        return _spj_verdict(result, user_result)
 
     def close(self) -> None:
         if not self._closed:
@@ -348,12 +451,16 @@ class JudgeWorker:
         compile_limits: ResourceLimits | None = None,
         *,
         stop_on_failure: bool = False,
+        spj_source: bytes | None = None,
+        spj_limits: ResourceLimits | None = None,
     ) -> list[ExecutionResult]:
         """编译一次后逐测试点运行。
 
         stop_on_failure（ACM 赛制短路）：首个非 accepted 测试点后停止执行，
         仅返回已执行测试点的结果（docs/contracts/judge.md「赛制计分」）。
         compile_error / system_error 属平台级故障，无论赛制均终止后续测试点。
+        spj_source 非空：编译题目特判程序后逐点以 SPJ 判定替代默认比对
+        （docs/contracts/judge.md「SPJ 特判」）。
         """
         if not cases:
             return []
@@ -362,10 +469,16 @@ class JudgeWorker:
             raise JudgeWorkerError("one submission cannot mix languages")
         compile_limits = compile_limits or ResourceLimits(time_limit_ms=10_000)
         with self.prepare_submission(language, cases[0].source, compile_limits) as submission:
+            spj: SpjProgram | None = None
+            if spj_source is not None:
+                spj = submission.prepare_spj(spj_source, compile_limits)
             results: list[ExecutionResult] = []
             for case in cases:
                 _validate_case(case)
-                results.append(submission.run_case(case.stdin, case.expected_stdout, case.limits))
+                results.append(submission.run_case(
+                    case.stdin, case.expected_stdout, case.limits,
+                    spj=spj, spj_limits=spj_limits,
+                ))
                 if results[-1].status in {"compile_error", "system_error"}:
                     break
                 if stop_on_failure and results[-1].status != "accepted":
@@ -460,6 +573,26 @@ def _same_output(actual: bytes, expected: bytes) -> bool:
     return normalize(actual) == normalize(expected)
 
 
+def _spj_verdict(spj_result: ExecutionResult, user_result: ExecutionResult) -> ExecutionResult:
+    """SPJ 退出码 → 判定（docs/contracts/judge.md「SPJ 特判」）：
+
+    特判程序自身故障（超时 / 崩溃 / 输出超限 / testlib _died=3 / _fail=4）→ system_error；
+    退出码 0 → accepted；其余（含 _wa=1、_pe=2、不支持的部分分 16+分值）→ wrong_answer。
+    time / memory / stdout 保持用户程序口径；特判 stdout（≤2KB）作 message。
+    """
+    if spj_result.status != "ok" or spj_result.exit_code in _SPJ_FAILURE_EXIT_CODES:
+        return ExecutionResult(
+            "system_error", user_result.stdout, b"",
+            user_result.time_used_ms, user_result.memory_used_kb, spj_result.exit_code,
+        )
+    status = "accepted" if spj_result.exit_code == 0 else "wrong_answer"
+    return ExecutionResult(
+        status, user_result.stdout, user_result.stderr,
+        user_result.time_used_ms, user_result.memory_used_kb, user_result.exit_code,
+        message=_cap(spj_result.stdout, _SPJ_MESSAGE_LIMIT),
+    )
+
+
 def _cap(value: bytes, limit: int) -> bytes:
     return value[:limit]
 
@@ -490,5 +623,8 @@ __all__ = [
     "NsjailExecutor",
     "PreparedSubmission",
     "ResourceLimits",
+    "SPJ_SOURCE_NAME",
+    "SpjCompileError",
+    "SpjProgram",
 ]
 

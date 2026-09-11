@@ -102,6 +102,14 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
     render: (row) => h(StatusTag, { status: row.status }),
   },
   {
+    // SPJ 判定信息（特判程序输出，如 "wrong answer expected 3, found 4"；非 SPJ 恒 '-'）
+    title: t('problems.submission.spjMessage'),
+    key: 'message',
+    minWidth: 180,
+    ellipsis: { tooltip: true },
+    render: (row) => row.message ?? '-',
+  },
+  {
     title: t('problems.submission.time'),
     key: 'time',
     width: 110,

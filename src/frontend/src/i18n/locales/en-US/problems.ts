@@ -138,6 +138,18 @@ export default {
       zipEmpty: 'No valid test cases found in the ZIP',
       zipInvalid: 'Failed to parse the ZIP file',
       zipImported: 'Imported {count} test cases',
+      spjTitle: 'Special Judge (SPJ)',
+      spjDesc:
+        'Single-file C++17 checker invoked per test case: spj <input> <user output> <expected output>; exit code 0 = accepted, 3/4 = judge fault, anything else = wrong answer. stdout (≤2KB) is shown to the submitter as the verdict message.',
+      spjPlaceholder:
+        '// C++17 checker (testlib.h compatible); saved to the staged set, takes effect after verification and apply',
+      spjSave: 'Save checker',
+      spjRemove: 'Remove checker',
+      spjRemoveConfirm:
+        'Remove the special judge program for this problem? The change goes to the staged set and takes effect after verification and apply.',
+      spjSaved: 'Checker saved to the staged set',
+      spjRemoved: 'Checker removal staged',
+      spjModified: 'Unsaved',
     },
     detail: {
       title: 'Problem details',
@@ -146,6 +158,7 @@ export default {
       submit: 'Submit code',
       submitConfirm: 'Submit the current code for judging?',
       codeRequired: 'Please enter your code first',
+      spjBadge: 'Special Judge',
       stdin: 'Standard input',
       expected: 'Expected output',
       status: 'Status',
@@ -191,10 +204,41 @@ export default {
       verifyType: 'Verification submission',
       errorMessage: 'Compile / runtime error message',
       caseResults: 'Test case results',
+      spjMessage: 'SPJ Message',
       showCode: 'Show code',
       hideCode: 'Hide code',
       stillJudging:
         'Judging is taking longer than expected. Auto-refresh has stopped — click "Refresh" to check again.',
+    },
+    importFps: {
+      button: 'Import / Export',
+      title: 'FPS Import / Export',
+      tabImport: 'Import',
+      tabExport: 'Export',
+      hint:
+        'Upload a ZIP archive containing FPS-format XML (HUSTOJ problem exchange format) or a single XML file (≤64MB). ' +
+        'Problems with test cases are published directly; problems with a checker are imported as drafts (checker goes to the staged set, effective after verification); ' +
+        'titles duplicating existing problems are skipped; at most 20 problems per import — split large archives into batches.',
+      exportHint:
+        'Select problems in the list to export (only active-set content: test cases, effective checker, samples). Batch export downloads a ZIP containing fps.xml; a single selected problem can be exported as fps.xml; at most 20 problems per export.',
+      exportNone: 'No problems selected — check problems in the list first.',
+      selectedCount: '{count} selected',
+      exportZip: 'Export ZIP',
+      exportXml: 'Export fps.xml',
+      exportSuccess: 'Download started',
+      choose: 'Choose file',
+      start: 'Start import',
+      summary: 'Parsed {parsed} problems, imported {imported}',
+      truncated: 'Per-import limit reached (20 problems) — import the rest in batches',
+      failed: 'Import failed',
+      invalidType: 'Only .zip / .xml files are supported',
+      tooLarge: 'File must be smaller than 64MB',
+      status_published: 'Published',
+      status_draft: 'Draft',
+      status_draft_spj: 'Draft (with checker)',
+      status_duplicate: 'Duplicate, skipped',
+      status_skipped_spj: 'Skipped (no checker source)',
+      status_failed: 'Failed',
     },
     manage: {
       applyStaged: 'Apply staged cases',

@@ -57,7 +57,11 @@ message SubmitJob {
   ResourceLimits limits = 4;
   string problem_id = 5;
   string data_version = 6;  // 数据指纹；缓存未命中时先调 FetchProblemData
-  bool spj = 7;             // [已废弃] SPJ 特判整体移除；字段号保留维持线格式兼容，发送端不再赋值，接收端忽略
+  // SPJ 特判标记：true 时数据包内含 spj.cpp，节点编译一次后对每个测试点
+  // 以 testlib 风格 argv（input / user_out / answer）运行特判程序，
+  // 退出码 0=accepted、3|4=system_error（checker 故障）、其余=wrong_answer
+  // （docs/contracts/judge.md「SPJ 特判」节）
+  bool spj = 7;
   repeated TestCaseFile cases = 8; // 仅元数据 + 排序；正式测试点（is_sample=false）
   // ACM 赛制短路标记：true 时节点在首个非 accepted 测试点后停止执行，
   // 仅回传已执行测试点的结果（docs/contracts/judge.md「赛制计分」）
@@ -102,6 +106,9 @@ message Register {
   string name = 3;
   int32 capacity = 4;
   string version = 5;      // 沙箱/执行器版本描述
+  // 节点能力位：true = 支持编译并运行 SPJ 特判程序（SubmitJob.spj）。
+  // 网关派发 SPJ 题时只选支持节点；旧节点默认 false，防止静默退化为默认比对误判
+  bool supports_spj = 6;
 }
 
 message Heartbeat {
@@ -118,6 +125,9 @@ message CaseResult {
   // [已废弃] 分数由服务端派生；字段号保留维持线格式兼容
   int32 score = 5;
   bytes output = 6;         // 程序输出（已按输出上限截断）；服务端落 MinIO
+  // SPJ 判定信息（特判程序 stdout，UTF-8，≤2KB；非 SPJ 提交为空）：
+  // 如 "wrong answer expected 3, found 4"，随测试点明细返回给提交者定位 WA
+  bytes message = 7;
 }
 
 message JudgeResult {
@@ -139,6 +149,6 @@ message ProblemDataRequest {
 }
 
 message FileChunk {
-  string path = 1;   // 相对路径：cases/<test_case_id>.in|.out、manifest.json
+  string path = 1;   // 相对路径：cases/<test_case_id>.in|.out、spj.cpp、manifest.json
   bytes content = 2;
 }

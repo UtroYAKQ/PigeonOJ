@@ -122,7 +122,8 @@ class NodeDaemon:
                 node_id=self.node_id,
                 name=cfg.node.name or self.node_id,
                 capacity=cfg.node.capacity,
-                version="nsjail-node-1.0",
+                version="nsjail-node-1.1",
+                supports_spj=True,
             ))
             while True:
                 msg = await self.outbox.get()
@@ -252,6 +253,23 @@ class NodeDaemon:
             cpu_cores=limits.cpu_cores,
             process_limit=limits.process_limit,
         )
+        # SPJ 特判（docs/contracts/judge.md「SPJ 特判」）：编译预算与提交一致；
+        # 运行时限 max(2×单点时限, 5s)、内存与提交一致、输出上限 16KB（超出即 checker 故障）
+        spj_source: bytes | None = None
+        if job.spj:
+            spj_path = data_dir / "spj.cpp"
+            if not spj_path.is_file():
+                return {"submission_id": job.submission_id, "status": "system_error",
+                        "time_used_ms": 0, "memory_used_kb": None,
+                        "error_message": "special judge data missing (spj.cpp)", "cases": []}
+            spj_source = spj_path.read_bytes()
+        spj_limits = ResourceLimits(
+            time_limit_ms=max(2 * limits.time_limit_ms, 5_000),
+            memory_limit_mb=limits.memory_limit_mb,
+            output_limit_kb=16,
+            process_limit=limits.process_limit,
+            cpu_cores=limits.cpu_cores,
+        )
         cases = await asyncio.to_thread(
             self._load_cases_sync, job, data_dir, limits
         )
@@ -261,6 +279,8 @@ class NodeDaemon:
             cases,
             compile_limits=compile_limits,
             stop_on_failure=job.stop_on_failure,
+            spj_source=spj_source,
+            spj_limits=spj_limits,
         )
 
         max_time = 0
@@ -271,12 +291,15 @@ class NodeDaemon:
             case_results.append({
                 "test_case_id": tc.test_case_id, "status": res.status,
                 "time_used_ms": res.time_used_ms, "memory_used_kb": res.memory_used_kb or 0,
-                "output": res.stdout,
+                "output": res.stdout, "message": res.message,
             })
         status = aggregate_status([r.status for r in results])
         error_message = ""
         if results and results[0].compile:
             error_message = results[0].stderr.decode("utf-8", errors="replace")[:8000]
+        elif any(r.status == "system_error" for r in results):
+            # 逐点 system_error 仅由特判程序故障产生：统一口径、不回传 stderr 细节
+            error_message = "special judge program failed"
         return {"submission_id": job.submission_id, "status": status,
                 "time_used_ms": max_time, "memory_used_kb": None,
                 "error_message": error_message, "cases": case_results}
@@ -359,7 +382,7 @@ def _to_result_message(result: dict) -> judge_pb2.NodeMessage:
             judge_pb2.CaseResult(
                 test_case_id=c["test_case_id"], status=c["status"],
                 time_used_ms=c["time_used_ms"], memory_used_kb=c["memory_used_kb"],
-                output=c["output"],
+                output=c["output"], message=c.get("message") or b"",
             )
             for c in result.get("cases", [])
         ],

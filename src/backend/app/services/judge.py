@@ -326,6 +326,7 @@ class SubmissionService:
                 memory_used_kb=r.memory_used_kb,
                 score=r.score,
                 output=output,
+                message=r.message,
             )
             for r, output in zip(results, outputs, strict=True)
         ]

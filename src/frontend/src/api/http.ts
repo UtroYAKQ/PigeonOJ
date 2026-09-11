@@ -72,6 +72,10 @@ httpClient.interceptors.request.use((config) => {
 
 httpClient.interceptors.response.use(
   (response) => {
+    // 二进制下载（responseType=blob）：直接透传，不做信封解包（附件无 {code,message,data} 结构）
+    if (response.config.responseType === 'blob') {
+      return response
+    }
     const body: unknown = response.data
     if (!isEnvelopeBody(body)) {
       throw new ApiError(
@@ -94,6 +98,16 @@ httpClient.interceptors.response.use(
       throw new ApiError(5000, translate('app.networkError'))
     }
     const { status, data } = error.response
+    // blob 错误响应（下载接口的非 200）：服务端仍返回 JSON 信封，解出业务错误码
+    if (data instanceof Blob && data.type.includes('application/json')) {
+      return data.text().then((text) => {
+        const parsed: unknown = JSON.parse(text)
+        if (isEnvelopeBody(parsed) && parsed.code !== 0) {
+          throw new ApiError(parsed.code, parsed.message ?? '', status)
+        }
+        throw new ApiError(status, translate('app.badResponse', { status }), status)
+      })
+    }
     // 后端错误响应仍为信封结构时优先透出业务错误码
     if (isEnvelopeBody(data)) {
       if (data.code !== 0) {
@@ -131,4 +145,20 @@ export function requestUpload<T = unknown>(path: string, data: FormData): Promis
 /** 类型化 API 请求入口：对象 body 自动 JSON 序列化。 */
 export function apiRequest<T = unknown>(method: string, path: string, data?: unknown): Promise<T> {
   return request<T>(path, { method, body: data })
+}
+
+/** 二进制附件下载（如 FPS 导出）：携带会话 Token 请求 → 触发浏览器保存；
+ * 文件名优先取响应 Content-Disposition，回退 fallbackName。 */
+export async function downloadBinary(path: string, fallbackName: string): Promise<void> {
+  const resp = await httpClient.get<Blob>(path, { responseType: 'blob' })
+  const disposition = (resp.headers['content-disposition'] as string | undefined) ?? ''
+  const match = /filename="([^"]+)"/.exec(disposition)
+  const url = URL.createObjectURL(resp.data)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = match?.[1] ?? fallbackName
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
 }

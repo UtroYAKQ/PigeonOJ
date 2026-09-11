@@ -73,6 +73,15 @@ def get_problem_service(db: SessionDep) -> ProblemService:
 ProblemServiceDep = Annotated[ProblemService, Depends(get_problem_service)]
 
 
+def get_problem_import_service(db: SessionDep) -> "ProblemImportService":
+    from app.services.problem_import import ProblemImportService
+
+    return ProblemImportService(db)
+
+
+ProblemImportServiceDep = Annotated["ProblemImportService", Depends(get_problem_import_service)]
+
+
 def get_submission_service(db: SessionDep) -> SubmissionService:
     return SubmissionService(db)
 

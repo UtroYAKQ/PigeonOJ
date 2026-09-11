@@ -173,6 +173,7 @@ def fake_storage(monkeypatch) -> FakeStorage:
         "app.services.user.get_storage",
         "app.api.v1.files.get_storage",
         "app.services.problem.get_storage",
+        "app.services.problem_import.get_storage",
         "app.services.judge.get_storage",
         "app.rpc.judge_jobs.get_storage",
         "app.rpc.judge_gateway.get_storage",

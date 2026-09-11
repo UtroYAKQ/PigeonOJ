@@ -74,6 +74,32 @@ export interface ProblemDetail extends ProblemSummary {
   /** 测试点集合状态缓存：empty / to_verify / to_reverify / ok */
   case_status?: string | null
   samples_updated_at?: string | null
+  /** SPJ 特判题（生效集特判程序非空，docs/contracts/judge.md「SPJ 特判」） */
+  has_spj?: boolean
+}
+
+/** 特判程序目标状态（GET /problems/:id/spj；暂存优先，code=null 表示目标状态无特判程序） */
+export interface ProblemSpj {
+  code: string | null
+  /** true = 当前为暂存目标状态（改动未验题晋升） */
+  staged: boolean
+}
+
+/** FPS 导入单题结果（POST /admin/problems/import；docs/contracts/problems.md「FPS 题库导入」） */
+export interface FpsImportItem {
+  title: string
+  /** published / draft / draft_spj / duplicate / skipped_spj / failed */
+  status: string
+  problem_id?: string | null
+  message?: string | null
+}
+
+/** FPS 导入汇总：单次最多尝试 20 题（超出 truncated=true，分批导入） */
+export interface FpsImportResult {
+  total_parsed: number
+  imported: number
+  truncated: boolean
+  results: FpsImportItem[]
 }
 
 /** 测试点列表（独立管理端点 GET /problems/:id/test-cases；仅题目管理者可读） */

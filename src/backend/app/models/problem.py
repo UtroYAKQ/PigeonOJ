@@ -52,6 +52,10 @@ class Problem(Base):
     # 测试点集合：生效集（判题唯一来源）/ 暂存集（NULL=无暂存改动）
     active_case_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     pending_case_ids: Mapped[list | None] = mapped_column(JSONB)
+    # SPJ 特判程序源码（MinIO 对象 key，C++17，docs/contracts/problems.md「SPJ 特判程序」）：
+    # 生效集 / 暂存集双字段与测试点同语义；暂存 '' = 暂存移除特判程序
+    spj_oss_id: Mapped[str | None] = mapped_column(String(512))
+    pending_spj_oss_id: Mapped[str | None] = mapped_column(String(512))
     case_status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=CaseStatus.EMPTY)
     cases_revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     # 暂存集已通过验题、待显式应用（验题与晋升解耦，见决策记录修订）

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid as uuid_mod
 from datetime import datetime, timedelta, timezone
 
@@ -32,8 +33,8 @@ from app.core.database import SessionLocal
 from app.core.redis import get_redis
 
 
-def _add_node(node_id: str, inflight: int = 0, capacity: int = 2) -> NodeConnection:
-    conn = NodeConnection(node_id=node_id, name=node_id, capacity=capacity, version="test")
+def _add_node(node_id: str, inflight: int = 0, capacity: int = 2, supports_spj: bool = False) -> NodeConnection:
+    conn = NodeConnection(node_id=node_id, name=node_id, capacity=capacity, version="test", supports_spj=supports_spj)
     for i in range(inflight):
         conn.inflight.add(f"fake-{node_id}-{i}")
     REGISTRY.register(conn)
@@ -45,8 +46,8 @@ async def _any_user_id() -> str:
         return str((await db.execute(select(User).limit(1))).scalar_one().id)
 
 
-async def _seed_problem_with_case(storage) -> str:
-    """已发布题目 + 1 个生效测试点（数据写入 fake storage）。"""
+async def _seed_problem_with_case(storage, *, spj: bool = False) -> str:
+    """已发布题目 + 1 个生效测试点（数据写入 fake storage）；spj=True 额外配置生效特判程序。"""
     from datetime import datetime
 
     async with SessionLocal() as db:
@@ -54,7 +55,8 @@ async def _seed_problem_with_case(storage) -> str:
         problem = Problem(title=f"P-{uuid_mod.uuid4().hex[:8]}", description="D",
                           owner_id=uuid_mod.UUID(await _any_user_id()),
                           status="published", visibility="public", verified_at=datetime.now(),
-                          active_case_ids=[str(case_id)], case_status="ok")
+                          active_case_ids=[str(case_id)], case_status="ok",
+                          spj_oss_id=f"problems/spj/{case_id}/code" if spj else None)
         db.add(problem)
         await db.flush()
         db.add(TestCase(id=case_id, problem_id=problem.id, name="c1",
@@ -64,6 +66,8 @@ async def _seed_problem_with_case(storage) -> str:
         pid = str(problem.id)
     storage.store[f"cases/{case_id}.in"] = (b"1\n", "text/plain")
     storage.store[f"cases/{case_id}.out"] = (b"2\n", "text/plain")
+    if spj:
+        storage.store[f"problems/spj/{case_id}/code"] = (b"int main(){return 0;}", "text/x-c++src")
     return pid
 
 
@@ -411,3 +415,90 @@ async def test_failed_dispatch_lock_only_short_cooldown(client, admin_headers, f
     assert msg.job.submission_id == sid
     ttl = await get_redis().ttl(f"judge:requeue:{sid}")
     assert ttl > 200
+
+
+# ---- SPJ 特判派发（docs/contracts/judge.md「SPJ 特判」） ----
+
+
+@pytest.mark.asyncio
+async def test_non_spj_job_dispatches_with_spj_flag_false(client, admin_headers, fake_storage):
+    """普通题派发：SubmitJob.spj=False，旧节点（supports_spj=False）照常接单。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    conn = _add_node("legacy-node", supports_spj=False)
+    sid = await _submit(client, admin_headers, pid)
+    msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+    assert msg.WhichOneof("payload") == "job"
+    assert msg.job.spj is False
+
+
+@pytest.mark.asyncio
+async def test_spj_submission_fails_without_capable_node(client, admin_headers, fake_storage):
+    """SPJ 题派给旧节点会退化为默认比对静默误判：无支持节点 → 直接落 system_error。"""
+    pid = await _seed_problem_with_case(fake_storage, spj=True)
+    _add_node("legacy-node", supports_spj=False)
+
+    resp = await client.post(
+        "/api/v1/submissions",
+        json={"problem_id": pid, "language": "cpp17", "code": "int main(){}"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    sid = resp.json()["data"]["submission_id"]
+    async with SessionLocal() as db:
+        row = await db.get(Submission, uuid_mod.UUID(sid))
+        assert row.status == "system_error"
+        assert "special judge" in row.error_message
+
+
+@pytest.mark.asyncio
+async def test_spj_job_dispatched_to_capable_node_with_flag(client, admin_headers, fake_storage):
+    """SPJ 题只派给 supports_spj 节点，SubmitJob.spj=True。"""
+    pid = await _seed_problem_with_case(fake_storage, spj=True)
+    capable = _add_node("spj-node", supports_spj=True)
+    _add_node("legacy-node", supports_spj=False)
+
+    sid = await _submit(client, admin_headers, pid)
+    msg = await asyncio.wait_for(capable.outbox.get(), timeout=5)
+    assert msg.job.submission_id == sid
+    assert msg.job.spj is True
+    assert len(msg.job.cases) == 1
+
+
+@pytest.mark.asyncio
+async def test_data_fingerprint_changes_with_spj_key():
+    """指纹必须覆盖特判程序：SPJ 覆盖 / 移除 / 晋升都使 data_version 变化，
+    节点缓存失效；否则改判后仍命中旧数据目录。"""
+    from types import SimpleNamespace
+
+    from app.rpc.judge_jobs import data_fingerprint
+
+    rows = [SimpleNamespace(updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc))]
+    base = data_fingerprint(rows, spj_key=None)
+    assert data_fingerprint(rows, spj_key="a") != base
+    assert data_fingerprint(rows, spj_key="b") != data_fingerprint(rows, spj_key="a")
+    assert data_fingerprint(rows, spj_key=None) == base
+
+
+@pytest.mark.asyncio
+async def test_stream_problem_data_includes_spj_file(client, admin_headers, fake_storage):
+    """配置特判程序的数据包：manifest 带 spj 标记并额外下发 spj.cpp；普通题不带。"""
+    from app.rpc import judge_jobs
+
+    pid_spj = await _seed_problem_with_case(fake_storage, spj=True)
+    async with SessionLocal() as db:
+        chunks = {}
+        async for path, content in judge_jobs.stream_problem_data(db, uuid_mod.UUID(pid_spj)):
+            chunks[path] = content
+    manifest = json.loads(chunks["manifest.json"])
+    assert manifest["spj"] is True
+    assert any(path.endswith(".in") for path in chunks)
+    assert any(path == "spj.cpp" and b"return 0" in content for path, content in chunks.items())
+
+    pid_plain = await _seed_problem_with_case(fake_storage)
+    async with SessionLocal() as db:
+        chunks_plain = {}
+        async for path, content in judge_jobs.stream_problem_data(db, uuid_mod.UUID(pid_plain)):
+            chunks_plain[path] = content
+    manifest_plain = json.loads(chunks_plain["manifest.json"])
+    assert manifest_plain["spj"] is False
+    assert "spj.cpp" not in chunks_plain

@@ -187,7 +187,12 @@ python -m scripts.bootstrap_demo_users   # 引导演示账号
 python -m scripts.smoke_test             # 端到端冒烟
 python scripts/verify_db.py              # 校验迁移与种子数据
 python scripts/check_import_rules.py     # 分层导入规则机械检查
+python -m scripts.import_fps_problems <xml|zip|URL> ...  # FPS 题库导入
+python -m scripts.crawl_loj --begin 100 --end 199        # LibreOJ 题目爬取
 ```
+
+> 题库导入与爬取脚本的详细用法见 `src/backend/scripts/README_import_fps_problems.md`
+> 与 `src/backend/scripts/README_crawl_loj.md`。
 
 ### 测试策略
 

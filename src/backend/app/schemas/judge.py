@@ -146,6 +146,8 @@ class TestCaseResult(BaseModel):
     memory_used_kb: int | None
     score: int | None
     output: str | None
+    # SPJ 判定信息（特判程序输出，如 "wrong answer expected 3, found 4"；非 SPJ 为 None）
+    message: str | None = None
 
 
 class SubmissionDetailOut(SubmissionDetail):

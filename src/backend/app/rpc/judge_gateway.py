@@ -84,11 +84,13 @@ class GatewayTimeoutError(RuntimeError):
 
 
 class NodeConnection:
-    def __init__(self, node_id: str, name: str, capacity: int, version: str) -> None:
+    def __init__(self, node_id: str, name: str, capacity: int, version: str, supports_spj: bool = False) -> None:
         self.node_id = node_id
         self.name = name or node_id
         self.capacity = max(1, capacity)
         self.version = version
+        # 节点能力位：true = 支持编译并运行 SPJ 特判程序（Register.supports_spj）
+        self.supports_spj = supports_spj
         self.outbox: asyncio.Queue[judge_pb2.ServerMessage | None] = asyncio.Queue()
         # 正式判题 in-flight（submission_id 字符串）；自测任务另有 pending_runs，不与提交混用命名空间
         self.inflight: set[str] = set()
@@ -209,6 +211,7 @@ def _to_outcome(result: judge_pb2.JudgeResult) -> jobs.JudgeOutcome:
                 time_used_ms=c.time_used_ms,
                 memory_used_kb=c.memory_used_kb or None,
                 output=c.output,
+                message=c.message or None,
             )
             for c in result.cases
         ),
@@ -272,6 +275,7 @@ class JudgeGatewayService(judge_pb2_grpc.JudgeGatewayServicer):
             name=first.register.name,
             capacity=first.register.capacity or 1,
             version=first.register.version or "",
+            supports_spj=first.register.supports_spj,
         )
         REGISTRY.register(conn)
         await REGISTRY.redis_heartbeat(conn)
@@ -393,6 +397,7 @@ async def send_job(node_id: str, submission_id: uuid.UUID) -> bool:
             problem_id=bundle.problem_id,
             data_version=bundle.data_version,
             stop_on_failure=bundle.stop_on_failure,
+            spj=bundle.spj,
             cases=[
                 judge_pb2.TestCaseFile(test_case_id=c.test_case_id, name=c.name)
                 for c in bundle.cases
@@ -483,10 +488,19 @@ async def maintenance_loop(interval: int | None = None) -> None:
 
 
 async def dispatch_submission(submission_id: uuid.UUID) -> str | None:
-    """负载均衡派发：任务数（判题 + 自测）最少者优先。无在线节点返回 None（留待巡检）。"""
+    """负载均衡派发：任务数（判题 + 自测）最少者优先。无在线节点返回 None（留待巡检）。
+
+    SPJ 题只派给 supports_spj 节点（旧节点会忽略 spj 标记、退化为默认比对静默误判）；
+    无支持节点时落 system_error（docs/contracts/judge.md「SPJ 特判」）。
+    """
     nodes = _live_nodes()
     if not nodes:
         return None
+    if await jobs.submission_needs_spj(submission_id):
+        nodes = [n for n in nodes if n.supports_spj]
+        if not nodes:
+            await jobs.fail_no_spj_node(submission_id)
+            return None
     best = min(nodes, key=lambda n: (n.task_count, n.node_id))
     if await send_job(best.node_id, submission_id):
         return best.node_id

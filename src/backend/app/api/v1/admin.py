@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 
 from app.api.deps import (
     AdminConfigServiceDep,
     ContestServiceDep,
     LogServiceDep,
+    ProblemImportServiceDep,
     ProblemSetServiceDep,
     ReportServiceDep,
     SandboxServiceDep,
@@ -41,7 +42,14 @@ from app.schemas.admin import (
     StatusReasonRequest,
     FreezeRequest,
 )
-from app.schemas.problem import TagCreate, TagOut, TagUpdate, TeamProblemSummary
+from app.schemas.problem import (
+    FpsImportItemOut,
+    FpsImportResult,
+    TagCreate,
+    TagOut,
+    TagUpdate,
+    TeamProblemSummary,
+)
 from app.schemas.problem_set import ProblemSetSummary
 from app.schemas.team import TeamAdminDetail, TeamAdminSummary, TeamMemberOut
 from app.schemas.user import UserPublic
@@ -303,6 +311,66 @@ async def archive_tag(
     tag = await service.archive(tag_id)
     await db.commit()
     return ok(TagOut.model_validate(tag))
+
+
+@router.post("/problems/import", response_model=ApiResponse[FpsImportResult])
+async def import_fps_problems(
+    service: ProblemImportServiceDep,
+    admin: User = _admin,
+    file: UploadFile = File(...),
+) -> ApiResponse[FpsImportResult]:
+    """FPS 题库一键导入（admin；docs/contracts/problems.md「FPS 题库导入」）。
+
+    上传 ZIP（内含 fps XML，兼容 cp437 中文文件名）或单个 XML；逐题建库，
+    有测试点直接发布、带 checker 写暂存并保持草稿；单次最多尝试 20 题，
+    超出分批上传。导入人即题目 owner。格式错误经服务层转 1001 信封。"""
+    data = await file.read()
+    summary = await service.import_archive(data, file.filename or "", owner=admin)
+    return ok(FpsImportResult(
+        total_parsed=summary.total_parsed,
+        imported=summary.imported,
+        truncated=summary.truncated,
+        results=[FpsImportItemOut.model_validate(item, from_attributes=True) for item in summary.results],
+    ))
+
+
+@router.get("/problems/export")
+async def export_problems_zip(
+    service: ProblemImportServiceDep,
+    admin: User = _admin,
+    ids: str = Query(..., max_length=1000),
+) -> Response:
+    """批量导出为 ZIP（admin；docs/contracts/problems.md「FPS 题库导入」）。
+
+    `ids` 为逗号分隔的题目 id（≤20）；ZIP 内含单文件 fps.xml（一题一 item，
+    可直接经导入端点回灌）。文件下载为原始响应，不经统一信封。"""
+    try:
+        pid_list = [uuid.UUID(part.strip()) for part in ids.split(",") if part.strip()]
+    except ValueError as exc:
+        raise APIError(PARAM_FORMAT_INVALID, "ids 必须为逗号分隔的题目 UUID", 400) from exc
+    if not pid_list:
+        raise APIError(PARAM_FORMAT_INVALID, "ids 不能为空", 400)
+    content, filename, _count = await service.export_batch(pid_list)
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/problems/{problem_id}/export")
+async def export_problem_xml(
+    problem_id: uuid.UUID,
+    service: ProblemImportServiceDep,
+    admin: User = _admin,
+) -> Response:
+    """单题导出为 fps.xml 附件（admin）：仅生效集内容（测试点 / 生效特判 / 样例）。"""
+    content, filename = await service.export_single(problem_id)
+    return Response(
+        content=content,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---- 比赛管理视图（单一所有权模型：admin 全量、tutor 仅本人创建，docs/contracts/contests.md） ----

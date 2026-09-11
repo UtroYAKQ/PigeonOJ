@@ -5,9 +5,9 @@
   测试点数据本体由节点经 FetchProblemData 拉取（stream_problem_data）。
 - apply_job_result：把节点回传的判题结果写回 DB 与 MinIO（幂等，可重复应用）。
 
-data_version 指纹 = sha256(测试点数量 | 最大 updated_at)，按**判定集**计算：
-练习/比赛=生效集（active_case_ids），验题=暂存集（pending_case_ids，空则退化生效集）；
-晋升必然改变生效集指纹，节点据此做 <problem_id>-<version> 本地缓存。
+data_version 指纹 = sha256(测试点数量 | 最大 updated_at | 特判程序对象 key)，按**判定集**计算：
+练习/比赛=生效集（active_case_ids + spj_oss_id），验题=暂存集（pending_case_ids / pending_spj_oss_id，
+空则退化生效集）；晋升必然改变生效集指纹，节点据此做 <problem_id>-<version> 本地缓存。
 题目 / 测试点经 problems.api 读取；终态回写（通过率计数 / 验题状态机 / 榜单 / 满分基准）
 经 ProblemService / ContestService 上下文端口，本模块不直查比赛模型（check_import_rules 规则 6）。
 """
@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 
+from app.core.database import SessionLocal
 from app.enums import RuleType, SubmissionStatus, SubmitType
 from app.models.judge import SandboxConfig, Submission
 from app.repositories.judge import JudgeRepository
@@ -34,11 +35,24 @@ from app.core.storage import get_storage
 _FULL_SCORE = 100
 # FetchProblemData 数据包内的固定文件名（判题节点 datacache 按同名约定解析）
 _MANIFEST_OBJECT_NAME = "manifest.json"
+# 数据包内特判程序源码文件名（题目配置了 SPJ 时随流下发，节点编译后逐测试点运行）
+SPJ_DATA_NAME = "spj.cpp"
 
 
 def case_data_name(test_case_id: str, kind: str) -> str:
     """数据包内测试点文件名：cases/<id>.in | .out（节点缓存目录相对路径）。"""
     return f"cases/{test_case_id}.{kind}"
+
+
+def data_fingerprint(rows: list, *, spj_key: str | None) -> str:
+    """数据指纹 = sha256(测试点数量 | 最大 updated_at | 特判程序对象 key)。
+
+    按判定集计算；特判程序对象 key 变更（覆盖 / 移除 / 晋升）自然使指纹变化，
+    节点据此失效 <problem_id>-<version> 本地缓存（docs/contracts/judge.md「节点网关协议」）。
+    """
+    latest = max((r.updated_at for r in rows), default=None)
+    raw = f"{len(rows)}|{latest.isoformat() if latest else 'empty'}|{spj_key or 'none'}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
 @dataclass(frozen=True)
@@ -72,6 +86,8 @@ class JobBundle:
     cases: tuple[TestCaseFile, ...]
     # ACM 赛制短路：节点在首个非 accepted 测试点后停止执行（docs/contracts/judge.md 赛制计分）
     stop_on_failure: bool = False
+    # SPJ 特判：数据包内含 spj.cpp，节点编译一次后逐测试点运行特判程序判定
+    spj: bool = False
 
 
 @dataclass(frozen=True)
@@ -82,6 +98,8 @@ class CaseOutcome:
     time_used_ms: int
     memory_used_kb: int | None
     output: bytes
+    # SPJ 判定信息（特判程序 stdout，UTF-8 bytes；非 SPJ 提交为 None）
+    message: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -137,11 +155,11 @@ async def compute_data_version(db, problem, *, verify: bool = False) -> tuple[st
     """数据指纹 + 判定集排序行。
 
     练习 / 比赛 = 生效集；验题提交（verify=True）= 暂存集（NULL 退化生效集）。
+    特判程序随判定集同规则取用（judged_spj_key），指纹一并覆盖。
     """
     rows = await problems.list_judged_cases(db, problem, verify=verify)
-    latest = max((r.updated_at for r in rows), default=None)
-    raw = f"{len(rows)}|{latest.isoformat() if latest else 'empty'}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:32], rows
+    spj_key = problems.judged_spj_key(problem, verify=verify)
+    return data_fingerprint(rows, spj_key=spj_key), rows
 
 
 async def build_job_bundle(db, submission_id: uuid.UUID) -> JobBundle | None:
@@ -202,6 +220,8 @@ async def build_job_bundle(db, submission_id: uuid.UUID) -> JobBundle | None:
         TestCaseFile(test_case_id=str(case.id), name=case.name or str(case.sort_order))
         for case in cases
     )
+    # SPJ 特判：判定集特判程序非空时置标记，数据包内含 spj.cpp（节点编译后逐点运行）
+    spj_key = problems.judged_spj_key(problem, verify=is_verify)
 
     await db.commit()
     return JobBundle(
@@ -214,6 +234,7 @@ async def build_job_bundle(db, submission_id: uuid.UUID) -> JobBundle | None:
         data_version=data_version,
         cases=case_files,
         stop_on_failure=stop_on_failure,
+        spj=spj_key is not None,
     )
 
 
@@ -271,11 +292,13 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
             max_memory = max(max_memory or 0, case.memory_used_kb)
         output_key = f"submissions/{sid}/cases/{test_case.id}/output"
         await storage.put_bytes(output_key, case.output or b"", "text/plain")
+        # SPJ 判定信息（特判程序 stdout ≤2KB；非 SPJ 提交为空）
+        message = (case.message or b"").decode("utf-8", errors="replace")[:2000].strip() or None
         await repository.write_case_result(
             db, sid, test_case,
             status=case.status, time_used_ms=case.time_used_ms,
             memory_used_kb=case.memory_used_kb, score=score,
-            output=output_key,
+            output=output_key, message=message,
         )
     if acm:
         total_score = full if outcome.status == SubmissionStatus.ACCEPTED else 0
@@ -304,33 +327,68 @@ async def stream_problem_data(db, problem_id: uuid.UUID, requested_version: str 
     """按 (path, content) 产出题目数据文件；供网关流式下发。
 
     双集合语义：按请求的 data_version 匹配候选集（生效集 / 验题暂存集）；
-    未携带或无匹配时回退生效集。
+    未携带或无匹配时回退生效集。题目配置特判程序时额外下发 spj.cpp，
+    manifest 带 spj 标记（节点据此识别 SPJ 作业数据完整性）。
     """
-
-    def _fingerprint(rows: list[problems.TestCase]) -> str:
-        latest = max((r.updated_at for r in rows), default=None)
-        raw = f"{len(rows)}|{latest.isoformat() if latest else 'empty'}"
-        return hashlib.sha256(raw.encode()).hexdigest()[:32]
-
     problem = await problems.get_problem(db, problem_id)
     if problem is None:
         return
     storage = get_storage()
     candidates = [
-        (await problems.list_active_cases(db, problem)),
-        await problems.list_judged_cases(db, problem, verify=True),
+        (await problems.list_active_cases(db, problem), problems.judged_spj_key(problem)),
+        (await problems.list_judged_cases(db, problem, verify=True), problems.judged_spj_key(problem, verify=True)),
     ]
-    chosen = candidates[0]
+    chosen_rows, chosen_spj = candidates[0]
     if requested_version:
-        for rows in candidates:
-            if rows and _fingerprint(rows) == requested_version:
-                chosen = rows
+        for rows, spj_key in candidates:
+            if rows and data_fingerprint(rows, spj_key=spj_key) == requested_version:
+                chosen_rows, chosen_spj = rows, spj_key
                 break
-    data_version, cases = _fingerprint(chosen), chosen
-    manifest = json.dumps({"data_version": data_version, "case_count": len(cases)})
+    data_version = data_fingerprint(chosen_rows, spj_key=chosen_spj)
+    manifest = json.dumps({
+        "data_version": data_version,
+        "case_count": len(chosen_rows),
+        "spj": chosen_spj is not None,
+    })
     yield _MANIFEST_OBJECT_NAME, manifest.encode()
-    for case in cases:
+    for case in chosen_rows:
         input_bytes, _ = await storage.get_bytes(case.input_oss_id)
         expected_bytes, _ = await storage.get_bytes(case.expected_output_oss_id)
         yield case_data_name(str(case.id), "in"), input_bytes
         yield case_data_name(str(case.id), "out"), expected_bytes
+    if chosen_spj:
+        spj_bytes, _ = await storage.get_bytes(chosen_spj)
+        yield SPJ_DATA_NAME, spj_bytes
+
+
+async def submission_needs_spj(submission_id: uuid.UUID) -> bool:
+    """提交是否需要 SPJ 特判（派发前节点能力过滤依据；提交 / 题目缺失按 False）。"""
+    async with SessionLocal() as db:
+        submission = await db.get(Submission, submission_id)
+        if submission is None:
+            return False
+        problem = await problems.get_problem(db, submission.problem_id)
+        if problem is None:
+            return False
+        return problems.judged_spj_key(
+            problem, verify=submission.submit_type == SubmitType.VERIFY
+        ) is not None
+
+
+async def fail_no_spj_node(submission_id: uuid.UUID) -> None:
+    """无支持 SPJ 的在线节点：原子认领后落 system_error（防旧节点静默误判，
+    docs/contracts/judge.md「SPJ 特判」；幂等，重复调用安全）。"""
+    async with SessionLocal() as db:
+        claimed = (
+            await db.execute(
+                update(Submission)
+                .where(Submission.id == submission_id, Submission.status == SubmissionStatus.PENDING)
+                .values(status=SubmissionStatus.JUDGING, updated_at=datetime.now(timezone.utc))
+            )
+        ).rowcount
+        if not claimed:
+            return
+        submission = await db.get(Submission, submission_id)
+        await _finish_with_error(
+            db, JudgeRepository(), submission, "no judge node supports special judge (spj)"
+        )

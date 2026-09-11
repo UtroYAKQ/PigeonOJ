@@ -18,6 +18,8 @@ from app.schemas.problem import (
     ProblemSummary,
     ProblemUpdate,
     SamplesUpdate,
+    SpjOut,
+    SpjUpdate,
     TagPublic,
     TestCaseListOut,
     TestCasesOut,
@@ -192,13 +194,49 @@ async def apply_test_cases(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
-    """显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦）。"""
+    """显式生效：把已通过验题的暂存集晋升为生效集（测试点与 SPJ 一并晋升；验题与晋升解耦）。"""
     problem = await service.apply_pending_cases(user, problem_id)
     await db.commit()
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
     await service.attach_tags([summary])
     return ok(summary)
+
+
+@router.get("/problems/{problem_id}/spj", response_model=ApiResponse[SpjOut])
+async def get_spj(
+    problem_id: uuid.UUID,
+    service: ProblemServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[SpjOut]:
+    """特判程序目标状态回读（暂存优先；仅题目管理者可读，docs/contracts/problems.md）。"""
+    return ok(await service.get_spj_managed(user, problem_id))
+
+
+@router.put("/problems/{problem_id}/spj", response_model=ApiResponse[None])
+async def update_spj(
+    problem_id: uuid.UUID, body: SpjUpdate,
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[None]:
+    """设置 / 覆盖暂存特判程序（C++17 源码；生效集不动，验题通过后随 apply 晋升）。"""
+    await service.replace_spj(user, problem_id, body)
+    await db.commit()  # 显式提交：确保数据持久化
+    return ok(None)
+
+
+@router.delete("/problems/{problem_id}/spj", response_model=ApiResponse[None])
+async def delete_spj(
+    problem_id: uuid.UUID,
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[None]:
+    """暂存移除特判程序（写 pending_spj_oss_id=''，apply 晋升后生效集置 NULL）。"""
+    await service.remove_spj(user, problem_id)
+    await db.commit()  # 显式提交：确保数据持久化
+    return ok(None)
 
 
 @router.put("/problems/{problem_id}/samples", response_model=ApiResponse[None])

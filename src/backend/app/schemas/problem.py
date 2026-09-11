@@ -114,15 +114,15 @@ class TestCaseItem(BaseModel):
     id: uuid.UUID | None = None
     name: str | None = Field(default=None, max_length=64)
     # PATCH 增量语义：None（字段缺省或显式 null）= 内容不变；字符串（含 ""）= 设置为该内容
-    input: str | None = Field(default=None, max_length=5 * 1024 * 1024)
-    expected_output: str | None = Field(default=None, max_length=5 * 1024 * 1024)
+    input: str | None = Field(default=None, max_length=8 * 1024 * 1024)
+    expected_output: str | None = Field(default=None, max_length=8 * 1024 * 1024)
     sort_order: int = Field(default=0, ge=0)
 
     @field_validator("input", "expected_output")
     @classmethod
     def content_bytes_limit(cls, value: str | None) -> str | None:
-        if value is not None and len(value.encode("utf-8")) > 5 * 1024 * 1024:
-            raise ValueError("测试点内容不能超过 5MB")
+        if value is not None and len(value.encode("utf-8")) > 8 * 1024 * 1024:
+            raise ValueError("测试点内容不能超过 8MB")
         return value
 
 
@@ -296,6 +296,48 @@ class TestCasesOut(BaseModel):
     cases: list[TestCaseOut]
 
 
+class SpjUpdate(BaseModel):
+    """特判程序源码（PUT /problems/{id}/spj；C++17 单文件，≤256KB UTF-8 字节）。"""
+
+    code: str = Field(min_length=1)
+
+    @field_validator("code")
+    @classmethod
+    def code_bytes_limit(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 256 * 1024:
+            raise ValueError("特判程序源码不能超过 256KB")
+        return value
+
+
+class SpjOut(BaseModel):
+    """特判程序目标状态回读（暂存优先；code=None 表示目标状态无特判程序）。"""
+
+    code: str | None = None
+    staged: bool = False
+
+
+class FpsImportItemOut(BaseModel):
+    """FPS 导入单题结果（POST /admin/problems/import；docs/contracts/problems.md「FPS 题库导入」）。
+
+    status：published（有测试点，直接可做）/ draft（无测试点）/ draft_spj（带 checker，
+    暂存待验题晋升）/ duplicate（库内已有同标题）/ skipped_spj（无法重建特判程序）/ failed。
+    """
+
+    title: str
+    status: str
+    problem_id: str | None = None
+    message: str | None = None
+
+
+class FpsImportResult(BaseModel):
+    """FPS 导入汇总：单次最多尝试 20 题（超出 truncated，分批导入）。"""
+
+    total_parsed: int
+    imported: int
+    truncated: bool
+    results: list[FpsImportItemOut]
+
+
 class ProblemDetail(BaseModel):
     """题目详情（描述、样例、标签等；**不含测试点**——测试点走独立管理端点）。
 
@@ -332,6 +374,8 @@ class ProblemDetail(BaseModel):
     needs_reverification: bool = False
     case_status: str | None = None
     samples_updated_at: datetime | None = None
+    # SPJ 特判题标记（生效集特判程序非空；详情页展示「Special Judge」徽标，judge.md「SPJ 特判」）
+    has_spj: bool = False
 
 
 # ---- 验题相关 Response Schemas ----

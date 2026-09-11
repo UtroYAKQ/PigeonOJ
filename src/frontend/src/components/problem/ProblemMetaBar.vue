@@ -25,6 +25,7 @@ const props = defineProps<{
     | 'difficulty'
     | 'submission_count'
     | 'accepted_count'
+    | 'has_spj'
   >
   /** 是否展示标题（卡片头 / 面板首行场景开启） */
   showTitle?: boolean
@@ -60,6 +61,9 @@ const passRate = computed(() => {
         {{ t('problems.list.difficulty') }} {{ problem.difficulty }}
       </span>
       <span v-if="passRate"> {{ t('problems.list.passRate') }} {{ passRate }} </span>
+      <n-tag v-if="problem.has_spj" size="small" round type="info">
+        {{ t('problems.detail.spjBadge') }}
+      </n-tag>
       <n-tag v-if="statusVisible" size="small" round :type="problemStatusTagType(problem.status)">
         {{ t(problemStatusLabelKey[problem.status] ?? problem.status) }}
       </n-tag>

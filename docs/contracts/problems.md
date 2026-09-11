@@ -20,6 +20,8 @@
 | samples_updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | 样例最近一次变更时间（重验判定依据之一） |
 | active_case_ids | JSONB | NOT NULL DEFAULT '[]' | 生效测试点 id 列表（test_cases.id 引用；判题唯一数据来源） |
 | pending_case_ids | JSONB | NULL DEFAULT NULL | 暂存测试点 id 列表（编辑目标状态，验题判定对象）；**NULL = 无暂存改动**，数组（含 `'[]'`）= 有暂存改动 |
+| spj_oss_id | VARCHAR(512) | NULL | 生效特判程序源码（MinIO 对象 key：`problems/{problem_id}/spj/{uuid}/code`，C++17；NULL = 非 SPJ 题，走默认比对；详见「SPJ 特判程序」节；迁移 0036） |
+| pending_spj_oss_id | VARCHAR(512) | NULL | 暂存特判程序源码对象 key；**NULL = 无 SPJ 暂存改动**，非空 key = 暂存覆盖，`''`（空串）= 暂存移除特判程序（迁移 0036） |
 | case_status | VARCHAR(16) | NOT NULL | 测试点集合状态缓存：`empty` / `to_verify` / `to_reverify` / `verified`（已验待生效） / `ok`，与两列表及 `pending_verified` 同事务维护；生效集非空后永不为空（不晋升空集、拒绝删除最后一个测试点） |
 | cases_revision | INT | NOT NULL DEFAULT 0 | 集合写操作自增计数（预留并发 CAS） |
 | pending_verified | BOOLEAN | NOT NULL DEFAULT false | 暂存集已通过验题、待显式应用（任何新的暂存写入即清除） |
@@ -103,6 +105,21 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 ### 验题表
 
+#### SPJ 特判程序（题目级单文件，无独立表）
+
+C++17 特判程序源码（判定协议与沙箱执行见 `judge.md`「SPJ 特判」节）存 MinIO，
+`problems` 表仅存对象 key，与测试点共用「暂存 → 验题 → 晋升」双集合语义：
+
+- **生效**：`problems.spj_oss_id`（NULL = 非 SPJ 题）；**暂存**：`pending_spj_oss_id`
+  （NULL = 无暂存改动；对象 key = 暂存覆盖；`''` = 暂存移除）
+- 编辑端点：`PUT /problems/{id}/spj`（≤256KB UTF-8 源码）、`DELETE /problems/{id}/spj`
+  （写暂存移除）、`GET /problems/{id}/spj`（回读目标状态：暂存优先，仅题目管理者）
+- **判定集**：验题提交用暂存 SPJ（NULL 退化生效集 SPJ）；练习 / 比赛恒用生效 SPJ——
+  与测试点判定集规则一致；任何新的 SPJ 暂存写入都会清除 `pending_verified` 已验标记
+- **晋升**：`POST /problems/{id}/test-cases/apply` 单事务内一并晋升
+  （`spj_oss_id := pending_spj_oss_id`，`''` 置 NULL、清暂存；被取代旧对象异步清理）
+- data_version 指纹包含特判程序对象 key（判题下发缓存失效口径，见 `judge.md`「节点网关协议」）
+
 #### `problem_verifications` — 验题记录表
 
 | 字段 | 类型 | 约束/默认 | 说明 |
@@ -136,6 +153,7 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 - 题目草稿（`status='draft'`）仅创建者本人可见
 - 官方题解 `solution` 仅题目的管理者（admin 或创建者，按单一所有权模型）可见
 - 测试点文件仅题目的管理者可读写；管理者经独立端点 `GET /problems/{id}/test-cases` 回读测试点内容用于编辑（详情不携带）；判题读取走服务端内部链路，不向前端暴露下载 / 预签名 URL
+- SPJ 特判程序源码同测试点口径：仅题目管理者经 `GET /problems/{id}/spj` 读写；判题下发走服务端内部链路；特判程序编译错误 / stderr 不回传给提交者（防泄露源码片段，`judge.md`「SPJ 特判」）
 - 提交结果不返回测试点期望输出（`expected_output`）
 
 ## 可见性设计
@@ -169,17 +187,52 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 | PUT | /problems/{id} | admin/tutor/team_creator/team_admin | 编辑题目 | ...（`tags` 全量替换标签关联；`difficulty` 非负整数，缺省不改动） | problem |
 | PUT | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 全量替换**暂存集**测试点（出题不设分值；提交得分由判题服务端按通过比例派生，比赛计分随 contests 模块配置）；被替换内容的 MinIO 旧对象异步清理；生效集不动，验题通过后晋升 | cases[]（name?、input、expected_output、sort_order） | - |
 | PATCH | /problems/{id}/test-cases | admin/tutor/team_creator/team_admin | 增量更新**暂存集**（前端编辑器按行 diff 只提交变化的行）：upserts 带 id 为修改（input/expected_output 缺省或 null = 内容不变，可仅改名 / 调序；传字符串则整体替换该侧内容，空字符串 = 显式清空——写入空对象、ossId 保持非空，两侧同时置空返回 1001；改动生成新行、origin_id 指回原行）、无 id 为新增（输入输出不能全空）；delete_ids 表示目标状态中不含该点；同一 id 不得同时出现在 upserts 与 delete_ids（1001），未知 id 返回 3001；被替换内容的 MinIO 旧对象异步清理。生效集在晋升前不受影响 | upserts[]（id?、name?、input?、expected_output?、sort_order?）/ delete_ids[] | cases[]（目标状态合并视图：未改动点沿用原 id，含内容与 staged 标记，供前端重置基线） |
-| POST | /problems/{id}/test-cases/apply | admin/tutor/team_creator/team_admin | 显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦，点「保存」才生效）；无暂存改动返回 3002，未通过验题（`pending_verified=false`）返回 3002；任何新的暂存写入都会清除已验标记 | - | problem |
+| POST | /problems/{id}/test-cases/apply | admin/tutor/team_creator/team_admin | 显式生效：把已通过验题的暂存集晋升为生效集（测试点与 SPJ 特判程序一并晋升；验题与晋升解耦，点「保存」才生效）；无暂存改动返回 3002，未通过验题（`pending_verified=false`）返回 3002；任何新的暂存写入都会清除已验标记 | - | problem |
+| PUT | /problems/{id}/spj | admin/tutor/team_creator/team_admin | 设置 / 覆盖暂存特判程序（C++17 源码 ≤256KB UTF-8，存 MinIO；生效集不动，验题通过后随 apply 晋升；写入清除 `pending_verified`） | code | - |
+| DELETE | /problems/{id}/spj | admin/tutor/team_creator/team_admin | 暂存移除特判程序（写 `pending_spj_oss_id=''`，apply 晋升后生效集置 NULL；题目无特判程序时返回 3002） | - | - |
+| GET | /problems/{id}/spj | admin/tutor/team_creator/team_admin | 回读特判程序目标状态（暂存优先，用于编辑器；普通用户 2003、匿名 2001） | - | { code?, staged } |
+| POST | /admin/problems/import | admin | **FPS 题库一键导入**：multipart 上传 ZIP（内含 fps 格式 XML，兼容 cp437 中文文件名）或单个 XML（≤64MB），逐题建库；解析 / 入库核心与 CLI 脚本共用（`app/services/problem_import.py`）；格式错误 1001 | file（multipart） | { total_parsed, imported, truncated, results[{title, status, problem_id?, message?}] } |
+| GET | /admin/problems/{id}/export | admin | **单题导出 fps.xml**（附件下载，原始响应不经统一信封）；仅导出生效集内容（见「FPS 题库导入 / 导出」）；题目不存在 3001 | - | fps.xml（application/xml） |
+| GET | /admin/problems/export | admin | **批量导出 ZIP**：`ids` 逗号分隔题目 id（≤20，超出 1001）；ZIP 内含单文件 fps.xml（一题一 item，可直接经导入端点回灌）；缺失 id 跳过、全部不存在 3001 | ids | fps-export-{date}.zip（application/zip） |
 | PUT | /problems/{id}/samples | admin/tutor/team_creator/team_admin | 全量替换展示样例（写 `problems.samples`，同时更新 `samples_updated_at`；不上传 MinIO；仅解释变更同样更新时间戳触发重验口径） | samples[]（input、output、explanation?），≤10 组、input / output 各 ≤64KB、explanation ≤64KB | - |
 | POST | /problems/{id}/verify | admin/tutor/team_creator/team_admin（发起）/ auth（提交验题代码） | 发起验题 / 提交验题代码（双模式请求体：`code+language` 为提交，否则为发起）；提交不限身份，`invite_token` 可选 | invite_expires_hours?/invite_token?/code?/language? | verification 或 submission_id |
 | GET | /verify-invites/{token} | public | 解析验题邀请链接（数据源 Redis `verify_invite:{token}`；返回题面与样例供受邀人查看，不含正式测试点内容与题解；`expires_at` 由 TTL 推算） | - | {problem_id, problem_title, expires_at, background, description, input_description?, output_description?, note?, tags[], time_limit_ms, memory_limit_mb, samples[]} |
-| POST | /problems/{id}/publish | admin/tutor/team_creator/team_admin | 发布（须验题通过 + active 测试点 ≥ 1 + `pending_case_ids` 为 NULL；存在暂存改动或样例晚于 verified_at 时返回 3002，须重新验题） | - | problem |
+| POST | /problems/{id}/publish | admin/tutor/team_creator/team_admin | 发布（须验题通过 + active 测试点 ≥ 1 + `pending_case_ids` 与 `pending_spj_oss_id` 均为 NULL；存在暂存改动（测试点 / SPJ）或样例晚于 verified_at 时返回 3002，须重新验题） | - | problem |
 | POST | /problems/{id}/archive | admin/tutor/team_creator/team_admin | 下线归档 | - | problem |
 | GET | /teams/{team_id}/problems | team 角色 | 团队题库列表（随 teams.md 团队空间节实现：引用 / 列表 / 详情 / 交题 / 自测独立端点） | 分页/可见性 | problem[] |
 | POST | /files/upload/avatar | auth（头像） | 头像上传（multipart → 站内文件 URL；频控见 security.md） | file | url |
 | POST | /files/upload/image | auth（公共图片，登录用户可用） | 题面插图上传（multipart → 站内文件 URL），Markdown 编辑器以 `![](url)` 引用；详见 admin.md files 表 | file（≤5MB，JPG/PNG/WEBP/GIF） | url |
 
-> 测试点与样例均不走独立上传接口：`PUT /problems/{id}/test-cases` 接收 UTF-8 的 `input` / `expected_output` 内容（每项 ≤5MB），由后端生成对象 key 并分别上传 `problems/{problem_id}/cases/{case_id}/input` 与 `/output`，回填双 ossId，**写入暂存集（验题通过后晋升生效）**；样例经 `PUT /problems/{id}/samples` 直接存库（≤10 组、单项各 ≤64KB），不上传 MinIO。不生成测试点归档 ZIP，前端 ZIP 只在浏览器内解压为内容。
+> 测试点与样例均不走独立上传接口：`PUT /problems/{id}/test-cases` 接收 UTF-8 的 `input` / `expected_output` 内容（每项 ≤8MB），由后端生成对象 key 并分别上传 `problems/{problem_id}/cases/{case_id}/input` 与 `/output`，回填双 ossId，**写入暂存集（验题通过后晋升生效）**；样例经 `PUT /problems/{id}/samples` 直接存库（≤10 组、单项各 ≤64KB），不上传 MinIO。不生成测试点归档 ZIP，前端 ZIP 只在浏览器内解压为内容。
+
+## FPS 题库导入 / 导出
+
+管理端一键导入（`POST /admin/problems/import`，admin 权限，前端入口为题目管理页「导入 ZIP」按钮）
+与 CLI 脚本（`python -m scripts.import_fps_problems`，支持 URL / 目录 / dry-run）共用同一解析与入库核心。
+解析 fps（freeproblemset，HUSTOJ 题库交换格式）XML，逐题建库：
+
+- **有测试点且无特判** → `published`（回填 `verified_at` / `published_at`，种子语义，直接可做）
+- **无测试点** → `draft`（FPS 允许仅含样例；待人工补点验题）
+- **`<spj>` 携带源码** → 恒为 `draft` 且特判程序写暂存集（`status=draft_spj`）：
+  走「验题 → apply 晋升」流程后生效，不按标准比对发布
+- **`<spj>` 仅有标记无源码** → 跳过（`skipped_spj`，无法重建 checker，按标准比对会误判）
+- **同标题**（与库内现有题或本批已导入题重复）→ 跳过（`duplicate`）
+- 单题失败不阻断（`failed`，携带原因）；导入人即题目 owner（owner_id），可见性 public
+
+护栏：上传 ≤64MB（与网关 `client_max_body_size` 对齐）；单侧测试点 ≤8MB、样例 ≤64KB、
+checker ≤256KB（超限侧跳过）；**单次请求最多尝试 20 题**（超出 `truncated=true`，前端提示分批导入；
+nginx `/api/` 读写超时放宽至 300s 承载单请求数十秒的导入耗时）。
+
+**导出**（`GET /admin/problems/{id}/export` 单题 fps.xml / `GET /admin/problems/export?ids=...` 批量 ZIP）：
+
+- **只导出生效集内容**：active_case_ids 顺序的测试点、生效特判程序（`spj_oss_id`）、
+  `problems.samples` 展示样例；暂存未晋升的改动不导出
+- 字段映射与导入反向一致：`time_limit` unit=ms / `memory_limit` unit=mb / `note` → `hint` /
+  `background` → `source`（「无」不导出）/ 官方题解 → `solution language="markdown"` /
+  生效特判源码 → `<spj>`；导出的 fps.xml 可直接经导入端点回灌（回灌因同标题跳过，
+  换标题即可建新题）
+- 护栏：单次 ≤20 题、原始内容总量 ≤256MB（超出 1001 / 1001）；附件下载为原始响应
+  （`Content-Disposition: attachment`），不经统一信封
 
 ## 错误码
 
@@ -195,21 +248,25 @@ CHECK (status <> 'published' OR verified_at IS NOT NULL)
 
 前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面题面 / 题目背景 / 输入输出说明 / 题面说明（可选，折叠展开） / 官方题解使用 Markdown 编辑器（md-editor-v3，编辑 + 按需分屏预览；存储仍为 Markdown 文本），题目背景为必填、渲染于题面之前，题面说明渲染于题面最后（未填写不渲染）。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端高度锁定为一屏、左右两栏独立滚动（题面过长时左栏内部滚动）、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题目背景 / 题面 / 输入输出说明 / 题面说明 / 官方题解按 Markdown 渲染（markdown-it + DOMPurify，支持 KaTeX 公式 `$...$` / `$$...$$`），样例仍为等宽文本块并提供复制，每组样例下的样例解释（Markdown，选填）仅在有内容时渲染。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
 
+写题向导「测试点」步骤内置 SPJ 特判程序编辑块（`docs/contracts/judge.md`「SPJ 特判」）：C++17 源码编辑器 + 保存 / 移除按钮，直接对接 `PUT` / `DELETE` / `GET /problems/{id}/spj`（团队上下文写题页同样可用）；区块展示「待验证」（暂存集）与「未保存」（本地改动）标记，移除经确认弹窗二次确认。题目详情 / 管理预览 / 验题面板的元信息条在 `has_spj` 时展示「SPJ 特判」徽标；评测结果页与管理端提交详情的测试点明细表新增「SPJ 信息」列（展示特判程序返回的判定信息，非 SPJ 提交恒为 `-`）。
+
+管理后台「题目管理」工具栏的「导入 / 导出」按钮打开双 tab 弹窗：**导入** tab 上传 ZIP / XML（结果逐题列表：状态标签 + 原因）；**导出** tab 依赖列表勾选列（题目 id 跨页保留选中）——勾选 ≥1 题可「导出 ZIP」，恰好 1 题可「导出 fps.xml」，经附件下载直接触发浏览器保存（blob 响应不经统一信封，错误信封在下载层解包透出业务错误码）。
+
 管理后台「题目管理」（`/admin/problems`）列表：**点击行即进入只读预览**（草稿 / 已发布 / 已归档一致，留在管理动线，不跳前台），编辑 / 查看提交 / 归档收敛在行内操作列；「查看提交」进入 `/admin/problems/{id}/submissions` 提交列表页（上下文路由，面包屑「管理后台 / 题目管理 / 提交列表」），经 `GET /problems/{id}/submissions` 分页查看该题**全员提交**（含提交人、状态、得分、耗时、内存、语言、提交类型与提交时间），支持状态页签、提交人昵称关键字与语言 / 提交类型（练习 / 比赛 / 验题）筛选；**点击行进入 `/admin/problems/{id}/submissions/{sid}` 评测详情**（状态 / 得分 / 耗时 / 内存、编译错误信息、代码与逐测试点明细，评测中自动轮询），详情经 `GET /problems/{id}/submissions/{sid}` 读取。非题目管理角色访问均被后端 2003 拦截。
 
 ## 关键流程 / 验收条件
 
 1. **题目生命周期**：创建默认 `status='draft'` → 编辑 / 维护测试点 → 验题 → `publish`（`status='published'`，CHECK 强制 `is_verified`）→ `archive`（`status='archived'`）。被题单 / 比赛引用时不得物理删除，仅归档。
-2. **验题时效**：题目内容（题面等）变更不影响验题有效性；**测试点存在暂存集（pending 非空，精确判定）或样例在最近一次验题通过后变更（`problems.samples_updated_at > verified_at`），则须重新走验题流程才能发布**——发布接口违反时返回 3002；`scope=mine` 列表与详情分别以 `needs_reverification` 字段透出。测试点编辑只落暂存集，生效集（active）在晋升前不受影响，比赛中判题始终使用已验证的 active 集。
-3. **验题**：发起 `POST /problems/{id}/verify`（生成邀请链接存 Redis，或不带参数创建空白记录）→ 任意登录用户提交代码（凭邀请链接或直接提交，身份不限）→ 系统按题目**暂存集（pending 为空时退化为生效集）**判题（复用 `submissions`，`submit_type='verify'`）→ 全部通过 → 仅打「已验待生效」标记（`pending_verified=true`，`case_status='verified'`）并回写 `problem_verifications.status='passed'`、判题链路回写 `verified_by / verified_at`（`verifier_id` 回写实际提交人）；**晋升与验题解耦**——管理角色调 `POST /problems/{id}/test-cases/apply` 显式生效后，单事务 `active_case_ids := pending_case_ids`、清空 pending（被取代旧行退役留档）。任何新的暂存写入都会清除已验标记。
+2. **验题时效**：题目内容（题面等）变更不影响验题有效性；**测试点存在暂存集（pending 非空，精确判定）或特判程序存在暂存改动（`pending_spj_oss_id` 非 NULL）或样例在最近一次验题通过后变更（`problems.samples_updated_at > verified_at`），则须重新走验题流程才能发布**——发布接口违反时返回 3002；`scope=mine` 列表与详情分别以 `needs_reverification` 字段透出。测试点 / SPJ 编辑只落暂存集，生效集（active）在晋升前不受影响，比赛中判题始终使用已验证的 active 集。
+3. **验题**：发起 `POST /problems/{id}/verify`（生成邀请链接存 Redis，或不带参数创建空白记录）→ 任意登录用户提交代码（凭邀请链接或直接提交，身份不限）→ 系统按题目**暂存集（pending 为空时退化为生效集，测试点与 SPJ 特判程序同规则）**判题（复用 `submissions`，`submit_type='verify'`）→ 全部通过 → 仅打「已验待生效」标记（`pending_verified=true`，`case_status='verified'`）并回写 `problem_verifications.status='passed'`、判题链路回写 `verified_by / verified_at`（`verifier_id` 回写实际提交人）；**晋升与验题解耦**——管理角色调 `POST /problems/{id}/test-cases/apply` 显式生效后，单事务 `active_case_ids := pending_case_ids`、`spj_oss_id := pending_spj_oss_id`（`''` 置 NULL）、清空 pending（被取代旧行退役留档 / MinIO 对象异步清理）。任何新的暂存写入都会清除已验标记。
 4. **样例自测**：题目详情页展示样例字符串（`problems.samples` 数组）并提供复制；每组样例可附样例解释（`explanation`，Markdown，空则前端不渲染解释区块）；在线试运行能力规划由判题节点侧专用端点承担（当前后端不执行用户代码）。
 5. **难度分与通过率**：难度分为出题人手动填写（`problems.difficulty`，非负整数，NULL=未评分），列表支持闭区间筛选；通过率统计由 `problem_counters` 承载，判题终态原子累加（口径见 `docs/contracts/judge.md`），API 返回原始计数、前端现算百分比。
 
 ## 明确不做
 
 - 不物理删除题目；团队题目不设「升级公开」通道——公开题库仅来自全站题目（工作区 / admin 直出），团队是封闭空间
-- 不支持 SPJ 特判：判题仅标准比对（忽略行尾空白与末尾换行、行内严格），无 checker 机制
 - 不引入子任务 / 分组加权计分（见 `docs/architecture.md` 明确不使用）
+- SPJ 特判仅支持 C++17 单文件程序（testlib 风格退出码协议，`judge.md`「SPJ 特判」）；不支持特判部分分、不支持多文件 / 数据生成器；源码不走独立上传接口（同测试点：接收内容由后端落 MinIO）
 - 测试点不向前端暴露下载 / 预签名 URL；提交结果不返回期望输出
 - 不建验题邀请链接表（Redis 承载）与用户代码草稿表；AI 出题相关字段（`is_ai_generated` / `ai_generation_task_id`）随 AI 能力迭代再引入，当前不落库
 - 不做 per-problem 语言级限制覆盖：题目限制为 C++ 基准，其他语言统一按 `sandbox_configs` 全局语言比例换算

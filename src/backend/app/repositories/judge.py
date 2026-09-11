@@ -15,6 +15,7 @@ class JudgeRepository:
     async def write_case_result(
         self, db: AsyncSession, submission_id: uuid.UUID, test_case, *, status: str,
         time_used_ms: int | None, memory_used_kb: int | None, score: int, output: str | None,
+        message: str | None = None,
     ) -> None:
         record = await db.scalar(
             select(SubmissionTestCaseResult).where(
@@ -30,6 +31,7 @@ class JudgeRepository:
         record.memory_used_kb = memory_used_kb
         record.score = score
         record.output = output
+        record.message = message
         await db.flush()
 
     async def finish_submission(

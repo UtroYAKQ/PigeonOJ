@@ -169,7 +169,7 @@ class ProblemRepository:
         return {row.problem_id: bool(row.solved) for row in rows}
 
     async def verification_snapshot_fields(self, problem_ids: list[uuid.UUID]) -> list:
-        """批量取重验判定所需字段（id / verified_at / samples_updated_at / pending_case_ids）。"""
+        """批量取重验判定所需字段（id / verified_at / samples_updated_at / pending_case_ids / pending_spj_oss_id）。"""
         if not problem_ids:
             return []
         return list(
@@ -180,6 +180,7 @@ class ProblemRepository:
                         Problem.verified_at,
                         Problem.samples_updated_at,
                         Problem.pending_case_ids,
+                        Problem.pending_spj_oss_id,
                     ).where(Problem.id.in_(problem_ids))
                 )
             ).all()

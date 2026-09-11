@@ -47,8 +47,9 @@ CHECK (
 | status | VARCHAR(24) | NOT NULL | 单测试点判题状态 |
 | time_used_ms | INT | NULL | |
 | memory_used_kb | INT | NULL | |
-| score | INT | NOT NULL DEFAULT 0 | 该测试点得分（服务端派生：单点分值一致 = 单题满分 ÷ 测试点数，仅通过时计分；练习 / 验题满分为 100，OI 比赛为比赛配置的单题分值） |
+| score | INT | NOT NULL DEFAULT 0 | 该测试点得分（服务端派生：单点分值一致 = 单题满分 ÷ 测试点数，仅通过时计分；练习 / 验题满分为 100，OI 比赛为比赛配置分值） |
 | output | TEXT | NULL | 运行输出（MinIO ossId，正文截断后落对象存储） |
+| message | TEXT | NULL | SPJ 判定信息（特判程序 stdout 截断 ≤2KB，UTF-8；非 SPJ 提交为 NULL。如 `wrong answer expected 3, found 4`，随明细返回提交者定位错误；内容出题人自负；迁移 0036） |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
 索引：
@@ -117,6 +118,39 @@ CHECK (
 - **频控**：user+problem 冷却（Redis `judge:selftest:` 前缀，时长复用 `sandbox.cooldown_seconds`；派发失败自动释放冷却槽）+ 全局并发上限（复用 `sandbox.judge_concurrency`，网关在途统计含自测）
 - **生命周期**：作业仅存在于网关内存 pending 表（request_id 关联）；节点断线即时置错、整链路 120s 兜底超时，不参与维护循环重派
 
+## SPJ 特判（Special Judge）
+
+题目可配置一个 C++17 特判程序（checker），替代默认比对逐测试点判定用户输出。
+特判源码属于题目数据，与测试点共用「暂存 → 验题 → 晋升」双集合语义（见 problems.md「SPJ 特判程序」节），
+源码随 `FetchProblemData` 数据包下发（`spj.cpp`），仅在判题节点沙箱内编译与运行——
+**后端进程不经手特判程序，与用户代码同一执行边界**。
+
+**调用协议（testlib 风格）**：
+
+```
+<workdir>/spj <input> <user_out> <answer>
+```
+
+- `input` / `answer`：该测试点的输入与期望输出文件（无期望输出的 SPJ 题为空文件，只读）；
+  `user_out`：用户程序 stdout（截断后）写入的可读文件
+- 判定按**退出码**：`0` = accepted；`3`（testlib `_died`）/ `4`（testlib `_fail`，checker 自身故障）=
+  整个提交 `system_error`；其余退出码 = wrong_answer（含 testlib `_wa`=1、`_pe`=2；
+  部分分退出码 `16+分值` 不支持，按 wrong_answer 处理）
+- 特判程序 stdout（UTF-8，截断 ≤2KB）作为该测试点 `message` 落库并随提交详情返回，
+  供提交者定位错误；内容出题人自负（不应打印期望答案）
+
+**限制**：
+
+- 特判程序编译预算与提交代码一致（`max(10s, 10×单点时限)`、同内存上限），每个提交作业编译一次
+  （不做跨作业缓存复用）
+- 运行限制：时间 `max(2×单点有效时限, 5000ms)`、内存与提交一致、输出上限 16KB（超出即视为故障）
+- 特判程序自身 TLE / MLE / RE / 输出超限 → 整个提交 `system_error`（不计通过率），
+  `error_message` 统一为 `special judge program failed`，**不回传编译器输出或特判程序 stderr**
+  （防泄露特判源码片段；出题人本地调试）
+
+**与赛制的交互**：SPJ 只产出 accepted / wrong_answer 判定，分数仍由服务端按测试点通过比例派生
+（ACM 二值 / IOI 部分分语义不变）；ACM `stop_on_failure` 短路在首个非 accepted 点后照常生效。
+
 ## 端点
 
 统一前缀 `/api/v1`。
@@ -181,9 +215,12 @@ pending>60s / judging>5min 重置重派（Redis SETNX 防同轮重复投递：�
   上行 Heartbeat / JudgeResult / RunCodeResult，下行 SubmitJob / RunCodeJob / CancelJob(预留)。
   Heartbeat 携带 `running_tasks`（`load` 由服务端按 `capacity` 计算）与宿主指标
   `cpu_usage` / `memory_usage`（0-100，节点采集自 `/proc/stat` / `/proc/meminfo`；非 Linux 或无数据为 0）。
+  Register 携带能力位 `supports_spj`：true = 节点支持编译并运行 SPJ 特判程序；
+  网关派发 SPJ 题时只选支持节点（无支持节点 → 提交落 system_error），旧节点默认 false，
+  防止退化为默认比对静默误判。
 - `FetchProblemData(ProblemDataRequest) returns (stream FileChunk)`：
-  按 `data_version` 流式传输 manifest / cases/<id>.in|.out；
-  令牌经 metadata `x-node-token` 携带。数据指纹 = sha256(测试点数量|最大 updated_at)，
+  按 `data_version` 流式传输 manifest / cases/<id>.in|.out / spj.cpp（题目配置了特判程序时）；
+  令牌经 metadata `x-node-token` 携带。数据指纹 = sha256(测试点数量|最大 updated_at|特判程序对象 key)，
   **按判定集统计**：练习 / 比赛 = 生效集（`problems.active_case_ids`），
   验题 = 暂存集（`pending_case_ids`，NULL 时退化生效集）；暂存编辑不影响生效集指纹，
   晋升瞬间自然失效，
@@ -212,7 +249,7 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 
 - 提交统一按 `submit_type` 区分场景：练习（默认）、比赛（`contest_id` 关联，含赛后补题）、验题（`verification_id` 关联，结果驱动 `problem_verifications.status`；验题通过同步回写 `problems.is_verified / verified_by / verified_at`）。
 - 任务派发由 gRPC 网关承担，`sandbox_configs` 提供语言级运行参数（含输出大小、磁盘配额、CPU 核数、网络开关）与判题限制比例；`problems` 提供 **C++ 基准**内存 / 时间限制，判题按提交语言解析有效限制。
-- 判题比对模式：统一默认比对（忽略行尾空白与末尾换行、行内严格）；不支持 SPJ 特判。
+- 判题比对模式：题目未配置特判程序时统一默认比对（忽略行尾空白与末尾换行、行内严格）；配置了特判程序（SPJ）时由节点在沙箱内运行特判程序判定（见「SPJ 特判」节）。
 - 输出超限：程序输出超过沙箱输出上限时截断比对，判定 `output_limit_exceeded`，不再继续比对剩余输出。默认上限 5MB（`sandbox_configs.output_limit_kb = 5120`，0021 迁移；对齐主流 OJ 行业水平），节点以 job 下发的 `limits.output_limit_kb` 为准。
 - 判题失败（沙箱异常、超时）自动重试，超过阈值转 `system_error`。
 - 判题结果仅返回用户程序输出与判定状态，不返回测试点期望输出。
@@ -241,6 +278,7 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 | 运行命令 | cpp17：`./Main`；java21：`java -Xmx<堆上限> Main`（堆上限由有效内存换算，仅运行时用）；python3.12：`python3.12 Main.py` |
 | 标准流 | 逐测试点独立运行：测试点输入重定向 stdin，stdout 捕获为程序输出（写入 `submission_test_case_results.output`） |
 | 默认比对 | 忽略行尾空白与末尾换行、行内严格 |
+| SPJ 特判 | 题目配置特判程序时替代默认比对：节点按 testlib 风格 argv（input / user_out / answer）在沙箱内逐测试点运行 C++17 特判程序，退出码判 AC / WA（3、4 为 checker 故障判 system_error）；见「SPJ 特判」节 |
 | stderr 归集 | 执行器过滤 nsjail 自身的 `[I]`/`[W]` 日志行后仅返回/记录程序真实错误输出；nsjail 的 `[E]`/`[F]` 故障行保留用于执行器排障 |
 | 输出上限 | 程序输出超出 `sandbox_configs.output_limit_kb` 截断并判 `output_limit_exceeded` |
 | 沙箱身份与临时目录 | nsjail 开启 `clone_newuser`，默认映射 `inside 0 ↔ outside 0`——jailed 进程当前具备全局 root 级文件访问（nsjail 启动日志有 [W] 提示）。作业目录仍统一按「属主 nobody(65534) + 0777」准备：同时兼容未来把映射收紧为真实 nobody、以及不给 root DAC 旁路的挂载层（如 Docker Desktop 文件共享）。jail 内挂载可写 tmpfs `/tmp`（64MB）与 `/dev/shm`（32MB），均 `mode=1777`、nodev/nosuid；**tmpfs 挂载必须位于 nsjail.cfg 挂载列表末尾**——nsjail 的 pivot_root 暂存树固定在 `/tmp/nsjail.root`，提前覆盖 `/tmp` 会破坏根文件系统组装。执行环境显式注入 `TMPDIR=/tmp` 与 `PYTHONDONTWRITEBYTECODE=1`；`rlimit_as` 基线为 16384 以容纳 JVM 虚拟地址预留（4096 会使 javac/JVM 启动即 OOM），C++ / Python 每次执行由执行器按题目内存限制动态覆盖 |
@@ -255,3 +293,6 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 - **后端进程不执行任何用户代码**（无内联执行端点；用户自测经网关派发到节点 nsjail 执行，见「用户自测」节）
 - 测试点对象不向前端暴露下载 / 预签名 URL（判题节点经网关认证后按 data_version 拉取）
 - 不做 per-problem 语言级限制覆盖（C++ 基准 + `sandbox_configs` 全局语言比例即可）
+- SPJ 特判程序仅支持 C++17（testlib.h 生态）；不支持特判部分分（退出码只判 AC / WA，
+  分数恒由服务端按通过比例派生）；不返回特判程序编译错误 / stderr 详情（防泄露源码）；
+  不做特判程序二进制跨作业缓存（每个提交作业编译一次）

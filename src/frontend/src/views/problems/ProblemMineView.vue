@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { NButton, NIcon, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
-import { archiveProblem, listProblems } from '@/api/problems'
+import { archiveProblem, exportProblemXml, exportProblemsZip, importFpsProblems, listProblems } from '@/api/problems'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import RefreshButton from '@/components/RefreshButton.vue'
@@ -14,7 +14,7 @@ import { problemStatusTagType, problemStatusLabelKey } from '@/constants/problem
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import type { PageResult, ProblemSummary } from '@/types'
+import type { FpsImportResult, PageResult, ProblemSummary } from '@/types'
 
 type ProblemStatus = 'draft' | 'published' | 'archived'
 
@@ -29,6 +29,85 @@ const query = reactive({
   status: '' as ProblemStatus | '',
   ownership: '' as '' | 'solo' | 'team',
 })
+
+/** FPS 题库导入 / 导出（docs/contracts/problems.md「FPS 题库导入 / 导出」）：
+ * 同一弹窗双 tab；导入上传 ZIP，导出按列表勾选（跨页保留选中） */
+const importVisible = ref(false)
+const importing = ref(false)
+const importFile = ref<File | null>(null)
+const importResult = ref<FpsImportResult | null>(null)
+const IMPORT_MAX_BYTES = 64 * 1024 * 1024
+const importInput = ref<HTMLInputElement>()
+const modalTab = ref<'import' | 'export'>('import')
+const exporting = ref(false)
+/** 勾选的题目 id（批量导出；跨页/翻页保留） */
+const checkedKeys = ref<string[]>([])
+
+function chooseImportFile(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  ;(event.target as HTMLInputElement).value = ''
+  if (!file) return
+  if (!/\.(zip|xml|fps)$/i.test(file.name)) {
+    message.error(t('problems.importFps.invalidType'))
+    return
+  }
+  if (file.size > IMPORT_MAX_BYTES) {
+    message.error(t('problems.importFps.tooLarge'))
+    return
+  }
+  importFile.value = file
+  importResult.value = null
+}
+
+function importStatusType(status: string): 'success' | 'warning' | 'error' | 'default' {
+  if (status === 'published') return 'success'
+  if (status === 'failed') return 'error'
+  if (status === 'draft' || status === 'draft_spj') return 'warning'
+  return 'default'
+}
+
+function importStatusLabel(status: string): string {
+  return t(`problems.importFps.status_${status}`)
+}
+
+async function doImport() {
+  if (!importFile.value || importing.value) return
+  importing.value = true
+  try {
+    importResult.value = await importFpsProblems(importFile.value)
+    if (importResult.value.imported > 0) await load()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('problems.importFps.failed'))
+  } finally {
+    importing.value = false
+  }
+}
+
+function openImport() {
+  importFile.value = null
+  importResult.value = null
+  modalTab.value = 'import'
+  importVisible.value = true
+}
+
+/** 批量导出 ZIP（勾选 N 题）；单题 fps.xml 仅在恰好勾选 1 题时可用 */
+async function doExport(kind: 'zip' | 'xml') {
+  if (exporting.value || !checkedKeys.value.length) return
+  if (kind === 'xml' && checkedKeys.value.length !== 1) return
+  exporting.value = true
+  try {
+    if (kind === 'zip') {
+      await exportProblemsZip(checkedKeys.value)
+    } else {
+      await exportProblemXml(checkedKeys.value[0])
+    }
+    message.success(t('problems.importFps.exportSuccess'))
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('problems.importFps.failed'))
+  } finally {
+    exporting.value = false
+  }
+}
 
 async function load() {
   loading.value = true
@@ -97,6 +176,11 @@ function doArchive(row: ProblemSummary) {
 onMounted(load)
 
 const columns = computed<DataTableColumns<ProblemSummary>>(() => [
+  {
+    // 勾选列：批量导出选题（跨页保留选中，key 为题目 id）
+    type: 'selection',
+    width: 44,
+  },
   {
     title: t('problems.list.name'),
     key: 'title',
@@ -240,10 +324,14 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
 ])
 
 function rowProps(row: ProblemSummary) {
-  // 点击行即查看（只读预览，留在管理后台）：草稿 / 已发布 / 已归档一致
+  // 点击行即查看（只读预览，留在管理后台）：草稿 / 已发布 / 已归档一致；
+  // 勾选列的点击不冒泡（否则勾选即跳预览页）
   return {
     style: 'cursor: pointer;',
-    onClick: () => goDetail(row),
+    onClick: (event: MouseEvent) => {
+      if ((event.target as HTMLElement).closest('.n-checkbox')) return
+      goDetail(row)
+    },
   }
 }
 </script>
@@ -272,6 +360,12 @@ function rowProps(row: ProblemSummary) {
       />
       <template #actions>
         <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
+        <n-button secondary @click="openImport">
+          <template #icon>
+            <n-icon :component="Tickets" />
+          </template>
+          {{ t('problems.importFps.button') }}
+        </n-button>
         <n-button type="primary" @click="router.push('/admin/problems/new')">
           <template #icon>
             <n-icon :component="CirclePlus" />
@@ -304,7 +398,15 @@ function rowProps(row: ProblemSummary) {
       v-model:page-size="pageSize"
       :page-sizes="[20, 50, 100]"
       :empty-text="t('problems.mine.empty')"
-      :table-props="{ scrollX: 1080, rowProps }"
+      :table-props="{
+        scrollX: 1080,
+        rowProps,
+        rowKey: (row: ProblemSummary) => row.id,
+        checkedRowKeys: checkedKeys,
+        onUpdateCheckedRowKeys: (keys: Array<string | number>) => {
+          checkedKeys = keys as string[]
+        },
+      }"
       @update:page="
         (p: number) => {
           changePage(p)
@@ -322,6 +424,105 @@ function rowProps(row: ProblemSummary) {
         <span class="pager__total">{{ t('problems.list.totalCount', { count: total }) }}</span>
       </template>
     </PaginatedDataTable>
+
+    <!-- FPS 题库导入 / 导出弹窗：双 tab；导入上传 ZIP，导出按列表勾选 -->
+    <n-modal
+      v-model:show="importVisible"
+      preset="card"
+      :title="t('problems.importFps.title')"
+      style="width: min(600px, 92vw)"
+    >
+      <n-tabs v-model:value="modalTab" type="line" size="small" animated>
+        <n-tab-pane name="import" :tab="t('problems.importFps.tabImport')">
+          <div class="import-fps">
+            <p class="import-fps__hint">{{ t('problems.importFps.hint') }}</p>
+            <div class="import-fps__picker">
+              <input
+                ref="importInput"
+                type="file"
+                accept=".zip,.xml,.fps"
+                class="import-fps__input"
+                @change="chooseImportFile"
+              />
+              <n-button size="small" @click="importInput?.click()">
+                {{ t('problems.importFps.choose') }}
+              </n-button>
+              <span v-if="importFile" class="import-fps__file">{{ importFile.name }}</span>
+              <n-button
+                type="primary"
+                size="small"
+                class="import-fps__start"
+                :disabled="!importFile"
+                :loading="importing"
+                @click="doImport"
+              >
+                {{ t('problems.importFps.start') }}
+              </n-button>
+            </div>
+            <template v-if="importResult">
+              <n-alert
+                :type="importResult.imported > 0 ? 'success' : 'warning'"
+                class="import-fps__summary"
+              >
+                {{ t('problems.importFps.summary', { parsed: importResult.total_parsed, imported: importResult.imported }) }}
+                <template v-if="importResult.truncated">
+                  <br />{{ t('problems.importFps.truncated') }}
+                </template>
+              </n-alert>
+              <div v-if="importResult.results.length" class="import-fps__results">
+                <div
+                  v-for="(item, index) in importResult.results"
+                  :key="`${item.title}-${index}`"
+                  class="import-fps__row"
+                >
+                  <n-tag size="small" :type="importStatusType(item.status)" :bordered="false">
+                    {{ importStatusLabel(item.status) }}
+                  </n-tag>
+                  <span class="import-fps__title">{{ item.title }}</span>
+                  <span v-if="item.message" class="import-fps__msg">{{ item.message }}</span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </n-tab-pane>
+        <n-tab-pane name="export" :tab="t('problems.importFps.tabExport')">
+          <div class="import-fps">
+            <p class="import-fps__hint">{{ t('problems.importFps.exportHint') }}</p>
+            <n-alert
+              v-if="!checkedKeys.length"
+              type="info"
+              :bordered="false"
+              class="import-fps__summary"
+            >
+              {{ t('problems.importFps.exportNone') }}
+            </n-alert>
+            <template v-else>
+              <p class="import-fps__selected">
+                {{ t('problems.importFps.selectedCount', { count: checkedKeys.length }) }}
+              </p>
+              <div class="import-fps__actions">
+                <n-button
+                  size="small"
+                  :disabled="checkedKeys.length !== 1"
+                  :loading="exporting"
+                  @click="doExport('xml')"
+                >
+                  {{ t('problems.importFps.exportXml') }}
+                </n-button>
+                <n-button
+                  type="primary"
+                  size="small"
+                  :loading="exporting"
+                  @click="doExport('zip')"
+                >
+                  {{ t('problems.importFps.exportZip') }}
+                </n-button>
+              </div>
+            </template>
+          </div>
+        </n-tab-pane>
+      </n-tabs>
+    </n-modal>
   </WorkbenchShell>
 </template>
 
@@ -354,5 +555,80 @@ function rowProps(row: ProblemSummary) {
   .pager {
     justify-content: center;
   }
+}
+/* FPS 导入弹窗：文件选择行 + 结果逐题列表（限高滚动） */
+.import-fps {
+  display: grid;
+  gap: 12px;
+}
+.import-fps__hint {
+  margin: 0;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.import-fps__picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.import-fps__input {
+  display: none;
+}
+.import-fps__file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--app-text);
+  font-size: 13px;
+}
+/* 开始导入与选择文件同行，右对齐 */
+.import-fps__start {
+  margin-left: auto;
+}
+.import-fps__summary {
+  margin-top: 4px;
+}
+.import-fps__selected {
+  margin: 0;
+  color: var(--app-text);
+  font-size: 13px;
+}
+.import-fps__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.import-fps__results {
+  max-height: 260px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: var(--app-muted-bg);
+}
+.import-fps__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.import-fps__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-fps__msg {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
