@@ -46,7 +46,7 @@ docker compose --env-file .env.node --project-directory . -f docker/docker-compo
 
 - **后端进程不执行任何用户代码**；代码执行只发生在 `pigeonoj/judge-node` 容器内；后端仅提供 gRPC 网关（`:50051`）
 - 组网三选一：同机（`SERVER_HOST=backend` + `SERVER_GRPC_PORT=50051`）、单域名路径复用 443（边缘 nginx 按 `/pigeonoj.judge.v1.JudgeGateway/` `grpc_pass`）、直连（改绑 `"50051:50051"`）；节点侧端口经 `.env.node` 的 `SERVER_GRPC_PORT` 配置，须与后端 `JUDGE_GRPC_PORT` 一致（也可整体用 `SERVER_ADDRESS` 覆盖）
-- 节点需要 `privileged: true`（nsjail 嵌套 namespace）；出站连接网关，无入站端口
+- 节点需要 `privileged: true`（nsjail 嵌套 namespace）；判题 gRPC 仍只出站。可选本机管理页（默认 `127.0.0.1:18080`，容器内 `0.0.0.0` 但 compose 只映射到宿主机回环）：改网关地址/令牌、TCP 探测、容量与并行度；`JUDGE_ADMIN_PORT=0` 关闭。token 接口掩码返回。管理页写入 `/cache/node.runtime.toml`（挂载卷），**优先于** compose 环境变量，容器重建后仍保留
 - 镜像多阶段构建：编译 nsjail 后丢弃 autoconf/bison/git 等构建依赖；运行时仅保留 g++ / JDK / Python / nsjail 动态库
 - `JUDGE_CASE_PARALLEL`（默认 4）：IOI/练习/验题同作业并行测试点数；ACM `stop_on_failure` 仍串行
 - 内存展示采样：每次 nsjail 调用在容器 cgroup v2 下建叶子目录读 `memory.current`（50ms 间隔；结束时若有 `memory.peak` 取更大值）。不向 nsjail 传 `cgroup_mem_max`（不当硬限）。cgroup 写失败（非 Linux / 无 v2 / 无 memory 控制器）回退为沿 nsjail 进程树读 `VmRSS`。不要求 `cgroupns=host`
@@ -204,7 +204,7 @@ python -m scripts.crawl_loj --begin 100 --end 199        # LibreOJ 题目爬取
 - 单元测试覆盖 Service；集成测试覆盖 Route → Service → Repository
 - 端点覆盖：成功 + 每种错误码 + 边界值
 - 判题 / 沙箱相关测试无沙箱环境时 skip 或 mock
-- 判题节点（无 nsjail）：在 `src/judge/node` 下 `pytest`（SPJ FakeExecutor + 宿主指标 + cgroup 采样 + 执行器参数/管道/懒加载）
+- 判题节点（无 nsjail）：在 `src/judge/node` 下 `pytest`（SPJ / 指标 / cgroup / 执行器 / 管理页解析与配置写回）
 
 > 邮箱验证码发信：SMTP host 为空（默认）时开发/测试环境打印验证码到后端日志；生产环境返回 `5001`（邮件服务未配置），避免静默失败。
 

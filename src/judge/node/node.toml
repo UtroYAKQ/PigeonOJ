@@ -1,5 +1,5 @@
 # PigeonOJ 判题节点配置（容器内运行）
-# 环境变量可覆盖：SERVER_ADDRESS / SERVER_TOKEN / JUDGE_NODE_ID / JUDGE_NODE_NAME / JUDGE_NODE_CAPACITY
+# 环境变量可覆盖：SERVER_ADDRESS / SERVER_TOKEN / JUDGE_NODE_* / JUDGE_ADMIN_* / JUDGE_CACHE_*
 # token 需与后端 JUDGE_GATEWAY_TOKENS 之一匹配。
 
 [server]
@@ -24,3 +24,7 @@ gc_interval_seconds = 300      # 回收巡检间隔
 nsjail_binary = "nsjail"
 nsjail_config = "/etc/pigeonoj/nsjail.cfg"
 case_parallel = 4              # IOI/练习并行测试点数；ACM stop_on_failure 仍串行
+
+[admin]
+bind = "127.0.0.1"             # 管理页；空或 port=0 不启动。Docker 内用 0.0.0.0 并只映射到宿主机回环
+port = 18080

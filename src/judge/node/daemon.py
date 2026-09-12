@@ -39,6 +39,25 @@ _GRPC_CHANNEL_OPTIONS = (
 )
 
 
+def classify_gateway_error(*, code: str = "", details: str = "", text: str = "") -> tuple[str, str]:
+    """把 gRPC / 传输失败收成管理页可读原因：(code, message)。"""
+    blob = f"{code} {details} {text}".lower()
+    if "unauthenticated" in blob or "invalid node token" in blob or "invalid token" in blob:
+        return "token", "令牌错误：与后端 JUDGE_GATEWAY_TOKENS 不一致"
+    if any(k in blob for k in ("ssl", "tls", "handshake", "certificate", "wrong_version_number", "cert")):
+        return "tls", "TLS 握手失败：本机明文网关不要勾 TLS；公网请检查证书"
+    if any(k in blob for k in (
+        "unavailable", "connection refused", "failed to connect",
+        "name resolution", "dns", "timed out", "timeout",
+        "network is unreachable", "no route to host",
+    )):
+        return "unreachable", "后端网关未在监听，或地址/端口不对"
+    if "cancel" in blob:
+        return "cancelled", "连接被关闭（若反复出现，先测连通并核对令牌）"
+    msg = (details or text or code or "未知错误").strip()
+    return "unknown", f"连接失败：{msg}"
+
+
 def aggregate_status(statuses: list[str]) -> str:
     if not statuses:
         return "system_error"
@@ -113,9 +132,49 @@ class NodeDaemon:
         self.heartbeat_interval = 10
         self.cpu_sample: tuple[int, int] | None = None  # (idle, total) 上次 /proc/stat 采样
         self._cancels: dict[str, threading.Event] = {}
+        self.registered = False
+        self.reconnect_requested = False
+        self.connection_state = "disconnected"
+        self.last_error_code = ""
+        self.last_error = ""
+        self._had_connection = False
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._channel = None
+
+    def request_reconnect(self) -> None:
+        self.reconnect_requested = True
+        self.connection_state = "reconnecting"
+        channel = self._channel
+        loop = self._loop
+        if channel is None or loop is None or loop.is_closed():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(channel.close(), loop)
+        except RuntimeError:
+            pass
+
+    def record_gateway_error(self, exc: BaseException) -> None:
+        code = ""
+        details = ""
+        if isinstance(exc, grpc.aio.AioRpcError):
+            try:
+                code = exc.code().name
+            except Exception:
+                code = ""
+            details = exc.details() or ""
+        new_code, new_msg = classify_gateway_error(code=code, details=details, text=str(exc))
+        if self.last_error_code == "token" and new_code in {"cancelled", "unknown"}:
+            return
+        self.last_error_code = new_code
+        self.last_error = new_msg
 
     async def run(self) -> None:
         cfg = self.cfg
+        self._loop = asyncio.get_running_loop()
+        was_reconnect = self.reconnect_requested or self._had_connection
+        self.reconnect_requested = False
+        self.registered = False
+        self.connection_state = "reconnecting" if was_reconnect else "connecting"
         self.semaphore = asyncio.Semaphore(max(1, cfg.node.capacity))
         if cfg.server.tls:
             # TLS 模式：连公网域名 443（nginx grpc_pass 按服务路径转发到网关），
@@ -125,6 +184,7 @@ class NodeDaemon:
             )
         else:
             channel = grpc.aio.insecure_channel(cfg.server.address, options=_GRPC_CHANNEL_OPTIONS)
+        self._channel = channel
         stub = judge_pb2_grpc.JudgeGatewayStub(channel)
 
         async def outgoing():
@@ -152,6 +212,11 @@ class NodeDaemon:
                     self.heartbeat_interval = max(3, sm.ack.heartbeat_interval_seconds)
                     log.info("注册成功：%s（心跳间隔 %ss）", sm.ack.node_id, self.heartbeat_interval)
                     registered = True
+                    self.registered = True
+                    self._had_connection = True
+                    self.connection_state = "connected"
+                    self.last_error_code = ""
+                    self.last_error = ""
                     continue
                 kind = sm.WhichOneof("payload")
                 if kind == "job":
@@ -162,9 +227,20 @@ class NodeDaemon:
                     ev = self._cancels.get(sm.cancel.submission_id)
                     if ev is not None:
                         ev.set()
+        except grpc.aio.AioRpcError as exc:
+            self.record_gateway_error(exc)
+        except asyncio.CancelledError as exc:
+            self.record_gateway_error(exc)
+            raise
         finally:
             heartbeat_task.cancel()
             cache_gc_task.cancel()
+            self.registered = False
+            self._channel = None
+            if self.reconnect_requested or self._had_connection:
+                self.connection_state = "reconnecting"
+            else:
+                self.connection_state = "disconnected"
             await channel.close()
             log.info("连接关闭")
 
@@ -431,17 +507,37 @@ def main() -> None:
         raise SystemExit(64)
     Path(cfg.paths.workspace).mkdir(parents=True, exist_ok=True)
 
-    # 后端可能尚未就绪：连接失败按退避重试，直到注册成功或被手动停止
+    from admin_server import NodeAdmin
+
+    daemon = NodeDaemon(cfg)
+    admin = NodeAdmin(daemon, args.config)
+    admin.start()
+    if cfg.admin.bind and cfg.admin.port > 0:
+        log.info("管理页 http://%s:%s/", cfg.admin.bind, cfg.admin.port)
+
     backoff = 3
-    while True:
-        try:
-            asyncio.run(NodeDaemon(cfg).run())
-            return  # 服务端优雅关闭
-        except KeyboardInterrupt:
-            raise SystemExit(0)
-        except grpc.aio.AioRpcError as exc:
-            log.warning("连接后端失败：%s；%ss 后重试", exc.details(), backoff)
-        time.sleep(backoff)
+    try:
+        while True:
+            try:
+                asyncio.run(daemon.run())
+                if daemon.reconnect_requested:
+                    log.info("按管理页请求重连网关")
+                else:
+                    log.info("网关连接结束，%ss 后重连", backoff)
+            except KeyboardInterrupt:
+                raise SystemExit(0)
+            except asyncio.CancelledError as exc:
+                daemon.record_gateway_error(exc)
+                log.warning("%s；%ss 后重试", daemon.last_error or "网关连接被取消", backoff)
+            except grpc.aio.AioRpcError as exc:
+                daemon.record_gateway_error(exc)
+                log.warning("%s；%ss 后重试", daemon.last_error, backoff)
+            except Exception as exc:  # noqa: BLE001 - 保管理页存活，网关异常只重连
+                daemon.record_gateway_error(exc)
+                log.warning("%s；%ss 后重试", daemon.last_error, backoff)
+            time.sleep(backoff)
+    finally:
+        admin.stop()
 
 
 if __name__ == "__main__":

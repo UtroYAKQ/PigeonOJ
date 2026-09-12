@@ -195,7 +195,7 @@ CHECK (
     build_job_bundle 原子认领（UPDATE ... WHERE status='pending'）后经 gRPC 流推送 SubmitJob
   → 无在线节点 / 节点满载：保持 pending，网关维护循环每 30s 重扫派发；**节点注册 / 重连即踢醒巡检**，
     断线期间滞留的 pending 秒级重派（不等扫描周期）
-节点（pigeonoj/judge-node 容器，privileged，出站连接后端 :50051）
+节点（pigeonoj/judge-node 容器，privileged，出站连接后端 :50051；可选本机管理页见 operations.md）
   → 数据缓存未命中时 FetchProblemData 拉取测试点（data_version 缓存于容器 /cache；单文件可分片追加）
   → 按 sandbox_configs 比例换算有效限制（时间 ×time_ratio；内存 max(×memory_ratio, memory_min_mb)）
   → nsjail 原生编译一次后运行测试点：ACM `stop_on_failure` 串行短路；IOI/练习/验题默认同作业最多 4 点并行，
