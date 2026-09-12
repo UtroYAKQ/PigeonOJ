@@ -324,7 +324,7 @@ class ContestService:
             page=page, page_size=page_size, status=status, keyword=keyword, owner_id=owner_id,
             contest_type=contest_type,
         )
-        return [await self._to_summary(self.repo, row) for row in rows], total
+        return await self._to_summaries(self.repo, rows), total
 
     async def _can_manage(self, user: User | None, contest: Contest | None = None) -> bool:
         """单个比赛的管理权限（单一所有权模型，docs/security.md）：admin 管理全站比赛；
@@ -462,9 +462,9 @@ class ContestService:
         ], total
 
     @staticmethod
-    async def _to_summary(repo: ContestRepository, contest: Contest) -> ContestSummary:
-        counts = await repo.count_registrations([contest.id])
-        problems = await repo.count_problems([contest.id])
+    def _build_summary(
+        contest: Contest, counts: dict[uuid.UUID, int], problems: dict[uuid.UUID, int]
+    ) -> ContestSummary:
         return ContestSummary(
             id=contest.id,
             title=contest.title,
@@ -485,6 +485,20 @@ class ContestService:
             updated_at=contest.updated_at,
         )
 
+    @staticmethod
+    async def _to_summaries(repo: ContestRepository, contests: list[Contest]) -> list[ContestSummary]:
+        """列表页批量装配：页内全部比赛共 2 条聚合查询（逐行调用 _to_summary 是 2N 条的 N+1）。"""
+        ids = [c.id for c in contests]
+        counts = await repo.count_registrations(ids)
+        problems = await repo.count_problems(ids)
+        return [ContestService._build_summary(c, counts, problems) for c in contests]
+
+    @staticmethod
+    async def _to_summary(repo: ContestRepository, contest: Contest) -> ContestSummary:
+        counts = await repo.count_registrations([contest.id])
+        problems = await repo.count_problems([contest.id])
+        return ContestService._build_summary(contest, counts, problems)
+
     # ---------------- 查询 ----------------
 
     async def list_center(
@@ -493,7 +507,7 @@ class ContestService:
         rows, total = await self.repo.list_public(
             page=page, page_size=page_size, status=status, keyword=keyword
         )
-        return [await self._to_summary(self.repo, row) for row in rows], total
+        return await self._to_summaries(self.repo, rows), total
 
     async def get_detail(self, contest_id: uuid.UUID, viewer: User | None) -> ContestDetail:
         contest = await self._get_contest(contest_id)
@@ -658,10 +672,11 @@ class ContestService:
         rows, total = await self.repo.list_user_registrations(
             user.id, page=page, page_size=page_size, status=status
         )
-        items: list[MyContestItem] = []
-        for registration, contest in rows:
-            summary = await self._to_summary(self.repo, contest)
-            items.append(MyContestItem(**summary.model_dump(), my_registration=registration.status))
+        summaries = await self._to_summaries(self.repo, [contest for _, contest in rows])
+        items = [
+            MyContestItem(**summary.model_dump(), my_registration=registration.status)
+            for (registration, _contest), summary in zip(rows, summaries)
+        ]
         return items, total
 
     # ---------------- 提交记录（赛后开放） ----------------
@@ -920,7 +935,7 @@ class ContestService:
         rows, total = await self.repo.list_team(
             team_id, page=page, page_size=page_size, status=status, keyword=keyword
         )
-        return [await self._to_summary(self.repo, row) for row in rows], total
+        return await self._to_summaries(self.repo, rows), total
 
     async def create_team_contest(
         self, user: User, team_id: uuid.UUID, body: object

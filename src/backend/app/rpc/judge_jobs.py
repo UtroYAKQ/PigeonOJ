@@ -13,6 +13,7 @@ data_version 指纹 = sha256(测试点数量 | 最大 updated_at | 特判程序�
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import uuid
@@ -24,6 +25,7 @@ from sqlalchemy import select, update
 from app.core.database import SessionLocal
 from app.enums import RuleType, SubmissionStatus, SubmitType
 from app.models.judge import SandboxConfig, Submission
+from app.models.problem import TestCase
 from app.repositories.judge import JudgeRepository
 from app.services import problem as problems
 from app.services.contest import ContestService
@@ -37,6 +39,8 @@ _FULL_SCORE = 100
 _MANIFEST_OBJECT_NAME = "manifest.json"
 # 数据包内特判程序源码文件名（题目配置了 SPJ 时随流下发，节点编译后逐测试点运行）
 SPJ_DATA_NAME = "spj.cpp"
+# 测试点对象存储读写的限并发（结果回传上传 / 数据包下发共用，参照 services/judge 同名常量）
+_CASE_IO_CONCURRENCY = 8
 
 
 def case_data_name(test_case_id: str, kind: str) -> str:
@@ -274,13 +278,25 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
     acm = submission.rule_type == RuleType.ACM
     base, extra = divmod(full, case_count) if case_count else (0, 0)
 
+    # 批量取回本次涉及测试点（单次 IN 查询替代逐点单查的 N+1）
+    case_ids = [uuid.UUID(c.test_case_id) for c in cases]
+    case_map: dict[uuid.UUID, object] = {}
+    if case_ids:
+        for row in (await db.execute(select(TestCase).where(TestCase.id.in_(case_ids)))).scalars():
+            case_map[row.id] = row
+
     total_score = 0
     max_time = 0
     max_memory: int | None = None
+    result_rows: list[dict] = []
+    pending_uploads: list[tuple[str, bytes]] = []
+    seen_case_ids: set[uuid.UUID] = set()
     for index, case in enumerate(cases):
-        test_case = await problems.get_test_case(db, uuid.UUID(case.test_case_id))
-        if test_case is None:
+        cid = uuid.UUID(case.test_case_id)
+        test_case = case_map.get(cid)
+        if test_case is None or cid in seen_case_ids:
             continue
+        seen_case_ids.add(cid)
         accepted = case.status == SubmissionStatus.ACCEPTED
         if acm:
             score = 0
@@ -291,15 +307,30 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
         if case.memory_used_kb:
             max_memory = max(max_memory or 0, case.memory_used_kb)
         output_key = f"submissions/{sid}/cases/{test_case.id}/output"
-        await storage.put_bytes(output_key, case.output or b"", "text/plain")
+        pending_uploads.append((output_key, case.output or b""))
         # SPJ 判定信息（特判程序 stdout ≤2KB；非 SPJ 提交为空）
         message = (case.message or b"").decode("utf-8", errors="replace")[:2000].strip() or None
-        await repository.write_case_result(
-            db, sid, test_case,
-            status=case.status, time_used_ms=case.time_used_ms,
-            memory_used_kb=case.memory_used_kb, score=score,
-            output=output_key, message=message,
-        )
+        result_rows.append({
+            "submission_id": sid,
+            "test_case_id": test_case.id,
+            "status": case.status,
+            "time_used_ms": case.time_used_ms,
+            "memory_used_kb": case.memory_used_kb,
+            "score": score,
+            "output": output_key,
+            "message": message,
+        })
+    # 测试点运行输出并行上传 MinIO（限并发，避免逐点串行往返）
+    if pending_uploads:
+        semaphore = asyncio.Semaphore(_CASE_IO_CONCURRENCY)
+
+        async def _put(key: str, data: bytes) -> None:
+            async with semaphore:
+                await storage.put_bytes(key, data, "text/plain")
+
+        await asyncio.gather(*(_put(key, data) for key, data in pending_uploads))
+    # 结果行单次批量 upsert（替代逐点 SELECT + INSERT/UPDATE + flush）
+    await repository.write_case_results(db, sid, result_rows)
     if acm:
         total_score = full if outcome.status == SubmissionStatus.ACCEPTED else 0
     await repository.finish_submission(
@@ -351,9 +382,19 @@ async def stream_problem_data(db, problem_id: uuid.UUID, requested_version: str 
         "spj": chosen_spj is not None,
     })
     yield _MANIFEST_OBJECT_NAME, manifest.encode()
-    for case in chosen_rows:
-        input_bytes, _ = await storage.get_bytes(case.input_oss_id)
-        expected_bytes, _ = await storage.get_bytes(case.expected_output_oss_id)
+    # 测试点数据并行预取（限并发），替代逐点 2 次串行 get_bytes 的线性延迟
+    semaphore = asyncio.Semaphore(_CASE_IO_CONCURRENCY)
+
+    async def _fetch(key: str) -> bytes:
+        async with semaphore:
+            data, _ = await storage.get_bytes(key)
+            return data
+
+    input_keys = [case.input_oss_id for case in chosen_rows]
+    expected_keys = [case.expected_output_oss_id for case in chosen_rows]
+    inputs = await asyncio.gather(*(_fetch(key) for key in input_keys))
+    expected = await asyncio.gather(*(_fetch(key) for key in expected_keys))
+    for case, input_bytes, expected_bytes in zip(chosen_rows, inputs, expected):
         yield case_data_name(str(case.id), "in"), input_bytes
         yield case_data_name(str(case.id), "out"), expected_bytes
     if chosen_spj:

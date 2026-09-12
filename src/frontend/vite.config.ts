@@ -3,14 +3,64 @@ import { fileURLToPath, URL } from 'node:url'
 
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
+import Components from 'unplugin-vue-components/vite'
+import { NaiveUiResolver } from 'unplugin-vue-components/resolvers'
 import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [
+    vue(),
+    tailwindcss(),
+    // naive-ui 按需组件注册（替代 main.ts 的 app.use(naive) 全量注册）：
+    // 模板中的 <n-*> 组件在构建期自动注入具名 import，仅打包实际用到的组件
+    Components({ resolvers: [NaiveUiResolver()], dts: 'src/types/components.d.ts' }),
+  ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        // 大依赖分包：主入口只含业务代码，vendor chunk 独立缓存（版本不变时命中缓存）
+        manualChunks(id) {
+          const path = id.replaceAll('\\', '/')
+          if (!path.includes('node_modules')) return undefined
+          if (path.includes('monaco-editor')) return 'monaco-editor'
+          if (
+            path.includes('/naive-ui/') ||
+            path.includes('/@css-render/') ||
+            path.includes('/vueuc/') ||
+            path.includes('/seemly/') ||
+            path.includes('/vdirs/') ||
+            path.includes('/vooks/') ||
+            path.includes('/treemate/') ||
+            path.includes('/@juggle/resize-observer') ||
+            path.includes('/date-fns/')
+          ) {
+            return 'naive-ui'
+          }
+          if (path.includes('md-editor-v3') || path.includes('/@codemirror/') || path.includes('/codemirror/') || path.includes('/mermaid/') || path.includes('/@lezer/')) {
+            return 'md-editor'
+          }
+          if (path.includes('/katex/')) return 'katex'
+          if (
+            path.includes('/@vue/') ||
+            path.includes('/vue/') ||
+            path.includes('vue-router') ||
+            path.includes('/pinia/') ||
+            path.includes('vue-i18n') ||
+            path.includes('/@intlify/') ||
+            path.includes('/@vueuse/') ||
+            path.includes('/axios/')
+          ) {
+            return 'vue-vendor'
+          }
+          return undefined
+        },
+      },
     },
   },
   server: {

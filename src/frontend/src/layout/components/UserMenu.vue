@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
+import type { DropdownOption } from 'naive-ui'
+
 import { useUserStore } from '@/stores/user'
 import BaseAvatar from '@/components/BaseAvatar.vue'
 
@@ -13,12 +15,6 @@ const userStore = useUserStore()
 
 /** 后台空间内头像菜单提供「回到前台」，前台则对管理员提供「管理后台」入口 */
 const isAdminArea = computed(() => route.path.startsWith('/admin'))
-
-interface DropdownOption {
-  label: string
-  key: string
-  disabled?: boolean
-}
 
 const options = computed<DropdownOption[]>(() => {
   if (!userStore.isLoggedIn) return []

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import * as monaco from 'monaco-editor'
+// Monaco 按需入口：仅编辑器核心 + cpp/python/java 高亮（见 src/monaco/setup.ts）
+import * as monaco from '@/monaco/setup'
 import type { ProblemLanguage } from '@/types'
 import { registerProblemCompletions } from '@/monaco/completions'
 import { definePigeonThemes, pigeonThemeName } from '@/monaco/theme'

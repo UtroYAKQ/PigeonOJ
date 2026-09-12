@@ -1,7 +1,7 @@
 // 自定义 Monaco 主题：让编辑器与补全建议浮层贴合 PigeonOJ 设计系统。
 // 配色硬编码对齐 src/frontend/src/assets/main.css 的 CSS 变量（Monaco 主题色无法引用 CSS 变量）。
 // 注意：rules 中的 foreground 为 6 位 hex，不带 '#'；colors 中带 '#'。
-import * as monaco from 'monaco-editor'
+import * as monaco from '@/monaco/setup'
 
 export const PIGEON_LIGHT = 'pigeon-light'
 export const PIGEON_DARK = 'pigeon-dark'

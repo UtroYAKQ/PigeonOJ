@@ -5,7 +5,7 @@
 //  1) 关键字 / 标准库 API / 文档词：基于词典 + 文档扫描（规避 monaco #2646 关闭内置词补全问题）。
 //  2) 成员方法（a. ）：声明扫描式类型推断。用正则扫当前文件里的 `Type name` 声明，建一张
 //     「变量名 -> 容器类型」映射；输入 `a.` 时按 a 的实际类型只弹对应方法表，未知类型回退全部方法。
-import * as monaco from 'monaco-editor'
+import * as monaco from '@/monaco/setup'
 
 type LangKey = 'cpp' | 'python' | 'java'
 

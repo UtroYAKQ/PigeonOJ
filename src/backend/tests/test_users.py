@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app.core.database import SessionLocal
 from app.models.system_config import SystemConfig
 from app.models.user import User, UserSession
+from app.services.system_config import invalidate_config_cache
 
 from .conftest import api_login, register_user
 
@@ -40,6 +41,8 @@ async def _set_config(category: str, key: str, value) -> None:
         ).scalar_one()
         row.config_value = value
         await db.commit()
+    # 直写库不走 admin 更新路径，需同步失效进程内 TTL 缓存（system_config.py）
+    invalidate_config_cache(category, key)
 
 
 async def test_register_disabled(client: httpx.AsyncClient) -> None:

@@ -1,6 +1,5 @@
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
-import naive from 'naive-ui'
 // Tailwind 先于组件库加载；Naive UI 通过 JS 主题对象注入，无全局 CSS 变量冲突
 import '@/assets/main.css'
 import '@/assets/monaco.css'
@@ -16,7 +15,8 @@ const app = createApp(App)
 
 app.use(createPinia())
 app.use(router)
-app.use(naive)
+// naive-ui 组件经 vite.config.ts 的 unplugin-vue-components + NaiveUiResolver
+// 按需注册（构建期注入具名 import），不再全量 app.use(naive)
 app.use(i18n)
 
 app.mount('#app')

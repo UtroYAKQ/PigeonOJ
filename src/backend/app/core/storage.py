@@ -32,6 +32,7 @@ class MinioStorage:
             raise OSError("MinIO SDK is not installed") from exc
         settings = get_settings()
         self.bucket = settings.minio_bucket
+        self._bucket_ready = False
         self.client: Any = Minio(
             settings.minio_endpoint,
             access_key=settings.minio_access_key,
@@ -39,13 +40,21 @@ class MinioStorage:
             secure=settings.minio_secure,
         )
 
+    def _ensure_bucket(self) -> None:
+        """桶存在性只探查一次（进程内缓存）：put 路径每次都 bucket_exists 会把
+        S3 往返翻倍；桶在运行期被外部删除属于运维事故，不做自愈。"""
+        if self._bucket_ready:
+            return
+        if not self.client.bucket_exists(self.bucket):
+            self.client.make_bucket(self.bucket)
+        self._bucket_ready = True
+
     async def put_bytes(self, object_key: str, content: bytes, content_type: str) -> StoredObject:
         await asyncio.to_thread(self._put_bytes, object_key, content, content_type)
         return StoredObject(object_key, content_type, len(content))
 
     def _put_bytes(self, object_key: str, content: bytes, content_type: str) -> None:
-        if not self.client.bucket_exists(self.bucket):
-            self.client.make_bucket(self.bucket)
+        self._ensure_bucket()
         self.client.put_object(self.bucket, object_key, BytesIO(content), len(content), content_type=content_type)
 
     async def get_bytes(self, object_key: str) -> tuple[bytes, str]:

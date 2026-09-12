@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.judge import Submission, SubmissionTestCaseResult
@@ -12,27 +13,26 @@ from app.models.user import User
 
 
 class JudgeRepository:
-    async def write_case_result(
-        self, db: AsyncSession, submission_id: uuid.UUID, test_case, *, status: str,
-        time_used_ms: int | None, memory_used_kb: int | None, score: int, output: str | None,
-        message: str | None = None,
+    async def write_case_results(
+        self, db: AsyncSession, submission_id: uuid.UUID, rows: list[dict]
     ) -> None:
-        record = await db.scalar(
-            select(SubmissionTestCaseResult).where(
-                SubmissionTestCaseResult.submission_id == submission_id,
-                SubmissionTestCaseResult.test_case_id == test_case.id,
-            )
+        """批量写入逐测试点结果：PG INSERT ... ON CONFLICT DO UPDATE 单次往返
+        （重判场景命中 uq_submission_case 唯一约束转更新，幂等可重复应用）。"""
+        if not rows:
+            return
+        stmt = pg_insert(SubmissionTestCaseResult).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_submission_case",
+            set_={
+                "status": stmt.excluded.status,
+                "time_used_ms": stmt.excluded.time_used_ms,
+                "memory_used_kb": stmt.excluded.memory_used_kb,
+                "score": stmt.excluded.score,
+                "output": stmt.excluded.output,
+                "message": stmt.excluded.message,
+            },
         )
-        if record is None:
-            record = SubmissionTestCaseResult(submission_id=submission_id, test_case_id=test_case.id, status=status)
-            db.add(record)
-        record.status = status
-        record.time_used_ms = time_used_ms
-        record.memory_used_kb = memory_used_kb
-        record.score = score
-        record.output = output
-        record.message = message
-        await db.flush()
+        await db.execute(stmt)
 
     async def finish_submission(
         self, db: AsyncSession, submission: Submission, *, status: str, score: int,

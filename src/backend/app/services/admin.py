@@ -16,6 +16,7 @@ from app.repositories.admin import ReportRepository
 from app.repositories.user import UserRepository
 from app.repositories.audit import LogRepository
 from app.repositories.system_config import ConfigRepository
+from app.services.system_config import invalidate_config_cache
 from app.schemas.admin import (
     ConfigItemOut,
     ConfigUpdateItem,
@@ -82,6 +83,7 @@ class AdminConfigService:
         ]
 
     async def update_configs(self, admin: User, items: list[ConfigUpdateItem]) -> list[ConfigItemOut]:
+        updated_keys: list[tuple[str, str]] = []
         for item in items:
             row = await self.repo.get_by_id(item.id)
             if row is None:
@@ -92,7 +94,11 @@ class AdminConfigService:
                 continue
             row.config_value = value
             row.updated_by = admin.id
+            updated_keys.append((row.category, row.config_key))
         await self.db.flush()
+        # 写后失效进程内配置缓存（ConfigService TTL 缓存与 /site-config 公共缓存）
+        for category, config_key in updated_keys:
+            invalidate_config_cache(category, config_key)
         return await self.list_configs(None)
 
 

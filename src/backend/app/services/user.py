@@ -15,7 +15,7 @@ from app.enums import LoginAction, Theme, UserStatus, UserRoleScope
 from app.models.user import User, UserRole
 from app.repositories.user import UserRepository, SessionRepository, RoleRepository
 from app.repositories.audit import write_login_log
-from app.utils.geolocation import lookup_location
+from app.utils.geolocation import lookup_location_async
 from app.utils.pagination import PaginatedResponse
 from app.utils.request_meta import format_device_info
 from app.schemas.user import (
@@ -224,7 +224,8 @@ class UserService:
 
     async def soft_delete(self, user: User, password: str) -> None:
         """软注销（docs/contracts/users.md）：status='deleted'，邮箱脱敏释放唯一约束。"""
-        if not verify_password(password, user.password):
+        # bcrypt 为 CPU 密集操作，放线程池避免阻塞事件循环
+        if not await asyncio.to_thread(verify_password, password, user.password):
             raise APIError(AUTH_INVALID_CREDENTIAL, "密码错误", 401)
         user.status = UserStatus.DELETED
         user.email = f"u{user.id}@invalid.local"
@@ -433,7 +434,8 @@ class AuthService:
                                   user_agent=user_agent, reason="邮箱已注册")
             raise APIError(RESOURCE_STATE_CONFLICT, "邮箱已注册", 409)
 
-        user = await self.users.create(req.email, hash_password(req.password), req.nickname.strip())
+        password_hash = await asyncio.to_thread(hash_password, req.password)
+        user = await self.users.create(req.email, password_hash, req.nickname.strip())
         # 默认角色 user
         user_role = await self.roles.get_by_code("user")
         if user_role is not None:
@@ -464,7 +466,7 @@ class AuthService:
             user.frozen_until = None
             await self.db.flush()
 
-        if user is None or not verify_password(req.password, user.password):
+        if user is None or not await asyncio.to_thread(verify_password, req.password, user.password):
             fails = await redis_incr(fail_key, LOGIN_FAIL_WINDOW_SECONDS)
             if fails >= LOGIN_FAIL_MAX:
                 # 安全策略：失败超次 → 短时冻结落库（status=frozen + frozen_until，
@@ -514,10 +516,11 @@ class AuthService:
         # 查不到对方未提交的会话而各建一个（同设备双会话残留 → 在线面板重复显示）；
         # 「先建后清」让后提交事务必然清掉先到会话，最终收敛为一台设备一个会话
         device_info = format_device_info(user_agent)
+        location = await lookup_location_async(ip)
         await self.sessions.create(
             user_id=user.id, token_hash=token_hash, expires_at=expires_at,
             device_info=device_info, ip_address=ip, user_agent=user_agent,
-            location=lookup_location(ip),
+            location=location,
         )
         # Redis 热点缓存（deps.py 校验使用）
         ttl = int((expires_at - now).total_seconds())
@@ -559,7 +562,7 @@ class AuthService:
         user = await self.users.get_by_email(req.email)
         if user is None or user.status == UserStatus.DELETED:
             raise APIError(RESOURCE_NOT_FOUND, "用户不存在", 404)
-        user.password = hash_password(req.new_password)
+        user.password = await asyncio.to_thread(hash_password, req.new_password)
         await self.db.flush()
         await write_login_log(self.db, LoginAction.RESET_PASSWORD, True, user_id=user.id, email=req.email,
                               ip_address=ip, user_agent=user_agent)
@@ -567,10 +570,10 @@ class AuthService:
     # ---------------- 修改密码 / 换绑邮箱（登录态） ----------------
 
     async def change_password(self, user: User, req: ChangePasswordRequest) -> None:
-        if not verify_password(req.old_password, user.password):
+        if not await asyncio.to_thread(verify_password, req.old_password, user.password):
             raise APIError(AUTH_INVALID_CREDENTIAL, "原密码错误", 401)
         validate_password(req.new_password)
-        user.password = hash_password(req.new_password)
+        user.password = await asyncio.to_thread(hash_password, req.new_password)
         await self.db.flush()
 
     async def change_email(self, user: User, req: ChangeEmailRequest, ip: str | None, user_agent: str | None) -> None:

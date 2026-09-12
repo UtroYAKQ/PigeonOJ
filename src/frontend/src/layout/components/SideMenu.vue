@@ -2,6 +2,7 @@
 import { computed, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import type { MenuOption } from 'naive-ui'
 import { NIcon } from 'naive-ui'
 import { Back } from '@element-plus/icons-vue'
 
@@ -22,12 +23,6 @@ interface MenuItem {
   titleKey?: string
   title?: string
   icon?: string
-}
-
-interface MenuOption {
-  label: string
-  key: string
-  icon?: () => ReturnType<typeof h>
 }
 
 /** 后台空间：/admin 下侧栏切换为管理菜单，与前台菜单互斥 */
