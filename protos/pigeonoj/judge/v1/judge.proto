@@ -23,7 +23,7 @@ message ServerMessage {
   oneof payload {
     RegisterAck ack = 1;
     SubmitJob job = 2;
-    CancelJob cancel = 3; // 预留：节点断线前主动撤销执行中作业
+    CancelJob cancel = 3; // judging 超时回收时下发；节点在测试点批次边界停跑，不再回传结果
     RunCodeJob run_code = 4; // 用户自测（一次性运行，不落库、不计分）
   }
 }
@@ -150,5 +150,5 @@ message ProblemDataRequest {
 
 message FileChunk {
   string path = 1;   // 相对路径：cases/<test_case_id>.in|.out、spj.cpp、manifest.json
-  bytes content = 2;
+  bytes content = 2; // 同一 path 可连续多片，节点按到达顺序追加
 }

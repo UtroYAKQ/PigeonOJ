@@ -190,19 +190,22 @@ CHECK (
   → API 创建 submissions(status=pending)
     · 语言白名单取 sandbox_configs 且 is_enabled
     · user+problem 冷却（4001）与全局并发上限（4002），阈值来自系统配置 sandbox 域
-  → dispatch_submission：网关注册表按任务数（判题 + 自测）最少优先选节点；
+  → dispatch_submission：只选 `task_count < capacity` 的活节点，任务数最少优先；
+    全部满载或无在线节点 → 保持 pending（自测满载仍 4002）；
     build_job_bundle 原子认领（UPDATE ... WHERE status='pending'）后经 gRPC 流推送 SubmitJob
-  → 无在线节点：保持 pending，网关维护循环每 30s 重扫派发；**节点注册 / 重连即踢醒巡检**，
+  → 无在线节点 / 节点满载：保持 pending，网关维护循环每 30s 重扫派发；**节点注册 / 重连即踢醒巡检**，
     断线期间滞留的 pending 秒级重派（不等扫描周期）
 节点（pigeonoj/judge-node 容器，privileged，出站连接后端 :50051）
-  → 数据缓存未命中时 FetchProblemData 拉取测试点（data_version 缓存于容器 /cache）
+  → 数据缓存未命中时 FetchProblemData 拉取测试点（data_version 缓存于容器 /cache；单文件可分片追加）
   → 按 sandbox_configs 比例换算有效限制（时间 ×time_ratio；内存 max(×memory_ratio, memory_min_mb)）
-  → nsjail 原生编译一次、逐测试点独立运行（ACM 携带 stop_on_failure，首个失败点后短路），
+  → nsjail 原生编译一次后运行测试点：ACM `stop_on_failure` 串行短路；IOI/练习/验题默认同作业最多 4 点并行，
     写 submission_test_case_results（输出落 MinIO）
   → 回传 JudgeResult；汇总写 submissions；练习/比赛终态回写 problem_counters 通过率计数
     （口径见下方要点）；验题提交回写 verification 与 problems.is_verified
 维护循环兜底：滞留判定以 `submissions.updated_at`（状态变更时刻，认领 / 回收时显式刷新）为基准——
-pending>60s / judging>5min 重置重派（Redis SETNX 防同轮重复投递：失败 60s 冷却、成功后 300s 在途保护）
+pending>60s / judging>5min 重置重派（judging 超时先下发 CancelJob）；
+Redis SETNX 防同轮重复投递：失败 60s 冷却、成功后 300s 在途保护。
+断线 / 超时回收计入 `judge:attempts:<sid>`，满 3 次转 `system_error`（`judge retry exhausted`）
 ```
 
 ### 节点网关协议
@@ -212,7 +215,8 @@ pending>60s / judging>5min 重置重派（Redis SETNX 防同轮重复投递：�
 
 - `Connect(stream NodeMessage) returns (stream ServerMessage)`：节点生命周期主通道。
   首条 Register 携带令牌（后端 `JUDGE_GATEWAY_TOKENS` 其一），不符即 UNAUTHENTICATED；
-  上行 Heartbeat / JudgeResult / RunCodeResult，下行 SubmitJob / RunCodeJob / CancelJob(预留)。
+  上行 Heartbeat / JudgeResult / RunCodeResult，下行 SubmitJob / RunCodeJob / CancelJob
+  （judging 超时回收时下发；节点在测试点批次边界停跑且不回传结果，迟到结果按非 judging 忽略）。
   Heartbeat 携带 `running_tasks`（`load` 由服务端按 `capacity` 计算）与宿主指标
   `cpu_usage` / `memory_usage`（0-100，节点采集自 `/proc/stat` / `/proc/meminfo`；非 Linux 或无数据为 0）。
   Register 携带能力位 `supports_spj`：true = 节点支持编译并运行 SPJ 特判程序；
@@ -220,6 +224,7 @@ pending>60s / judging>5min 重置重派（Redis SETNX 防同轮重复投递：�
   防止退化为默认比对静默误判。
 - `FetchProblemData(ProblemDataRequest) returns (stream FileChunk)`：
   按 `data_version` 流式传输 manifest / cases/<id>.in|.out / spj.cpp（题目配置了特判程序时）；
+  单文件可拆成多片（同一 `path` 连续下发，节点按序追加）；组包只读库拿到对象 key 后即关会话再拉 MinIO。
   令牌经 metadata `x-node-token` 携带。数据指纹 = sha256(测试点数量|最大 updated_at|特判程序对象 key)，
   **按判定集统计**：练习 / 比赛 = 生效集（`problems.active_case_ids`），
   验题 = 暂存集（`pending_case_ids`，NULL 时退化生效集）；暂存编辑不影响生效集指纹，
@@ -242,7 +247,7 @@ pending>60s / judging>5min 重置重派（Redis SETNX 防同轮重复投递：�
 
 ### Judge Worker 边界
 
-Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息仅以 `submission_id` 为业务关联键。它经网关获取作业描述（代码内联、限制已换算、测试点仅元数据），通过 FetchProblemData 拉取数据文件到本地缓存；对 C++/Java 在编译阶段调用一次 nsjail 生成产物，随后每个测试点独立调用 nsjail 运行；Python 无编译阶段。节点将程序输出随结果回传，服务端存入 `submissions/{submission_id}/cases/{case_id}/output`，把测试点结果持久化到 `submission_test_case_results`，最后汇总更新 `submissions`。节点采集 stdout、stderr、退出码和资源数据，并在任务结束后清理临时目录。测试点期望输出只在判题节点与服务端内部流转，不进入公开响应；不接受用户可控 URL 或内联测试点 payload。
+Judge 节点为长驻容器（`src/judge/Dockerfile` 多阶段构建），执行核心与消息仅以 `submission_id` 为业务关联键。它经网关获取作业描述（代码内联、限制已换算、测试点仅元数据），通过 FetchProblemData 拉取数据文件到本地缓存；对 C++/Java 在编译阶段调用一次 nsjail 生成产物，随后每个测试点独立调用 nsjail 运行（按点懒加载 `.in/.out`；ACM `stop_on_failure` 串行短路，IOI/练习/验题默认同作业最多 4 点并行）；Python 无编译阶段。每次 nsjail 只 bind 本作业目录到 `/workspace`。节点将程序输出随结果回传，服务端存入 `submissions/{submission_id}/cases/{case_id}/output`，把测试点结果持久化到 `submission_test_case_results`，最后汇总更新 `submissions`。节点采集 stdout、stderr、退出码和资源数据，并在任务结束后清理临时目录。测试点期望输出只在判题节点与服务端内部流转，不进入公开响应；不接受用户可控 URL 或内联测试点 payload。
 
 
 要点：
@@ -251,7 +256,7 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 - 任务派发由 gRPC 网关承担，`sandbox_configs` 提供语言级运行参数（含输出大小、磁盘配额、CPU 核数、网络开关）与判题限制比例；`problems` 提供 **C++ 基准**内存 / 时间限制，判题按提交语言解析有效限制。
 - 判题比对模式：题目未配置特判程序时统一默认比对（忽略行尾空白与末尾换行、行内严格）；配置了特判程序（SPJ）时由节点在沙箱内运行特判程序判定（见「SPJ 特判」节）。
 - 输出超限：程序输出超过沙箱输出上限时截断比对，判定 `output_limit_exceeded`，不再继续比对剩余输出。默认上限 5MB（`sandbox_configs.output_limit_kb = 5120`，0021 迁移；对齐主流 OJ 行业水平），节点以 job 下发的 `limits.output_limit_kb` 为准。
-- 判题失败（沙箱异常、超时）自动重试，超过阈值转 `system_error`。
+- 判题失败（沙箱异常、超时、节点断线）自动重试，Redis `judge:attempts:<sid>` 满 3 次转 `system_error`（`judge retry exhausted`）
 - 判题结果仅返回用户程序输出与判定状态，不返回测试点期望输出。
 - 后端进程不执行用户代码；用户自测经网关派发到节点一次性运行（见「用户自测」节）。
 - **通过率统计口径**：练习 / 比赛提交到达终态且 `status <> 'system_error'` 时，对 `problem_counters`（1:1，见 `problems.md`）upsert 原子累加——`submission_count + 1`，AC 再 `accepted_count + 1`；验题（`submit_type='verify'`，非真实作答）与 `system_error`（平台故障）不计入；计数与判题落库同事务，漂移以 `submissions` 按同口径 GROUP BY 的对账 SQL 兜底校正。
@@ -271,8 +276,8 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 
 | 项 | 规范 |
 | --- | --- |
-| 时间测量 | wall-clock 与 CPU 时间双限：任一超有效时间限制（`time_limit_ms × time_ratio`）即判 `time_limit_exceeded` |
-| 内存测量 | 以进程峰值常驻内存（RSS，含子进程）为口径，超有效内存限制（`max(memory_limit_mb × memory_ratio, memory_min_mb)`）判 `memory_limit_exceeded`；Java 以 RSS 为准（不把 `-Xmx` 堆上限当判据），`-Xmx` 按有效内存换算、仅作运行时参数。实现：nsjail 以 `--rlimit_as=<有效内存>` 硬性封顶地址空间（Java 例外，JVM 虚拟预留大，不施加），超限分配触发 MemoryError / bad_alloc 特征判 MLE；另有 /proc 树 RSS 采样作为展示参考值（嵌套 PID namespace 下对短命进程可能低估） |
+| 时间测量 | wall-clock 与 CPU 时间双限：任一超有效时间限制（`time_limit_ms × time_ratio`）即判 `time_limit_exceeded`。实现：nsjail `--time_limit` 与 `--rlimit_cpu` 均按 `ceil(有效时间/1000)` 秒覆盖（cfg 默认 5s 不再作为硬顶）；CPU 耗尽 SIGXCPU（退出码 -24 / 152）归 TLE；wall-clock 由执行器按毫秒预算 `wait` 杀进程 |
+| 内存测量 | 以进程峰值常驻内存（RSS，含子进程）为口径，超有效内存限制（`max(memory_limit_mb × memory_ratio, memory_min_mb)`）判 `memory_limit_exceeded`；Java 以 RSS 为准（不把 `-Xmx` 堆上限当判据），`-Xmx` 按有效内存换算、仅作运行时参数。实现：nsjail 以 `--rlimit_as=<有效内存>` 硬性封顶地址空间（Java 例外，JVM 虚拟预留大，不施加），超限分配触发 MemoryError / bad_alloc 特征判 MLE。展示峰值优先读该次 jail 的 cgroup v2 `memory.current` / `memory.peak`（每调用一个叶子 cgroup，**不**设 `memory.max`，MLE 仍以 rlimit_as + RSS 为准）；cgroup 不可用时沿 nsjail 进程树读 `VmRSS`（只走 `/proc/<pid>/task/*/children`，不扫宿主机全部 PID）。嵌套 PID namespace 下对短命进程可能低估 |
 | 入口约定 | 三种语言统一入口：C++ `Main.cpp`、Java 主类固定 `Main`、Python `Main.py`，判题器据此拼接编译 / 运行命令 |
 | 编译命令 | cpp17：`g++ -std=c++17 -O2 -o Main Main.cpp`；java21：`javac Main.java`；python3.12：免编译 |
 | 运行命令 | cpp17：`./Main`；java21：`java -Xmx<堆上限> Main`（堆上限由有效内存换算，仅运行时用）；python3.12：`python3.12 Main.py` |
@@ -280,10 +285,10 @@ Judge 节点为长驻容器（`src/judge/Dockerfile`），执行核心与消息�
 | 默认比对 | 忽略行尾空白与末尾换行、行内严格 |
 | SPJ 特判 | 题目配置特判程序时替代默认比对：节点按 testlib 风格 argv（input / user_out / answer）在沙箱内逐测试点运行 C++17 特判程序，退出码判 AC / WA（3、4 为 checker 故障判 system_error）；见「SPJ 特判」节 |
 | stderr 归集 | 执行器过滤 nsjail 自身的 `[I]`/`[W]` 日志行后仅返回/记录程序真实错误输出；nsjail 的 `[E]`/`[F]` 故障行保留用于执行器排障 |
-| 输出上限 | 程序输出超出 `sandbox_configs.output_limit_kb` 截断并判 `output_limit_exceeded` |
-| 沙箱身份与临时目录 | nsjail 开启 `clone_newuser`，默认映射 `inside 0 ↔ outside 0`——jailed 进程当前具备全局 root 级文件访问（nsjail 启动日志有 [W] 提示）。作业目录仍统一按「属主 nobody(65534) + 0777」准备：同时兼容未来把映射收紧为真实 nobody、以及不给 root DAC 旁路的挂载层（如 Docker Desktop 文件共享）。jail 内挂载可写 tmpfs `/tmp`（64MB）与 `/dev/shm`（32MB），均 `mode=1777`、nodev/nosuid；**tmpfs 挂载必须位于 nsjail.cfg 挂载列表末尾**——nsjail 的 pivot_root 暂存树固定在 `/tmp/nsjail.root`，提前覆盖 `/tmp` 会破坏根文件系统组装。执行环境显式注入 `TMPDIR=/tmp` 与 `PYTHONDONTWRITEBYTECODE=1`；`rlimit_as` 基线为 16384 以容纳 JVM 虚拟地址预留（4096 会使 javac/JVM 启动即 OOM），C++ / Python 每次执行由执行器按题目内存限制动态覆盖 |
+| 输出上限 | 程序输出超出 `sandbox_configs.output_limit_kb` 截断并判 `output_limit_exceeded`。实现：stdout/stderr 最多读 `limit+1` 字节，超限立即杀进程，避免整管读入撑爆节点 |
+| 沙箱身份与临时目录 | nsjail 开启 `clone_newuser`，默认映射 `inside 0 ↔ outside 0`——jailed 进程当前具备全局 root 级文件访问（nsjail 启动日志有 [W] 提示）。作业目录仍统一按「属主 nobody(65534) + 0777」准备：同时兼容未来把映射收紧为真实 nobody、以及不给 root DAC 旁路的挂载层（如 Docker Desktop 文件共享）。jail 内挂载可写 tmpfs `/tmp`（64MB）与 `/dev/shm`（32MB），均 `mode=1777`、nodev/nosuid；**tmpfs 挂载必须位于 nsjail.cfg 挂载列表末尾**——nsjail 的 pivot_root 暂存树固定在 `/tmp/nsjail.root`，提前覆盖 `/tmp` 会破坏根文件系统组装。执行器每次调用 `--bindmount <本作业目录>:/workspace`，jail 内路径固定为 `/workspace/<file>`，并发作业互不可见。`process_limit` / `cpu_cores` 经 `--rlimit_nproc` / `--max_cpus` 覆盖 cfg 默认。执行环境显式注入 `TMPDIR=/tmp` 与 `PYTHONDONTWRITEBYTECODE=1`；`rlimit_as` 基线为 16384 以容纳 JVM 虚拟地址预留（4096 会使 javac/JVM 启动即 OOM），C++ / Python 每次执行由执行器按题目内存限制动态覆盖 |
 
-> 上表为文档约定；实际编译 / 运行命令以 `sandbox_configs` 语言级配置为准。判题节点负责准备与工作区 `/workspace` 挂载根一致的本地临时工作目录，并将容器内路径转换为 jail 内 `/workspace/<relative-job-path>` 的绝对路径；nsjail 执行器只接收受控 argv 和 jail 可见路径，不使用 shell 拼接。沙箱不访问 MinIO、数据库或公网，所有执行均在 nsjail 隔离内完成。
+> 上表为文档约定；实际编译 / 运行命令以 `sandbox_configs` 语言级配置为准。判题节点为每次提交准备独立临时目录，经 `--bindmount` 映射为 jail 内 `/workspace`；nsjail 执行器只接收受控 argv（绝对路径，不经 `/bin/sh`）和 jail 可见路径。测试点文件按点懒加载（ACM `stop_on_failure` 不读后续 `.in/.out`）。沙箱不访问 MinIO、数据库或公网，所有执行均在 nsjail 隔离内完成。
 
 ## 明确不做
 

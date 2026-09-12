@@ -354,17 +354,26 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
     return True
 
 
-async def stream_problem_data(db, problem_id: uuid.UUID, requested_version: str | None = None):
-    """按 (path, content) 产出题目数据文件；供网关流式下发。
+@dataclass(frozen=True)
+class ProblemDataPlan:
+    """FetchProblemData 的元数据快照：组完即可关 DB，再按 oss key 拉对象。"""
 
-    双集合语义：按请求的 data_version 匹配候选集（生效集 / 验题暂存集）；
-    未携带或无匹配时回退生效集。题目配置特判程序时额外下发 spj.cpp，
-    manifest 带 spj 标记（节点据此识别 SPJ 作业数据完整性）。
-    """
+    data_version: str
+    case_count: int
+    spj: bool
+    manifest: bytes
+    inputs: tuple[tuple[str, str], ...]
+    expected: tuple[tuple[str, str], ...]
+    spj_key: str | None
+
+
+async def build_problem_data_plan(
+    db, problem_id: uuid.UUID, requested_version: str | None = None
+) -> ProblemDataPlan | None:
+    """只读库：选出判定集与对象 key。MinIO 不在此会话内访问。"""
     problem = await problems.get_problem(db, problem_id)
     if problem is None:
-        return
-    storage = get_storage()
+        return None
     candidates = [
         (await problems.list_active_cases(db, problem), problems.judged_spj_key(problem)),
         (await problems.list_judged_cases(db, problem, verify=True), problems.judged_spj_key(problem, verify=True)),
@@ -380,9 +389,22 @@ async def stream_problem_data(db, problem_id: uuid.UUID, requested_version: str 
         "data_version": data_version,
         "case_count": len(chosen_rows),
         "spj": chosen_spj is not None,
-    })
-    yield _MANIFEST_OBJECT_NAME, manifest.encode()
-    # 测试点数据并行预取（限并发），替代逐点 2 次串行 get_bytes 的线性延迟
+    }).encode()
+    return ProblemDataPlan(
+        data_version=data_version,
+        case_count=len(chosen_rows),
+        spj=chosen_spj is not None,
+        manifest=manifest,
+        inputs=tuple((case_data_name(str(case.id), "in"), case.input_oss_id) for case in chosen_rows),
+        expected=tuple((case_data_name(str(case.id), "out"), case.expected_output_oss_id) for case in chosen_rows),
+        spj_key=chosen_spj,
+    )
+
+
+async def stream_plan_files(plan: ProblemDataPlan):
+    """按 plan 从 MinIO 拉文件；与 DB 会话无关。"""
+    storage = get_storage()
+    yield _MANIFEST_OBJECT_NAME, plan.manifest
     semaphore = asyncio.Semaphore(_CASE_IO_CONCURRENCY)
 
     async def _fetch(key: str) -> bytes:
@@ -390,16 +412,27 @@ async def stream_problem_data(db, problem_id: uuid.UUID, requested_version: str 
             data, _ = await storage.get_bytes(key)
             return data
 
-    input_keys = [case.input_oss_id for case in chosen_rows]
-    expected_keys = [case.expected_output_oss_id for case in chosen_rows]
-    inputs = await asyncio.gather(*(_fetch(key) for key in input_keys))
-    expected = await asyncio.gather(*(_fetch(key) for key in expected_keys))
-    for case, input_bytes, expected_bytes in zip(chosen_rows, inputs, expected):
-        yield case_data_name(str(case.id), "in"), input_bytes
-        yield case_data_name(str(case.id), "out"), expected_bytes
-    if chosen_spj:
-        spj_bytes, _ = await storage.get_bytes(chosen_spj)
+    input_keys = [key for _, key in plan.inputs]
+    expected_keys = [key for _, key in plan.expected]
+    inputs = await asyncio.gather(*(_fetch(key) for key in input_keys)) if input_keys else []
+    expected = await asyncio.gather(*(_fetch(key) for key in expected_keys)) if expected_keys else []
+    for (in_path, _), in_bytes, (out_path, _), out_bytes in zip(
+        plan.inputs, inputs, plan.expected, expected
+    ):
+        yield in_path, in_bytes
+        yield out_path, out_bytes
+    if plan.spj_key:
+        spj_bytes, _ = await storage.get_bytes(plan.spj_key)
         yield SPJ_DATA_NAME, spj_bytes
+
+
+async def stream_problem_data(db, problem_id: uuid.UUID, requested_version: str | None = None):
+    """兼容测试：组 plan 后立刻拉全量文件（网关走 build + stream_plan_files + 分片）。"""
+    plan = await build_problem_data_plan(db, problem_id, requested_version=requested_version)
+    if plan is None:
+        return
+    async for item in stream_plan_files(plan):
+        yield item
 
 
 async def submission_needs_spj(submission_id: uuid.UUID) -> bool:
@@ -433,3 +466,22 @@ async def fail_no_spj_node(submission_id: uuid.UUID) -> None:
         await _finish_with_error(
             db, JudgeRepository(), submission, "no judge node supports special judge (spj)"
         )
+
+
+async def fail_retry_exhausted(submission_id: uuid.UUID) -> None:
+    """重派超过阈值：judging/pending 收口为 system_error（契约「超过阈值转 system_error」）。"""
+    async with SessionLocal() as db:
+        claimed = (
+            await db.execute(
+                update(Submission)
+                .where(
+                    Submission.id == submission_id,
+                    Submission.status.in_([SubmissionStatus.PENDING, SubmissionStatus.JUDGING]),
+                )
+                .values(status=SubmissionStatus.JUDGING, updated_at=datetime.now(timezone.utc))
+            )
+        ).rowcount
+        if not claimed:
+            return
+        submission = await db.get(Submission, submission_id)
+        await _finish_with_error(db, JudgeRepository(), submission, "judge retry exhausted")

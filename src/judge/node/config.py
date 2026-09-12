@@ -37,6 +37,7 @@ class PathsConfig:
 class SandboxConfig:
     nsjail_binary: str = "nsjail"
     nsjail_config: str = "/etc/pigeonoj/nsjail.cfg"
+    case_parallel: int = 4          # IOI/练习同作业并行测试点数；ACM 短路仍串行
 
 
 @dataclass
@@ -80,6 +81,8 @@ def load_config(path: str | Path) -> JudgeNodeConfig:
         cfg.cache.max_mb = int(max_mb)
     if gc_interval := os.environ.get("JUDGE_CACHE_GC_INTERVAL_SECONDS"):
         cfg.cache.gc_interval_seconds = int(gc_interval)
+    if parallel := os.environ.get("JUDGE_CASE_PARALLEL"):
+        cfg.sandbox.case_parallel = max(1, int(parallel))
 
     if not cfg.node.id:
         cfg.node.id = f"{socket.gethostname()}-{os.getpid()}"

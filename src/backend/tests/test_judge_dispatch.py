@@ -16,7 +16,9 @@ from sqlalchemy import select
 from app.rpc.judge_gateway import (
     REGISTRY,
     NodeConnection,
+    _available_nodes,
     _attach_pump_watchdog,
+    _iter_rpc_chunks,
     _pump_incoming,
     _reset_to_pending,
     _token_ok,
@@ -90,6 +92,31 @@ async def test_dispatch_returns_none_without_nodes():
     from app.rpc.judge_gateway import dispatch_submission
 
     assert await dispatch_submission(uuid_mod.uuid4()) is None
+
+
+@pytest.mark.asyncio
+async def test_dispatch_skips_nodes_at_capacity():
+    _add_node("full", inflight=2, capacity=2)
+    free = _add_node("free", inflight=0, capacity=2)
+    assert [n.node_id for n in _available_nodes()] == ["free"]
+    assert min(_available_nodes(), key=lambda n: n.task_count).node_id == free.node_id
+
+
+@pytest.mark.asyncio
+async def test_dispatch_returns_none_when_all_nodes_full():
+    _add_node("full-a", inflight=2, capacity=2)
+    _add_node("full-b", inflight=4, capacity=4)
+    assert await dispatch_submission(uuid_mod.uuid4()) is None
+
+
+def test_iter_rpc_chunks_splits_and_rejoins():
+    payload = b"x" * (1024 * 1024 + 13)
+    chunks = list(_iter_rpc_chunks("cases/1.in", payload))
+    assert len(chunks) == 2
+    assert all(c.path == "cases/1.in" for c in chunks)
+    assert b"".join(c.content for c in chunks) == payload
+    empty = list(_iter_rpc_chunks("empty", b""))
+    assert len(empty) == 1 and empty[0].content == b""
 
 
 @pytest.mark.asyncio
@@ -415,6 +442,22 @@ async def test_failed_dispatch_lock_only_short_cooldown(client, admin_headers, f
     assert msg.job.submission_id == sid
     ttl = await get_redis().ttl(f"judge:requeue:{sid}")
     assert ttl > 200
+
+
+@pytest.mark.asyncio
+async def test_reset_exhausted_marks_system_error(client, admin_headers, fake_storage):
+    """回收重派满 3 次后转 system_error，不再 pending 空转。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    conn = _add_node("retry-node")
+    sid = await _submit(client, admin_headers, pid)
+    assert sid in conn.inflight
+    r = get_redis()
+    await r.set(f"judge:attempts:{sid}", "2")
+    await _reset_to_pending({sid}, reason="test")
+    async with SessionLocal() as db:
+        row = await db.get(Submission, uuid_mod.UUID(sid))
+        assert row.status == "system_error"
+        assert "retry exhausted" in row.error_message
 
 
 # ---- SPJ 特判派发（docs/contracts/judge.md「SPJ 特判」） ----

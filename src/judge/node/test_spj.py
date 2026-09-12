@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import threading
 import uuid as uuid_mod
 
 import pytest
@@ -31,12 +32,14 @@ class FakeExecutor:
     def __init__(self, *results: ExecutionResult) -> None:
         self.results = list(results)
         self.commands: list[list[str]] = []
+        self._lock = threading.Lock()
 
     def run(self, command, **_kwargs) -> ExecutionResult:
-        self.commands.append(command)
-        if not self.results:
-            raise AssertionError("FakeExecutor 结果队列已耗尽")
-        return self.results.pop(0)
+        with self._lock:
+            self.commands.append(command)
+            if not self.results:
+                raise AssertionError("FakeExecutor 结果队列已耗尽")
+            return self.results.pop(0)
 
 
 def _worker(executor: FakeExecutor, workspace_root) -> JudgeWorker:
@@ -114,7 +117,7 @@ def test_prepare_spj_success_returns_jail_binary_path(tmp_path):
     worker = _worker(executor, tmp_path)
     with worker.prepare_submission("python3.12", _case().source, LIMITS) as submission:
         spj = submission.prepare_spj(SPJ_SOURCE, LIMITS)
-    assert spj.binary.startswith("/workspace/") and spj.binary.endswith("/spj")
+    assert spj.binary == "/workspace/spj"
     assert executor.commands[0][-1].endswith("spj.cpp")  # 编译命令以特判源码收尾
 
 
@@ -130,12 +133,14 @@ def test_run_case_with_spj_stages_three_files_and_runs_checker(tmp_path):
         spj = submission.prepare_spj(SPJ_SOURCE, LIMITS)
         result = submission.run_case(case.stdin, case.expected_stdout, case.limits, spj=spj, spj_limits=LIMITS)
         checker_cmd = executor.commands[-1]
-        # 三文件已落入作业目录（with 块退出前读取，临时目录随后清理）
-        staged_input = (tmp_path / checker_cmd[1].removeprefix("/workspace/")).read_bytes()
-        staged_user_out = (tmp_path / checker_cmd[2].removeprefix("/workspace/")).read_bytes()
-        staged_answer = (tmp_path / checker_cmd[3].removeprefix("/workspace/")).read_bytes()
+        staged_input = (submission.workdir / "spj_input").read_bytes()
+        staged_user_out = (submission.workdir / "spj_user_out").read_bytes()
+        staged_answer = (submission.workdir / "spj_answer").read_bytes()
     assert result.status == "accepted"
-    assert checker_cmd[0] == spj.binary and len(checker_cmd) == 4  # spj input user_out answer
+    assert spj.binary == "/workspace/spj"
+    assert checker_cmd == [
+        "/workspace/spj", "/workspace/spj_input", "/workspace/spj_user_out", "/workspace/spj_answer",
+    ]
     assert staged_input == case.stdin
     assert staged_user_out == b"2\n"
     assert staged_answer == case.expected_stdout
@@ -176,7 +181,10 @@ def test_execute_cases_spj_system_error_stops_later_cases(tmp_path):
         _user_run(), ExecutionResult("ok", b"died", b"", 2, 300, 3),  # checker _died
     )
     worker = _worker(executor, tmp_path)
-    results = worker.execute_cases([case, case, case], compile_limits=LIMITS, spj_source=SPJ_SOURCE, spj_limits=LIMITS)
+    results = worker.execute_cases(
+        [case, case, case], compile_limits=LIMITS, spj_source=SPJ_SOURCE, spj_limits=LIMITS,
+        max_parallel=1,
+    )
     assert len(results) == 1 and results[0].status == "system_error"
 
 
@@ -204,12 +212,13 @@ async def test_judge_with_data_spj_failure_sets_plain_error_message(tmp_path, mo
     node = NodeDaemon.__new__(NodeDaemon)
     captured: dict = {}
 
-    def fake_execute(cases, compile_limits=None, *, stop_on_failure=False, spj_source=None, spj_limits=None):
-        captured["spj_source"] = spj_source
+    def fake_execute(cases, compile_limits=None, **kwargs):
+        captured["spj_source"] = kwargs.get("spj_source")
         return [ExecutionResult("system_error", b"out", b"", 5, 10, 3)]
 
     node._load_cases_sync = lambda job, data_dir, limits: []
     node.executor = SimpleNamespace(execute_cases=fake_execute)
+    node.cfg = SimpleNamespace(sandbox=SimpleNamespace(case_parallel=4))
 
     job = judge_pb2.SubmitJob(
         submission_id="s-1", spj=True,

@@ -51,6 +51,18 @@ _REQUEUE_LOCK_PREFIX = "judge:requeue:"
 # 派发失败仅短 TTL 冷却（一个扫描周期量级），不冻结积压
 _REQUEUE_LOCK_TTL_SECONDS = _JUDGING_STALE_SECONDS
 _REQUEUE_RETRY_TTL_SECONDS = 60
+# 回收重派次数上限（断线 / judging 超时）；超过转 system_error（契约「超过阈值转 system_error」）
+_MAX_REQUEUE_ATTEMPTS = 3
+_ATTEMPT_KEY_PREFIX = "judge:attempts:"
+_ATTEMPT_TTL_SECONDS = 3600
+# FetchProblemData 单片上限（同一 path 连续多片，节点按序追加）
+_FILE_CHUNK_BYTES = 1024 * 1024
+# 与判题节点 daemon._GRPC_MAX_MESSAGE_BYTES 对齐（测试点 ≤8MB，默认输出 5MB×N）
+_GRPC_MAX_MESSAGE_BYTES = 128 * 1024 * 1024
+_GRPC_SERVER_OPTIONS = (
+    ("grpc.max_send_message_length", _GRPC_MAX_MESSAGE_BYTES),
+    ("grpc.max_receive_message_length", _GRPC_MAX_MESSAGE_BYTES),
+)
 
 # 节点注册/重连踢醒事件：巡检循环立即消化积压，免等扫描周期
 # （断线→重连后积压提交秒级重派，修复「节点上线了题还在排队」）
@@ -69,6 +81,20 @@ def _live_nodes() -> list[NodeConnection]:
     任务会派给永远回不来结果的节点；判活阈值与心跳 Redis TTL（管理页可见性）对齐。
     """
     return [conn for conn in REGISTRY.list_nodes() if not conn.is_stale()]
+
+
+def _available_nodes(nodes: list[NodeConnection] | None = None) -> list[NodeConnection]:
+    """未满 capacity 的活节点（背压：不把作业堆进节点 semaphore 队列）。"""
+    pool = nodes if nodes is not None else _live_nodes()
+    return [conn for conn in pool if conn.task_count < conn.capacity]
+
+
+def _iter_rpc_chunks(path: str, content: bytes):
+    if not content:
+        yield judge_pb2.FileChunk(path=path, content=b"")
+        return
+    for offset in range(0, len(content), _FILE_CHUNK_BYTES):
+        yield judge_pb2.FileChunk(path=path, content=content[offset:offset + _FILE_CHUNK_BYTES])
 
 
 class GatewayUnavailableError(RuntimeError):
@@ -318,10 +344,14 @@ class JudgeGatewayService(judge_pb2_grpc.JudgeGatewayServicer):
             await context.abort(grpc.StatusCode.UNAUTHENTICATED, "invalid node token")
         problem_id = uuid.UUID(request.problem_id)
         async with SessionLocal() as db:
-            async for path, content in jobs.stream_problem_data(
+            plan = await jobs.build_problem_data_plan(
                 db, problem_id, requested_version=request.data_version or None
-            ):
-                yield judge_pb2.FileChunk(path=path, content=content)
+            )
+        if plan is None:
+            return
+        async for path, content in jobs.stream_plan_files(plan):
+            for chunk in _iter_rpc_chunks(path, content):
+                yield chunk
 
 
 def _attach_pump_watchdog(incoming: asyncio.Task, conn: NodeConnection) -> None:
@@ -413,23 +443,44 @@ async def _reset_to_pending(submission_ids: set[str], *, reason: str) -> None:
 
     from app.models.judge import Submission
 
-    ids = [uuid.UUID(s) for s in submission_ids]
-    async with SessionLocal() as db:
-        # updated_at 同步刷新为状态变更时刻：巡检的「滞留」判定以它为基准，
-        # 若停留在创建时间，断线回收后的重派门槛与实际滞留时长脱节
-        await db.execute(
-            update(Submission)
-            .where(Submission.id.in_(ids), Submission.status == SubmissionStatus.JUDGING)
-            .values(status=SubmissionStatus.PENDING, updated_at=datetime.now(timezone.utc))
-        )
-        await db.commit()
-    logger.info("回收 %s 个 in-flight 提交（%s）", len(ids), reason)
+    if not submission_ids:
+        return
+    r = get_redis()
+    retry_ok: list[uuid.UUID] = []
+    for raw in submission_ids:
+        key = f"{_ATTEMPT_KEY_PREFIX}{raw}"
+        n = int(await r.incr(key))
+        await r.expire(key, _ATTEMPT_TTL_SECONDS)
+        sid = uuid.UUID(raw)
+        if n >= _MAX_REQUEUE_ATTEMPTS:
+            await jobs.fail_retry_exhausted(sid)
+            logger.warning("提交 %s 重派超过 %s 次，转 system_error（%s）", raw, _MAX_REQUEUE_ATTEMPTS, reason)
+        else:
+            retry_ok.append(sid)
+    if retry_ok:
+        async with SessionLocal() as db:
+            await db.execute(
+                update(Submission)
+                .where(Submission.id.in_(retry_ok), Submission.status == SubmissionStatus.JUDGING)
+                .values(status=SubmissionStatus.PENDING, updated_at=datetime.now(timezone.utc))
+            )
+            await db.commit()
+    logger.info("回收 %s 个 in-flight 提交（%s）", len(submission_ids), reason)
+
+
+def _send_cancel(submission_id: str) -> None:
+    conn = _find_conn_by_submission(submission_id)
+    if conn is None:
+        return
+    conn.outbox.put_nowait(judge_pb2.ServerMessage(
+        cancel=judge_pb2.CancelJob(submission_id=submission_id)
+    ))
 
 
 async def maintenance_once(scan_interval: int, now: datetime | None = None) -> None:
     """单轮巡检（maintenance_loop 循环体，独立成函数便于测试注入）：
     重置超时未完成的 judging、重派滞留的 pending / judging 提交。"""
-    from sqlalchemy import select, update
+    from sqlalchemy import select
 
     from app.models.judge import Submission
 
@@ -456,11 +507,8 @@ async def maintenance_once(scan_interval: int, now: datetime | None = None) -> N
                 submission.status == SubmissionStatus.JUDGING
                 and submission.updated_at < now - timedelta(seconds=_JUDGING_STALE_SECONDS)
             ):
-                await db.execute(
-                    update(Submission)
-                    .where(Submission.id == submission.id)
-                    .values(status=SubmissionStatus.PENDING, updated_at=now)
-                )
+                _send_cancel(str(submission.id))
+                await _reset_to_pending({str(submission.id)}, reason="judging stale")
             await db.commit()
             if await dispatch_submission(submission.id):
                 logger.info("巡检重派提交 %s", submission.id)
@@ -493,13 +541,14 @@ async def dispatch_submission(submission_id: uuid.UUID) -> str | None:
     SPJ 题只派给 supports_spj 节点（旧节点会忽略 spj 标记、退化为默认比对静默误判）；
     无支持节点时落 system_error（docs/contracts/judge.md「SPJ 特判」）。
     """
-    nodes = _live_nodes()
+    nodes = _available_nodes()
     if not nodes:
         return None
     if await jobs.submission_needs_spj(submission_id):
-        nodes = [n for n in nodes if n.supports_spj]
+        nodes = _available_nodes([n for n in nodes if n.supports_spj])
         if not nodes:
-            await jobs.fail_no_spj_node(submission_id)
+            if not any(n.supports_spj for n in _live_nodes()):
+                await jobs.fail_no_spj_node(submission_id)
             return None
     best = min(nodes, key=lambda n: (n.task_count, n.node_id))
     if await send_job(best.node_id, submission_id):
@@ -533,10 +582,13 @@ async def dispatch_run_code(
     运行限制按语言比例换算（基准取题目 time_limit_ms / memory_limit_mb），
     编译预算由节点侧按运行限制独立推导（与正式判题一致）。
     """
-    nodes = _live_nodes()
-    if not nodes:
+    live = _live_nodes()
+    if not live:
         raise GatewayUnavailableError("no judge node online")
     if await active_judge_count() >= max_concurrent:
+        raise GatewayBusyError("judge concurrency limit reached")
+    nodes = _available_nodes(live)
+    if not nodes:
         raise GatewayBusyError("judge concurrency limit reached")
 
     limits, _compile_limits = jobs.resolve_limits(problem, sandbox_config)
@@ -571,7 +623,7 @@ async def start_grpc_server() -> grpc.aio.Server | None:
     if not settings.gateway_tokens:
         logger.warning("未配置 JUDGE_GATEWAY_TOKENS，判题网关不启动")
         return None
-    server = grpc.aio.server()
+    server = grpc.aio.server(options=list(_GRPC_SERVER_OPTIONS))
     judge_pb2_grpc.add_JudgeGatewayServicer_to_server(JudgeGatewayService(), server)
     bind = f"{settings.judge_grpc_host}:{settings.judge_grpc_port}"
     server.add_insecure_port(bind)

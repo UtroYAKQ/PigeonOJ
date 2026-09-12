@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
 import logging
 import os
 import socket
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -29,6 +29,14 @@ from gen import judge_pb2, judge_pb2_grpc  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("judge-node")
+
+# 与后端 app/rpc/judge_gateway._GRPC_MAX_MESSAGE_BYTES 对齐
+# （测试点 ≤8MB，默认输出 5MB×N；gRPC 默认 4MB 会卡死 Connect / FetchProblemData）
+_GRPC_MAX_MESSAGE_BYTES = 128 * 1024 * 1024
+_GRPC_CHANNEL_OPTIONS = (
+    ("grpc.max_send_message_length", _GRPC_MAX_MESSAGE_BYTES),
+    ("grpc.max_receive_message_length", _GRPC_MAX_MESSAGE_BYTES),
+)
 
 
 def aggregate_status(statuses: list[str]) -> str:
@@ -104,6 +112,7 @@ class NodeDaemon:
         self._pending: set[asyncio.Task] = set()
         self.heartbeat_interval = 10
         self.cpu_sample: tuple[int, int] | None = None  # (idle, total) 上次 /proc/stat 采样
+        self._cancels: dict[str, threading.Event] = {}
 
     async def run(self) -> None:
         cfg = self.cfg
@@ -111,9 +120,11 @@ class NodeDaemon:
         if cfg.server.tls:
             # TLS 模式：连公网域名 443（nginx grpc_pass 按服务路径转发到网关），
             # Let's Encrypt 等公共证书在 gRPC 默认根证书信任链内
-            channel = grpc.aio.secure_channel(cfg.server.address, grpc.ssl_channel_credentials())
+            channel = grpc.aio.secure_channel(
+                cfg.server.address, grpc.ssl_channel_credentials(), options=_GRPC_CHANNEL_OPTIONS
+            )
         else:
-            channel = grpc.aio.insecure_channel(cfg.server.address)
+            channel = grpc.aio.insecure_channel(cfg.server.address, options=_GRPC_CHANNEL_OPTIONS)
         stub = judge_pb2_grpc.JudgeGatewayStub(channel)
 
         async def outgoing():
@@ -122,7 +133,7 @@ class NodeDaemon:
                 node_id=self.node_id,
                 name=cfg.node.name or self.node_id,
                 capacity=cfg.node.capacity,
-                version="nsjail-node-1.1",
+                version="nsjail-node-1.3",
                 supports_spj=True,
             ))
             while True:
@@ -147,6 +158,10 @@ class NodeDaemon:
                     self._spawn(self._execute_job(stub, sm.job))
                 elif kind == "run_code":
                     self._spawn(self._execute_run_code(sm.run_code))
+                elif kind == "cancel":
+                    ev = self._cancels.get(sm.cancel.submission_id)
+                    if ev is not None:
+                        ev.set()
         finally:
             heartbeat_task.cancel()
             cache_gc_task.cancel()
@@ -214,31 +229,43 @@ class NodeDaemon:
         return self.cache.dir_for(job.problem_id, job.data_version)
 
     async def _execute_job(self, stub, job: judge_pb2.SubmitJob) -> None:
+        cancel = threading.Event()
+        self._cancels[job.submission_id] = cancel
         async with self.semaphore:
             self.running_tasks += 1
             try:
-                result = await self._execute_inner(stub, job)
+                if cancel.is_set():
+                    log.info("作业取消（未开始）%s", job.submission_id)
+                    return
+                result = await self._execute_inner(stub, job, cancel)
+                if cancel.is_set():
+                    log.info("作业取消 %s", job.submission_id)
+                    return
             except Exception as exc:  # noqa: BLE001 - 节点侧故障以 system_error 回传
                 log.exception("作业执行异常 submission=%s", job.submission_id)
+                if cancel.is_set():
+                    return
                 result = {
                     "submission_id": job.submission_id, "status": "system_error",
                     "error_message": f"node error: {exc}"[:2000], "cases": [],
                 }
             finally:
                 self.running_tasks -= 1
+                self._cancels.pop(job.submission_id, None)
             await self.outbox.put(_to_result_message(result))
             log.info("判题完成 %s → %s (score=%s)", job.submission_id, result["status"], result.get("score"))
 
-    async def _execute_inner(self, stub, job: judge_pb2.SubmitJob) -> dict:
+    async def _execute_inner(self, stub, job: judge_pb2.SubmitJob, cancel: threading.Event | None = None) -> dict:
         data_dir = await self._ensure_data(stub, job)
-        # 标记使用中：防止缓存回收删除正在判题的数据目录
         self.cache.mark_in_use(data_dir.name)
         try:
-            return await self._judge_with_data(job, data_dir)
+            return await self._judge_with_data(job, data_dir, cancel)
         finally:
             self.cache.unmark_in_use(data_dir.name)
 
-    async def _judge_with_data(self, job: judge_pb2.SubmitJob, data_dir: Path) -> dict:
+    async def _judge_with_data(
+        self, job: judge_pb2.SubmitJob, data_dir: Path, cancel: threading.Event | None = None
+    ) -> dict:
         limits = ResourceLimits(
             time_limit_ms=job.limits.time_limit_ms,
             memory_limit_mb=job.limits.memory_limit_mb,
@@ -281,6 +308,8 @@ class NodeDaemon:
             stop_on_failure=job.stop_on_failure,
             spj_source=spj_source,
             spj_limits=spj_limits,
+            cancel_event=cancel,
+            max_parallel=self.cfg.sandbox.case_parallel,
         )
 
         max_time = 0
@@ -305,12 +334,14 @@ class NodeDaemon:
                 "error_message": error_message, "cases": case_results}
 
     def _load_cases_sync(self, job: judge_pb2.SubmitJob, data_dir: Path, limits: ResourceLimits) -> list[JudgeCase]:
-        """同步加载测试点文件（在 to_thread 工作线程中执行）。"""
+        """只登记测试点路径，真正读文件推迟到执行该点（ACM 短路不读后续）。"""
         cases = []
         for tc in job.cases:
-            stdin = (data_dir / "cases" / f"{tc.test_case_id}.in").read_bytes()
-            expected = (data_dir / "cases" / f"{tc.test_case_id}.out").read_bytes()
-            cases.append(JudgeCase(job.language, job.code, stdin, expected, limits))
+            cases.append(JudgeCase(
+                job.language, job.code, limits=limits,
+                stdin_path=data_dir / "cases" / f"{tc.test_case_id}.in",
+                expected_path=data_dir / "cases" / f"{tc.test_case_id}.out",
+            ))
         return cases
 
     async def _execute_run_code(self, job: judge_pb2.RunCodeJob) -> None:

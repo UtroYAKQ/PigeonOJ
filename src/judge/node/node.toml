@@ -23,3 +23,4 @@ gc_interval_seconds = 300      # 回收巡检间隔
 [sandbox]
 nsjail_binary = "nsjail"
 nsjail_config = "/etc/pigeonoj/nsjail.cfg"
+case_parallel = 4              # IOI/练习并行测试点数；ACM stop_on_failure 仍串行
