@@ -10,9 +10,24 @@
 
 依赖：Python 3.12+、Node 20+、本地 PostgreSQL / Redis / MinIO。
 
+### 后端虚拟环境（.venv）
+
+后端统一使用**仓库根目录的 `.venv`**（已入 `.gitignore`）：**不存在就创建，存在就直接用**。所有后端命令（运行 / alembic / pytest / 辅助脚本）一律走该环境的解释器，不装进全局 Python。
+
 ```bash
-# 后端（判题 gRPC 网关 :50051 与维护循环随应用启动）
-cd src/backend && pip install -r requirements.txt && alembic upgrade head && python run.py
+# 无 .venv 时：创建并安装依赖（Windows 解释器路径为 .venv\Scripts\python.exe）
+python -m venv .venv
+.venv/Scripts/python -m pip install -r src/backend/requirements.txt -r src/backend/requirements-dev.txt
+
+# 有 .venv 时：激活（Git Bash 示例）后正常用 python / pytest，或免激活直接以 .venv 解释器运行
+source .venv/Scripts/activate
+.venv/Scripts/python src/backend/scripts/check_import_rules.py   # 免激活调用示例
+```
+
+```bash
+# 后端（判题 gRPC 网关 :50051 与维护循环随应用启动）；先备好根目录 .venv（见上）
+.venv/Scripts/python -m pip install -r src/backend/requirements.txt   # 首次或依赖变更后
+cd src/backend && ../../.venv/Scripts/python -m alembic upgrade head && ../../.venv/Scripts/python run.py
 
 # 前端
 cd src/frontend && npm install && npm run dev
@@ -166,8 +181,8 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 
 ```bash
 npm run lint:check       # 前端 ESLint
-pip install -r requirements-dev.txt   # 测试依赖（pytest / pytest-asyncio / httpx，均在 src/backend 下执行）
-pytest                   # 后端单元 + 集成测试
+.venv/Scripts/python -m pip install -r src/backend/requirements-dev.txt   # 测试依赖（pytest / pytest-asyncio / httpx；首次或依赖变更后）
+cd src/backend && ../../.venv/Scripts/python -m pytest   # 后端单元 + 集成测试
 npm test                 # 前端 Vitest
 ```
 
@@ -185,6 +200,8 @@ npm test                 # 前端 Vitest
 - pytest async 测试共享会话级事件循环
 
 ### 开发辅助脚本（`src/backend/scripts/`）
+
+在 `src/backend` 下、用根目录 `.venv` 解释器执行（激活后写 `python` 即可，免激活写 `../../.venv/Scripts/python`）：
 
 ```bash
 python -m scripts.bootstrap_admin         # 管理员引导

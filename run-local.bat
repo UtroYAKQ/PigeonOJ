@@ -2,6 +2,7 @@
 rem ============================================================
 rem  PigeonOJ local one-click startup script for Windows
 rem  - Starts PostgreSQL / MinIO / Redis infra containers (no pull)
+rem  - Backend always runs in the repo-root .venv (created if missing, reused if present)
 rem  - Auto-installs missing backend (pip) / frontend (npm) dependencies
 rem  - Builds the judge-node image only when missing (nsjail sandbox), runs 1 judge node in its own window
 rem  - Runs DB migrations + demo user initialization
@@ -46,7 +47,7 @@ if errorlevel 1 (
     echo Starting MinIO container...
     docker start pigeonoj-minio >nul 2>&1
     if errorlevel 1 (
-        docker run -d --name pigeonoj-minio -e MINIO_ROOT_USER=pigeonoj -e MINIO_ROOT_PASSWORD=pigeonoj-minio-secret -p 9000:9000 -p 9001:9001 -v miniodata:/data docker.1ms.run/minio/minio:latest server /data --console-address ":9001"
+        docker run -d --name pigeonoj-minio -e MINIO_ROOT_USER=pigeonoj -e MINIO_ROOT_PASSWORD=pigeonoj-minio-secret -p 9000:9000 -p 9001:9001 -v miniodata:/data docker.m.daocloud.io/minio/minio:latest server /data --console-address ":9001"
     )
 ) else (
     echo MinIO is already running
@@ -71,11 +72,19 @@ if errorlevel 1 (
 
 rem ---------- 2. Auto-install missing backend / frontend dependencies ----------
 echo [2/8] Preparing dependencies...
+rem Backend always runs inside the repo-root .venv: create it if missing, reuse it if present.
+rem All backend commands below (alembic / scripts / run.py) go through "%PY%", never global python.
+set "PY=%~dp0.venv\Scripts\python.exe"
+if not exist "%PY%" (
+    echo Backend venv .venv missing, creating it via "python -m venv .venv" ...
+    python -m venv "%~dp0.venv"
+    if errorlevel 1 ( echo [ERROR] venv creation failed & pause & exit /b 1 )
+)
 cd /d "%~dp0src\backend"
-python -c "import fastapi,uvicorn,alembic,sqlalchemy,redis,asyncpg,pydantic_settings,bcrypt,grpc,multipart,google.protobuf,ip2region,minio" >nul 2>&1
+"%PY%" -c "import fastapi,uvicorn,alembic,sqlalchemy,redis,asyncpg,pydantic_settings,bcrypt,grpc,multipart,google.protobuf,ip2region,minio" >nul 2>&1
 if errorlevel 1 (
     echo Backend python dependencies missing, running "pip install -r requirements.txt"...
-    python -m pip install -r requirements.txt
+    "%PY%" -m pip install -r requirements.txt
     if errorlevel 1 ( echo [ERROR] Backend dependency install failed & pause & exit /b 1 )
 ) else (
     echo Backend python dependencies already installed
@@ -131,13 +140,13 @@ rem (trailing spaces on values would break DB/MinIO connection strings, so no tr
 set "DATABASE_URL=postgresql+asyncpg://pigeonoj:pigeonoj@localhost:5432/pigeonoj"
 set "REDIS_URL=redis://localhost:6379/0"
 set "JUDGE_GATEWAY_TOKENS=dev-token"
-python -m alembic upgrade head
+"%PY%" -m alembic upgrade head
 if errorlevel 1 (
     echo [ERROR] DB migration failed, please check the log above
     pause
     exit /b 1
 )
-python -m scripts.bootstrap_demo_users
+"%PY%" -m scripts.bootstrap_demo_users
 
 rem ---------- 6. Start backend, wait for :50051 gateway (needed for judge node registration) ----------
 echo [6/8] Starting backend...
@@ -147,7 +156,7 @@ rem (process env > .env SERVER_PORT > backend.toml [server] port; fallback 8000)
 rem then export SERVER_PORT so backend run.py and the frontend vite proxy share one value.
 cd /d "%~dp0src\backend"
 set "BE_PORT=8000"
-for /f "delims=" %%p in ('python -c "from app.settings.config import get_settings; print(get_settings().server_port)" 2^>nul') do set "BE_PORT=%%p"
+for /f "delims=" %%p in ('"%PY%" -c "from app.settings.config import get_settings; print(get_settings().server_port)" 2^>nul') do set "BE_PORT=%%p"
 echo !BE_PORT!| findstr /r "^[0-9][0-9]*$" >nul 2>&1 || set "BE_PORT=8000"
 set "SERVER_PORT=!BE_PORT!"
 echo Backend port: !SERVER_PORT!
@@ -155,7 +164,7 @@ echo Backend port: !SERVER_PORT!
 netstat -ano | findstr /c:":!SERVER_PORT! " | findstr /c:"LISTENING" >nul 2>&1
 if errorlevel 1 (
     cd /d "%~dp0src\backend"
-    start "PigeonOJ Backend" cmd /k "python run.py"
+    start "PigeonOJ Backend" cmd /k ""%PY%" run.py"
 ) else (
     echo [WARN] Port !SERVER_PORT! is occupied, backend may already be running; to restart, close the old window first
 )

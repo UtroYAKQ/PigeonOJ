@@ -106,7 +106,7 @@ class SelfTestService:
             problem=problem,
             sandbox_config=config,
             cooldown_seconds=int(
-                await self.config_service.get_value("sandbox", "sandbox.cooldown_seconds", 10)
+                await self.config_service.get_value("sandbox", "sandbox.cooldown_seconds", 2)
             ),
             max_concurrent=int(
                 await self.config_service.get_value("sandbox", "sandbox.judge_concurrency", 8)

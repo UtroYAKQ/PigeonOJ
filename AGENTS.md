@@ -33,7 +33,8 @@
 
 ## 验证
 
-- 后端变更：`python src/backend/scripts/check_import_rules.py` + 最相关 pytest（见 `docs/operations.md`）
+- 后端命令统一用**仓库根目录 `.venv`**：不存在就 `python -m venv .venv` 创建并装依赖，存在就直接用（激活，或免激活直接调 `.venv/Scripts/python`）；不装进全局 Python。详见 `docs/operations.md`「后端虚拟环境」
+- 后端变更：`.venv/Scripts/python src/backend/scripts/check_import_rules.py` + 最相关 pytest
 - 前端变更：`npm run lint:check` / `npm test` / `npm run build`
 
 ## 领域约定

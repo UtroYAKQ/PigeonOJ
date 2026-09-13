@@ -41,8 +41,6 @@ onMounted(() => {
     fontLigatures: true,
     tabSize: 4,
     scrollBeyondLastLine: false,
-    // 不显示横向滚动条（超出部分仍可用 Shift+滚轮横向浏览）
-    scrollbar: { horizontal: 'hidden' },
     readOnly: props.readOnly ?? false,
   })
   editor.onDidChangeModelContent(() => emit('update:modelValue', editor?.getValue() ?? ''))
