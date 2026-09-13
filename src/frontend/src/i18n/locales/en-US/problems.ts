@@ -204,7 +204,6 @@ export default {
       verifyType: 'Verification submission',
       errorMessage: 'Compile / runtime error message',
       caseResults: 'Test case results',
-      spjMessage: 'SPJ Message',
       showCode: 'Show code',
       hideCode: 'Hide code',
       stillJudging:

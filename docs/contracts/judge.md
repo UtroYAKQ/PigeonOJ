@@ -49,7 +49,7 @@ CHECK (
 | memory_used_kb | INT | NULL | |
 | score | INT | NOT NULL DEFAULT 0 | 该测试点得分（服务端派生：单点分值一致 = 单题满分 ÷ 测试点数，仅通过时计分；练习 / 验题满分为 100，OI 比赛为比赛配置分值） |
 | output | TEXT | NULL | 运行输出（MinIO ossId，正文截断后落对象存储） |
-| message | TEXT | NULL | SPJ 判定信息（特判程序 stdout 截断 ≤2KB，UTF-8；非 SPJ 提交为 NULL。如 `wrong answer expected 3, found 4`，随明细返回提交者定位错误；内容出题人自负；迁移 0036） |
+| message | TEXT | NULL | SPJ 判定信息（特判程序 stdout 截断 ≤2KB，UTF-8；非 SPJ 提交为 NULL。如 `wrong answer expected 3, found 4`，随明细返回（前端当前不展示）；内容出题人自负；迁移 0036） |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
 索引：
@@ -136,8 +136,8 @@ CHECK (
 - 判定按**退出码**：`0` = accepted；`3`（testlib `_died`）/ `4`（testlib `_fail`，checker 自身故障）=
   整个提交 `system_error`；其余退出码 = wrong_answer（含 testlib `_wa`=1、`_pe`=2；
   部分分退出码 `16+分值` 不支持，按 wrong_answer 处理）
-- 特判程序 stdout（UTF-8，截断 ≤2KB）作为该测试点 `message` 落库并随提交详情返回，
-  供提交者定位错误；内容出题人自负（不应打印期望答案）
+- 特判程序 stdout（UTF-8，截断 ≤2KB）作为该测试点 `message` 落库并随提交详情返回
+  （当前前端不展示该列）；内容出题人自负（不应打印期望答案）
 
 **限制**：
 

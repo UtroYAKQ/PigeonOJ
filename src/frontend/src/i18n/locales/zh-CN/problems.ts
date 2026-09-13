@@ -204,7 +204,6 @@ export default {
       verifyType: '验题提交',
       errorMessage: '编译 / 运行错误信息',
       caseResults: '测试点明细',
-      spjMessage: 'SPJ 信息',
       showCode: '查看代码',
       hideCode: '收起代码',
       stillJudging: '评测时间较长，已停止自动刷新；可点击「刷新」继续查询结果。',
