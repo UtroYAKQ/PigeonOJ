@@ -113,38 +113,9 @@ class TeamService:
     def _is_creator(team: Team, user_id: uuid.UUID) -> bool:
         return team.creator_id == user_id
 
-    # ---------------- 创建 / 编辑 / 详情 / 列表 ----------------
-
-    async def create(self, user: User, body: TeamCreate) -> TeamSummary:
-        """创建团队（admin/tutor 全局角色）：自动写创建者在册记录并授予 team_creator。"""
-        from app.core.dependency import get_user_role_codes
-
-        codes = await get_user_role_codes(self.db, user.id)
-        if not ({"admin", "tutor"} & codes):
-            raise APIError(AUTH_FORBIDDEN, "无权限创建团队", 403)
-        team = await self.teams.create(
-            Team(
-                name=body.name,
-                description=body.description,
-                avatar_url=body.avatar_url,
-                visibility=body.visibility,
-                creator_id=user.id,
-            )
-        )
-        self.db.add(
-            TeamMember(team_id=team.id, user_id=user.id, status=TeamMemberStatus.ACTIVE)
-        )
-        await self.roles.grant_team_role(user.id, team.id, ROLE_CREATOR)
-        return TeamSummary(
-            id=team.id,
-            name=team.name,
-            description=team.description,
-            avatar_url=team.avatar_url,
-            created_at=team.created_at,
-            visibility=TeamVisibility(team.visibility),
-            member_count=1,
-            my_role="creator",
-        )
+    # ---------------- 编辑 / 详情 / 列表 ----------------
+    # 团队创建已收敛到组织端点 POST /orgs/{org_id}/teams（OrgService.create_team，
+    # docs/contracts/orgs.md）——admin/tutor 全局创建门随 tutor 下线一并移除。
 
     async def get_detail(self, user: User, team_id: uuid.UUID) -> TeamDetail:
         """团队详情（成员可见；非在册成员 2003）。"""

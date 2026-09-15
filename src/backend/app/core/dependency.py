@@ -42,10 +42,9 @@ def _utcnow() -> datetime:
 REQUEST_STATE_USER_ID = "log_user_id"
 
 # 题目管理角色集合（docs/contracts/problems.md 端点表）
-# admin: 系统管理员
-# tutor: 导师
-# team_creator: 团队创建者（teams 模块接入后生效）
-MANAGER_ROLE_CODES: set[str] = {"admin", "tutor", "team_creator"}
+# admin: 系统管理员（全站题创建；tutor 已随组织化改造下线，出题收敛到组织题库）
+# team_creator: 团队创建者（团队空间引用动作承载）
+MANAGER_ROLE_CODES: set[str] = {"admin", "team_creator"}
 
 
 def parse_client_ip(host: str | None) -> str | None:
@@ -174,8 +173,8 @@ async def get_user_role_codes(db: AsyncSession, user_id) -> set[str]:
 async def is_manager(db: AsyncSession, user: User) -> bool:
     """检查用户是否为题目管理角色。
 
-    全局角色（admin / tutor / team_creator）之外，团队角色（team_creator / team_admin，
-    scope='team'）同样可出题——团队空间「出团队题目」即由引用动作承载
+    全局角色（admin / team_creator）之外，团队角色（team_creator / team_admin，
+    scope='team'）同样可出题——团队空间「出团队题目」由引用动作承载
     （docs/contracts/problems.md 端点表；管理范围仍按单一所有权限制为本人资源）。
     """
     codes = await get_user_role_codes(db, user.id)

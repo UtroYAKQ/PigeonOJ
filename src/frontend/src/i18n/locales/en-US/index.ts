@@ -7,6 +7,7 @@ import placeholder from './placeholder'
 import problemSets from './problemSets'
 import contests from './contests'
 import teams from './teams'
+import orgs from './orgs'
 
 export default {
   ...app,
@@ -16,6 +17,7 @@ export default {
   ...problemSets,
   ...contests,
   ...teams,
+  ...orgs,
   ...admin,
   ...placeholder,
 }

@@ -35,11 +35,6 @@ import type {
   TeamUpsertPayload,
 } from '@/types'
 
-/** 创建团队（admin/tutor） */
-export function createTeam(body: TeamUpsertPayload): Promise<TeamSummary> {
-  return apiRequest('POST', '/teams', body)
-}
-
 /** 团队中心列表：默认仅公开在册团队；mine=true 为「我的团队」勾选（须登录） */
 export function listTeams(query: TeamListQuery = {}): Promise<PageResult<TeamSummary>> {
   return apiRequest('GET', `/teams${buildQuery(query)}`)
@@ -131,7 +126,7 @@ export function disbandTeam(id: string): Promise<null> {
 
 /* ==================== 团队空间（题库 / 题单 / 比赛，docs/contracts/teams.md 团队空间节） ==================== */
 
-/** 团队题库列表：成员见 team_visible；创建者 / 管理员另见 admin_visible 与本人草稿 */
+/** 团队题库列表：成员见 team_visible；创建者 / 管理员另见 admin_visible（仅已发布） */
 export function listTeamProblems(
   teamId: string,
   query: TeamProblemListQuery = {},
@@ -139,7 +134,8 @@ export function listTeamProblems(
   return apiRequest('GET', `/teams/${teamId}/problems${buildQuery(query)}`)
 }
 
-/** 引用本人全站题目进入团队题库（team_creator / team_admin；单向，无移出通道） */
+/** 引用题目进入团队题库（team_creator / team_admin；单向，无移出通道；
+ * 候选池 = 所属组织题库 ∪ 全站公开题，组织题库引用走快照复制） */
 export function referenceTeamProblem(
   teamId: string,
   body: TeamProblemReferencePayload,
@@ -148,15 +144,14 @@ export function referenceTeamProblem(
 }
 
 /** 团队编排候选搜索（team_creator / team_admin）：本团队题目 ∪ 全站公开 ∪ 本人私有 */
-export function searchTeamArrangeableProblems(
-  teamId: string,
+export function searchTeamArrangeableProblems(  teamId: string,
   query: { keyword?: string; page?: number; page_size?: number } = {},
 ): Promise<PageResult<TeamProblemSummary>> {
   return apiRequest('GET', `/teams/${teamId}/problems/arrangeable${buildQuery(query)}`)
 }
 
-/** 团队题目引用候选搜索（team_creator / team_admin）：本人创建 + 已发布 +
- * 全站题 + 未被该团队引用过（同团队同源仅一份快照） */
+/** 团队题目引用候选搜索（team_creator / team_admin）：所属组织题库 ∪
+ * 全站公开题 + 未被该团队引用过（同团队同源仅一份快照） */
 export function searchTeamReferenceableProblems(
   teamId: string,
   query: { keyword?: string; page?: number; page_size?: number } = {},
@@ -246,7 +241,7 @@ export function runTeamSetProblemCode(
   )
 }
 
-/** 创建团队题单（team_creator / team_admin；visibility='team'；copy_from_set_id 非空 = 复制本人全站题单条目） */
+/** 创建团队题单（team_creator / team_admin；visibility 与团队题目对齐，缺省 team_visible） */
 export function createTeamProblemSet(
   teamId: string,
   body: TeamSetCreatePayload,

@@ -7,6 +7,7 @@ import {
   Document,
   HomeFilled,
   Lock,
+  OfficeBuilding,
   Monitor,
   Odometer,
   Picture,
@@ -21,6 +22,7 @@ import type { Component } from 'vue'
 
 export const iconMap: Record<string, Component> = {
   HomeFilled,
+  OfficeBuilding,
   Collection,
   Trophy,
   UserFilled,

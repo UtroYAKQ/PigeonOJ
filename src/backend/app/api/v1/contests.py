@@ -74,7 +74,7 @@ async def create_contest(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
-    """创建比赛（admin/tutor；团队赛随 teams 模块开放）。"""
+    """创建比赛（admin；团队赛随 teams 模块开放）。"""
     summary = await service.create(user, body)
     await db.commit()  # 显式提交：确保数据持久化后再返回
     return ok(summary)
@@ -156,7 +156,7 @@ async def update_contest(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
-    """编辑比赛（admin/tutor）。"""
+    """编辑比赛（admin）。"""
     summary = await service.update(contest_id, user, body)
     await db.commit()  # 显式提交：确保数据持久化
     return ok(summary)
@@ -255,7 +255,7 @@ async def get_contest_board(
     service: ContestServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[BoardOut]:
-    """榜单（封榜时按冻结快照展示；解冻由 admin/tutor 手动触发）。团队比赛限团队成员。"""
+    """榜单（封榜时按冻结快照展示；解冻由 admin 手动触发）。团队比赛限团队成员。"""
     return ok(await service.board(contest_id, user))
 
 
@@ -266,7 +266,7 @@ async def unfreeze_contest_board(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
-    """手动解冻榜单（admin/tutor）：从 submissions 权威重算并回填封榜期间结果（仅赛后）。"""
+    """手动解冻榜单（admin）：从 submissions 权威重算并回填封榜期间结果（仅赛后）。"""
     summary = await service.unfreeze(user, contest_id)
     await db.commit()  # 显式提交：确保数据持久化
     await service.invalidate_board_cache(contest_id)  # commit 后补失效，消除回填旧榜竞态

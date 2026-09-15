@@ -4,9 +4,9 @@
  * Hero（渐变横幅 + 头像 + 简介 + 动作区）+ 模块化内容区：
  * 成员 / 团队题库 / 团队题单 / 团队比赛 / 加入申请（管理员）。
  * 团队空间三模块（题库 / 题单 / 比赛）走独立团队端点（docs/contracts/teams.md 团队空间节）：
- * 成员只读浏览；创建者 / 管理员可引用题目题单、建题单、建比赛、编排与下线。
- * 团队题库管理视图仅展示已发布题目（带发布验题 / 可见性列），勾选「草稿箱」切换为
- * 查询本人草稿题目，归档题不再出现在团队空间；权限按 my_role 显隐（creator ⊇ admin ⊇ member）。
+ * 成员只读浏览；创建者 / 管理员可引用题目、建题单、建比赛、编排与下线。
+ * 团队题库管理视图仅展示已发布题目（带发布验题 / 可见性列），草稿 / 归档题不再
+ * 出现在团队空间；权限按 my_role 显隐（creator ⊇ admin ⊇ member）。
  */
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -23,7 +23,6 @@ import {
 } from '@element-plus/icons-vue'
 import {
   NButton,
-  NCheckbox,
   NDropdown,
   NDrawer,
   NDrawerContent,
@@ -62,7 +61,6 @@ import { ApiError } from '@/api/http'
 import { archiveProblem } from '@/api/problems'
 import BaseAvatar from '@/components/BaseAvatar.vue'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
-import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/visibilityLabel'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
 import { useUserStore } from '@/stores/user'
@@ -161,7 +159,6 @@ async function loadProblems() {
       page: problemPage.value,
       page_size: problemPageSize.value,
       keyword: problemKeyword.value || undefined,
-      status: draftOnly.value ? 'draft' : undefined,
     })
     problems.value = result.items
     problemTotal.value = result.total
@@ -179,15 +176,6 @@ function searchProblems() {
 
 function openTeamProblem(row: TeamProblemSummary) {
   void router.push(`/teams/${teamId}/problems/${row.id}`)
-}
-
-/** 草稿箱勾选（仅团队管理）：勾选后列表仅查询草稿题目（后端 status=draft 过滤，仅本人草稿） */
-const draftOnly = ref(false)
-
-function onToggleDraftBox(checked: boolean) {
-  draftOnly.value = checked
-  resetProblemPage()
-  loadProblems()
 }
 
 /** 题库行内操作（⋯ 下拉，仅团队管理可见；backend 仍强校验 owner/admin） */
@@ -220,16 +208,9 @@ function onProblemAction(key: ProblemAction, row: TeamProblemSummary) {
   })
 }
 
-/** 引用题目页（团队题目 = 引用制）：tutor / admin 全局身份才拥有可引用的本人题目 */
-const canReference = computed(() => userStore.hasAnyRole(['admin', 'tutor']))
-
+/** 引用题目页（团队题目 = 引用制；引用门控由团队角色承担，后端强校验） */
 function openProblemReference() {
   void router.push(`/teams/${teamId}/problems/new`)
-}
-
-/** 团队题目直建向导（POST /problems 带 team_id，团队可见性分支） */
-function openProblemCreate() {
-  void router.push(`/teams/${teamId}/problems/create`)
 }
 
 // ---------------- 团队题单 ----------------
@@ -262,7 +243,7 @@ async function loadSets() {
   }
 }
 
-/** 新建 / 引用收敛到题单创建页（引用 tab 仅 tutor / admin 可见） */
+/** 新建题单收敛到题单创建页（创建 / 编排由团队创建者 / 管理员执行） */
 function openSetCreate() {
   void router.push(`/teams/${teamId}/sets/new`)
 }
@@ -283,7 +264,7 @@ const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
           key: 'publish',
           width: 110,
           render: (row: TeamProblemSummary) => {
-            // 已验题后才可能「需重新验题」（草稿从未验题 → 显示未验题）
+            // 已验题后才可能「需重新验题」（未验题 → 显示未验题）
             if (row.is_verified && row.needs_reverification) {
               return h(
                 NTag,
@@ -391,14 +372,7 @@ function rowKeyOfProblem(row: TeamProblemSummary) {
 function rowPropsOfProblem(row: TeamProblemSummary) {
   return {
     style: 'cursor: pointer;',
-    onClick: () => {
-      // 草稿箱模式：行点击直接进编辑向导（草稿以继续编辑为主）
-      if (draftOnly.value) {
-        void router.push(`/teams/${teamId}/problems/${row.id}/edit/statement`)
-        return
-      }
-      openTeamProblem(row)
-    },
+    onClick: () => openTeamProblem(row),
   }
 }
 
@@ -418,25 +392,6 @@ const setColumns = computed<DataTableColumns<ProblemSetSummary>>(() => [
     align: 'center',
     render: (row) => String(row.item_count),
   },
-  ...(isAdmin.value
-    ? [
-        {
-          title: t('problems.list.visibility'),
-          key: 'visibility',
-          width: 96,
-          render: (row: ProblemSetSummary) =>
-            h(
-              NTag,
-              {
-                size: 'small',
-                bordered: false,
-                type: problemSetVisibilityTagType(row.visibility),
-              },
-              { default: () => t(problemSetVisibilityKey(row.visibility)) },
-            ),
-        },
-      ]
-    : []),
   ...(isAdmin.value
     ? [
         {
@@ -1188,14 +1143,8 @@ onMounted(load)
                 @reset="searchProblems"
               >
                 <template #actions>
-                  <NButton v-if="isAdmin" size="small" secondary @click="openProblemCreate">
-                    <template #icon>
-                      <NIcon :component="Collection" />
-                    </template>
-                    {{ t('problems.create.title') }}
-                  </NButton>
                   <NButton
-                    v-if="isAdmin && canReference"
+                    v-if="isAdmin"
                     size="small"
                     type="primary"
                     secondary
@@ -1206,9 +1155,6 @@ onMounted(load)
                     </template>
                     {{ t('teams.space.referenceProblem') }}
                   </NButton>
-                  <NCheckbox v-if="isAdmin" :checked="draftOnly" @update:checked="onToggleDraftBox">
-                    {{ t('teams.space.draftBox') }}
-                  </NCheckbox>
                   <RefreshButton
                     :loading="problemsLoading"
                     :aria-label="t('action.refresh')"
@@ -1223,7 +1169,7 @@ onMounted(load)
                 :total="problemTotal"
                 :page="problemPage"
                 :page-size="problemPageSize"
-                :empty-text="t(draftOnly ? 'teams.space.draftsEmpty' : 'teams.space.problemsEmpty')"
+                :empty-text="t('teams.space.problemsEmpty')"
                 :table-props="{
                   size: 'small',
                   rowKey: rowKeyOfProblem,

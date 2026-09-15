@@ -303,17 +303,16 @@ const setColumns = computed<DataTableColumns<ProblemSetSummary>>(() => [
     render(row) {
       return h('div', { class: 'cell-title-wrap' }, [
         h('span', { class: 'cell-title-wrap__text' }, row.title),
+        // 团队题单一律创建产生（copy_items_from 复制机制已随组织化改造移除，referenced_at 列下线）
         h(
           NTag,
           {
             size: 'tiny',
             bordered: false,
-            type: row.referenced_at ? 'info' : 'default',
+            type: 'default',
             style: 'flex-shrink: 0',
           },
-          {
-            default: () => t(row.referenced_at ? 'admin.teams.referenced' : 'admin.teams.created'),
-          },
+          { default: () => t('admin.teams.created') },
         ),
       ])
     },

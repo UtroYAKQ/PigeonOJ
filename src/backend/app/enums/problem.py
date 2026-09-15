@@ -11,14 +11,16 @@ class ProblemStatus(StrEnum):
 
 
 class ProblemVisibility(StrEnum):
-    """题目可见性（docs/contracts/problems.md 可见性双分支）：
+    """题目可见性（docs/contracts/problems.md 可见性三分支）：
 
-    全站题目（team_id IS NULL）：private / public；
+    全站题目（org_id / team_id 均 NULL）：private / public；
+    组织题目（org_id 非空）：org_visible（组织成员全员可见可编辑，团队管理者只读）；
     团队题目（team_id 非空）：admin_visible（仅团队创建者 / 管理员）/ team_visible（全队成员）。
     """
 
     PRIVATE = "private"
     PUBLIC = "public"
+    ORG_VISIBLE = "org_visible"
     ADMIN_VISIBLE = "admin_visible"
     TEAM_VISIBLE = "team_visible"
 
@@ -61,13 +63,12 @@ class ProblemSetStatus(StrEnum):
 
 
 class ProblemSetVisibility(StrEnum):
-    """题单可见性（与团队题目双分支对齐）：
+    """题单可见性：
 
-    全站题单 public / private；团队题单 team_visible（全队成员可见，原 'team' 值
-    迁移 0032 更名）/ admin_visible（仅团队创建者 / 管理员可见）。
+    全站题单 public / private；团队题单恒 team_visible（全队成员可见；
+    迁移 0043 起团队题单不再有 admin_visible 分支，存量回填为 team_visible）。
     """
 
     PUBLIC = "public"
     PRIVATE = "private"
     TEAM_VISIBLE = "team_visible"
-    ADMIN_VISIBLE = "admin_visible"

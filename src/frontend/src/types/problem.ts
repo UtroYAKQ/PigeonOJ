@@ -142,8 +142,8 @@ export interface ProblemListQuery {
   /** 题库中心「我的」勾选：仅本人已发布题目（任意可见性，含私有已发布；须登录） */
   mine?: boolean
   status?: 'draft' | 'published' | 'archived'
-  /** 来源过滤（仅 scope=mine 生效）：solo=全站题 / team=团队题 */
-  ownership?: 'solo' | 'team'
+  /** 来源过滤（仅 scope=mine 生效）：solo=全站题 / org=组织题 / team=团队题 */
+  ownership?: 'solo' | 'org' | 'team'
   /** 难度分闭区间筛选（未评分题目不落入任何区间） */
   difficulty_min?: number
   difficulty_max?: number
@@ -174,6 +174,4 @@ export interface ProblemCreatePayload extends ProblemEditPayload {
   /** 题面要素必填（docs/contracts/problems.md） */
   input_description: string
   output_description: string
-  /** 团队上下文直建（团队空间）：团队题目须为团队可见性分支 */
-  team_id?: string
 }

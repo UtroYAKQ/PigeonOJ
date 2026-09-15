@@ -10,7 +10,7 @@ from app.enums import ProblemSetStatus, ProblemSetVisibility
 
 
 class ProblemSetCreate(BaseModel):
-    """创建题单：全站题单 public/private（admin/tutor）；团队题单随 teams 模块开放。"""
+    """创建题单：全站题单 public/private（admin）；团队题单随 teams 模块开放。"""
 
     title: str = Field(min_length=1, max_length=128)
     description: str | None = None
@@ -18,7 +18,10 @@ class ProblemSetCreate(BaseModel):
 
     @model_validator(mode="after")
     def check_visibility(self) -> ProblemSetCreate:
-        if self.visibility in (ProblemSetVisibility.TEAM_VISIBLE, ProblemSetVisibility.ADMIN_VISIBLE):
+        if self.visibility not in (
+            ProblemSetVisibility.PUBLIC,
+            ProblemSetVisibility.PRIVATE,
+        ):
             raise ValueError("团队题单随 teams 模块开放")
         return self
 
@@ -34,7 +37,13 @@ class ProblemSetUpdate(BaseModel):
 
     @model_validator(mode="after")
     def check_visibility(self) -> ProblemSetUpdate:
-        if self.visibility in (ProblemSetVisibility.TEAM_VISIBLE, ProblemSetVisibility.ADMIN_VISIBLE):
+        if (
+            self.visibility is not None
+            and self.visibility not in (
+                ProblemSetVisibility.PUBLIC,
+                ProblemSetVisibility.PRIVATE,
+            )
+        ):
             raise ValueError("团队题单随 teams 模块开放")
         return self
 
@@ -82,8 +91,6 @@ class ProblemSetSummary(BaseModel):
     # 归属团队（管理视图区分全站题单 / 团队题单用；题单中心恒 NULL）
     team_id: uuid.UUID | None = None
     item_count: int = 0
-    # 引用时间（非空 = 经团队引用进入团队题单；团队自建 / 全站题单恒 NULL）
-    referenced_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

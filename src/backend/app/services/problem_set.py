@@ -23,8 +23,8 @@ from app.schemas.problem_set import (
 )
 from app.services.problem import ProblemService, to_problem_detail
 
-# 全站题单管理角色（docs/contracts/problem-sets.md：公开题单由 admin/tutor 创建）
-SET_MANAGER_ROLES: set[str] = {"admin", "tutor"}
+# 全站题单管理角色（docs/contracts/problem-sets.md：公开题单由 admin 创建；tutor 已下线）
+SET_MANAGER_ROLES: set[str] = {"admin"}
 
 
 class ProblemSetService:
@@ -33,7 +33,7 @@ class ProblemSetService:
         self.repo = ProblemSetRepository(db)
 
     async def _is_set_manager(self, user: User | None) -> bool:
-        """题单管理角色门（创建 / 管理后台入口）：admin / tutor。"""
+        """题单管理角色门（创建 / 管理后台入口）：admin。"""
         if user is None:
             return False
         codes = await get_user_role_codes(self.db, user.id)
@@ -41,7 +41,7 @@ class ProblemSetService:
 
     async def _can_manage(self, user: User | None, problem_set: ProblemSet | None) -> bool:
         """单个题单的管理权限（单一所有权模型，docs/security.md）：admin 管理全站题单；
-        其余管理角色（tutor）仅可管理本人创建的题单；团队题单由团队创建者 / 管理员管理。"""
+        其余用户仅可管理本人创建的题单；团队题单由团队创建者 / 管理员管理。"""
         if user is None:
             return False
         if await is_admin(self.db, user):
@@ -99,7 +99,7 @@ class ProblemSetService:
         return problem_set
 
     async def require_manager(self, user: User) -> None:
-        """断言当前用户为题单管理角色（admin/tutor；管理后台列表入口用）。"""
+        """断言当前用户为题单管理角色（admin；管理后台列表入口用）。"""
         if not await self._is_set_manager(user):
             raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
 
@@ -148,7 +148,7 @@ class ProblemSetService:
         self, *, user: User, page: int, page_size: int, keyword: str | None,
         status: str | None, ownership: str | None = None,
     ) -> tuple[list[ProblemSetSummary], int]:
-        """管理视图：admin 全量题单；tutor 仅本人创建（单一所有权模型），含私有与已下线；
+        """管理视图：admin 全量题单（单一所有权模型），含私有与已下线；
         ownership 过滤来源（solo=全站题单 / team=团队题单）。"""
         owner_id = None if await is_admin(self.db, user) else user.id
         rows, total = await self.repo.list_all(
@@ -198,7 +198,7 @@ class ProblemSetService:
     # ---------------- 管理 ----------------
 
     async def create(self, user: User, body: ProblemSetCreate) -> ProblemSetSummary:
-        """创建题单：全站题单（team_id 为空）由 admin/tutor 创建（角色门，创建后按所有权管理）。"""
+        """创建题单：全站题单（team_id 为空）由 admin 创建（角色门，创建后按所有权管理）。"""
         if not await self._is_set_manager(user):
             raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
         problem_set = await self.repo.create(
@@ -222,7 +222,10 @@ class ProblemSetService:
         if body.visibility is not None and body.visibility != problem_set.visibility:
             if problem_set.team_id is not None:
                 raise APIError(PARAM_FORMAT_INVALID, "团队题单可见性不可修改", 400)
-            if body.visibility in (ProblemSetVisibility.TEAM_VISIBLE, ProblemSetVisibility.ADMIN_VISIBLE):
+            if body.visibility not in (
+                ProblemSetVisibility.PUBLIC,
+                ProblemSetVisibility.PRIVATE,
+            ):
                 raise APIError(PARAM_FORMAT_INVALID, "团队题单随 teams 模块开放", 400)
             problem_set.visibility = body.visibility
         await self.db.flush()

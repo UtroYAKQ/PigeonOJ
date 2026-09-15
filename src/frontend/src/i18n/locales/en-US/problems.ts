@@ -18,6 +18,7 @@ export default {
       public: 'Public',
       admin_visible: 'Admin visible',
       team_visible: 'Team visible',
+      org_visible: 'Organization visible',
     },
     list: {
       title: 'Problems',
@@ -55,6 +56,7 @@ export default {
       empty: 'No matching problems',
       ownershipAll: 'All sources',
       ownershipSolo: 'Global problems',
+      ownershipOrg: 'Organization problems',
       ownershipTeam: 'Team problems',
       archiveConfirm:
         'Archiving hides the problem from the catalog; existing references are unaffected. Archive now?',

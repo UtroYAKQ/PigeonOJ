@@ -48,7 +48,7 @@ async def create_problem_set(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSetSummary]:
-    """创建题单（admin/tutor；团队题单随 teams 模块开放）。"""
+    """创建题单（admin；团队题单随 teams 模块开放）。"""
     summary = await service.create(user, body)
     await db.commit()  # 显式提交：确保数据持久化后再返回
     return ok(summary)
@@ -72,7 +72,7 @@ async def update_problem_set(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSetSummary]:
-    """编辑题单元信息（admin/tutor）。"""
+    """编辑题单元信息（admin）。"""
     summary = await service.update(set_id, user, body)
     await db.commit()  # 显式提交：确保数据持久化
     return ok(summary)

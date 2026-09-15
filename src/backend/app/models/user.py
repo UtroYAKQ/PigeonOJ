@@ -75,7 +75,7 @@ class UserSession(Base):
 
 
 class Role(Base):
-    """角色定义（静态种子：admin / tutor / user / team_creator / team_admin / team_member）。"""
+    """角色定义（静态种子：admin / user / team_creator / team_admin / team_member；tutor 已下线）。"""
 
     __tablename__ = "roles"
 

@@ -1,32 +1,26 @@
 <script setup lang="ts">
 /**
  * 团队题单创建页（/teams/:teamId/sets/new）：双框工作台（与管理后台创建页同形态）。
- * 左框「基本信息」：标题 + 可选「从我的题单复制」（快照复制本人全站题单条目，
- * 仅 tutor / admin 全局身份可见，docs/contracts/teams.md 团队空间节）；
- * 右框「题单说明」：Markdown 编辑器撑满。成功后 replace 回团队详情。
+ * 左框「基本信息」：标题（团队题单恒 team_visible，全队成员可见，无可见性选择；
+ * copy_items_from 复制来源已随组织化改造移除，docs/contracts/teams.md 团队空间节）；
+ * 右框「题单说明」：Markdown 编辑器撑满。
+ * 成功后 replace 回团队详情。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { FormInst, FormRules } from 'naive-ui'
 
 import { createTeamProblemSet } from '@/api/teams'
-import { listProblemSets } from '@/api/problemSets'
 import { message } from '@/utils/feedback'
-import { useUserStore } from '@/stores/user'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import type { ProblemSetSummary } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const userStore = useUserStore()
 
 const teamId = String(route.params.teamId)
-
-/** 复制能力：tutor / admin 才拥有可复制的本人全站题单 */
-const canCopy = computed(() => userStore.hasAnyRole(['admin', 'tutor']))
 
 const submitting = ref(false)
 
@@ -34,8 +28,6 @@ const formRef = ref<FormInst | null>(null)
 const form = reactive({
   title: '',
   description: '',
-  copyFromSetId: null as string | null,
-  visibility: 'team_visible' as 'team_visible' | 'admin_visible',
 })
 
 const rules: FormRules = {
@@ -44,33 +36,8 @@ const rules: FormRules = {
   ],
 }
 
-/** 可复制来源：本人未下线的全站题单（团队题单已在团队空间内） */
-const mySets = ref<ProblemSetSummary[]>([])
-const mySetsLoading = ref(false)
-
-const copyOptions = computed(() =>
-  mySets.value.map((it) => ({
-    label: `${it.title}（${it.item_count} 题）`,
-    value: it.id,
-  })),
-)
-
 function backToTeam() {
   void router.replace(`/teams/${teamId}`)
-}
-
-async function loadMySets() {
-  mySetsLoading.value = true
-  try {
-    const result = await listProblemSets({ page: 1, page_size: 50, mine: true })
-    mySets.value = result.items.filter(
-      (it) => it.visibility === 'public' || it.visibility === 'private',
-    )
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
-  } finally {
-    mySetsLoading.value = false
-  }
 }
 
 async function submitCreate() {
@@ -84,8 +51,6 @@ async function submitCreate() {
     await createTeamProblemSet(teamId, {
       title: form.title.trim(),
       description: form.description.trim() || undefined,
-      copy_from_set_id: form.copyFromSetId ?? undefined,
-      visibility: form.visibility,
     })
     message.success(t('teams.space.setCreated'))
     backToTeam()
@@ -96,9 +61,7 @@ async function submitCreate() {
   }
 }
 
-onMounted(() => {
-  if (canCopy.value) void loadMySets()
-})
+
 </script>
 
 <template>
@@ -115,7 +78,7 @@ onMounted(() => {
     </template>
 
     <n-form ref="formRef" :model="form" :rules="rules" label-placement="top" class="form-grid">
-      <!-- 左框：基本信息（标题 + 复制来源 + 提示） -->
+      <!-- 左框：基本信息（标题 + 提示；团队题单恒 team_visible，无可见性选择） -->
       <section class="panel">
         <div class="panel__head">
           <span>{{ t('problemSets.form.basicTitle') }}</span>
@@ -130,25 +93,7 @@ onMounted(() => {
               :placeholder="t('teams.space.setTitleRequired')"
             />
           </n-form-item>
-          <n-form-item :label="t('problemSets.form.visibility')" :show-feedback="false">
-            <n-radio-group v-model:value="form.visibility">
-              <n-radio value="team_visible">{{ t('teams.space.teamVisible') }}</n-radio>
-              <n-radio value="admin_visible">{{ t('teams.space.adminVisible') }}</n-radio>
-            </n-radio-group>
-          </n-form-item>
-          <p class="form-tip">{{ t('teams.space.setVisibilityHint') }}</p>
-          <template v-if="canCopy">
-            <n-form-item :label="t('teams.space.copyFromSet')" :show-feedback="false">
-              <n-select
-                v-model:value="form.copyFromSetId"
-                :options="copyOptions"
-                :loading="mySetsLoading"
-                clearable
-                :placeholder="t('teams.space.copyFromSetPlaceholder')"
-              />
-            </n-form-item>
-            <p class="form-tip">{{ t('teams.space.copyFromSetHint') }}</p>
-          </template>
+          <p class="form-tip">{{ t('teams.space.setAllMembersHint') }}</p>
         </div>
         <div class="panel__foot"></div>
       </section>

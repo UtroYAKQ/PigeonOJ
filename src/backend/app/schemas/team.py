@@ -7,7 +7,6 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.enums import (
-    ProblemSetVisibility,
     ProblemVisibility,
     TeamApplicationStatus,
     TeamMemberStatus,
@@ -19,7 +18,8 @@ from app.utils.validation import validate_nickname
 
 
 class TeamCreate(BaseModel):
-    """创建团队（admin/tutor；创建人自动成为成员并获 team_creator 授权）。
+    """创建团队（组织上下文：org_admin，经 POST /orgs/{org_id}/teams；创建者自动
+    team_creator 并写入成员记录，orgs.md）。
 
     visibility：public 团队中心可见可直接申请加入；private 仅经邀请链接申请（默认）。
     """
@@ -172,9 +172,9 @@ class TeamAdminFlag(BaseModel):
 
 
 class TeamProblemReferenceCreate(BaseModel):
-    """引用本人全站题目进入团队题库（team_creator / team_admin）。
+    """引用题目进入团队题库（team_creator / team_admin）。
 
-    题目须为全站题目（team_id IS NULL）且为本人创建（admin 同权全站）；
+    来源池 = 本组织组织题库（org_id = 团队归属组织）∪ 全站公开题，已发布；
     引用后归属该团队、可见性切换为团队分支（单向，不设移出通道）。
     """
 
@@ -192,26 +192,18 @@ class TeamProblemReferenceCreate(BaseModel):
 class TeamProblemSetCreate(BaseModel):
     """创建团队题单（team_creator / team_admin；team_id 由路径给定）。
 
-    copy_items_from 非空 = 复制本人全站题单的题目条目（快照复制，源题单保留在全站）；
-    visibility 与团队题目对齐（team_visible 全队可见，缺省 / admin_visible 仅团队管理）。
+    团队题单恒 team_visible（全队成员可见）；原复制本人全站题单机制
+    随个人出题取消一并移除（组织化改造：全站题单仅 admin 可建）。
     """
 
     title: str = Field(min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=2000)
-    copy_items_from: uuid.UUID | None = None
-    visibility: ProblemSetVisibility = ProblemSetVisibility.TEAM_VISIBLE
-
-    @model_validator(mode="after")
-    def check_visibility(self) -> TeamProblemSetCreate:
-        if self.visibility not in (ProblemSetVisibility.TEAM_VISIBLE, ProblemSetVisibility.ADMIN_VISIBLE):
-            raise ValueError("团队题单可见性仅支持 team_visible / admin_visible")
-        return self
 
 
 class TeamContestCreate(ContestCreate):
     """创建团队比赛（team_creator / team_admin；contest_type='team'、team_id 由路径给定）。
 
-    编排候选在 ContestCreate 规则（已发布公开 / 本人私有）之上放开本团队题目。
+    编排候选在 ContestCreate 规则（已发布公开）之上放开本团队题目。
     """
 
     pass

@@ -40,6 +40,9 @@ const problemId = String(route.params.id)
 /** 团队上下文：回读走团队端点，跳转 / 提交评测结果均落团队路由 */
 const teamId = route.params.teamId ? String(route.params.teamId) : null
 const isTeam = teamId !== null
+/** 组织上下文：回读 / 验题走题库统一端点（组织成员过权限门），评测结果落全站路由 */
+const orgId = route.params.orgId ? String(route.params.orgId) : null
+const isOrg = orgId !== null
 /** 完整详情（含验题状态），驱动门禁与状态标签 */
 const detail = ref<ProblemDetail | null>(null)
 
@@ -300,7 +303,8 @@ async function onApply() {
 async function loadExisting() {
   loading.value = true
   try {
-    // 团队题目经团队上下文端点回读（题库裸路径按可见性拦截）
+    // 团队题目经团队上下文端点回读（题库裸路径按可见性拦截）；
+    // 组织题 / 全站题走题库统一端点（组织成员过权限门）
     const loaded: ProblemDetail = await (isTeam
       ? getTeamProblem(teamId!, problemId)
       : getProblem(problemId))
@@ -308,7 +312,9 @@ async function loadExisting() {
     detail.value = loaded
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
-    router.push(isTeam ? `/teams/${teamId}` : '/admin/problems')
+    router.push(
+      isTeam ? `/teams/${teamId}` : isOrg ? `/me/orgs/${orgId}` : '/admin/problems',
+    )
   } finally {
     loading.value = false
   }
@@ -318,12 +324,14 @@ function goPrev() {
   router.push(
     isTeam
       ? `/teams/${teamId}/problems/${problemId}/edit/cases`
-      : `/admin/problems/${problemId}/edit/cases`,
+      : isOrg
+        ? `/me/orgs/${orgId}/problems/${problemId}/edit/cases`
+        : `/admin/problems/${problemId}/edit/cases`,
   )
 }
 function cancelEdit() {
-  // 未发布离开：草稿保留，可随时从管理工作台继续
-  router.push(isTeam ? `/teams/${teamId}` : '/admin/problems')
+  // 未发布离开：草稿保留，可随时从组织题库 / 管理工作台继续
+  router.push(isTeam ? `/teams/${teamId}` : isOrg ? `/me/orgs/${orgId}` : '/admin/problems')
 }
 
 onMounted(() => void loadExisting())

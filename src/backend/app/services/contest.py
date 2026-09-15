@@ -1,7 +1,7 @@
 ﻿"""比赛域服务：建赛编排、报名、赛内访问窗口、ACM/IOI 计分与封榜解冻。
 
 时间语义：全部使用 UTC aware datetime（TIMESTAMPTZ 列；naive 输入按 UTC 归一）。
-封榜按时间自动触发；解冻必须由 admin/tutor 手动执行，解冻时从 submissions
+封榜按时间自动触发；解冻必须由 admin 手动执行，解冻时从 submissions
 权威重算榜单回填封榜期间结果（docs/contracts/contests.md 第 5 条修订版）。
 """
 from __future__ import annotations
@@ -59,8 +59,8 @@ from app.schemas.problem import ProblemDetail
 from app.services.problem import ProblemService, to_problem_detail
 from app.services.system_config import ConfigService
 
-# 全站比赛管理角色（docs/contracts/contests.md：公开比赛由 admin/tutor 创建管理）
-CONTEST_MANAGER_ROLES: set[str] = {"admin", "tutor"}
+# 全站比赛管理角色（docs/contracts/contests.md：公开比赛由 admin 创建管理；tutor 已下线）
+CONTEST_MANAGER_ROLES: set[str] = {"admin"}
 # 赛时仍可编辑的字段（赛时工具端点承载；PUT 守卫 = ContestUpdate 全部字段 - 本集合）。
 # 从 ContestUpdate.model_fields 推导守卫清单，新增 schema 字段自动纳入锁定
 ANNOUNCEMENT_EDITABLE_FIELDS: set[str] = {"announcement"}
@@ -301,7 +301,7 @@ class ContestService:
         self._submitter = submitter
 
     async def _is_contest_manager(self, user: User | None) -> bool:
-        """比赛管理角色门（创建入口 / 管理后台列表）：admin / tutor。"""
+        """比赛管理角色门（创建入口 / 管理后台列表）：admin。"""
         if user is None:
             return False
         codes = await get_user_role_codes(self.db, user.id)
@@ -317,8 +317,7 @@ class ContestService:
         keyword: str | None = None,
         contest_type: ContestType | None = None,
     ) -> tuple[list[ContestSummary], int]:
-        """管理视图：admin 全量比赛（contest_type 缺省 = 公开 + 团队全量）；
-        tutor 仅本人创建（单一所有权模型），全部状态。"""
+        """管理视图：admin 全量比赛（contest_type 缺省 = 公开 + 团队全量），全部状态。"""
         owner_id = None if await is_admin(self.db, user) else user.id
         rows, total = await self.repo.list_manage(
             page=page, page_size=page_size, status=status, keyword=keyword, owner_id=owner_id,
@@ -328,7 +327,7 @@ class ContestService:
 
     async def _can_manage(self, user: User | None, contest: Contest | None = None) -> bool:
         """单个比赛的管理权限（单一所有权模型，docs/security.md）：admin 管理全站比赛；
-        其余管理角色（tutor）仅可管理本人创建的比赛；团队比赛由团队创建者 / 管理员管理。"""
+        其余用户仅可管理本人创建的比赛；团队比赛由团队创建者 / 管理员管理。"""
         if user is None:
             return False
         if await is_admin(self.db, user):
@@ -1182,7 +1181,7 @@ class ContestService:
     # ---------------- 封榜 / 解冻 / 状态推进 ----------------
 
     async def unfreeze(self, user: User, contest_id: uuid.UUID) -> ContestSummary:
-        """手动解冻（admin/tutor）：从 submissions 权威重算榜单，回填封榜期间结果。
+        """手动解冻（admin）：从 submissions 权威重算榜单，回填封榜期间结果。
 
         仅赛后可执行（running 时返回 3002）——封榜是赛时公平性机制，
         赛中解冻会提前泄露封榜期提交结果；比赛结束前榜单保持冻结快照。
@@ -1201,7 +1200,7 @@ class ContestService:
     async def update_announcement(
         self, user: User, contest_id: uuid.UUID, body: AnnouncementUpdate
     ) -> ContestSummary:
-        """更新比赛公告（admin/tutor / 团队管理角色；赛时受控编辑）。
+        """更新比赛公告（admin / 团队管理角色；赛时受控编辑）。
 
         空字符串 = 清空公告（详情页公告条随之隐藏）。
         """
@@ -1397,7 +1396,7 @@ class ContestService:
     async def transition(self) -> None:
         """周期状态推进：开赛 → running；封榜（自动）；结束 → finished（不自动解冻）。
 
-        解冻由 admin/tutor 手动触发（unfreeze），结束后榜单保持冻结快照直到人工解冻。
+        解冻由 admin 手动触发（unfreeze），结束后榜单保持冻结快照直到人工解冻。
         本方法运行在独立后台会话（init_app.contest_transition_loop），
         请求级 get_db 不会为其提交，故由本方法显式 commit。
         """

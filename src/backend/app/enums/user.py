@@ -19,3 +19,4 @@ class Theme(StrEnum):
 class UserRoleScope(StrEnum):
     GLOBAL = "global"
     TEAM = "team"
+    ORG = "org"

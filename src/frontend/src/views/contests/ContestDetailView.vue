@@ -2,7 +2,7 @@
 /**
  * 比赛详情：主页（hero + 倒计时条 + 数据瓦片 + 时间轴 + 说明）/ 题目 / 榜单 / 提交记录 四个 tab。
  * 题目进入比赛上下文写题页（统一入口交题）；榜单封榜展示冻结快照，
- * 解冻为 admin/tutor 手动操作（重算回填封榜期结果）；进行中榜单 15s 轮询。
+ * 解冻为 admin 手动操作（重算回填封榜期结果）；进行中榜单 15s 轮询。
  * 提交记录比赛期间仅管理角色（can_manage）可见，赛后对所有登录用户开放（行点击进上下文内评测结果页）。
  */
 import {
@@ -121,7 +121,7 @@ const subsQuery = reactive({
   status: null as string | null,
 })
 
-/** 比赛期间（end_time 之前）提交记录对参赛者隐藏；管理角色（admin/tutor）随时可见 */
+/** 比赛期间（end_time 之前）提交记录对参赛者隐藏；管理角色（can_manage，含 admin）随时可见 */
 const subsLocked = computed(
   () =>
     !!detail.value &&

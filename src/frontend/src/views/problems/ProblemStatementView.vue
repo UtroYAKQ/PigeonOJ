@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NTag } from 'naive-ui'
 
+import { createOrgProblem } from '@/api/orgs'
 import { createProblem, getProblem, listActiveTags, updateProblem } from '@/api/problems'
 import { getTeamProblem, updateTeamProblemStatement } from '@/api/teams'
 import { message } from '@/utils/feedback'
@@ -16,9 +17,13 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const isEdit = computed(() => Boolean(route.params.id))
-/** 团队上下文（团队空间直建）：route 带 teamId，创建时归属该团队 */
+/** 团队上下文（引用制的团队题库）：route 带 teamId，题面编辑走团队端点 */
 const teamId = computed(() => (route.params.teamId ? String(route.params.teamId) : null))
 const isTeam = computed(() => teamId.value !== null)
+/** 组织上下文（组织题库直建）：route 带 orgId，创建走 POST /orgs/{orgId}/problems；
+ * 编辑 / 回读复用题库统一端点（组织成员过权限门） */
+const orgId = computed(() => (route.params.orgId ? String(route.params.orgId) : null))
+const isOrg = computed(() => orgId.value !== null)
 const saving = ref(false)
 const loading = ref(false)
 const showSolution = ref(false)
@@ -83,7 +88,7 @@ async function loadExisting() {
   if (!isEdit.value) return
   loading.value = true
   try {
-    // 团队上下文回读走团队端点（快照题题库裸路径拦截）；保存仍走题库 PUT（owner/admin）
+    // 团队上下文回读走团队端点（快照题题库裸路径拦截）；组织 / 全站走题库统一端点
     const loaded: ProblemDetail = isTeam.value
       ? await getTeamProblem(teamId.value!, String(route.params.id))
       : await getProblem(String(route.params.id))
@@ -110,7 +115,12 @@ async function loadExisting() {
     }
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
-    router.push(isTeam.value ? `/teams/${teamId.value}` : '/admin/problems')
+    const fallback = isTeam.value
+      ? `/teams/${teamId.value}`
+      : isOrg.value
+        ? `/me/orgs/${orgId.value}`
+        : '/admin/problems'
+    router.push(fallback)
   } finally {
     loading.value = false
   }
@@ -143,7 +153,8 @@ async function persist(): Promise<string | null> {
       note: form.note,
       solution: form.solution || null,
       tags: form.tags,
-      visibility: form.visibility,
+      // 组织上下文：visibility 恒 org_visible，由服务端强制（不可显式提交）
+      visibility: isOrg.value ? undefined : form.visibility,
       time_limit_ms: form.time_limit_ms,
       memory_limit_mb: form.memory_limit_mb,
       difficulty: form.difficulty,
@@ -151,20 +162,20 @@ async function persist(): Promise<string | null> {
     if (isEdit.value) {
       const id = String(route.params.id)
       if (isTeam.value) {
-        // 团队上下文：走团队端点（题库裸路径对快照题拦截）；可见性切换已在团队分支内
-        // ProblemUpdate extra=forbid，不可携带 team_id（归属由路径给定）
+        // 团队上下文：走团队端点（题库裸路径对快照题拦截）
         await updateTeamProblemStatement(teamId.value!, id, payload())
       } else {
+        // 组织题 / 全站题：走题库统一端点（组织成员过权限门）
         await updateProblem(id, payload())
       }
       message.success(t('problems.create.saved'))
       return id
     }
-    const created = await createProblem({
-      ...payload(),
-      // 团队上下文直建：仅创建载荷携带 team_id（docs/contracts/problems.md）
-      team_id: teamId.value ?? undefined,
-    } as Parameters<typeof createProblem>[0])
+    // 组织题库直建必须走组织端点（docs/contracts/orgs.md）；团队 team_id 直建已移除
+    // （validate() 已确保必填项非空，类型上收窄为创建载荷）
+    const created = isOrg.value
+      ? await createOrgProblem(orgId.value!, payload() as Parameters<typeof createOrgProblem>[1])
+      : await createProblem(payload() as Parameters<typeof createProblem>[0])
     message.success(t('problems.create.saved'))
     return created.id
   } catch (error) {
@@ -175,20 +186,28 @@ async function persist(): Promise<string | null> {
   }
 }
 
-/** 下一步：持久化题面后进入「样例与测试点」页（团队上下文走团队路由） */
+/** 下一步：持久化题面后进入「样例与测试点」页（团队 / 组织上下文走各自路由） */
 async function goNext() {
   const id = await persist()
   if (!id) return
+  // 新建用 replace：浏览器后退不会回到 /new 造成重复建草稿
   const target = isTeam.value
     ? `/teams/${teamId.value}/problems/${id}/edit/cases`
-    : `/admin/problems/${id}/edit/cases` // 新建用 replace：浏览器后退不会回到 /new 造成重复建草稿
+    : isOrg.value
+      ? `/me/orgs/${orgId.value}/problems/${id}/edit/cases`
+      : `/admin/problems/${id}/edit/cases`
   await (isEdit.value ? router.push(target) : router.replace(target))
 }
 
 /** 保存并退出：持久化题面后返回来源列表 */
 async function saveAndExit() {
   if (!(await persist())) return
-  await router.push(isTeam.value ? `/teams/${teamId.value}` : '/admin/problems')
+  const target = isTeam.value
+    ? `/teams/${teamId.value}`
+    : isOrg.value
+      ? `/me/orgs/${orgId.value}`
+      : '/admin/problems'
+  await router.push(target)
 }
 
 const chosenTagNames = computed(() => new Set(form.tags))
@@ -202,7 +221,8 @@ const tagColorMap = computed(() => {
 })
 
 onMounted(() => {
-  // 团队直建默认「全队成员可见」（docs/contracts/problems.md 团队可见性分支）
+  // 团队引用题默认「全队成员可见」（docs/contracts/problems.md 团队可见性分支）；
+  // 组织题 visibility 恒 org_visible，由服务端强制，无需前端设置
   if (isTeam.value && !isEdit.value) form.visibility = 'team_visible'
   loadTagOptions()
   loadExisting()
@@ -210,6 +230,7 @@ onMounted(() => {
 
 const visibilityOptions = computed(() => {
   // 分支跟随：团队上下文，或当前可见性已是团队分支（后台编辑团队题）→ 团队分支选项；
+  // 组织上下文（org_visible）→ 单一组织分支（表单项对组织上下文隐藏，兜底展示）；
   // 其余（全站题编辑 / 全站新建）→ 全站分支。禁止跨分支由后端强校验。
   const v = form.visibility
   if (isTeam.value || v === 'team_visible' || v === 'admin_visible') {
@@ -217,6 +238,9 @@ const visibilityOptions = computed(() => {
       { label: t('teams.space.teamVisible'), value: 'team_visible' },
       { label: t('teams.space.adminVisible'), value: 'admin_visible' },
     ]
+  }
+  if (isOrg.value || v === 'org_visible') {
+    return [{ label: t('problems.visibility.org_visible'), value: 'org_visible' }]
   }
   return [
     { label: t('problems.create.visibilityPublic'), value: 'public' },
@@ -287,7 +311,8 @@ const visibilityOptions = computed(() => {
                 </n-button>
               </div>
             </n-form-item>
-            <n-form-item :label="t('problems.create.visibility')">
+            <!-- 组织题 visibility 恒 org_visible（服务端强制），表单项隐藏 -->
+            <n-form-item v-if="!isOrg" :label="t('problems.create.visibility')">
               <n-select v-model:value="form.visibility" :options="visibilityOptions" />
             </n-form-item>
             <n-form-item :label="t('problems.create.timeLimit')">

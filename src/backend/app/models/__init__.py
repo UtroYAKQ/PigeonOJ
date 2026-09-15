@@ -7,6 +7,7 @@ from app.models.admin import Report  # noqa: F401
 from app.models.audit import ExceptionLog, LoginLog, RequestLog  # noqa: F401
 from app.models.contest import Contest, ContestProblem, ContestRanking, ContestRegistration  # noqa: F401
 from app.models.judge import SandboxConfig, Submission, SubmissionTestCaseResult  # noqa: F401
+from app.models.org import Organization, OrgMember  # noqa: F401
 from app.models.problem import (  # noqa: F401
     Problem,
     ProblemCounter,
@@ -39,6 +40,8 @@ __all__ = [
     "Team",
     "TeamMember",
     "TeamMemberApplication",
+    "Organization",
+    "OrgMember",
     "Contest",
     "ContestProblem",
     "ContestRegistration",

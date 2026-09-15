@@ -127,6 +127,7 @@ function rowKey(row: ProblemSetItem) {
           <div class="hero__title-row">
             <h2 class="hero__title">{{ detail.title }}</h2>
             <n-tag
+              v-if="!teamId"
               size="small"
               :bordered="false"
               :type="problemSetVisibilityTagType(detail.visibility)"

@@ -104,7 +104,8 @@ src/backend/
 | 模块 | 职责 | 主要实体 | 对外能力 |
 | --- | --- | --- | --- |
 | 认证 / 用户中心（users） | 注册登录、账号生命周期、偏好、全局角色授权、封禁 | `users`、`user_sessions`、`roles`、`user_roles` | 注册 / 登录 / 找回密码 / 会话管理 / 资料 / 角色调整 / 封禁 |
-| 团队（teams） | 团队、邀请、成员、角色 | `teams`、`team_members`、`team_member_applications` | 建队 / 邀请 / 审批 / 成员管理 / 解散 |
+| 组织（orgs） | 组织、成员、组织题库（组织 = 内容所有者，成员全员读写） | `organizations`、`org_members` | 建组织（admin）/ 拉人 / 授管理员 / 组织内建团 / 组织题库 |
+| 团队（teams） | 团队、邀请、成员、角色（挂在组织下；题目只来自组织题库 ∪ 公开题的快照引用） | `teams`、`team_members`、`team_member_applications` | 建队（org_admin）/ 邀请 / 审批 / 成员管理 / 解散 |
 | 题库（problems） | 题目统一管理 | `problems`、`test_cases`、`problem_tags`、`problem_verifications` | 题目 CRUD、可见性、验题、测试点管理 |
 | 题单（problem-sets） | 公开 / 团队题单 | `problem_sets`、`problem_set_items` | 题单 CRUD、题目编排 |
 | 比赛（contests） | 比赛、报名、榜单 | `contests`、`contest_problems`、`contest_registrations`、`contest_rankings` | 建赛 / 报名 / 提交 / 榜单 / 封榜 |

@@ -9,6 +9,7 @@ from app.enums.admin import ReportAction, ReportStatus, ReportTargetType
 from app.enums.audit import LogLevel, LoginAction
 from app.enums.contest import ContestStatus, ContestType, RegistrationStatus, RuleType
 from app.enums.judge import SubmissionStatus, SubmitType
+from app.enums.org import OrgMemberStatus, OrgStatus
 from app.enums.problem import (
     CaseStatus,
     ProblemScope,
@@ -59,6 +60,9 @@ __all__ = [
     "TeamVisibility",
     "TeamMemberStatus",
     "TeamApplicationStatus",
+    # 组织域
+    "OrgStatus",
+    "OrgMemberStatus",
     # 审计域
     "LoginAction",
     "LogLevel",

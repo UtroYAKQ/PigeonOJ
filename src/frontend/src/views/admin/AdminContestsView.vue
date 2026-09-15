@@ -1,6 +1,6 @@
 ﻿<script setup lang="ts">
 /**
- * 比赛管理（管理后台，admin/tutor；docs/contracts/contests.md）：
+ * 比赛管理（管理后台，admin；docs/contracts/contests.md）：
  * 全量比赛列表；行点击进入编辑页，创建走全页表单（/admin/contests/create）。
  * 行内「⋯」：管理比赛 / 赛时工具（公告 / 赛后解榜 / 滚榜大屏）。
  * 比赛开始后结构性字段被后端守卫锁定，赛时调整收敛到工具页。

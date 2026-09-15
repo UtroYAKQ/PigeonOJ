@@ -1,7 +1,8 @@
-"""团队模块集成测试（docs/contracts/teams.md）。
+"""团队模块集成测试（docs/contracts/teams.md / orgs.md）。
 
-覆盖：创建权限与自动授权、邀请链接生成 / 解析、加入申请与审批、
+覆盖：组织内建团与角色授权、邀请链接生成 / 解析、加入申请与审批、
 分配 / 取消管理员（仅创建者）、踢出 / 退出 / 解散的授权同步、非成员与普通成员的权限边界。
+团队创建已收敛到组织端点 POST /orgs/{org_id}/teams（org_admin 门）。
 """
 from __future__ import annotations
 
@@ -13,21 +14,29 @@ from sqlalchemy import select
 from app.core.database import SessionLocal
 from app.models.user import User, UserRole
 
-from .conftest import api_login, register_user
+from .conftest import api_login, create_org, register_user
 
-TUTOR_ROLE_ID = uuid_mod.UUID("22222222-2222-2222-2222-222222222222")
 TEAM_ADMIN_ROLE_ID = uuid_mod.UUID("55555555-5555-5555-5555-555555555555")
 
 
-async def _tutor_headers(client: httpx.AsyncClient) -> dict[str, str]:
-    email = "tutor@pigeonoj.dev"
+async def _org_admin_headers(client: httpx.AsyncClient, email: str = "mentor@pigeonoj.dev") -> tuple[dict[str, str], str]:
+    """注册用户 → 站点 admin 创建组织并任命其为组织管理员 → (headers, org_id)。"""
     await register_user(client, email)
-    async with SessionLocal() as db:
-        user = (await db.execute(select(User).where(User.email == email))).scalar_one()
-        db.add(UserRole(user_id=user.id, role_id=TUTOR_ROLE_ID, scope="global", object_id=None))
-        await db.commit()
     token = await api_login(client, email, "Pass@123")
-    return {"Authorization": f"Bearer {token}"}
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = await client.get("/api/v1/users/me", headers=headers)
+    uid = resp.json()["data"]["id"]
+    org_id = await create_org(client, f"组织-{email}", [uid])
+    return headers, org_id
+
+
+async def _create_team(
+    client: httpx.AsyncClient, headers: dict[str, str], org_id: str, payload: dict
+) -> dict:
+    """组织内建团（org_admin 门），返回 TeamSummary。"""
+    resp = await client.post(f"/api/v1/orgs/{org_id}/teams", json=payload, headers=headers)
+    assert resp.json()["code"] == 0, resp.text
+    return resp.json()["data"]
 
 
 async def _extra_user_headers(client: httpx.AsyncClient, email: str) -> dict[str, str]:
@@ -44,37 +53,33 @@ async def _uid_of(client: httpx.AsyncClient, headers: dict[str, str]) -> str:
 
 
 async def test_create_team_and_permissions(client: httpx.AsyncClient) -> None:
-    """创建团队：admin/tutor 可建，普通用户 2003；创建者自动在册并成为 team_creator。"""
-    tutor = await _tutor_headers(client)
-    resp = await client.post(
-        "/api/v1/teams",
-        json={"name": "信奥集训队", "description": "校内集训"},
-        headers=tutor,
-    )
-    assert resp.json()["code"] == 0, resp.text
-    team_id = resp.json()["data"]["id"]
-    assert resp.json()["data"]["my_role"] == "creator"
-    assert resp.json()["data"]["member_count"] == 1
+    """组织内建团：org_admin 可建，普通用户 2003；创建者自动在册并成为 team_creator。"""
+    mentor, org_id = await _org_admin_headers(client)
+    team = await _create_team(client, mentor, org_id, {"name": "信奥集训队", "description": "校内集训"})
+    team_id = team["id"]
+    assert team["my_role"] == "creator"
+    assert team["member_count"] == 1
 
-    resp = await client.post("/api/v1/teams", json={"name": "算法二队"}, headers=tutor)
-    assert resp.json()["code"] == 0
+    await _create_team(client, mentor, org_id, {"name": "算法二队"})
 
-    resp = await client.get("/api/v1/teams/mine", headers=tutor)
+    resp = await client.get("/api/v1/teams/mine", headers=mentor)
     assert resp.json()["data"]["total"] == 2
 
     # 名称关键字过滤
     resp = await client.get(
-        "/api/v1/teams/mine?keyword=%E4%BF%A1%E5%A5%A5", headers=tutor
+        "/api/v1/teams/mine?keyword=%E4%BF%A1%E5%A5%A5", headers=mentor
     )
     assert resp.json()["data"]["total"] == 1
     assert resp.json()["data"]["items"][0]["id"] == team_id
-    resp = await client.get("/api/v1/teams/mine?keyword=nomatch", headers=tutor)
+    resp = await client.get("/api/v1/teams/mine?keyword=nomatch", headers=mentor)
     assert resp.json()["data"]["total"] == 0
 
-    # 普通用户不可创建团队
+    # 非组织成员不可在该组织建团；普通用户不可建团（全局 POST /teams 已移除 → 405）
     user = await _extra_user_headers(client, "creator2@pigeonoj.dev")
-    resp = await client.post("/api/v1/teams", json={"name": "路人队"}, headers=user)
+    resp = await client.post(f"/api/v1/orgs/{org_id}/teams", json={"name": "路人队"}, headers=user)
     assert resp.json()["code"] == 2003
+    resp = await client.post("/api/v1/teams", json={"name": "路人队"}, headers=user)
+    assert resp.status_code == 405
 
     # 非成员不可见详情
     resp = await client.get(f"/api/v1/teams/{team_id}", headers=user)
@@ -83,15 +88,13 @@ async def test_create_team_and_permissions(client: httpx.AsyncClient) -> None:
 
 async def test_invite_apply_review_flow(client: httpx.AsyncClient) -> None:
     """邀请 → 申请 → 审批闭环：通过后在册 + team_member 授权；重复申请 3003。"""
-    tutor = await _tutor_headers(client)
+    mentor, org_id = await _org_admin_headers(client)
     avatar = "https://cdn.pigeonoj.dev/team/算法小组.png"
-    resp = await client.post(
-        "/api/v1/teams", json={"name": "算法小组", "avatar_url": avatar}, headers=tutor
-    )
-    team_id = resp.json()["data"]["id"]
+    team = await _create_team(client, mentor, org_id, {"name": "算法小组", "avatar_url": avatar})
+    team_id = team["id"]
 
     # 生成邀请链接（public 解析）
-    resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=tutor)
+    resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=mentor)
     assert resp.json()["code"] == 0, resp.text
     token = resp.json()["data"]["token"]
     assert resp.json()["data"]["expires_at"]
@@ -126,7 +129,7 @@ async def test_invite_apply_review_flow(client: httpx.AsyncClient) -> None:
     )
     assert resp.json()["code"] == 3003
 
-    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=tutor)
+    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=mentor)
     assert resp.json()["data"]["total"] == 1
     application = resp.json()["data"]["items"][0]
     assert application["status"] == "pending"
@@ -135,7 +138,7 @@ async def test_invite_apply_review_flow(client: httpx.AsyncClient) -> None:
     resp = await client.post(
         f"/api/v1/teams/{team_id}/applications/{application['id']}/review",
         json={"approve": True},
-        headers=tutor,
+        headers=mentor,
     )
     assert resp.json()["code"] == 0, resp.text
 
@@ -162,20 +165,16 @@ async def test_team_visibility_public_list_and_private_gate(
     """团队可见性：公开团队进团队中心、可直接申请；私有团队不进公开列表、
     无邀请链接申请 403（凭链接放行）；mine=true 返回在册团队（公开 + 私有）；
     编辑可见性切换即时生效。"""
-    tutor = await _tutor_headers(client)
+    mentor, org_id = await _org_admin_headers(client)
 
     # 创建公开团队 + 私有团队（默认 private）
-    resp = await client.post(
-        "/api/v1/teams", json={"name": "公开集训队", "visibility": "public"}, headers=tutor
-    )
-    assert resp.json()["code"] == 0, resp.text
-    public_id = resp.json()["data"]["id"]
-    assert resp.json()["data"]["visibility"] == "public"
+    team = await _create_team(client, mentor, org_id, {"name": "公开集训队", "visibility": "public"})
+    public_id = team["id"]
+    assert team["visibility"] == "public"
 
-    resp = await client.post("/api/v1/teams", json={"name": "神秘私队"}, headers=tutor)
-    assert resp.json()["code"] == 0, resp.text
-    private_id = resp.json()["data"]["id"]
-    assert resp.json()["data"]["visibility"] == "private"
+    team = await _create_team(client, mentor, org_id, {"name": "神秘私队"})
+    private_id = team["id"]
+    assert team["visibility"] == "private"
 
     # 团队中心：匿名也可看，仅公开团队；my_role 为 None（非成员视图）
     resp = await client.get("/api/v1/teams")
@@ -188,7 +187,7 @@ async def test_team_visibility_public_list_and_private_gate(
     # mine=true：匿名 401；登录后返回在册团队（公开 + 私有）
     resp = await client.get("/api/v1/teams?mine=true")
     assert resp.json()["code"] == 1001 or resp.status_code == 401
-    resp = await client.get("/api/v1/teams?mine=true", headers=tutor)
+    resp = await client.get("/api/v1/teams?mine=true", headers=mentor)
     assert resp.json()["code"] == 0, resp.text
     mine_ids = {it["id"] for it in resp.json()["data"]["items"]}
     assert {public_id, private_id} <= mine_ids
@@ -208,7 +207,7 @@ async def test_team_visibility_public_list_and_private_gate(
     assert resp.json()["code"] == 2003
 
     # 私有团队凭邀请链接申请 → 放行
-    resp = await client.post(f"/api/v1/teams/{private_id}/invites", headers=tutor)
+    resp = await client.post(f"/api/v1/teams/{private_id}/invites", headers=mentor)
     invite_token = resp.json()["data"]["token"]
     resp = await client.post(
         f"/api/v1/teams/{private_id}/applications",
@@ -219,14 +218,14 @@ async def test_team_visibility_public_list_and_private_gate(
 
     # 审批两个申请 → user 在册两个团队
     for tid in (public_id, private_id):
-        resp = await client.get(f"/api/v1/teams/{tid}/applications", headers=tutor)
+        resp = await client.get(f"/api/v1/teams/{tid}/applications", headers=mentor)
         for application in resp.json()["data"]["items"]:
             if application["status"] != "pending":
                 continue
             resp = await client.post(
                 f"/api/v1/teams/{tid}/applications/{application['id']}/review",
                 json={"approve": True},
-                headers=tutor,
+                headers=mentor,
             )
             assert resp.json()["code"] == 0, resp.text
     resp = await client.get("/api/v1/teams?mine=true", headers=user)
@@ -240,7 +239,7 @@ async def test_team_visibility_public_list_and_private_gate(
 
     # 编辑可见性：团队管理员把公开团队切私有 → 退出团队中心；再切回
     resp = await client.put(
-        f"/api/v1/teams/{public_id}", json={"visibility": "private"}, headers=tutor
+        f"/api/v1/teams/{public_id}", json={"visibility": "private"}, headers=mentor
     )
     assert resp.json()["code"] == 0, resp.text
     assert resp.json()["data"]["visibility"] == "private"
@@ -248,7 +247,7 @@ async def test_team_visibility_public_list_and_private_gate(
     assert public_id not in {it["id"] for it in resp.json()["data"]["items"]}
 
     resp = await client.put(
-        f"/api/v1/teams/{public_id}", json={"visibility": "public"}, headers=tutor
+        f"/api/v1/teams/{public_id}", json={"visibility": "public"}, headers=mentor
     )
     assert resp.json()["code"] == 0, resp.text
     resp = await client.get("/api/v1/teams")
@@ -263,22 +262,20 @@ async def test_exit_then_public_list_role_not_stale(client: httpx.AsyncClient) -
 
     from app.models.user import Role
 
-    tutor = await _tutor_headers(client)
-    resp = await client.post(
-        "/api/v1/teams", json={"name": "复进队", "visibility": "public"}, headers=tutor
-    )
-    team_id = resp.json()["data"]["id"]
+    mentor, org_id = await _org_admin_headers(client)
+    team = await _create_team(client, mentor, org_id, {"name": "复进队", "visibility": "public"})
+    team_id = team["id"]
     user = await _extra_user_headers(client, "rejoiner@pigeonoj.dev")
 
     # 加入 → 审批 → 公开列表显示成员
     resp = await client.post(f"/api/v1/teams/{team_id}/applications", json={}, headers=user)
     assert resp.json()["code"] == 0, resp.text
-    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=tutor)
+    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=mentor)
     application = next(a for a in resp.json()["data"]["items"] if a["status"] == "pending")
     resp = await client.post(
         f"/api/v1/teams/{team_id}/applications/{application['id']}/review",
         json={"approve": True},
-        headers=tutor,
+        headers=mentor,
     )
     assert resp.json()["code"] == 0, resp.text
     resp = await client.get("/api/v1/teams", headers=user)
@@ -311,12 +308,12 @@ async def test_exit_then_public_list_role_not_stale(client: httpx.AsyncClient) -
     # 重新申请 → 审批 → 恢复成员
     resp = await client.post(f"/api/v1/teams/{team_id}/applications", json={}, headers=user)
     assert resp.json()["code"] == 0, resp.text
-    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=tutor)
+    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=mentor)
     application = next(a for a in resp.json()["data"]["items"] if a["status"] == "pending")
     resp = await client.post(
         f"/api/v1/teams/{team_id}/applications/{application['id']}/review",
         json={"approve": True},
-        headers=tutor,
+        headers=mentor,
     )
     assert resp.json()["code"] == 0, resp.text
     resp = await client.get("/api/v1/teams", headers=user)
@@ -326,25 +323,25 @@ async def test_exit_then_public_list_role_not_stale(client: httpx.AsyncClient) -
 
 async def test_admin_assignment(client: httpx.AsyncClient) -> None:
     """分配 / 取消管理员：仅创建者；分配后可执行团队管理操作；取消后权限回收。"""
-    tutor = await _tutor_headers(client)
-    resp = await client.post("/api/v1/teams", json={"name": "管理分配队"}, headers=tutor)
-    team_id = resp.json()["data"]["id"]
+    mentor, org_id = await _org_admin_headers(client)
+    team = await _create_team(client, mentor, org_id, {"name": "管理分配队"})
+    team_id = team["id"]
     user = await _extra_user_headers(client, "admin2@pigeonoj.dev")
 
-    resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=tutor)
+    resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=mentor)
     token = resp.json()["data"]["token"]
     resp = await client.post(f"/api/v1/teams/{team_id}/applications", json={"invite_token": token}, headers=user)
     assert resp.json()["code"] == 0
-    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=tutor)
+    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=mentor)
     application = resp.json()["data"]["items"][0]
     resp = await client.post(
         f"/api/v1/teams/{team_id}/applications/{application['id']}/review",
         json={"approve": True},
-        headers=tutor,
+        headers=mentor,
     )
     assert resp.json()["code"] == 0
 
-    uid = await client.get(f"/api/v1/teams/{team_id}/members", headers=tutor)
+    uid = await client.get(f"/api/v1/teams/{team_id}/members", headers=mentor)
     members = uid.json()["data"]["items"]
     target_uid = next(m["user_id"] for m in members if not m["is_creator"])
 
@@ -360,7 +357,7 @@ async def test_admin_assignment(client: httpx.AsyncClient) -> None:
     resp = await client.post(
         f"/api/v1/teams/{team_id}/members/{target_uid}/admin",
         json={"is_admin": True},
-        headers=tutor,
+        headers=mentor,
     )
     assert resp.json()["code"] == 0, resp.text
     resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=user)
@@ -374,7 +371,7 @@ async def test_admin_assignment(client: httpx.AsyncClient) -> None:
     resp = await client.post(
         f"/api/v1/teams/{team_id}/members/{target_uid}/admin",
         json={"is_admin": False},
-        headers=tutor,
+        headers=mentor,
     )
     assert resp.json()["code"] == 0
     resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=user)
@@ -389,28 +386,28 @@ async def test_admin_assignment(client: httpx.AsyncClient) -> None:
     resp = await client.post(
         f"/api/v1/teams/{team_id}/members/{uuid_mod.uuid4()}/admin",
         json={"is_admin": True},
-        headers=tutor,
+        headers=mentor,
     )
     assert resp.json()["code"] == 3001
     resp = await client.post(
         f"/api/v1/teams/{team_id}/members/{creator_id}/admin",
         json={"is_admin": True},
-        headers=tutor,
+        headers=mentor,
     )
     assert resp.json()["code"] == 2003
 
 
 async def test_kick_exit_disband(client: httpx.AsyncClient) -> None:
     """踢出 / 退出 / 解散：成员状态与团队授权同步清理；解散仅创建者。"""
-    tutor = await _tutor_headers(client)
-    resp = await client.post("/api/v1/teams", json={"name": "生命周期队"}, headers=tutor)
-    team_id = resp.json()["data"]["id"]
+    mentor, org_id = await _org_admin_headers(client)
+    team = await _create_team(client, mentor, org_id, {"name": "生命周期队"})
+    team_id = team["id"]
 
     member_a = await _extra_user_headers(client, "kickme@pigeonoj.dev")
     member_b = await _extra_user_headers(client, "exitme@pigeonoj.dev")
     admin2 = await _extra_user_headers(client, "disbander@pigeonoj.dev")
     for headers in (member_a, member_b):
-        resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=tutor)
+        resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=mentor)
         invite_token = resp.json()["data"]["token"]
         resp = await client.post(
             f"/api/v1/teams/{team_id}/applications",
@@ -418,23 +415,23 @@ async def test_kick_exit_disband(client: httpx.AsyncClient) -> None:
             headers=headers,
         )
         assert resp.json()["code"] == 0
-    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=tutor)
+    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=mentor)
     for application in resp.json()["data"]["items"]:
         resp = await client.post(
             f"/api/v1/teams/{team_id}/applications/{application['id']}/review",
             json={"approve": True},
-            headers=tutor,
+            headers=mentor,
         )
         assert resp.json()["code"] == 0
 
     # 提升一人为管理员（后续用于验证非创建者不可解散）
-    resp = await client.get(f"/api/v1/teams/{team_id}/members", headers=tutor)
+    resp = await client.get(f"/api/v1/teams/{team_id}/members", headers=mentor)
     members = resp.json()["data"]["items"]
     admin_uid = next(m["user_id"] for m in members if not m["is_creator"])
     resp = await client.post(
         f"/api/v1/teams/{team_id}/members/{admin_uid}/admin",
         json={"is_admin": True},
-        headers=tutor,
+        headers=mentor,
     )
     assert resp.json()["code"] == 0
 
@@ -446,7 +443,7 @@ async def test_kick_exit_disband(client: httpx.AsyncClient) -> None:
 
     # 踢出 member_a：授权清理（我的团队为空、不可见详情）；创建者不可被踢
     resp = await client.delete(
-        f"/api/v1/teams/{team_id}/members/{await _uid_of(client, member_a)}", headers=tutor
+        f"/api/v1/teams/{team_id}/members/{await _uid_of(client, member_a)}", headers=mentor
     )
     assert resp.json()["code"] == 0, resp.text
     resp = await client.get("/api/v1/teams/mine", headers=member_a)
@@ -455,43 +452,43 @@ async def test_kick_exit_disband(client: httpx.AsyncClient) -> None:
     assert resp.json()["code"] == 2003
 
     creator_uid = next(m["user_id"] for m in members if m["is_creator"])
-    resp = await client.delete(f"/api/v1/teams/{team_id}/members/{creator_uid}", headers=tutor)
+    resp = await client.delete(f"/api/v1/teams/{team_id}/members/{creator_uid}", headers=mentor)
     assert resp.json()["code"] == 2003
 
     # 退出：创建者不可退出；成员退出后授权清理
-    resp = await client.post(f"/api/v1/teams/{team_id}/exit", headers=tutor)
+    resp = await client.post(f"/api/v1/teams/{team_id}/exit", headers=mentor)
     assert resp.json()["code"] == 2003
     resp = await client.post(f"/api/v1/teams/{team_id}/exit", headers=admin2)
     assert resp.json()["code"] == 2003  # 非成员
     resp = await client.post(f"/api/v1/teams/{team_id}/exit", headers=member_b)
     assert resp.json()["code"] == 0
-    resp = await client.get(f"/api/v1/teams/{team_id}/members", headers=tutor)
+    resp = await client.get(f"/api/v1/teams/{team_id}/members", headers=mentor)
     assert resp.json()["data"]["total"] == 1  # 仅剩创建者
 
     # 解散：非创建者（即便管理员）2003；创建者可解散；解散后授权全清
     resp = await client.delete(f"/api/v1/teams/{team_id}", headers=member_b)
     assert resp.json()["code"] == 2003
-    resp = await client.delete(f"/api/v1/teams/{team_id}", headers=tutor)
+    resp = await client.delete(f"/api/v1/teams/{team_id}", headers=mentor)
     assert resp.json()["code"] == 0, resp.text
 
-    resp = await client.get(f"/api/v1/teams/{team_id}", headers=tutor)
+    resp = await client.get(f"/api/v1/teams/{team_id}", headers=mentor)
     assert resp.json()["code"] == 2003  # 已解散：成员授权清理，不可见详情
-    resp = await client.get("/api/v1/teams/mine", headers=tutor)
+    resp = await client.get("/api/v1/teams/mine", headers=mentor)
     assert resp.json()["data"]["total"] == 0
-    resp = await client.delete(f"/api/v1/teams/{team_id}", headers=tutor)
+    resp = await client.delete(f"/api/v1/teams/{team_id}", headers=mentor)
     assert resp.json()["code"] == 409 or resp.json()["code"] == 2003  # 幂等：再次解散拒绝
 
 
 async def test_member_note(client: httpx.AsyncClient) -> None:
     """成员备注：本人自备注；创建者备注他人；普通成员不可备注他人（2003）；空串清除；超长 1001。"""
-    tutor = await _tutor_headers(client)
-    resp = await client.post("/api/v1/teams", json={"name": "备注队"}, headers=tutor)
-    team_id = resp.json()["data"]["id"]
+    mentor, org_id = await _org_admin_headers(client)
+    team = await _create_team(client, mentor, org_id, {"name": "备注队"})
+    team_id = team["id"]
 
     member = await _extra_user_headers(client, "noteme@pigeonoj.dev")
     other = await _extra_user_headers(client, "notetarget@pigeonoj.dev")
     for headers in (member, other):
-        resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=tutor)
+        resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=mentor)
         invite_token = resp.json()["data"]["token"]
         resp = await client.post(
             f"/api/v1/teams/{team_id}/applications",
@@ -499,12 +496,12 @@ async def test_member_note(client: httpx.AsyncClient) -> None:
             headers=headers,
         )
         assert resp.json()["code"] == 0
-    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=tutor)
+    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=mentor)
     for application in resp.json()["data"]["items"]:
         resp = await client.post(
             f"/api/v1/teams/{team_id}/applications/{application['id']}/review",
             json={"approve": True},
-            headers=tutor,
+            headers=mentor,
         )
         assert resp.json()["code"] == 0
 
@@ -517,10 +514,10 @@ async def test_member_note(client: httpx.AsyncClient) -> None:
     )
     assert resp.json()["code"] == 0, resp.text
     resp = await client.put(
-        f"/api/v1/teams/{team_id}/members/{other_uid}/note", json={"note": "目标备注"}, headers=tutor
+        f"/api/v1/teams/{team_id}/members/{other_uid}/note", json={"note": "目标备注"}, headers=mentor
     )
     assert resp.json()["code"] == 0, resp.text
-    resp = await client.get(f"/api/v1/teams/{team_id}/members", headers=tutor)
+    resp = await client.get(f"/api/v1/teams/{team_id}/members", headers=mentor)
     notes = {m["user_id"]: m["note"] for m in resp.json()["data"]["items"]}
     assert notes[member_uid] == "我是备注"
     assert notes[other_uid] == "目标备注"

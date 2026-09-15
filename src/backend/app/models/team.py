@@ -38,6 +38,8 @@ class Team(Base):
         default=TeamVisibility.PRIVATE,
         server_default=TeamVisibility.PRIVATE,
     )
+    # 归属组织：新建团队必填（经组织端点创建）；存量可空，由 admin 指派后方可引用组织题库题目
+    org_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"))
     disbanded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -51,6 +53,7 @@ class Team(Base):
         Index("ix_teams_creator", "creator_id"),
         Index("ix_teams_status", "status"),
         Index("ix_teams_visibility_status", "visibility", "status"),
+        Index("ix_teams_org", "org_id"),
     )
 
 

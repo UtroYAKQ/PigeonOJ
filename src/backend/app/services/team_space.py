@@ -35,7 +35,6 @@ from app.core.exceptions import (
 )
 from app.enums import (
     ProblemSetStatus,
-    ProblemSetVisibility,
     ProblemStatus,
     ProblemVisibility,
 )
@@ -122,14 +121,13 @@ class TeamSpaceService:
         page: int,
         page_size: int,
     ) -> tuple[list[TeamProblemSummary], int]:
-        """团队题库列表：成员仅见 published + team_visible；团队管理主列表仅见已发布
-        （草稿经 status='draft' 进入草稿箱视图，仍仅本人草稿、他人草稿不可见），
+        """团队题库列表：成员仅见 published + team_visible；团队管理仅见已发布
+        （草稿 / 归档在团队空间不返回，残留草稿不作草稿箱暴露），
         并回填 needs_reverification 供发布与验题状态展示。"""
         await self.require_member(user, team_id)
         is_manager = await self._is_team_manager(user, team_id)
         rows, total = await self.problem_repo.list_team_problems(
             team_id,
-            viewer_id=user.id,
             is_team_manager=is_manager,
             keyword=keyword,
             status=status,
@@ -150,16 +148,18 @@ class TeamSpaceService:
     async def reference_problem(
         self, user: User, team_id: uuid.UUID, body: TeamProblemReferenceCreate
     ) -> TeamProblemSummary:
-        """引用本人全站题目进入团队题库（team_creator / team_admin）。
+        """引用题目进入团队题库（team_creator / team_admin）。
 
-        引用 = 快照复制新题（非归属切换，docs/contracts/teams.md 团队空间节）：
-        - 题目须为本人创建的已发布全站题目（team_id IS NULL；admin 全站同权）
+        引用 = 快照复制新题（docs/contracts/teams.md 团队空间节 / orgs.md）：
+        - 来源池 = 本组织组织题库（org_id = 团队归属组织）∪ 全站公开题，已发布；
+          不再要求本人创建（组织题库为组织所有，成员全员可引用）
         - 新题继承题面 / 样例 / 生效测试点（MinIO 对象复制）/ 验题与发布状态，
           归属团队、可见性落团队分支、referenced_at = 引用时间
         - 统计数据（problem_counters / submissions）从零开始 → 团队通过率为纯团队口径；
-          源题留在个人题库，复制后两题独立演进（源题改动不跟随）
+          源题留在原题库，复制后两题独立演进（源题改动不跟随）
         """
         await self.require_manager(user, team_id)
+        team = await self.teams._team_or_404(team_id)
         source = await self.problem_repo.get_by_id(body.problem_id)
         if source is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不存在", 404)
@@ -167,8 +167,12 @@ class TeamSpaceService:
             raise APIError(PARAM_FORMAT_INVALID, "团队题目不可被引用", 400)
         if source.status != ProblemStatus.PUBLISHED:
             raise APIError(RESOURCE_STATE_CONFLICT, "仅可引用已发布题目", 409)
-        if not (await is_admin(self.db, user) or source.owner_id == user.id):
-            raise APIError(AUTH_FORBIDDEN, "仅可引用本人创建的题目", 403)
+        if source.org_id is not None:
+            # 组织题：仅可引用团队归属组织的题库题目（跨组织不互通）
+            if team.org_id is None or source.org_id != team.org_id:
+                raise APIError(AUTH_FORBIDDEN, "仅可引用本组织题库或全站公开题目", 403)
+        elif source.visibility != ProblemVisibility.PUBLIC:
+            raise APIError(AUTH_FORBIDDEN, "仅可引用本组织题库或全站公开题目", 403)
         # 同团队同源题仅一份快照（防重，uq_problems_team_source 兜底）
         if await self.problem_repo.get_team_source(team_id, source.id):
             raise APIError(RESOURCE_DUPLICATE, "该题目已引用进团队", 409)
@@ -295,8 +299,8 @@ class TeamSpaceService:
         page: int,
         page_size: int,
     ) -> tuple[list[ProblemSetSummary], int]:
-        """团队题单列表（可见性与团队题目对齐）：成员仅见 team_visible 且未下线；
-        团队管理另见 admin_visible（status 显式传入时按值过滤，团队管理视图）。"""
+        """团队题单列表：成员可见全部 team_visible 题单（团队题单恒 team_visible）；
+        默认仅未下线；status 显式传入时按值过滤（团队管理视图）。"""
         await self.require_member(user, team_id)
         rows, total = await self.set_repo.list_team(
             team_id,
@@ -304,7 +308,6 @@ class TeamSpaceService:
             status=status,
             page=page,
             page_size=page_size,
-            is_team_manager=await self._is_team_manager(user, team_id),
         )
         counts = await self.set_repo.count_items([row.id for row in rows])
         return [set_to_summary(row, counts.get(row.id, 0)) for row in rows], total
@@ -312,13 +315,13 @@ class TeamSpaceService:
     async def create_problem_set(
         self, user: User, team_id: uuid.UUID, body: TeamProblemSetCreate
     ) -> ProblemSetSummary:
-        """创建团队题单（team_creator / team_admin；visibility 与团队题目对齐：
-        team_visible 全队可见（缺省）/ admin_visible 仅团队管理，仅团队空间可见）。
+        """创建团队题单（team_creator / team_admin）：团队题单恒 team_visible
+        （全队成员可见），仅团队空间内可见。
 
-        copy_items_from 非空 = 复制本人全站题单的题目条目（快照复制语义，与题目引用一致）：
-        - 源题单须存在、未下线、为全站题单（team_id IS NULL）且为本人创建（admin 同权）
-        - 复制条目（problem_id / sort_order），源题单本身保留在全站，两题单独立演进
+        原复制本人全站题单机制随个人出题取消一并移除（组织化改造：全站题单仅 admin 可建）。
         """
+        from app.enums import ProblemSetVisibility
+
         await self.require_manager(user, team_id)
         problem_set = await self.set_repo.create(
             ProblemSet(
@@ -326,39 +329,11 @@ class TeamSpaceService:
                 description=body.description,
                 owner_id=user.id,
                 team_id=team_id,
-                visibility=body.visibility,
+                visibility=ProblemSetVisibility.TEAM_VISIBLE,
                 status=ProblemSetStatus.ACTIVE,
-                # 复制来源标记（referenced_at 语义随复制语义沿用：非空 = 复制自本人全站题单）
-                referenced_at=_now() if body.copy_items_from is not None else None,
             )
         )
-        item_count = 0
-        if body.copy_items_from is not None:
-            source = await self.set_repo.get_by_id(body.copy_items_from)
-            if source is None:
-                raise APIError(RESOURCE_NOT_FOUND, "源题单不存在", 404)
-            if source.team_id is not None:
-                raise APIError(PARAM_FORMAT_INVALID, "团队题单不可作为复制来源", 400)
-            if source.status != ProblemSetStatus.ACTIVE:
-                raise APIError(RESOURCE_STATE_CONFLICT, "已下线题单不可复制", 409)
-            if not (await is_admin(self.db, user) or source.owner_id == user.id):
-                raise APIError(AUTH_FORBIDDEN, "仅可复制本人创建的题单", 403)
-            source_rows = await self.set_repo.list_items_with_problem(source.id)
-            await self.set_repo.replace_items(
-                problem_set.id,
-                [
-                    ProblemSetItem(
-                        problem_set_id=problem_set.id,
-                        problem_id=problem.id,
-                        sort_order=item.sort_order,
-                        added_by=user.id,
-                    )
-                    for item, problem in source_rows
-                ],
-                user.id,
-            )
-            item_count = len(source_rows)
-        return set_to_summary(problem_set, item_count)
+        return set_to_summary(problem_set, 0)
 
     async def _team_set_or_404(self, team_id: uuid.UUID, set_id: uuid.UUID) -> ProblemSet:
         problem_set = await self.set_repo.get_by_id(set_id)
@@ -366,34 +341,21 @@ class TeamSpaceService:
             raise APIError(RESOURCE_NOT_FOUND, "题单不在该团队中", 404)
         return problem_set
 
-    async def _require_set_visible(
-        self, user: User, team_id: uuid.UUID, problem_set: ProblemSet
-    ) -> None:
-        """admin_visible 团队题单仅团队创建者 / 管理员可见（与团队题目 admin_visible 同门）。"""
-        if (
-            ProblemSetVisibility(problem_set.visibility) == ProblemSetVisibility.ADMIN_VISIBLE
-            and not await self._is_team_manager(user, team_id)
-        ):
-            raise APIError(AUTH_FORBIDDEN, "无权限查看该题单", 403)
-
     async def get_set_detail(self, user: User, team_id: uuid.UUID, set_id: uuid.UUID) -> object:
-        """团队题单详情（团队上下文统一入口）：成员门 + 归属校验 + 可见性门
-        （admin_visible 仅团队管理）后复用题单详情装配
-        （条目按 sort_order、作答状态、owner_name）；不再走 /problem-sets/{id} 统一端点。"""
+        """团队题单详情（团队上下文统一入口）：成员门 + 归属校验后
+        复用题单详情装配（条目按 sort_order、作答状态、owner_name）；
+        不再走 /problem-sets/{id} 统一端点。"""
         await self.require_member(user, team_id)
         problem_set = await self._team_set_or_404(team_id, set_id)
-        await self._require_set_visible(user, team_id, problem_set)
         return await self.set_service.get_detail_for_team(problem_set, user)
 
     async def get_set_problem_detail(
         self, user: User, team_id: uuid.UUID, set_id: uuid.UUID, problem_id: uuid.UUID
     ) -> ProblemDetail:
         """团队题单内题目详情（团队上下文统一入口）：成员门 + 归属校验
-        （题目属于该题单）+ 可见性门（admin_visible 仅团队管理）后复用题库详情装配
-        （私有题豁免同题单统一端点口径）。"""
+        （题目属于该题单）后复用题库详情装配（私有题豁免同题单统一端点口径）。"""
         await self.require_member(user, team_id)
         problem_set = await self._team_set_or_404(team_id, set_id)
-        await self._require_set_visible(user, team_id, problem_set)
         if await self.set_repo.get_item(problem_set.id, problem_id) is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不在该题单中", 404)
         detail = await self.problems.get_detail(problem_id, user, bypass_visibility=True)
@@ -409,11 +371,10 @@ class TeamSpaceService:
         language: str,
         code: str,
     ) -> object:
-        """团队题单内交题（团队上下文统一入口）：门控同上，走统一判题链路
-        （submit_type='practice'；派发由路由层 commit 后执行）。"""
+        """团队题单内交题（团队上下文统一入口）：成员门 + 归属校验后
+        走统一判题链路（submit_type='practice'；派发由路由层 commit 后执行）。"""
         await self.require_member(user, team_id)
         problem_set = await self._team_set_or_404(team_id, set_id)
-        await self._require_set_visible(user, team_id, problem_set)
         if await self.set_repo.get_item(problem_set.id, problem_id) is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不在该题单中", 404)
         problem = await self.problem_repo.get_by_id(problem_id)
@@ -435,7 +396,7 @@ class TeamSpaceService:
         page_size: int,
     ) -> tuple[list[TeamProblemSummary], int]:
         """团队编排候选搜索（团队题单编排挑题用）：已发布且
-        （本团队题目 ∪ 全站公开 ∪ 本人私有），标题模糊；仅团队管理可调。"""
+        （本团队题目 ∪ 全站公开），标题模糊；仅团队管理可调。"""
         await self.require_manager(user, team_id)
         rows, total = await self.problem_repo.list_team_arrangeable_search(
             team_id, user.id, keyword=keyword, page=page, page_size=page_size
@@ -451,11 +412,13 @@ class TeamSpaceService:
         page: int,
         page_size: int,
     ) -> tuple[list[TeamProblemSummary], int]:
-        """团队题目引用候选搜索（引用页列表用）：本人创建 + 已发布 + 全站题 +
-        未被该团队引用过（同团队同源仅一份快照）；仅团队管理可调。"""
+        """团队题目引用候选搜索（引用页列表用）：已发布 + 非团队题 +
+        （本组织组织题 ∪ 全站公开）+ 未被该团队引用过（同团队同源仅一份快照）；
+        仅团队管理可调（组织名下团队管理者即使非组织成员也可见，orgs.md）。"""
         await self.require_manager(user, team_id)
+        team = await self.teams._team_or_404(team_id)
         rows, total = await self.problem_repo.list_referenceable(
-            team_id, user.id, keyword=keyword, page=page, page_size=page_size
+            team_id, team.org_id, keyword=keyword, page=page, page_size=page_size
         )
         items = [TeamProblemSummary.model_validate(row) for row in rows]
         await self.problems.attach_counters(items)
@@ -466,7 +429,7 @@ class TeamSpaceService:
         self, user: User, team_id: uuid.UUID, set_id: uuid.UUID, items: list
     ) -> None:
         """编排团队题单题目（team_creator / team_admin）：候选 = 已发布且
-        （本团队题目 ∪ 全站公开 ∪ 本人私有）；同一题单内不得重复。"""
+        （本团队题目 ∪ 全站公开）；同一题单内不得重复。"""
         await self.require_manager(user, team_id)
         problem_set = await self._team_set_or_404(team_id, set_id)
         seen: set[uuid.UUID] = set()
@@ -742,7 +705,6 @@ class TeamSpaceService:
         作答状态为个人视角，管理端不装配。"""
         rows, total = await self.problem_repo.list_team_problems(
             team_id,
-            viewer_id=None,
             is_team_manager=False,
             admin_view=True,
             keyword=keyword,

@@ -83,13 +83,13 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 ## 数据所有权
 
 - **单一所有权模型**：比赛管理权限（编辑 / 编排 / 公告 / 解榜 / 滚榜数据 / 比赛提交记录随时可见 / 赛前题目可见）
-  按「`admin` 管理全站比赛，其余管理角色（`tutor`）仅管理本人创建的比赛」判定；
-  非创建者、非 admin 管理他人比赛一律 2003。创建入口为角色门（admin/tutor）；
+  按「`admin` 管理全站比赛（tutor 已随组织化改造下线，公开比赛收归 admin），其余用户仅管理本人创建的比赛」判定；
+  管理他人比赛一律 2003。创建入口为角色门（admin；团队赛为 team_creator/team_admin）；
   **团队比赛由团队创建者 / 管理员管理**（创建走 teams.md 团队空间节端点）
 - 比赛中心仅展示公开比赛（`contest_type='public'`）；团队比赛仅在所属团队空间内展示（按 `team_id` 过滤）
 - 团队比赛详情仅团队成员（或全站 admin）可见（非成员 2003）；团队比赛报名叠加「团队成员」校验
 - 比赛题目访问与提交校验身份与报名（赛中限报名者，赛后向所有登录用户开放看题 / 补题；见下方「关键流程」越权规则）
-- **编排候选隔离**：公开比赛编排 = 已发布且（全站公开 ∪ 本人私有），一律排除团队题目；
+- **编排候选隔离**：公开比赛编排 = 已发布且全站公开（本人私有分支随个人出题取消移除），一律排除团队 / 组织题目（admin 亦然）；
   团队比赛编排额外放开本团队题目（docs/contracts/teams.md 团队空间节）
 - 榜单按 `(contest_id, user_id)` 聚合展示；Redis `rank:contest:<id>` 仅作读缓存（TTL 分级：进行中 20s / 封榜 60s / 完赛已解冻永久；进行中 TTL 取大于前端 15s 轮询间隔，令轮询命中缓存、新鲜度靠写失效保证），权威数据在 `contest_rankings`，判题回写 / 封榜 / 解冻时主动失效（含 commit 后补删，见 docs/operations.md「缓存一致性」）
 
@@ -100,24 +100,24 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | GET | /contests | public | 比赛中心列表（公开） | 分页/状态/keyword（名称模糊） | contest[] |
-| GET | /admin/contests | admin/tutor | 比赛管理视图：admin 全量（公开 + 团队，`contest_type` 过滤）、tutor 仅本人创建（单一所有权模型，全部状态） | 分页/状态/keyword（名称模糊）/contest_type（public/team，缺省全量） | contest[]（含 contest_type） |
+| GET | /admin/contests | admin | 比赛管理视图：admin 全量（公开 + 团队，`contest_type` 过滤，全部状态） | 分页/状态/keyword（名称模糊）/contest_type（public/team，缺省全量） | contest[]（含 contest_type） |
 | GET | /contests/{id} | public/owner | 比赛详情（题目/规则/报名状态）；登录请求题目条目带 `solved` 本场作答状态（`true`=本场 AC / `false`=本场已尝试未通过 / `null`=未提交，匿名恒 `null`；仅统计本场比赛提交，练习 / 验题通过不计入） | - | contest |
-| GET | /contests/{id}/problems | auth（admin·tutor·团队管理 随时 / 赛中：已报名；赛后：所有登录用户） | 比赛题目列表（同带 `solved` 本场作答状态；未报名者仅见公开题） | - | problem[] |
-| GET | /contests/{id}/problems/search | admin/tutor（require_manage） | **编排页题目搜索（统一入口）**：已发布且（全站公开 或 本人私有）题目，标题模糊；仅比赛管理角色可调 | 分页/keyword | problem[]（problem_id/title/difficulty） |
-| POST | /contests | admin/tutor（公开）/ admin/tutor/team_creator/team_admin（团队） | 创建比赛 | contest_type, logo?, rule_type, time, register, freeze, problems[] | contest |
-| PUT | /contests/{id} | admin/tutor/team_creator/team_admin | 编辑比赛 | ... | contest |
+| GET | /contests/{id}/problems | auth（admin·团队管理 随时 / 赛中：已报名；赛后：所有登录用户） | 比赛题目列表（同带 `solved` 本场作答状态；未报名者仅见公开题） | - | problem[] |
+| GET | /contests/{id}/problems/search | admin（公开赛）/ team_creator·team_admin（团队赛）（require_manage） | **编排页题目搜索（统一入口）**：已发布且全站公开题目（团队赛编排额外放开本团队题目），标题模糊；仅比赛管理角色可调 | 分页/keyword | problem[]（problem_id/title/difficulty） |
+| POST | /contests | admin（公开）/ team_creator·team_admin（团队） | 创建比赛 | contest_type, logo?, rule_type, time, register, freeze, problems[] | contest |
+| PUT | /contests/{id} | admin（公开赛）/ team_creator·team_admin（团队赛） | 编辑比赛 | ... | contest |
 | POST | /contests/{id}/register | auth | 报名 | - | - |
-| PUT | /contests/{id}/announcement | admin/tutor/team_creator/team_admin | **更新比赛公告**（赛时受控编辑；空字符串 = 清空；Markdown） | announcement | contest |
-| POST | /contests/{id}/extend | admin/tutor/team_creator/team_admin | **赛时延时**：新 `end_time` 必须晚于当前结束时间且晚于现在；赛前请走 PUT 编辑（3002）；已结束则重新置 `running` | end_time | contest |
-| PUT | /contests/{id}/freeze-time | admin/tutor/team_creator/team_admin | **调整封榜时间**（赛前 / 赛中且尚未封榜）；`null` = 取消封榜；新时刻已到且进行中则立即封榜；已封榜或已结束 3002 | freeze_time | contest |
-| GET | /contests/{id}/scoreboard-show | admin/tutor/team_creator/team_admin | **滚榜数据包**（只读、不解冻）：`base_rows` 冻结快照榜 + `final_rows` submissions 现算最终榜 + `steps` 封榜期提交揭晓序列（按最终名次从差到好、同队按提交时间序，domjudge 式滚榜）；封榜期提交以 `frozen_at` 为界 | - | scoreboard-show |
+| PUT | /contests/{id}/announcement | admin（公开赛）/ team_creator·team_admin（团队赛） | **更新比赛公告**（赛时受控编辑；空字符串 = 清空；Markdown） | announcement | contest |
+| POST | /contests/{id}/extend | admin（公开赛）/ team_creator·team_admin（团队赛） | **赛时延时**：新 `end_time` 必须晚于当前结束时间且晚于现在；赛前请走 PUT 编辑（3002）；已结束则重新置 `running` | end_time | contest |
+| PUT | /contests/{id}/freeze-time | admin（公开赛）/ team_creator·team_admin（团队赛） | **调整封榜时间**（赛前 / 赛中且尚未封榜）；`null` = 取消封榜；新时刻已到且进行中则立即封榜；已封榜或已结束 3002 | freeze_time | contest |
+| GET | /contests/{id}/scoreboard-show | admin（公开赛）/ team_creator·team_admin（团队赛） | **滚榜数据包**（只读、不解冻）：`base_rows` 冻结快照榜 + `final_rows` submissions 现算最终榜 + `steps` 封榜期提交揭晓序列（按最终名次从差到好、同队按提交时间序，domjudge 式滚榜）；封榜期提交以 `frozen_at` 为界 | - | scoreboard-show |
 | GET | /contests/{id}/board | auth | 榜单（封榜时按冻结展示；BoardCell 含 problem_score 单题满分） | - | board |
-| GET | /contests/{id}/board/{user_id}/{problem_id}/accepted | auth（admin·tutor 随时 / **赛后**：所有登录用户） | **榜单单格成功提交**：该 (选手, 题目) 比赛内 AC 提交（不含补题，时间正序）；窗口与角色门控随提交记录 | - | submission[] |
-| POST | /contests/{id}/unfreeze | admin/tutor | **手动解冻榜单**（**仅赛后可用**，running 时返回 3002——封榜是赛时公平机制，赛中禁止解冻）：从 submissions 权威重算并回填封榜期间结果（解冻必须人工触发，比赛结束后亦然） | - | contest |
-| GET | /contests/{id}/problems/{pid} | auth（admin·tutor·团队管理 随时 / 赛中：已报名；赛后：所有登录用户） | **比赛内题目详情（统一入口）**：归属 / 窗口校验后与 `GET /problems/{id}` 装配一致；未报名者仅见公开题（私有题按 3001 不存在） | - | problem |
+| GET | /contests/{id}/board/{user_id}/{problem_id}/accepted | auth（管理角色随时 / **赛后**：所有登录用户） | **榜单单格成功提交**：该 (选手, 题目) 比赛内 AC 提交（不含补题，时间正序）；窗口与角色门控随提交记录 | - | submission[] |
+| POST | /contests/{id}/unfreeze | admin（公开赛）/ team_creator·team_admin（团队赛） | **手动解冻榜单**（**仅赛后可用**，running 时返回 3002——封榜是赛时公平机制，赛中禁止解冻）：从 submissions 权威重算并回填封榜期间结果（解冻必须人工触发，比赛结束后亦然） | - | contest |
+| GET | /contests/{id}/problems/{pid} | auth（admin·团队管理 随时 / 赛中：已报名；赛后：所有登录用户） | **比赛内题目详情（统一入口）**：归属 / 窗口校验后与 `GET /problems/{id}` 装配一致；未报名者仅见公开题（私有题按 3001 不存在） | - | problem |
 | POST | /contests/{id}/problems/{pid}/submissions | auth（赛中：已报名；赛后：所有登录用户补题） | **比赛交题（统一入口）**：窗口校验后落 contest 提交并派发；赛后自动标记补题（不计榜单），未报名者补题仅公开题 | language/code | submission_id |
-| GET | /contests/{id}/submissions | auth（admin·tutor 随时 / **赛后**：所有登录用户） | **比赛提交记录列表**：全员正式提交 + 补题，提交时间倒序；比赛期间仅管理角色可见，赛后向所有登录用户开放（含未报名者） | 分页/keyword（昵称模糊）/language/status/problem_id（均精确） | submission[]（含 nickname / letter） |
-| GET | /contests/{id}/submissions/{sid} | auth（admin·tutor 随时 / **赛后**：所有登录用户） | **比赛提交详情（统一入口）**：窗口与 contest 归属校验后复用判题详情装配 | - | submission（含代码 / 测试点明细） |
+| GET | /contests/{id}/submissions | auth（管理角色随时 / **赛后**：所有登录用户） | **比赛提交记录列表**：全员正式提交 + 补题，提交时间倒序；比赛期间仅管理角色可见，赛后向所有登录用户开放（含未报名者） | 分页/keyword（昵称模糊）/language/status/problem_id（均精确） | submission[]（含 nickname / letter） |
+| GET | /contests/{id}/submissions/{sid} | auth（管理角色随时 / **赛后**：所有登录用户） | **比赛提交详情（统一入口）**：窗口与 contest 归属校验后复用判题详情装配 | - | submission（含代码 / 测试点明细） |
 | GET | /teams/{team_id}/contests | team 角色 | 团队比赛列表（随 teams.md 团队空间节实现：创建走团队端点；详情 / 报名 / 交题复用本模块端点并叠加团队门控） | 分页/status | contest[] |
 | GET | /users/me/contests | auth | 我的比赛 / 报名列表 | 分页/状态 | contest[] |
 
@@ -157,7 +157,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 
 1. **报名**：`POST /contests/{id}/register`——公开比赛所有登录用户可报，团队比赛仅团队成员可报；`contest_registrations` 唯一约束防重复。
 2. **比赛访问 / 提交越权校验**：赛中（`start_time ≤ now ≤ end_time`）看题 / 交题须「已报名」；赛后（`now > end_time`）看题与补题对所有登录用户开放（补题不计榜单）；赛前（`now < start_time`）题目不可见（比赛管理者除外——编排 / 验题需要，与详情页 `can_view_problems` 的 `can_manage` 口径一致）。未报名者（仅赛后可见）只能看公开题，编排进来的私有题对其按不存在处理（3001），不泄漏私有题存在性。团队比赛报名额外叠加「团队成员」。比赛提交时 `contest_id` 由服务端从当前请求上下文推导，不信任客户端传入。
-2b. **题目编排规则**：可编排题目 = 已发布且（全站公开 **或 本人私有**）；编排保存与编排搜索端点按同一规则校验；参赛者经比赛窗口查看比赛内题目时按比赛访问权限放行（题解 / 测试点等管理数据仍按题目权限门控）。
+2b. **题目编排规则**：可编排题目 = 已发布且全站公开（公开赛；本人私有分支随个人出题取消移除；团队赛额外放开本团队快照题）；编排保存与编排搜索端点按同一规则校验；参赛者经比赛窗口查看比赛内题目时按比赛访问权限放行（题解 / 测试点等管理数据仍按题目权限门控）。
 3. **计分**（`rule_type` 区分）：
    - **ACM**：全部测试点通过才有分；罚时（分钟）= 首次通过时间（自比赛开始）+ 首次通过前错误提交数 × 罚时系数（默认 20 分钟，可配置）；未通过题目不计罚时；首次通过后错误提交不计入罚时；提交分数原生二值（AC=满分否则 0），派题携带短路标记（judge.md「赛制计分」）。
     - **IOI**：每题取历史最高分，多次提交取最高、不互相覆盖；总分 = 各题最高分之和（每测试点分值一致，提交分数 = 通过测试点比例 × 单题分值）。
@@ -168,13 +168,13 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 5. **封榜 / 解冻 / 结束**（修订：解冻必须人工、仅赛后）：封榜由周期任务 `contest_transition` 按时间
    自动触发（结束前 `freeze_offset_seconds` 秒置 `board_frozen=true`、榜单行冻结 `is_frozen`、
    记录 `frozen_at`）；
-   **解冻只能由 admin/tutor 调 `POST /contests/{id}/unfreeze` 手动执行且仅比赛结束后可用**——
+   **解冻只能由管理角色（admin / 团队创建者 / 管理员）调 `POST /contests/{id}/unfreeze` 手动执行且仅比赛结束后可用**——
    从 submissions 权威重算榜单并回填封榜期间结果；比赛结束（`status='finished'`）**不自动解冻**，
    榜单保持冻结快照直到人工解冻。封榜期间新提交只落 `submissions` 与 `submission_test_case_results`，
    不更新榜单行。
 6. **赛后补题**：比赛结束后所有登录用户（含未报名者）可交题，自动标记 `submissions.is_after_contest=true`，不计入榜单；补题计入个人「本场作答状态 solved」。
 7. **提交记录可见性**（比赛上下文统一入口端点）：
-   - **管理角色（admin/tutor）随时可见**（含比赛期间与封榜期间，便于监考 / 巡查）
+   - **管理角色（admin / 团队创建者 / 管理员）随时可见**（含比赛期间与封榜期间，便于监考 / 巡查）
     - **比赛期间（`now < end_time`）对非管理用户隐藏**（返回 2003）；
       前端「提交记录」tab 赛前随模块 tab 对非管理角色整体隐藏，比赛期间展示提示、不发起列表请求
    - **赛后**：所有登录用户（含未报名者）与管理角色可见全部比赛提交（含补题行），列表含提交人昵称与题号；

@@ -29,7 +29,7 @@ export function getContest(id: string): Promise<ContestDetail> {
   return apiRequest('GET', `/contests/${id}`)
 }
 
-/** 创建比赛（admin/tutor） */
+/** 创建比赛（admin） */
 export function createContest(body: ContestCreatePayload): Promise<ContestSummary> {
   return apiRequest('POST', '/contests', body)
 }
@@ -109,7 +109,7 @@ export function listContestCellAccepted(
   return apiRequest('GET', `/contests/${contestId}/board/${userId}/${problemId}/accepted`)
 }
 
-/** 手动解冻榜单（admin/tutor）：从 submissions 重算并回填封榜期结果（仅赛后） */
+/** 手动解冻榜单（admin）：从 submissions 重算并回填封榜期结果（仅赛后） */
 export function unfreezeContestBoard(id: string): Promise<ContestSummary> {
   return apiRequest('POST', `/contests/${id}/unfreeze`)
 }

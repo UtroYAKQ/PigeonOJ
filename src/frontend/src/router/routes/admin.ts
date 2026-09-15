@@ -4,20 +4,21 @@ import { useUserStore } from '@/stores/user'
 
 /**
  * 管理后台路由（hidden：不在前台侧栏显示；入口在头像菜单）。
- * tutor 仅见「题目管理」，admin 见全部区块。
+ * 组织化改造后全局角色仅 admin，全部区块 admin 可见。
  */
 export const adminRoutes: RouteRecordRaw[] = [
   {
     path: 'admin',
     redirect: () => {
       const userStore = useUserStore()
-      return userStore.hasAnyRole(['admin']) ? '/admin/users' : '/admin/problems'
+      // 全局角色收敛为 admin-only（tutor 已下线）：入口仅对管理员可见
+      return userStore.isAdmin ? '/admin/users' : '/admin/problems'
     },
     meta: {
       title: '管理后台',
       titleKey: 'nav.admin',
       icon: 'Monitor',
-      roles: ['admin', 'tutor'],
+      roles: ['admin'],
       hidden: true,
     },
     children: [
@@ -28,7 +29,7 @@ export const adminRoutes: RouteRecordRaw[] = [
           title: '题目管理',
           titleKey: 'nav.problemsManage',
           icon: 'Collection',
-          roles: ['admin', 'tutor'],
+          roles: ['admin'],
         },
         children: [
           {
@@ -39,7 +40,7 @@ export const adminRoutes: RouteRecordRaw[] = [
               title: '题目管理',
               titleKey: 'nav.problemsManage',
               icon: 'Collection',
-              roles: ['admin', 'tutor'],
+              roles: ['admin'],
               requiresAuth: true,
               keepAlive: true,
             },
@@ -155,7 +156,7 @@ export const adminRoutes: RouteRecordRaw[] = [
           title: '题单管理',
           titleKey: 'nav.problemSetsManage',
           icon: 'Document',
-          roles: ['admin', 'tutor'],
+          roles: ['admin'],
         },
         children: [
           {
@@ -166,7 +167,7 @@ export const adminRoutes: RouteRecordRaw[] = [
               title: '题单管理',
               titleKey: 'nav.problemSetsManage',
               icon: 'Document',
-              roles: ['admin', 'tutor'],
+              roles: ['admin'],
               requiresAuth: true,
               keepAlive: true,
             },
@@ -204,7 +205,7 @@ export const adminRoutes: RouteRecordRaw[] = [
             meta: {
               title: '题单详情',
               titleKey: 'problemSets.detail.title',
-              roles: ['admin', 'tutor'],
+              roles: ['admin'],
               requiresAuth: true,
               hidden: true,
               contextPage: true,
@@ -221,7 +222,7 @@ export const adminRoutes: RouteRecordRaw[] = [
             meta: {
               title: '题目预览',
               titleKey: 'problems.preview.title',
-              roles: ['admin', 'tutor'],
+              roles: ['admin'],
               requiresAuth: true,
               hidden: true,
               contextPage: true,
@@ -241,7 +242,7 @@ export const adminRoutes: RouteRecordRaw[] = [
           title: '比赛管理',
           titleKey: 'nav.contestsManage',
           icon: 'Trophy',
-          roles: ['admin', 'tutor'],
+          roles: ['admin'],
           keepAlive: true,
         },
       },
@@ -252,7 +253,7 @@ export const adminRoutes: RouteRecordRaw[] = [
         meta: {
           title: '创建比赛',
           titleKey: 'contests.list.createTitle',
-          roles: ['admin', 'tutor'],
+          roles: ['admin'],
           requiresAuth: true,
           hidden: true,
           contextPage: true,
@@ -267,7 +268,7 @@ export const adminRoutes: RouteRecordRaw[] = [
         meta: {
           title: '赛时工具',
           titleKey: 'contests.tools.title',
-          roles: ['admin', 'tutor'],
+          roles: ['admin'],
           requiresAuth: true,
           hidden: true,
           contextPage: true,
@@ -281,7 +282,7 @@ export const adminRoutes: RouteRecordRaw[] = [
         meta: {
           title: '编辑比赛',
           titleKey: 'contests.list.editTitle',
-          roles: ['admin', 'tutor'],
+          roles: ['admin'],
           requiresAuth: true,
           hidden: true,
           contextPage: true,
@@ -295,7 +296,7 @@ export const adminRoutes: RouteRecordRaw[] = [
         meta: {
           title: '编排题目',
           titleKey: 'contests.wizard.arrange',
-          roles: ['admin', 'tutor'],
+          roles: ['admin'],
           requiresAuth: true,
           hidden: true,
           contextPage: true,
@@ -333,6 +334,47 @@ export const adminRoutes: RouteRecordRaw[] = [
             meta: {
               title: '团队详情',
               titleKey: 'admin.teams.detailTitle',
+              roles: ['admin'],
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              keepAlive: true,
+            },
+          },
+        ],
+      },
+      {
+        // 组织管理（docs/contracts/orgs.md 管理端视图）：创建组织 / 全量浏览 / 存量团队指派组织
+        path: 'orgs',
+        name: 'admin-orgs-section',
+        meta: {
+          title: '组织管理',
+          titleKey: 'nav.orgsManage',
+          icon: 'OfficeBuilding',
+          roles: ['admin'],
+        },
+        children: [
+          {
+            path: '',
+            name: 'admin-orgs',
+            component: () => import('@/views/admin/AdminOrgsView.vue'),
+            meta: {
+              title: '组织管理',
+              titleKey: 'nav.orgsManage',
+              icon: 'OfficeBuilding',
+              roles: ['admin'],
+              requiresAuth: true,
+              keepAlive: true,
+            },
+          },
+          {
+            // 组织管理详情（只读浏览：组织信息 / 成员 / 名下团队）
+            path: ':id',
+            name: 'admin-org-detail',
+            component: () => import('@/views/admin/AdminOrgDetailView.vue'),
+            meta: {
+              title: '组织详情',
+              titleKey: 'admin.orgs.detailTitle',
               roles: ['admin'],
               requiresAuth: true,
               hidden: true,

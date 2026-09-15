@@ -65,10 +65,12 @@ class Problem(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     # 难度分（手动填写，类似 Codeforces；NULL=未评分；仅约束非负，不设上限）
     difficulty: Mapped[int | None] = mapped_column(Integer)
-    # 全站题目：private / public；团队题目（team_id 非空）：admin_visible / team_visible
+    # 全站题目：private / public；组织题目（org_id 非空）：org_visible；团队题目（team_id 非空）：admin_visible / team_visible
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemVisibility.PUBLIC)
-    # 归属团队；NULL=全站题目（docs/contracts/problems.md 可见性设计）
+    # 归属团队；NULL=非团队题目（docs/contracts/problems.md 可见性设计）
     team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id"))
+    # 归属组织；NULL=非组织题目（组织题库，docs/contracts/orgs.md；与 team_id 互斥）
+    org_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"))
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemStatus.DRAFT)
     verified_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     # 验题通过时间即「已验题」事实载体（is_verified 列已移除，≡ verified_at 非空）
@@ -88,6 +90,7 @@ class Problem(Base):
         Index("ix_problems_owner", "owner_id"),
         Index("ix_problems_visibility_status", "visibility", "status"),
         Index("ix_problems_team_visibility_status", "team_id", "visibility", "status"),
+        Index("ix_problems_org_status", "org_id", "status"),
         Index(
             "uq_problems_team_source",
             "team_id",
@@ -97,7 +100,8 @@ class Problem(Base):
         ),
         CheckConstraint(
             "("
-            "(team_id IS NULL     AND visibility IN ('private','public')) OR"
+            "(team_id IS NULL AND org_id IS NULL AND visibility IN ('private','public')) OR"
+            "(org_id IS NOT NULL AND team_id IS NULL AND visibility = 'org_visible') OR"
             "(team_id IS NOT NULL AND visibility IN ('admin_visible','team_visible'))"
             ")",
             name="ck_problems_owner_visibility",

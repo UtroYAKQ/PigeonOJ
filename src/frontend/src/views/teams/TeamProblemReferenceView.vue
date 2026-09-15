@@ -2,8 +2,9 @@
 /**
  * 团队题目引用页（/teams/:teamId/problems/new）：团队题目 = 引用制
  * （docs/contracts/teams.md 团队空间节），页面即团队的「创建题目」入口。
- * 列出本人已发布题目（mine 视图，tutor / admin 全局身份可引用），点「引用」
- * 归属切换进团队题库。成功后 replace 回团队详情。
+ * 候选 = 所属组织题库 ∪ 全站公开题（referenceable 端点服务端过滤，
+ * 引用能力由团队角色 team_creator / team_admin 承担），点「引用」快照复制进团队题库。
+ * 成功后 replace 回团队详情。
  */
 import { computed, h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -14,7 +15,6 @@ import type { DataTableColumns } from 'naive-ui'
 import { referenceTeamProblem, searchTeamReferenceableProblems } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
-import { useUserStore } from '@/stores/user'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import type { TeamProblemSummary } from '@/types'
@@ -22,12 +22,8 @@ import type { TeamProblemSummary } from '@/types'
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const userStore = useUserStore()
 
 const teamId = String(route.params.teamId)
-
-/** 引用能力：tutor / admin 才拥有可引用的全站题目 */
-const canReference = computed(() => userStore.hasAnyRole(['admin', 'tutor']))
 
 const items = ref<TeamProblemSummary[]>([])
 const loading = ref(false)
@@ -122,7 +118,7 @@ const columns = computed<DataTableColumns<TeamProblemSummary>>(() => [
 ])
 
 onMounted(() => {
-  if (canReference.value) void load()
+  void load()
 })
 </script>
 
@@ -134,7 +130,7 @@ onMounted(() => {
       </n-button>
     </template>
 
-    <template v-if="canReference">
+    <div>
       <p class="page-hint">{{ t('teams.space.referenceProblemHint') }}</p>
       <SearchFilterBar
         :keyword="keyword"
@@ -167,9 +163,6 @@ onMounted(() => {
           <span class="pager__total">{{ t('teams.pane.problemTotal', { count: total }) }}</span>
         </template>
       </PaginatedDataTable>
-    </template>
-    <div v-else class="table-fill-empty">
-      <n-empty :description="t('teams.space.referenceNoPermission')" size="large" />
     </div>
   </WorkbenchShell>
 </template>

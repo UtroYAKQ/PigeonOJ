@@ -17,6 +17,8 @@ import type {
   LogQuery,
   LogType,
   OnlineUser,
+  OrgDetail,
+  OrgMemberItem,
   PageResult,
   ProblemSetSummary,
   ProblemTagItem,
@@ -31,7 +33,7 @@ import type {
   User,
 } from '@/types'
 
-// ---------------- 管理列表（单一所有权模型：admin 全量、tutor 等仅本人创建） ----------------
+// ---------------- 管理列表（单一所有权模型：admin 全量） ----------------
 
 /** GET /admin/users/online — 在线用户面板（10 分钟窗口内有活跃回写的有效会话） */
 export function adminListOnlineUsers(query: { page?: number; page_size?: number } = {}) {
@@ -53,14 +55,44 @@ export function adminListSubmissions(query: AdminSubmissionQuery = {}) {
   return apiRequest<PageResult<AdminSubmission>>('GET', `/admin/submissions${buildQuery(query)}`)
 }
 
-/** GET /admin/contests — 比赛管理视图（admin 全量、tutor 仅本人创建，全部状态） */
+/** GET /admin/contests — 比赛管理视图（admin 全量，全部状态） */
 export function adminListContests(query: ContestListQuery = {}) {
   return apiRequest<PageResult<ContestSummary>>('GET', `/admin/contests${buildQuery(query)}`)
 }
 
-/** GET /admin/problem-sets — 题单管理视图（admin 全量、tutor 仅本人创建，含私有与已下线；ownership 过滤来源） */
+/** GET /admin/problem-sets — 题单管理视图（admin 全量，含私有与已下线；ownership 过滤来源） */
 export function adminListProblemSets(query: AdminProblemSetListQuery = {}) {
   return apiRequest<PageResult<ProblemSetSummary>>('GET', `/admin/problem-sets${buildQuery(query)}`)
+}
+
+// ---------------- 组织管理（docs/contracts/orgs.md 管理端视图：admin） ----------------
+
+/** GET /admin/orgs — 组织管理列表（全量含已解散，创建时间倒序；成员数 / 团队数 / 状态） */
+export function adminListOrgs(
+  query: { page?: number; page_size?: number; keyword?: string; status?: string } = {},
+) {
+  return apiRequest<PageResult<OrgDetail>>('GET', `/admin/orgs${buildQuery(query)}`)
+}
+
+/** GET /admin/orgs/:id — 组织管理详情（免成员校验，含已解散） */
+export function adminGetOrg(orgId: string) {
+  return apiRequest<OrgDetail>('GET', `/admin/orgs/${orgId}`)
+}
+
+/** GET /admin/orgs/:id/members — 组织成员列表（admin 管理视图；keyword 模糊昵称） */
+export function adminListOrgMembers(
+  orgId: string,
+  query: { page?: number; page_size?: number; keyword?: string; status?: string } = {},
+) {
+  return apiRequest<PageResult<OrgMemberItem>>(
+    'GET',
+    `/admin/orgs/${orgId}/members${buildQuery(query)}`,
+  )
+}
+
+/** PUT /admin/teams/:id/org — 存量团队指派组织（迁移用；org 必须为 active） */
+export function adminAssignTeamOrg(teamId: string, orgId: string) {
+  return apiRequest<TeamAdminSummary>('PUT', `/admin/teams/${teamId}/org`, { org_id: orgId })
 }
 
 // ---------------- 团队管理（docs/contracts/teams.md 管理端：admin 全量只读浏览） ----------------

@@ -27,7 +27,7 @@ const { page, pageSize, total, changePage, changeSize, resetPage } = usePaginati
 const query = reactive({
   keyword: '',
   status: '' as ProblemStatus | '',
-  ownership: '' as '' | 'solo' | 'team',
+  ownership: '' as '' | 'solo' | 'org' | 'team',
 })
 
 /** FPS 题库导入 / 导出（docs/contracts/problems.md「FPS 题库导入 / 导出」）：
@@ -130,14 +130,15 @@ function switchStatus(value: string) {
   load()
 }
 function switchOwnership(value: string | null) {
-  query.ownership = (value ?? '') as '' | 'solo' | 'team'
+  query.ownership = (value ?? '') as '' | 'solo' | 'org' | 'team'
   resetPage()
   load()
 }
 
-/** 来源筛选项：全站题 / 团队题（引用快照 + 团队直建） */
+/** 来源筛选项：全站题 / 组织题 / 团队题（引用快照） */
 const ownershipOptions = computed(() => [
   { label: t('problems.mine.ownershipSolo'), value: 'solo' },
+  { label: t('problems.mine.ownershipOrg'), value: 'org' },
   { label: t('problems.mine.ownershipTeam'), value: 'team' },
 ])
 function onSearch() {
@@ -221,17 +222,25 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
     key: 'source',
     width: 80,
     render(row) {
-      // 来源：团队题（引用快照 / 团队直建）→「团队题」；其余（全站公开 / 私有）→「全站题」
+      // 来源：团队分支 →「团队题」；组织题（org_visible）→「组织题」；其余（全站公开 / 私有）→「全站题」
       const isTeam = row.visibility === 'team_visible' || row.visibility === 'admin_visible'
+      const isOrg = row.visibility === 'org_visible'
       return h(
         NTag,
         {
           size: 'small',
           bordered: false,
-          type: isTeam ? 'warning' : 'default',
+          type: isTeam ? 'warning' : isOrg ? 'info' : 'default',
         },
         {
-          default: () => t(isTeam ? 'problems.mine.ownershipTeam' : 'problems.mine.ownershipSolo'),
+          default: () =>
+            t(
+              isTeam
+                ? 'problems.mine.ownershipTeam'
+                : isOrg
+                  ? 'problems.mine.ownershipOrg'
+                  : 'problems.mine.ownershipSolo',
+            ),
         },
       )
     },

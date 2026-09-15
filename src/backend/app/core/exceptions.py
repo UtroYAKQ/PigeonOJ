@@ -31,6 +31,7 @@ REGISTER_DISABLED = 2005  # 站点未开放注册（docs/contracts/users.md）
 RESOURCE_NOT_FOUND = 3001  # 资源不存在
 RESOURCE_STATE_CONFLICT = 3002  # 状态冲突
 RESOURCE_DUPLICATE = 3003  # 资源已存在（重复）
+ORG_LAST_ADMIN = 3004  # 组织最后一名管理员不可撤销 / 移出（docs/contracts/orgs.md）
 
 # ---- 40xx 频控 ----
 RATE_SEND_TOO_FREQUENT = 4001  # 发送太频繁

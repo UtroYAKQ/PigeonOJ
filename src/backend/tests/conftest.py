@@ -41,12 +41,17 @@ from app.utils.security import hash_password
 
 ROLE_SEEDS = [
     ("11111111-1111-1111-1111-111111111111", "admin", "系统管理员"),
-    ("22222222-2222-2222-2222-222222222222", "tutor", "导师"),
     ("33333333-3333-3333-3333-333333333333", "user", "普通用户"),
     ("44444444-4444-4444-4444-444444444444", "team_creator", "团队创建者"),
     ("55555555-5555-5555-5555-555555555555", "team_admin", "团队管理员"),
     ("66666666-6666-6666-6666-666666666666", "team_member", "团队成员"),
+    ("77777777-7777-7777-7777-777777777777", "org_admin", "组织管理员"),
+    ("88888888-8888-8888-8888-888888888888", "org_member", "组织成员"),
 ]
+
+# 组织角色固定 UUID（与迁移 0039 种子一致，测试内直接插 user_roles 用）
+ORG_ADMIN_ROLE_ID = "77777777-7777-7777-7777-777777777777"
+ORG_MEMBER_ROLE_ID = "88888888-8888-8888-8888-888888888888"
 
 DEMO_USERS = [
     ("admin@pigeonoj.dev", "Admin@123", "管理员", ["admin"]),
@@ -206,3 +211,25 @@ async def register_user(client: httpx.AsyncClient, email: str, password: str = "
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["code"] == 0, resp.text
+
+
+async def admin_api_headers(client: httpx.AsyncClient) -> dict[str, str]:
+    """站点管理员请求头（组织创建等 admin 动作；与 admin_headers fixture 等价，供助手函数内使用）。"""
+    token = await api_login(client, "admin@pigeonoj.dev", "Admin@123")
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def create_org(
+    client: httpx.AsyncClient, name: str, admin_user_ids: list[str] | None = None,
+    admin_headers: dict[str, str] | None = None,
+) -> str:
+    """站点 admin 创建组织（可同时任命初始组织管理员），返回 org_id。"""
+    if admin_headers is None:
+        admin_headers = await admin_api_headers(client)
+    resp = await client.post(
+        "/api/v1/orgs",
+        json={"name": name, "admin_user_ids": admin_user_ids or []},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    return resp.json()["data"]["id"]

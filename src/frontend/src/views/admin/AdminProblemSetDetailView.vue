@@ -276,7 +276,7 @@ const chosenIds = computed(() => new Set((detail.value?.items ?? []).map((it) =>
           detail?.title ?? t('problemSets.detail.title')
         }}</strong>
         <n-tag
-          v-if="detail"
+          v-if="detail && !teamId"
           size="small"
           :bordered="false"
           :type="problemSetVisibilityTagType(detail.visibility)"

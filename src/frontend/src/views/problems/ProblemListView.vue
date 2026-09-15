@@ -29,9 +29,9 @@ const tagOptions = ref<Array<{ label: string; value: string }>>([])
 /** 难度分闭区间筛选（null = 不限） */
 const difficultyMin = ref<number | null>(null)
 const difficultyMax = ref<number | null>(null)
-/** 「我的」勾选仅对题库管理角色（admin/tutor）开放：只看本人已发布题目（含私有已发布） */
+/** 「我的」勾选仅对题库管理角色（admin）开放：只看本人已发布题目（含私有已发布） */
 const userStore = useUserStore()
-const isManager = computed(() => userStore.isAdmin || userStore.hasAnyRole(['tutor']))
+const isManager = computed(() => userStore.isAdmin)
 const mineOnly = ref(false)
 /** 标签列默认隐藏，右上角「显示标签」勾选后展示 */
 const showTags = ref(false)

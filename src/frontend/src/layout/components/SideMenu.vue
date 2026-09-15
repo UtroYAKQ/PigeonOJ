@@ -25,8 +25,10 @@ interface MenuItem {
   icon?: string
 }
 
-/** 后台空间：/admin 下侧栏切换为管理菜单，与前台菜单互斥 */
+/** 后台空间：/admin 下侧栏切换为管理菜单 */
 const isAdminArea = computed(() => route.path.startsWith('/admin'))
+/** 个人面板：/me 下侧栏切换为个人面板菜单 */
+const isMeArea = computed(() => route.path.startsWith('/me'))
 
 /**
  * 前台一级菜单：单可见子路由的区块（如 题库→列表）拍平为单项；
@@ -63,7 +65,7 @@ const frontMenus = computed<MenuItem[]>(() =>
     }),
 )
 
-/** 后台空间菜单：管理后台各子页（按角色过滤，tutor 仅见题目管理） */
+/** 后台空间菜单：管理后台各子页（按角色过滤） */
 const adminMenus = computed<MenuItem[]>(() => {
   const adminSection = layoutChildren.find((r) => r.path === 'admin')
   return (adminSection?.children ?? [])
@@ -82,7 +84,22 @@ const adminMenus = computed<MenuItem[]>(() => {
     }))
 })
 
-const menus = computed(() => (isAdminArea.value ? adminMenus.value : frontMenus.value))
+/** 个人面板菜单：资料 / 安全设置 / 会话管理 / 组织（菜单项指向区块根，前缀匹配覆盖子页） */
+const meMenus = computed<MenuItem[]>(() => {
+  const meSection = layoutChildren.find((r) => r.path === 'me')
+  return (meSection?.children ?? [])
+    .filter((c) => c.meta?.titleKey && !c.meta?.hidden && !c.meta?.contextPage)
+    .map((c) => ({
+      path: `/me/${c.path}`,
+      titleKey: c.meta?.titleKey,
+      title: c.meta?.title,
+      icon: c.meta?.icon,
+    }))
+})
+
+const menus = computed(() =>
+  isAdminArea.value ? adminMenus.value : isMeArea.value ? meMenus.value : frontMenus.value,
+)
 
 function menuIcon(name?: string) {
   const comp = resolveIcon(name)
@@ -109,6 +126,13 @@ const activePath = computed(() => {
     // /admin/users/online 命中自身（而非被 3 段截断规则归入 /admin/users）；
     // /admin/contests/:cid/tools 这类无自身菜单项的区块子页归入 /admin/contests
     const hits = adminMenus.value
+      .map((m) => m.path)
+      .filter((p) => route.path === p || route.path.startsWith(`${p}/`))
+      .sort((a, b) => b.length - a.length)
+    return hits[0] ?? route.path
+  }
+  if (isMeArea.value) {
+    const hits = meMenus.value
       .map((m) => m.path)
       .filter((p) => route.path === p || route.path.startsWith(`${p}/`))
       .sort((a, b) => b.length - a.length)
@@ -141,8 +165,8 @@ function onSelect(key: string) {
       :value="activePath"
       @update:value="onSelect"
     />
-    <!-- 后台空间底部：返回前台 -->
-    <div v-if="isAdminArea" class="side-footer" :class="{ collapsed: appStore.collapsed }">
+    <!-- 后台 / 个人面板底部：返回前台 -->
+    <div v-if="isAdminArea || isMeArea" class="side-footer" :class="{ collapsed: appStore.collapsed }">
       <n-tooltip trigger="hover" placement="right">
         <template #trigger>
           <button

@@ -254,11 +254,12 @@ class ContestRepository:
         self, user_id: uuid.UUID, problem_ids: list[uuid.UUID],
         *, team_id: uuid.UUID | None = None,
     ) -> list[Problem]:
-        """编排候选校验：已发布且（全站公开 或 本人私有）题目（docs/contracts/contests.md）。
+        """编排候选校验：已发布且（全站公开）题目（docs/contracts/contests.md）。
 
-        - 全站编排（team_id=None）：一律排除团队题目（team_id 非空）——团队是封闭空间，
-          团队题目不得流入公开比赛 / 题单（docs/contracts/teams.md）
-        - 团队编排（team_id 非 None）：额外放开该团队的题目（admin_visible / team_visible）
+        - 全站编排（team_id=None）：一律排除团队 / 组织封闭空间题目
+          （team_id / org_id 非空）——团队与组织是封闭空间，封闭题目不得流入公开比赛
+        - 团队编排（team_id 非 None）：额外放开该团队的题目（快照，
+          admin_visible / team_visible；组织题须先引用进团队）
         """
         if not problem_ids:
             return []
@@ -268,17 +269,12 @@ class ContestRepository:
         ]
         if team_id is None:
             conditions.append(Problem.team_id.is_(None))
-            conditions.append(
-                or_(
-                    Problem.visibility == ProblemVisibility.PUBLIC,
-                    Problem.owner_id == user_id,
-                )
-            )
+            conditions.append(Problem.org_id.is_(None))
+            conditions.append(Problem.visibility == ProblemVisibility.PUBLIC)
         else:
             conditions.append(
                 or_(
                     Problem.visibility == ProblemVisibility.PUBLIC,
-                    Problem.owner_id == user_id,
                     Problem.team_id == team_id,
                 )
             )
@@ -295,26 +291,21 @@ class ContestRepository:
         page_size: int,
         team_id: uuid.UUID | None = None,
     ) -> tuple[list[Problem], int]:
-        """编排页题目搜索：已发布且（全站公开 或 本人私有），标题模糊，开题时间倒序。
+        """编排页题目搜索：已发布且全站公开，标题模糊，创建时间倒序。
 
-        team_id 非 None（团队比赛编排）时额外包含该团队题目。
+        团队比赛编排（team_id 非 None）额外包含该团队题目（快照）。
         """
         conditions: list = [
             Problem.status == ProblemStatus.PUBLISHED,
         ]
         if team_id is None:
             conditions.append(Problem.team_id.is_(None))
-            conditions.append(
-                or_(
-                    Problem.visibility == ProblemVisibility.PUBLIC,
-                    Problem.owner_id == user_id,
-                )
-            )
+            conditions.append(Problem.org_id.is_(None))
+            conditions.append(Problem.visibility == ProblemVisibility.PUBLIC)
         else:
             conditions.append(
                 or_(
                     Problem.visibility == ProblemVisibility.PUBLIC,
-                    Problem.owner_id == user_id,
                     Problem.team_id == team_id,
                 )
             )

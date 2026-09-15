@@ -9,6 +9,7 @@
 | 公共（所有模块） | [common.md](common.md) | 响应信封、通用错误码、分页契约 |
 | 认证 / 用户 | [users.md](users.md) | `users`、`user_sessions`、认证与用户端点、冻结/封禁语义 |
 | 团队 | [teams.md](teams.md) | `teams`、`team_members`、`team_member_applications`、团队与邀请端点 |
+| 组织 | [orgs.md](orgs.md) | `organizations`、`org_members`、组织与组织题库端点 |
 | 题库 | [problems.md](problems.md) | `problems`、`test_cases`、`problem_tags`、`problem_verifications`、题目端点 |
 | 题单 | [problem-sets.md](problem-sets.md) | `problem_sets`、`problem_set_items`、题单端点 |
 | 比赛 | [contests.md](contests.md) | `contests`、`contest_problems`、`contest_registrations`、`contest_rankings`、比赛端点 |
@@ -20,9 +21,11 @@
 
 ```
 users ─┬─< user_sessions
-       ├─< user_roles >─ roles（scope='team' 时 object_id → teams）
-       ├─< team_members >─ teams · team_member_applications
-       ├─< problems (owner_id) · problem_sets (owner_id) · contests (owner_id)
+       ├─< user_roles >─ roles（scope='team' → teams；scope='org' → organizations）
+       ├─< org_members >─ organizations
+       ├─< team_members >─ teams（teams.org_id → organizations）
+       ├─< problems (owner_id 署名；org_id → organizations / team_id → teams)
+       │    · problem_sets (owner_id) · contests (owner_id)
        ├─< submissions
        └─< notifications · messages · posts · solutions · comments · reports
 

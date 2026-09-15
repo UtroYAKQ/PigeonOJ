@@ -64,6 +64,7 @@ def register_routers(app: FastAPI, prefix: str = "/api/v1") -> None:
     from app.api.v1 import contests as contest_routes
     from app.api.v1 import files as files_routes
     from app.api.v1 import judge as judge_routes
+    from app.api.v1 import orgs as org_routes
     from app.api.v1 import problem_sets as problem_sets_routes
     from app.api.v1 import problems as problems_routes
     from app.api.v1 import teams as team_routes
@@ -80,4 +81,5 @@ def register_routers(app: FastAPI, prefix: str = "/api/v1") -> None:
     app.include_router(contest_routes.router, prefix=prefix)
     app.include_router(judge_routes.router, prefix=prefix)
     app.include_router(team_routes.router, prefix=prefix)
+    app.include_router(org_routes.router, prefix=prefix)
     app.include_router(admin_routes.router, prefix=prefix)

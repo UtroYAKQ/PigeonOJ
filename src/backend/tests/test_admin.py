@@ -49,12 +49,12 @@ async def test_admin_set_roles(client: httpx.AsyncClient, admin_headers: dict[st
     await register_user(client, "roles@pigeonoj.dev")
     users = (await client.get("/api/v1/admin/users?keyword=roles@pigeonoj.dev", headers=admin_headers)).json()["data"]["items"]
     uid = users[0]["id"]
-    # 单一角色模型：整体替换为指定角色
-    resp = await client.put(f"/api/v1/admin/users/{uid}/roles", json={"role_id": "tutor"}, headers=admin_headers)
+    # 单一角色模型：整体替换为指定角色（tutor 已下线，合法全局角色 = admin / user）
+    resp = await client.put(f"/api/v1/admin/users/{uid}/roles", json={"role_id": "admin"}, headers=admin_headers)
     assert resp.json()["code"] == 0
     token = await api_login(client, "roles@pigeonoj.dev", PASSWORD)
     me = (await client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token}"})).json()["data"]
-    assert me["roles"] == ["tutor"]
+    assert me["roles"] == ["admin"]
     # 换角色 → 整体替换，不叠加
     resp = await client.put(f"/api/v1/admin/users/{uid}/roles", json={"role_id": "user"}, headers=admin_headers)
     assert resp.json()["code"] == 0

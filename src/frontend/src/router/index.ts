@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import { frontRoutes } from './routes/front'
 import { adminRoutes } from './routes/admin'
-import { userRoutes } from './routes/user'
+import { meRoutes } from './routes/me'
 import { publicRoutes } from './routes/public'
 import { registerGuards, setDocumentTitle } from './guards'
 
@@ -10,7 +10,7 @@ import { registerGuards, setDocumentTitle } from './guards'
  * 布局下的区块路由（侧边栏菜单数据源）。
  * SideMenu.vue 依赖此导出渲染菜单 + 激活定位。
  */
-export const layoutChildren = [...frontRoutes, ...adminRoutes, ...userRoutes]
+export const layoutChildren = [...frontRoutes, ...adminRoutes, ...meRoutes]
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),

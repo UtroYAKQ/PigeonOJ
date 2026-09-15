@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 题目管理 · 提交列表（上下文路由 /admin/problems/:id/submissions）：
- * 面向题目管理角色（创建者 / admin / tutor）查看该题全员提交，
+ * 面向题目管理角色（创建者 / admin）查看该题全员提交，
  * 经题目上下文端点读取（后端按 can_manage_problem 校验），不跳出管理动线。
  * 支持昵称关键字 / 语言 / 状态筛选；点击行进入评测详情（上下文路由内跳转）。
  */

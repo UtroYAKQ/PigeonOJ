@@ -24,6 +24,7 @@ from app.services.judge import SelfTestService, SubmissionService
 from app.services.problem import ProblemService
 from app.services.problem_set import ProblemSetService
 from app.services.system_config import ConfigService, get_site_public_configs
+from app.services.org import OrgService
 from app.services.tag import TagService
 from app.services.team import TeamService
 from app.services.user import AuthService, UserService
@@ -127,6 +128,13 @@ def get_team_service(db: SessionDep) -> TeamService:
 
 
 TeamServiceDep = Annotated[TeamService, Depends(get_team_service)]
+
+
+def get_org_service(db: SessionDep) -> OrgService:
+    return OrgService(db)
+
+
+OrgServiceDep = Annotated[OrgService, Depends(get_org_service)]
 
 
 def get_team_space_service(

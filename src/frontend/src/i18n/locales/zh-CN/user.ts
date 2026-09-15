@@ -6,7 +6,7 @@ export default {
     login: '登录',
     register: '注册',
     logout: '退出登录',
-    role: { admin: '系统管理员', tutor: '导师', user: '普通用户' },
+    role: { admin: '系统管理员', user: '普通用户' },
     status: { active: '正常', frozen: '冻结', banned: '封禁', deleted: '已注销' },
   },
   profile: {

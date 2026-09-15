@@ -252,7 +252,7 @@ export const frontRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        // 团队题单创建页：新建 / 引用我的题单（引用 tab 仅 tutor / admin）
+        // 团队题单创建页（copy_items_from 已随组织化改造移除，仅表单创建）
         path: ':teamId/sets/new',
         name: 'team-set-create',
         component: () => import('@/views/teams/TeamSetCreateView.vue'),
@@ -269,7 +269,7 @@ export const frontRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        // 团队题目引用页：团队题目 = 引用制（tutor / admin 引用本人题目）
+        // 团队题目引用页：团队题目 = 引用制（候选 = 所属组织题库 ∪ 全站公开题）
         path: ':teamId/problems/new',
         name: 'team-problem-reference',
         component: () => import('@/views/teams/TeamProblemReferenceView.vue'),
@@ -537,23 +537,6 @@ export const frontRoutes: RouteRecordRaw[] = [
                 `/teams/${String(route.params.teamId)}/sets/${String(route.params.setId)}/problems/${String(route.params.problemId)}`,
             },
           ],
-        },
-      },
-      {
-        // 团队题目直建向导（第一步题面）：POST /problems 带 team_id（团队可见性分支）
-        path: ':teamId/problems/create',
-        name: 'team-problem-create',
-        component: () => import('@/views/problems/ProblemStatementView.vue'),
-        meta: {
-          title: '创建题目',
-          titleKey: 'problems.create.title',
-          requiresAuth: true,
-          hidden: true,
-          contextPage: true,
-          breadcrumbParent: {
-            titleKey: 'teams.detail.title',
-            path: (route) => `/teams/${String(route.params.teamId)}`,
-          },
         },
       },
       {

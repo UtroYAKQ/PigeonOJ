@@ -146,7 +146,7 @@ ORDER BY r.created_at DESC, r.id DESC
 
 ## 关键流程 / 验收条件
 
-1. **全局角色授权**：`PUT /admin/users/{id}/roles` 写 `user_roles`（`scope='global'`、`object_id=NULL`）；**单一角色模型**——每个用户恰好持有一个全局角色（`admin` / `tutor` / `user`），授权为整体替换而非叠加；唯一索引兜底防重复。
+1. **全局角色授权**：`PUT /admin/users/{id}/roles` 写 `user_roles`（`scope='global'`、`object_id=NULL`）；**单一角色模型**——每个用户恰好持有一个全局角色（`admin` / `user`；`tutor` 已随组织化改造下线，出题权收敛到组织题库，见 `orgs.md`），授权为整体替换而非叠加；唯一索引兜底防重复。
 2. **封禁 / 解封、冻结 / 解冻**：写 `users.status`（`banned` / `frozen`），均立即拦截登录；`frozen` 带 `frozen_until` 到期自动解冻（解冻端点可提前结束），`banned` 仅人工解封。
 3. **系统配置**：按 `category` 分域读写 `system_configs`；修改人记录 `updated_by`。业务侧实时读库（无缓存），保存后立即生效；已接线消费方：`auth_email` 验证码策略 / 注册邮箱验证开关 / SMTP 发信、`sandbox` 冷却 / 并发、`site.register_enabled` 注册开关、`site` 公开展示字段（经 `/site-config`）。
 4. **日志**：`request_logs`（含沙箱子记录）、`login_logs`、`exception_logs` 按条件查询 / 导出。
@@ -157,3 +157,14 @@ ORDER BY r.created_at DESC, r.id DESC
   上传按用户 Redis 固定窗口频控（见 docs/security.md「上传与文件安全」），换头像时 best-effort 删除被替换的站内旧头像对象
 - 日志请求体不回传明文（脱敏摘要）
 - Token 用量仅统计、不做额度控制
+
+## 组织管理视图（组织化改造，docs/contracts/orgs.md）
+
+| 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
+| --- | --- | --- | --- | --- | --- |
+| GET | /admin/orgs | admin | 组织管理列表：全量（含已解散），创建时间倒序；带成员数 / 团队数 / 创建操作人昵称 / 状态 | 分页/keyword（名称模糊）/status | org[]（OrgAdminSummary） |
+| GET | /admin/orgs/{id} | admin | 组织管理详情（免组织成员校验，含已解散；成员只读浏览走 /admin/orgs/{id}/members） | - | org（OrgAdminDetail） |
+| GET | /admin/orgs/{id}/members | admin | 组织成员列表（status 缺省 = 在册，keyword 模糊昵称） | 分页/keyword/status | member[]（OrgMemberOut） |
+| PUT | /admin/teams/{id}/org | admin | 存量团队指派组织（迁移用；组织须 active） | org_id | - |
+
+## 实现状态

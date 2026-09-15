@@ -15,19 +15,19 @@ const userStore = useUserStore()
 
 /** 后台空间内头像菜单提供「回到前台」，前台则对管理员提供「管理后台」入口 */
 const isAdminArea = computed(() => route.path.startsWith('/admin'))
+/** 个人面板内同样提供「回到前台」 */
+const isMeArea = computed(() => route.path.startsWith('/me'))
 
 const options = computed<DropdownOption[]>(() => {
   if (!userStore.isLoggedIn) return []
   const items: DropdownOption[] = []
-  if (isAdminArea.value) items.push({ label: t('admin.backToApp'), key: '/' })
-  else if (userStore.isAdmin || userStore.hasAnyRole(['tutor']))
-    items.push({ label: t('nav.admin'), key: '/admin/problems' })
-  items.push(
-    { label: t('user.profile'), key: '/user/profile' },
-    { label: t('user.security'), key: '/user/security' },
-    { label: t('user.sessions'), key: '/user/sessions' },
-    { label: t('user.logout'), key: '__logout' },
-  )
+  if (isAdminArea.value || isMeArea.value) {
+    items.push({ label: t('admin.backToApp'), key: '/' })
+  } else {
+    if (userStore.isAdmin) items.push({ label: t('nav.admin'), key: '/admin/users' })
+    items.push({ label: t('nav.me'), key: '/me/profile' })
+  }
+  items.push({ label: t('user.logout'), key: '__logout' })
   return items
 })
 

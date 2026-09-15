@@ -1,4 +1,4 @@
-"""引导演示账号（开发用）：admin / tutor / user，与前端 Mock 演示账号一致。
+"""引导演示账号（开发用）：admin / user，与前端 Mock 演示账号一致。
 
 用法：python -m scripts.bootstrap_demo_users
 """
@@ -14,7 +14,6 @@ from app.utils.security import hash_password
 
 DEMO_USERS = [
     ("admin@pigeonoj.dev", "Admin@123", "鸽子管理员", ["admin"]),
-    ("tutor@pigeonoj.dev", "Tutor@123", "导师老白", ["tutor"]),
     ("user@pigeonoj.dev", "User@123", "萌新小鸽", ["user"]),
 ]
 

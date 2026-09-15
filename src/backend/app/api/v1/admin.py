@@ -13,6 +13,7 @@ from app.api.deps import (
     AdminConfigServiceDep,
     ContestServiceDep,
     LogServiceDep,
+    OrgServiceDep,
     ProblemImportServiceDep,
     ProblemSetServiceDep,
     ReportServiceDep,
@@ -51,6 +52,7 @@ from app.schemas.problem import (
     TeamProblemSummary,
 )
 from app.schemas.problem_set import ProblemSetSummary
+from app.schemas.org import OrgAdminDetail, OrgAdminSummary, OrgMemberOut, OrgTeamAssign
 from app.schemas.team import TeamAdminDetail, TeamAdminSummary, TeamMemberOut
 from app.schemas.user import UserPublic
 from app.core.dependency import get_current_admin, get_current_user
@@ -373,7 +375,7 @@ async def export_problem_xml(
     )
 
 
-# ---- 比赛管理视图（单一所有权模型：admin 全量、tutor 仅本人创建，docs/contracts/contests.md） ----
+# ---- 比赛管理视图（单一所有权模型：admin 全量；docs/contracts/contests.md） ----
 @router.get("/contests", response_model=ApiResponse[PaginatedResponse[ContestSummary]])
 async def admin_list_contests(
     service: ContestServiceDep,
@@ -394,7 +396,7 @@ async def admin_list_contests(
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
 
 
-# ---- 题单管理（docs/contracts/problem-sets.md；管理角色 admin/tutor，非 admin 专属） ----
+# ---- 题单管理（docs/contracts/problem-sets.md；管理角色：admin） ----
 
 
 @router.get("/problem-sets", response_model=ApiResponse[PaginatedResponse[ProblemSetSummary]])
@@ -530,3 +532,59 @@ async def admin_list_team_contests(
         team_id, keyword=keyword, status=status, page=page, page_size=page_size
     )
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+# ---- 组织管理视图（docs/contracts/orgs.md 管理端：admin 全量只读浏览，免组织角色） ----
+
+
+@router.get("/orgs", response_model=ApiResponse[PaginatedResponse[OrgAdminSummary]])
+async def admin_list_orgs(
+    service: OrgServiceDep,
+    admin: User = _admin,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=64),
+    status: str | None = Query(default=None),
+) -> ApiResponse[PaginatedResponse[OrgAdminSummary]]:
+    """组织管理列表（admin 全量，含已解散）：成员数 / 团队数 / 创建操作人昵称 / 状态。"""
+    items, total = await service.admin_list(page, page_size, keyword, status)
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.get("/orgs/{org_id}", response_model=ApiResponse[OrgAdminDetail])
+async def admin_get_org(
+    org_id: uuid.UUID,
+    service: OrgServiceDep,
+    admin: User = _admin,
+) -> ApiResponse[OrgAdminDetail]:
+    """组织管理详情（免组织成员校验，含已解散）。"""
+    return ok(await service.admin_get_detail(org_id))
+
+
+@router.get("/orgs/{org_id}/members", response_model=ApiResponse[PaginatedResponse[OrgMemberOut]])
+async def admin_list_org_members(
+    org_id: uuid.UUID,
+    service: OrgServiceDep,
+    admin: User = _admin,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=64),
+    status: str | None = Query(default=None),
+) -> ApiResponse[PaginatedResponse[OrgMemberOut]]:
+    """组织成员列表（admin 管理视图；status 缺省 = 在册成员，keyword 模糊昵称）。"""
+    items, total = await service.admin_list_members(org_id, status, page, page_size, keyword)
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.put("/teams/{team_id}/org", response_model=ApiResponse[None])
+async def admin_assign_team_org(
+    team_id: uuid.UUID,
+    body: OrgTeamAssign,
+    service: OrgServiceDep,
+    db: SessionDep,
+    admin: User = _admin,
+) -> ApiResponse[None]:
+    """存量团队指派组织（迁移用；组织必须 active）。"""
+    await service.admin_assign_team(team_id, body)
+    await db.commit()
+    return ok(None)

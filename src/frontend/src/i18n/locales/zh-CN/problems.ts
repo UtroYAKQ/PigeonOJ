@@ -18,6 +18,7 @@ export default {
       public: '公开',
       admin_visible: '管理可见',
       team_visible: '团队可见',
+      org_visible: '组织可见',
     },
     list: {
       create: '创建题目',
@@ -53,6 +54,7 @@ export default {
       empty: '暂无符合条件的题目',
       ownershipAll: '全部来源',
       ownershipSolo: '全站题',
+      ownershipOrg: '组织题',
       ownershipTeam: '团队题',
       archiveConfirm: '归档后题目将从题库隐藏，已有引用不受影响。确定归档？',
       viewSubmissions: '查看提交',
