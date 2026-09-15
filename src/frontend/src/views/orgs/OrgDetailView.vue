@@ -45,7 +45,8 @@ import { ApiError } from '@/api/http'
 import BaseAvatar from '@/components/BaseAvatar.vue'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
-import { formatDateTime } from '@/utils/format'
+import { formatCompact, formatDateTime } from '@/utils/format'
+import { renderDifficulty, renderRatio } from '@/utils/problemCells'
 import { useUserStore } from '@/stores/user'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
@@ -71,14 +72,6 @@ const isOrgAdmin = computed(() => org.value?.my_role === 'admin' || userStore.is
 const isMember = computed(() => org.value?.my_role != null || userStore.isAdmin)
 /** 站点 admin 且非组织成员：hero 显示站点管理员身份标签 */
 const isSiteAdminViewer = computed(() => userStore.isAdmin && !org.value?.my_role)
-
-function formatCompact(iso: string | null | undefined): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
 
 /** 复制组织 ID（统计行）：显示前 8 位，复制完整 ID */
 async function copyOrgId() {
@@ -541,7 +534,7 @@ const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
     key: 'difficulty',
     width: 80,
     align: 'center',
-    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
+    render: (row) => renderDifficulty(row),
   },
   {
     title: t('problems.list.limits'),
@@ -554,12 +547,7 @@ const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
     key: 'rate',
     width: 110,
     align: 'center',
-    render(row) {
-      const total = row.submission_count ?? 0
-      if (!total) return '--'
-      const accepted = row.accepted_count ?? 0
-      return `${accepted}/${total}`
-    },
+    render: (row) => renderRatio(row),
   },
 ])
 

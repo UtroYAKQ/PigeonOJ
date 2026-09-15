@@ -54,6 +54,7 @@
     current: 'Current',
     noData: 'No data',
     loadFailed: 'Failed to load. Please try again later.',
+    loading: 'Loading…',
     saveFailed: 'Failed to save. Please check your input and try again.',
     updateFailed: 'Failed to update. Please try again later.',
     operationFailed: 'Operation failed. Please try again later.',

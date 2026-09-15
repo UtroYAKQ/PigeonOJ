@@ -20,6 +20,7 @@ import { adminListContests } from '@/api/admin'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
+import { contestStatusLabelKey, contestStatusTagType } from '@/constants/contestStatus'
 import type { ContestSummary, PageResult } from '@/types'
 
 const router = useRouter()
@@ -65,12 +66,6 @@ async function load() {
 
 onMounted(load)
 
-const statusMap = computed(() => ({
-  running: { label: t('contests.statusRunning'), type: 'success' as const },
-  scheduled: { label: t('contests.statusScheduled'), type: 'info' as const },
-  finished: { label: t('contests.statusFinished'), type: 'default' as const },
-}))
-
 const columns = computed<DataTableColumns<ContestSummary>>(() => [
   {
     title: t('contests.list.titleLabel'),
@@ -102,8 +97,8 @@ const columns = computed<DataTableColumns<ContestSummary>>(() => [
     render: (row) =>
       h(
         NTag,
-        { size: 'small', bordered: false, type: statusMap.value[row.status].type },
-        { default: () => statusMap.value[row.status].label },
+        { size: 'small', bordered: false, type: contestStatusTagType(row.status) },
+        { default: () => t(contestStatusLabelKey(row.status)) },
       ),
   },
   {

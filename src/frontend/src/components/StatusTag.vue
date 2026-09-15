@@ -6,16 +6,17 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { submissionStatusTagType } from '@/constants/submissionStatus'
+import { submissionStatusLabelKey, submissionStatusTagType } from '@/constants/submissionStatus'
 
 const props = defineProps<{ status: string }>()
 
 const { t } = useI18n()
 const type = computed(() => submissionStatusTagType(props.status))
+const label = computed(() => t(submissionStatusLabelKey(props.status)))
 </script>
 
 <template>
   <n-tag size="small" :type="type" :bordered="false">
-    {{ t(`problems.status.${status}`) }}
+    {{ label }}
   </n-tag>
 </template>

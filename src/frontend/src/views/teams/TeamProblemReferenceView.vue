@@ -14,6 +14,7 @@ import type { DataTableColumns } from 'naive-ui'
 
 import { referenceTeamProblem, searchTeamReferenceableProblems } from '@/api/teams'
 import { message } from '@/utils/feedback'
+import { renderDifficulty } from '@/utils/problemCells'
 import { usePagination } from '@/composables/usePagination'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
@@ -95,7 +96,7 @@ const columns = computed<DataTableColumns<TeamProblemSummary>>(() => [
     key: 'difficulty',
     width: 90,
     align: 'center',
-    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
+    render: (row) => renderDifficulty(row),
   },
   {
     title: t('problems.list.limits'),

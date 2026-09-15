@@ -84,8 +84,10 @@ class AdminConfigService:
 
     async def update_configs(self, admin: User, items: list[ConfigUpdateItem]) -> list[ConfigItemOut]:
         updated_keys: list[tuple[str, str]] = []
+        rows = await self.repo.get_by_ids([item.id for item in items])
+        by_id = {str(row.id): row for row in rows}
         for item in items:
-            row = await self.repo.get_by_id(item.id)
+            row = by_id.get(str(item.id))
             if row is None:
                 raise APIError(RESOURCE_NOT_FOUND, f"配置不存在：{item.id}", 404)
             value = item.config_value
@@ -178,16 +180,19 @@ class SandboxService:
 
     async def status(self) -> list[SandboxNodeOut]:
         r = get_redis()
+        keys = [key async for key in r.scan_iter(f"{SANDBOX_NODE_KEY_PREFIX}*", count=100)]
+        if not keys:
+            return []
+        raws = await r.mget(*keys)
         nodes: list[SandboxNodeOut] = []
-        async for key in r.scan_iter(f"{SANDBOX_NODE_KEY_PREFIX}*", count=100):
-            raw = await r.get(key)
+        for raw in raws:
             if not raw:
                 continue
             try:
                 data = json.loads(raw)
                 nodes.append(SandboxNodeOut(**data))
-            except (json.JSONDecodeError, Exception):
-                logger.warning("sandbox node key %s 解析失败", key)
+            except Exception:
+                logger.warning("sandbox node key 解析失败", exc_info=True)
         return nodes
 
 

@@ -455,11 +455,13 @@ class ContestRankingRepository:
         )
         return result.rowcount or 0
 
-    async def freeze_rows(self, contest_id: uuid.UUID) -> None:
-        """封榜快照：该比赛全部榜单行置 is_frozen=true。"""
+    async def freeze_rows(self, contest_ids: list[uuid.UUID]) -> None:
+        """封榜快照：指定比赛全部榜单行置 is_frozen=true（批量 UPDATE，单场也走列表）。"""
+        if not contest_ids:
+            return
         await self.db.execute(
             update(ContestRanking)
-            .where(ContestRanking.contest_id == contest_id)
+            .where(ContestRanking.contest_id.in_(contest_ids))
             .values(is_frozen=True, updated_at=func.now())
         )
 

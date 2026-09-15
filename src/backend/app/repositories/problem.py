@@ -1,6 +1,7 @@
 """题库仓储：Problem / Tag / Verification 数据访问。"""
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from sqlalchemy import delete, false, func, or_, select
@@ -73,26 +74,38 @@ class ProblemRepository:
         )
         by_id = {row.id: row for row in rows}
         storage = get_storage()
-        new_ids: list[uuid.UUID] = []
-        for case_id in source.active_case_ids:
-            row = by_id.get(case_id)
-            if row is None:  # 生效集指向缺失行（异常数据）：跳过保持集合完整
-                continue
-            input_oss_id, expected_oss_id = await storage.copy_object(
-                row.input_oss_id
-            ), await storage.copy_object(row.expected_output_oss_id)
-            copy = TestCase(
-                problem_id=target.id,
-                name=row.name,
-                input_oss_id=input_oss_id,
-                expected_output_oss_id=expected_oss_id,
-                origin_id=row.id,  # 指回源题行（版本化语义：复制来源）
-                sort_order=row.sort_order,
-            )
-            self.db.add(copy)
+        # 源题生效集按 active_case_ids 顺序取行（缺失行跳过，保持集合完整）
+        ordered_rows = [by_id[case_id] for case_id in source.active_case_ids if case_id in by_id]
+        if not ordered_rows:
+            target.active_case_ids = []
+            target.cases_revision = 0
             await self.db.flush()
-            new_ids.append(copy.id)
-        target.active_case_ids = new_ids
+            return
+        # MinIO 对象拷贝相互独立，全量并行（同一对象存储客户端安全）
+        pairs = await asyncio.gather(
+            *(
+                asyncio.gather(
+                    storage.copy_object(row.input_oss_id),
+                    storage.copy_object(row.expected_output_oss_id),
+                )
+                for row in ordered_rows
+            )
+        )
+        copies: list[TestCase] = []
+        for (input_oss_id, expected_oss_id), row in zip(pairs, ordered_rows):
+            copies.append(
+                TestCase(
+                    problem_id=target.id,
+                    name=row.name,
+                    input_oss_id=input_oss_id,
+                    expected_output_oss_id=expected_oss_id,
+                    origin_id=row.id,  # 指回源题行（版本化语义：复制来源）
+                    sort_order=row.sort_order,
+                )
+            )
+        self.db.add_all(copies)
+        await self.db.flush()
+        target.active_case_ids = [copy.id for copy in copies]
         target.cases_revision = 0  # 新题生效集即基线，暂存集为空
         await self.db.flush()
 

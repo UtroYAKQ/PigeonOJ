@@ -1,5 +1,5 @@
 /**
- * 通用类型：分页契约、API 响应信封、HTTP 方法。
+ * 通用类型：分页契约、API 响应信封。
  */
 
 /** 分页契约（docs/contracts/common.md）：?page=1&page_size=20，page_size ≤ 100 */
@@ -16,5 +16,3 @@ export interface Envelope<T = unknown> {
   message: string
   data: T
 }
-
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'

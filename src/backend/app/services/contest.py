@@ -1052,6 +1052,19 @@ class ContestService:
         except Exception:
             logger.warning("榜单缓存失效失败 contest_id=%s（等待 TTL 兜底）", contest_id, exc_info=True)
 
+    async def _invalidate_board_caches(self, contest_ids: list[uuid.UUID]) -> None:
+        """批量失效榜单缓存（transition 封榜场次多时走 pipeline，少一次网络往返）。"""
+        if not contest_ids:
+            return
+        try:
+            r = get_redis()
+            async with r.pipeline(transaction=False) as pipe:
+                for contest_id in contest_ids:
+                    pipe.delete(_board_cache_key(contest_id))
+                await pipe.execute()
+        except Exception:
+            logger.warning("榜单缓存批量失效失败（等待 TTL 兜底）", exc_info=True)
+
     async def _compute_board(self, contest: Contest) -> BoardOut:
         """全量计算榜单：按赛制排序（ACM 通过数↓罚时↑；IOI 总分↓通过数↑），封榜展示冻结快照。"""
         contest_problems = await self.repo.list_contest_problems(contest.id)
@@ -1262,7 +1275,7 @@ class ContestService:
         ):
             contest.board_frozen = True
             contest.frozen_at = now
-            await self.rankings.freeze_rows(contest.id)
+            await self.rankings.freeze_rows([contest.id])
             await self.db.flush()
             await self._invalidate_board_cache(contest.id)
         else:
@@ -1407,11 +1420,10 @@ class ContestService:
         freezing = await self.repo.list_freeze_candidates(now)
         if freezing:
             await self.repo.freeze_contests([c.id for c in freezing], now)
-            for contest in freezing:
-                await self.rankings.freeze_rows(contest.id)
+            await self.rankings.freeze_rows([c.id for c in freezing])
         # 结束（不自动解冻：真实榜单回填由人工解冻触发）
         await self.repo.finish_due_contests(now)
         await self.db.commit()
         # 封榜改变 board_frozen 快照标记，commit 后失效对应榜单缓存（并发读不可见未提交数据）
-        for contest in freezing:
-            await self._invalidate_board_cache(contest.id)
+        if freezing:
+            await self._invalidate_board_caches([c.id for c in freezing])

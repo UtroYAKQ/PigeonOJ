@@ -9,6 +9,7 @@ import RefreshButton from '@/components/RefreshButton.vue'
 import { listActiveTags, listProblems } from '@/api/problems'
 import { message } from '@/utils/feedback'
 import { renderSolveMark } from '@/utils/solveMark'
+import { renderDifficulty, renderPassRate } from '@/utils/problemCells'
 import { useUserStore } from '@/stores/user'
 import { usePagination } from '@/composables/usePagination'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
@@ -80,13 +81,6 @@ function changeTag() {
   load()
 }
 
-/** 通过率展示：accepted/submission 百分比；无提交显示 -- */
-function passRate(row: ProblemSummary): string {
-  const total = row.submission_count ?? 0
-  if (!total) return '--'
-  return `${Math.round(((row.accepted_count ?? 0) / total) * 100)}%`
-}
-
 onMounted(() => {
   load()
   loadTagOptions()
@@ -154,13 +148,13 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
     title: t('problems.list.difficulty'),
     key: 'difficulty',
     width: 90,
-    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
+    render: (row) => renderDifficulty(row),
   },
   {
     title: t('problems.list.passRate'),
     key: 'pass_rate',
     width: 100,
-    render: (row) => passRate(row),
+    render: (row) => renderPassRate(row),
   },
 ])
 

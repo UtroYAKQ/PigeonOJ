@@ -23,6 +23,7 @@ import {
 } from '@/api/teams'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/visibilityLabel'
+import { renderDifficulty } from '@/utils/problemCells'
 import type { PageResult, ProblemSetDetail, ProblemSetItem, ProblemSummary } from '@/types'
 
 const route = useRoute()
@@ -211,7 +212,7 @@ const columns = computed<DataTableColumns<ProblemSetItem>>(() => [
     title: t('problemSets.detail.difficulty'),
     key: 'difficulty',
     width: 80,
-    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
+    render: (row) => renderDifficulty(row),
   },
   {
     title: t('problems.list.limits'),

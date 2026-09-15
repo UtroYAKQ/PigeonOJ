@@ -612,22 +612,27 @@ async def load_export_items(
     storage = get_storage()
     items: list[ExportItem] = []
     missing: list[uuid_mod.UUID] = []
-    seen: set[uuid_mod.UUID] = set()
     total_bytes = 0
+    # 去重并一次批量取题目与测试点（避免逐题 N+1）
+    unique_ids: list[uuid_mod.UUID] = []
     for pid in problem_ids:
-        if pid in seen:
-            continue
-        seen.add(pid)
-        problem = await db.get(Problem, pid)
+        if pid not in unique_ids:
+            unique_ids.append(pid)
+    problems = {
+        p.id: p
+        for p in (
+            await db.execute(select(Problem).where(Problem.id.in_(unique_ids)))
+        ).scalars().all()
+    }
+    case_rows: dict[uuid_mod.UUID, dict[uuid_mod.UUID, TestCase]] = {}
+    for row in (await db.execute(select(TestCase).where(TestCase.problem_id.in_(list(problems))))).scalars().all():
+        case_rows.setdefault(row.problem_id, {})[row.id] = row
+    for pid in unique_ids:
+        problem = problems.get(pid)
         if problem is None:
             missing.append(pid)
             continue
-        rows = {
-            row.id: row
-            for row in (
-                await db.execute(select(TestCase).where(TestCase.problem_id == pid))
-            ).scalars().all()
-        }
+        rows = case_rows.get(pid, {})
         tests: list[dict] = []
         for raw_id in problem.active_case_ids or []:
             try:

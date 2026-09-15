@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from sqlalchemy import delete, func, select, update, String
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -456,6 +457,35 @@ class RoleRepository:
                 user_id=user_id, role_id=role.id, scope=UserRoleScope.ORG, object_id=org_id
             )
         )
+        await self.db.flush()
+
+    async def grant_org_roles(
+        self, user_ids: list[uuid.UUID], org_id: uuid.UUID, code: str
+    ) -> None:
+        """批量授予组织角色（一次 resolve 角色行 + 单条 INSERT ... ON CONFLICT DO NOTHING）。"""
+        if not user_ids:
+            return
+        role = await self.get_by_code(code)
+        if role is None:
+            return
+        stmt = (
+            pg_insert(UserRole)
+            .values(
+                [
+                    {
+                        "user_id": uid,
+                        "role_id": role.id,
+                        "scope": UserRoleScope.ORG,
+                        "object_id": org_id,
+                    }
+                    for uid in dict.fromkeys(user_ids)
+                ]
+            )
+            .on_conflict_do_nothing(
+                index_elements=["user_id", "role_id", "scope", "object_id"],
+            )
+        )
+        await self.db.execute(stmt)
         await self.db.flush()
 
     async def revoke_org_roles(

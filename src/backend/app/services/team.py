@@ -59,6 +59,47 @@ def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def summarize_teams(
+    rows: list[Team],
+    counts: dict[uuid.UUID, int],
+    role_map: dict[uuid.UUID, set[str]],
+    *,
+    user: User | None,
+    member_team_ids: set[uuid.UUID] | None = None,
+    default_member: bool = False,
+) -> list[TeamSummary]:
+    """团队列表汇总装配（组织 / 我的 / 公开列表共用，docs/contracts/teams.md）。
+
+    - member_team_ids=None：假定全部行都是查看者的在册团队（我的团队分支）
+    - member_team_ids 提供时仅其中在册团队带角色，其余 my_role=None（公开列表分支）
+    - default_member=True：无角色码但确认为在册时兜底「member」
+    """
+    items: list[TeamSummary] = []
+    for team in rows:
+        my_role: str | None = None
+        if user is not None and (member_team_ids is None or team.id in member_team_ids):
+            codes = role_map.get(team.id, set())
+            if team.creator_id == user.id:
+                my_role = "creator"
+            elif ROLE_ADMIN in codes:
+                my_role = "admin"
+            elif ROLE_MEMBER in codes or default_member:
+                my_role = "member"
+        items.append(
+            TeamSummary(
+                id=team.id,
+                name=team.name,
+                description=team.description,
+                avatar_url=team.avatar_url,
+                created_at=team.created_at,
+                visibility=TeamVisibility(team.visibility),
+                member_count=counts.get(team.id, 0),
+                my_role=my_role,
+            )
+        )
+    return items
+
+
 class TeamService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -166,27 +207,7 @@ class TeamService:
         rows, total = await self.teams.list_teams_of_user(user.id, page, page_size, keyword)
         counts = await self.teams.count_active_members_by_team([t.id for t in rows])
         role_map = await self.roles.get_team_roles_for_teams(user.id, [t.id for t in rows])
-        items = []
-        for team in rows:
-            codes = role_map.get(team.id, set())
-            my_role = (
-                "creator"
-                if self._is_creator(team, user.id)
-                else "admin" if ROLE_ADMIN in codes else "member"
-            )
-            items.append(
-                TeamSummary(
-                    id=team.id,
-                    name=team.name,
-                    description=team.description,
-                    avatar_url=team.avatar_url,
-                    created_at=team.created_at,
-                    visibility=TeamVisibility(team.visibility),
-                    member_count=counts.get(team.id, 0),
-                    my_role=my_role,
-                )
-            )
-        return items, total
+        return summarize_teams(rows, counts, role_map, user=user, default_member=True), total
 
     async def list_public_teams(
         self,
@@ -210,27 +231,7 @@ class TeamService:
             )
             counts = await self.teams.count_active_members_by_team([t.id for t in rows])
             role_map = await self.roles.get_team_roles_for_teams(user.id, [t.id for t in rows])
-            items = []
-            for team in rows:
-                codes = role_map.get(team.id, set())
-                my_role = (
-                    "creator"
-                    if self._is_creator(team, user.id)
-                    else "admin" if ROLE_ADMIN in codes else "member"
-                )
-                items.append(
-                    TeamSummary(
-                        id=team.id,
-                        name=team.name,
-                        description=team.description,
-                        avatar_url=team.avatar_url,
-                        created_at=team.created_at,
-                        visibility=TeamVisibility(team.visibility),
-                        member_count=counts.get(team.id, 0),
-                        my_role=my_role,
-                    )
-                )
-            return items, total
+            return summarize_teams(rows, counts, role_map, user=user, default_member=True), total
         rows, total = await self.teams.list_public(page, page_size, keyword=keyword)
         counts = await self.teams.count_active_members_by_team([t.id for t in rows])
         # 成员判定以 team_members.active 为唯一口径（与 get_detail 权限校验一致）；
@@ -242,30 +243,7 @@ class TeamService:
             team_ids = [t.id for t in rows]
             member_team_ids = await self.teams.active_member_team_ids(user.id, team_ids)
             role_map = await self.roles.get_team_roles_for_teams(user.id, team_ids)
-        items = []
-        for team in rows:
-            if team.id not in member_team_ids:
-                my_role = None
-            else:
-                codes = role_map.get(team.id, set())
-                my_role = (
-                    "creator"
-                    if self._is_creator(team, user.id)
-                    else "admin" if ROLE_ADMIN in codes else "member"
-                )
-            items.append(
-                TeamSummary(
-                    id=team.id,
-                    name=team.name,
-                    description=team.description,
-                    avatar_url=team.avatar_url,
-                    created_at=team.created_at,
-                    visibility=TeamVisibility(team.visibility),
-                    member_count=counts.get(team.id, 0),
-                    my_role=my_role,
-                )
-            )
-        return items, total
+        return summarize_teams(rows, counts, role_map, user=user, member_team_ids=member_team_ids), total
 
     # ---------------- 管理端视图（admin，docs/contracts/teams.md 管理端） ----------------
 

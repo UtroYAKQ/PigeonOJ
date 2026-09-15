@@ -31,9 +31,7 @@ const naiveDateLocale = computed(() => (locale.value === 'en-US' ? dateEnUS : da
     :locale="naiveLocale"
     :date-locale="naiveDateLocale"
   >
-    <n-message-provider>
-      <n-dialog-provider><router-view /></n-dialog-provider>
-    </n-message-provider>
+    <router-view />
   </n-config-provider>
 </template>
 

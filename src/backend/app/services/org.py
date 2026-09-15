@@ -48,6 +48,7 @@ from app.schemas.org import (
     OrgUpdate,
 )
 from app.schemas.team import TeamCreate, TeamSummary
+from app.services.team import summarize_teams  # 团队列表装配复用，避免同构循环
 
 # 组织角色 code（roles 种子，docs/contracts/orgs.md）
 ROLE_ADMIN = "org_admin"
@@ -339,13 +340,38 @@ class OrgService:
         org = await self._active_org_or_error(org_id)
         await self._require_org_roles(user, org.id, level="admin")
         user_ids = list(dict.fromkeys(body.user_ids))
+        # 一次性校验目标用户存在且 active（避免逐用户 round-trip）
+        rows = (await self.db.execute(select(User.id, User.status).where(User.id.in_(user_ids)))).all()
+        active_ids = {uid for uid, status in rows if status == UserStatus.ACTIVE}
+        missing = [uid for uid in user_ids if uid not in active_ids]
+        if missing:
+            raise APIError(RESOURCE_NOT_FOUND, "用户不存在或不可用", 404)
+        # 批量 upsert 在册成员行：新成员插入 / 历史移出复活
+        members = {
+            m.user_id: m
+            for m in (
+                await self.db.execute(
+                    select(OrgMember).where(
+                        OrgMember.org_id == org.id,
+                        OrgMember.user_id.in_(user_ids),
+                    )
+                )
+            ).scalars()
+        }
+        now = datetime.now(timezone.utc)
         for uid in user_ids:
-            target = await self.db.get(User, uid)
-            if target is None or target.status != UserStatus.ACTIVE:
-                raise APIError(RESOURCE_NOT_FOUND, "用户不存在或不可用", 404)
-        for uid in user_ids:
-            await self._upsert_member(org.id, uid, added_by=user.id)
-            await self.roles.grant_org_role(uid, org.id, ROLE_MEMBER)
+            member = members.get(uid)
+            if member is not None and member.status != OrgMemberStatus.REMOVED:
+                continue  # 已在册
+            if member is not None:  # REMOVED：复活
+                member.status = OrgMemberStatus.ACTIVE
+                member.left_at = None
+                member.added_by = user.id
+                member.joined_at = now
+            else:
+                self.db.add(OrgMember(org_id=org.id, user_id=uid, added_by=user.id))
+        await self.db.flush()
+        await self.roles.grant_org_roles(user_ids, org.id, ROLE_MEMBER)
 
     async def remove_member(self, user: User, org_id: uuid.UUID, target_uid: uuid.UUID) -> None:
         """移出成员（org_admin；清理成员状态与组织授权；最后一名 org_admin 3004）。"""
@@ -435,27 +461,7 @@ class OrgService:
         rows, total = await self.orgs.list_teams_of_org(org.id, page, page_size, keyword, status)
         counts = await self.teams.count_active_members_by_team([t.id for t in rows])
         role_map = await self.roles.get_team_roles_for_teams(user.id, [t.id for t in rows])
-        items = []
-        for team in rows:
-            codes = role_map.get(team.id, set())
-            my_role = (
-                "creator"
-                if team.creator_id == user.id
-                else "admin" if "team_admin" in codes else "member" if "team_member" in codes else None
-            )
-            items.append(
-                TeamSummary(
-                    id=team.id,
-                    name=team.name,
-                    description=team.description,
-                    avatar_url=team.avatar_url,
-                    created_at=team.created_at,
-                    visibility=TeamVisibility(team.visibility),
-                    member_count=counts.get(team.id, 0),
-                    my_role=my_role,
-                )
-            )
-        return items, total
+        return summarize_teams(rows, counts, role_map, user=user), total
 
     # ---------------- 管理端视图（admin） ----------------
 

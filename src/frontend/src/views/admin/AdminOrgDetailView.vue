@@ -17,6 +17,7 @@ import BaseAvatar from '@/components/BaseAvatar.vue'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
+import { renderDifficulty, renderRatio } from '@/utils/problemCells'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
@@ -292,7 +293,7 @@ const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
     key: 'difficulty',
     width: 80,
     align: 'center',
-    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
+    render: (row) => renderDifficulty(row),
   },
   {
     title: t('problems.list.limits'),
@@ -305,11 +306,7 @@ const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
     key: 'rate',
     width: 100,
     align: 'center',
-    render(row) {
-      const total = row.submission_count ?? 0
-      if (!total) return '--'
-      return `${row.accepted_count ?? 0}/${total}`
-    },
+    render: (row) => renderRatio(row),
   },
   {
     title: t('admin.orgs.createdAt'),

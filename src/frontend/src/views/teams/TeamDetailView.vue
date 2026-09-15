@@ -62,7 +62,8 @@ import { archiveProblem } from '@/api/problems'
 import BaseAvatar from '@/components/BaseAvatar.vue'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
-import { formatDateTime } from '@/utils/format'
+import { formatCompact, formatDateTime } from '@/utils/format'
+import { renderDifficulty, renderRatio } from '@/utils/problemCells'
 import { useUserStore } from '@/stores/user'
 import { useTeamsStore } from '@/stores/teams'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
@@ -92,14 +93,6 @@ const loading = ref(false)
 
 const isCreator = computed(() => team.value?.my_role === 'creator')
 const isAdmin = computed(() => team.value?.my_role === 'creator' || team.value?.my_role === 'admin')
-
-function formatCompact(iso: string | null | undefined): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
 
 function memberRoleOf(row: TeamMemberItem): 'creator' | 'admin' | 'member' {
   if (row.is_creator) return 'creator'
@@ -310,7 +303,7 @@ const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
     key: 'difficulty',
     width: 80,
     align: 'center',
-    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
+    render: (row) => renderDifficulty(row),
   },
   {
     title: t('problems.list.limits'),
@@ -323,12 +316,7 @@ const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
     key: 'rate',
     width: 110,
     align: 'center',
-    render(row) {
-      const total = row.submission_count ?? 0
-      if (!total) return '--'
-      const accepted = row.accepted_count ?? 0
-      return `${accepted}/${total}`
-    },
+    render: (row) => renderRatio(row),
   },
   ...(isAdmin.value
     ? [

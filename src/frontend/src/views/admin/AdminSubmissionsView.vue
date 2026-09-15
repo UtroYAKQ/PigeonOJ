@@ -7,7 +7,7 @@
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NButton, NTag } from 'naive-ui'
+import { NButton } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import * as adminApi from '@/api/admin'
@@ -15,12 +15,11 @@ import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import RefreshButton from '@/components/RefreshButton.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
-import StatusTag from '@/components/StatusTag.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import { formatDateTime } from '@/utils/format'
 import { languageOptions } from '@/constants/languages'
-import type { NaiveTagType } from '@/constants/dict'
+import { renderSubmitType, submissionMetricColumns } from '@/utils/submission'
 import type { AdminSubmission } from '@/types'
 
 const router = useRouter()
@@ -66,12 +65,6 @@ const submitTypeOptions = (
 ).map((o) => ({ value: o.value, label: t(o.labelKey) }))
 
 const languageOptionsFiltered = languageOptions.map((o) => ({ label: o.label, value: o.value }))
-
-const submitTypeMeta: Record<string, { labelKey: string; type: NaiveTagType }> = {
-  practice: { labelKey: 'problems.submissionsManage.typePractice', type: 'default' },
-  contest: { labelKey: 'problems.submissionsManage.typeContest', type: 'info' },
-  verify: { labelKey: 'problems.submissionsManage.typeVerify', type: 'warning' },
-}
 
 // ---- 题号筛选（文本输入框：题目短 ID 或完整 UUID） ----
 async function load() {
@@ -168,46 +161,12 @@ const columns = computed<DataTableColumns<AdminSubmission>>(() => [
     minWidth: 130,
     render: (row) => row.nickname,
   },
-  {
-    title: t('problems.detail.status'),
-    key: 'status',
-    minWidth: 140,
-    render: (row) => h(StatusTag, { status: row.status }),
-  },
-  {
-    title: t('problems.submission.score'),
-    key: 'score',
-    width: 80,
-    render: (row) => row.score ?? '-',
-  },
-  {
-    title: t('problems.submission.time'),
-    key: 'time',
-    width: 100,
-    render: (row) => `${row.time_used_ms ?? '-'} ms`,
-  },
-  {
-    title: t('problems.submission.memory'),
-    key: 'memory',
-    width: 110,
-    render: (row) => `${row.memory_used_kb ?? '-'} KB`,
-  },
-  { title: t('problems.detail.language'), key: 'language', width: 110 },
+  ...submissionMetricColumns<AdminSubmission>(t),
   {
     title: t('problems.submissionsManage.type'),
     key: 'submit_type',
     width: 90,
-    render(row) {
-      const meta = submitTypeMeta[row.submit_type]
-      if (!meta) return row.submit_type
-      return h(
-        NTag,
-        { size: 'small', bordered: false, type: meta.type },
-        {
-          default: () => t(meta.labelKey),
-        },
-      )
-    },
+    render: (row) => renderSubmitType(row, t),
   },
   {
     title: t('problems.submissionsManage.submitTime'),

@@ -20,6 +20,7 @@ import { getTeamProblemSet } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import { renderSolveMark } from '@/utils/solveMark'
 import { formatDateTime } from '@/utils/format'
+import { renderDifficulty } from '@/utils/problemCells'
 import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/visibilityLabel'
 import type { ProblemSetDetail, ProblemSetItem } from '@/types'
 
@@ -94,7 +95,7 @@ const columns = computed<DataTableColumns<ProblemSetItem>>(() => [
     title: t('problemSets.detail.difficulty'),
     key: 'difficulty',
     width: 90,
-    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
+    render: (row) => renderDifficulty(row),
   },
 ])
 
