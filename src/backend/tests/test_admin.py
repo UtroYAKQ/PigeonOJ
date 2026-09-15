@@ -8,13 +8,20 @@ from datetime import datetime, timedelta
 import httpx
 from sqlalchemy import select
 
-from app.models.user import User
+from app.models.user import User, UserSession
 from app.core.database import SessionLocal
 from app.models.system_config import SystemConfig
 
 from .conftest import api_login, register_user
 
 PASSWORD = "Pass@123"
+
+
+async def test_admin_requires_admin_role(client: httpx.AsyncClient, user_headers: dict[str, str]) -> None:
+    resp = await client.get("/api/v1/admin/users", headers=user_headers)
+    assert resp.json()["code"] == 2003
+    resp = await client.get("/api/v1/admin/users")
+    assert resp.json()["code"] == 2001
 
 
 async def test_admin_requires_admin_role(client: httpx.AsyncClient, user_headers: dict[str, str]) -> None:
@@ -66,11 +73,22 @@ async def test_admin_ban_freeze_flow(client: httpx.AsyncClient, admin_headers: d
     users = (await client.get("/api/v1/admin/users?keyword=ban@pigeonoj.dev", headers=admin_headers)).json()["data"]["items"]
     uid = users[0]["id"]
 
-    resp = await client.post(f"/api/v1/admin/users/{uid}/freeze", json={"reason": "测试冻结"}, headers=admin_headers)
+    # 冻结 = 短时封禁：落库 frozen + frozen_until（缺省 15 分钟），期内登录 3002
+    resp = await client.post(
+        f"/api/v1/admin/users/{uid}/freeze", json={"reason": "测试冻结"}, headers=admin_headers
+    )
     assert resp.json()["code"] == 0
+    async with SessionLocal() as db:
+        row = (await db.execute(select(User).where(User.email == "ban@pigeonoj.dev"))).scalar_one()
+        assert row.status == "frozen"
+        assert row.frozen_until is not None
     resp = await client.post("/api/v1/auth/login", json={"email": "ban@pigeonoj.dev", "password": PASSWORD})
     assert resp.json()["code"] == 3002
     await client.post(f"/api/v1/admin/users/{uid}/unfreeze", headers=admin_headers)
+    async with SessionLocal() as db:
+        row = (await db.execute(select(User).where(User.email == "ban@pigeonoj.dev"))).scalar_one()
+        assert row.status == "active"
+        assert row.frozen_until is None
 
     resp = await client.post(f"/api/v1/admin/users/{uid}/ban", json={"reason": "违规"}, headers=admin_headers)
     assert resp.json()["code"] == 0
@@ -80,6 +98,85 @@ async def test_admin_ban_freeze_flow(client: httpx.AsyncClient, admin_headers: d
     assert resp.json()["code"] == 0
     resp = await client.post("/api/v1/auth/login", json={"email": "ban@pigeonoj.dev", "password": PASSWORD})
     assert resp.json()["code"] == 0
+
+
+async def test_admin_online_users(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:
+    """在线用户面板：窗口内有活跃回写的会话按活跃倒序展示；非在线用户不出现。"""
+    await register_user(client, "surfer@pigeonoj.dev")
+    # 登录即创建会话（last_active_at = 登录时刻），再发一次认证请求驱动活跃回写
+    token = await api_login(client, "surfer@pigeonoj.dev", PASSWORD)
+    resp = await client.get(
+        "/api/v1/users/me", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.json()["code"] == 0
+
+    resp = await client.get("/api/v1/admin/users/online", headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+    data = resp.json()["data"]
+    assert data["total"] >= 1
+    emails = [it["email"] for it in data["items"]]
+    assert "surfer@pigeonoj.dev" in emails
+    assert "admin@pigeonoj.dev" in emails  # 发起本次请求的 admin 自身必然在线
+
+    # 条目字段完整性（最近活跃倒序）
+    first = data["items"][0]
+    for field in ("user_id", "nickname", "email", "role", "status", "last_active_at"):
+        assert field in first
+    times = [it["last_active_at"] for it in data["items"]]
+    assert times == sorted(times, reverse=True)
+
+    # 非管理员访问 → 2003
+    user_headers = {"Authorization": f"Bearer {token}"}
+    resp = await client.get("/api/v1/admin/users/online", headers=user_headers)
+    assert resp.json()["code"] == 2003
+
+
+async def test_admin_online_users_dedup_per_device(
+    client: httpx.AsyncClient, admin_headers: dict[str, str]
+) -> None:
+    """在线面板同设备去重：同 user + 同 device 多会话只展示最近活跃一行（登录竞态残留收敛）；
+    UA 无法识别（device_info=NULL）不参与去重，各自成行。"""
+    await register_user(client, "ghost@pigeonoj.dev")
+    async with SessionLocal() as db:
+        row = (
+            await db.execute(select(User).where(User.email == "ghost@pigeonoj.dev"))
+        ).scalar_one()
+        now = datetime.now()
+        late = now - timedelta(seconds=10)
+        early = now - timedelta(seconds=60)
+        db.add_all(
+            [
+                # 同设备（Chrome · Windows）双会话：模拟并发登录竞态残留
+                UserSession(
+                    user_id=row.id, token="b" * 64, device_info="Chrome · Windows",
+                    expires_at=now + timedelta(days=1), last_active_at=early,
+                ),
+                UserSession(
+                    user_id=row.id, token="c" * 64, device_info="Chrome · Windows",
+                    expires_at=now + timedelta(days=1), last_active_at=late,
+                ),
+                # UA 无法识别（NULL 设备）：各自成行
+                UserSession(
+                    user_id=row.id, token="d" * 64, device_info=None,
+                    expires_at=now + timedelta(days=1), last_active_at=now - timedelta(seconds=50),
+                ),
+                UserSession(
+                    user_id=row.id, token="e" * 64, device_info=None,
+                    expires_at=now + timedelta(days=1), last_active_at=now - timedelta(seconds=20),
+                ),
+            ]
+        )
+        await db.commit()
+
+    resp = await client.get("/api/v1/admin/users/online", headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+    items = [it for it in resp.json()["data"]["items"] if it["email"] == "ghost@pigeonoj.dev"]
+    assert len(items) == 3  # 同设备 2 → 1 + NULL 设备 2
+    device_rows = [it for it in items if it["device_info"] == "Chrome · Windows"]
+    assert len(device_rows) == 1
+    # 保留的是最近活跃（-10s）那条：晚于 NULL 设备中较新的 -20s 行
+    null_rows = [it for it in items if it["device_info"] is None]
+    assert device_rows[0]["last_active_at"] > max(it["last_active_at"] for it in null_rows)
 
 
 async def test_admin_configs(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:
@@ -110,7 +207,9 @@ async def test_site_config_public(client: httpx.AsyncClient, admin_headers: dict
     assert set(data) == {
         "name", "logo", "icp", "default_theme",
         "register_enabled", "email_verify_enabled",
+        "banners", "announcement",
     }
+    assert data["banners"] == [] and data["announcement"] == ""
     assert data["register_enabled"] is True
     assert data["email_verify_enabled"] is True
 
@@ -424,3 +523,59 @@ async def test_admin_reports(client: httpx.AsyncClient, admin_headers: dict[str,
     # 重复处理 → 3002
     resp = await client.post(f"/api/v1/admin/reports/{report_id}/handle", json={"action": "ignored"}, headers=admin_headers)
     assert resp.json()["code"] == 3002
+
+
+async def test_admin_submissions_no_cross_join(
+    client: httpx.AsyncClient, admin_headers: dict[str, str], user_headers: dict[str, str]
+) -> None:
+    """全站提交面板（docs/contracts/admin.md /admin/submissions）：多题目场景行数不放大
+    （回归：rows_stmt 缺 Problem join 退化为笛卡尔积，同一提交重复多行）。"""
+    from app.models.judge import Submission
+    from app.models.problem import Problem
+
+    # 种子两个已发布题目（跨题场景是放大的必要条件：题目数 ≥ 2）
+    async with SessionLocal() as db:
+        uid = (await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))).scalar_one().id
+        pids = []
+        for title in ("面板题一", "面板题二"):
+            problem = Problem(
+                title=title, description="D", owner_id=uid, status="published",
+                visibility="public", verified_at=datetime.now(),
+            )
+            db.add(problem)
+            await db.flush()
+            pids.append(str(problem.id))
+        await db.commit()
+
+    # 两个用户各提交一次
+    for headers in (admin_headers, user_headers):
+        resp = await client.post(
+            "/api/v1/submissions",
+            json={"problem_id": pids[0], "language": "cpp17", "code": "int main(){}"},
+            headers=headers,
+        )
+        assert resp.json()["code"] == 0, resp.text
+
+    resp = await client.get("/api/v1/admin/submissions", headers=admin_headers)
+    body = resp.json()
+    assert body["code"] == 0, body
+    assert body["data"]["total"] == 2
+    assert len(body["data"]["items"]) == 2  # 笛卡尔积 bug 下会被题目数放大为 4
+    ids = [i["id"] for i in body["data"]["items"]]
+    assert len(set(ids)) == 2
+    assert all(i["problem_title"] == "面板题一" for i in body["data"]["items"])
+
+    # problem_id 精确过滤
+    resp = await client.get(f"/api/v1/admin/submissions?problem_id={pids[1]}", headers=admin_headers)
+    assert resp.json()["data"]["total"] == 0
+
+    # 行点击入口的详情端点可读（题目管理视角统一入口）
+    submission_id = ids[0]
+    resp = await client.get(
+        f"/api/v1/problems/{pids[0]}/submissions/{submission_id}", headers=admin_headers
+    )
+    assert resp.json()["code"] == 0
+
+    # 非管理角色 → 2003
+    resp = await client.get("/api/v1/admin/submissions", headers=user_headers)
+    assert resp.json()["code"] == 2003

@@ -4,11 +4,13 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import httpx
 from sqlalchemy import select
 
 from app.core.database import SessionLocal
-from app.core.redis import redis_delete, redis_set_json
+from app.core.redis import redis_set_json
 from app.models.user import User
 
 from .conftest import api_login, register_user
@@ -59,29 +61,37 @@ async def test_login_success_and_wrong_password(client: httpx.AsyncClient) -> No
     assert resp.json()["code"] == 2004
 
 
-async def test_login_failures_trigger_temporary_lock(client: httpx.AsyncClient) -> None:
-    """连续 5 次密码错误 → 临时锁定（4002）：期内正确密码也拒绝、账号状态不变，到期自动恢复。"""
+async def test_login_failures_trigger_temporary_freeze(client: httpx.AsyncClient) -> None:
+    """连续 5 次密码错误 → 短时冻结落库（frozen + frozen_until）：期内正确密码也拒绝，到期自动恢复。"""
     email = "lock-victim@pigeonoj.dev"
     await register_user(client, email)
     for _ in range(4):
         resp = await client.post("/api/v1/auth/login", json={"email": email, "password": "bad-pass"})
         assert resp.json()["code"] == 2004
 
-    # 第 5 次失败触发临时锁定（429 / 4002）
+    # 第 5 次失败触发临时冻结（429 / 4002）
     resp = await client.post("/api/v1/auth/login", json={"email": email, "password": "bad-pass"})
     assert resp.json()["code"] == 4002
 
-    # 锁定期内正确密码同样被拒，账号状态保持 active（不再置 frozen）
+    # 冻结期登录（正确密码）同样被拒；账号状态 = frozen 且带到期时间
     resp = await client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
-    assert resp.json()["code"] == 4002
+    assert resp.json()["code"] == 3002
+    async with SessionLocal() as db:
+        row = (await db.execute(select(User).where(User.email == email))).scalar_one()
+        assert row.status == "frozen"
+        assert row.frozen_until is not None
+
+    # 冻结到期（frozen_until 置为过去）→ 登录自动恢复 active 并成功
+    async with SessionLocal() as db:
+        row = (await db.execute(select(User).where(User.email == email))).scalar_one()
+        row.frozen_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await db.commit()
+    resp = await client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
+    assert resp.json()["code"] == 0
     async with SessionLocal() as db:
         row = (await db.execute(select(User).where(User.email == email))).scalar_one()
         assert row.status == "active"
-
-    # 模拟锁定 TTL 到期（删除锁 key）→ 登录恢复
-    await redis_delete(f"login:lock:{email}")
-    resp = await client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
-    assert resp.json()["code"] == 0
+        assert row.frozen_until is None
 
 
 async def test_logout_revokes_session(client: httpx.AsyncClient) -> None:

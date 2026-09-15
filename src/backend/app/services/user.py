@@ -6,7 +6,7 @@ import logging
 import secrets
 import smtplib
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,8 +15,9 @@ from app.enums import LoginAction, Theme, UserStatus, UserRoleScope
 from app.models.user import User, UserRole
 from app.repositories.user import UserRepository, SessionRepository, RoleRepository
 from app.repositories.audit import write_login_log
-from app.utils.geolocation import lookup_location
+from app.utils.geolocation import lookup_location_async
 from app.utils.pagination import PaginatedResponse
+from app.utils.request_meta import format_device_info
 from app.schemas.user import (
     ChangeEmailRequest,
     ChangePasswordRequest,
@@ -29,7 +30,7 @@ from app.schemas.user import (
     SessionOut,
     UserPublic,
 )
-from app.schemas.admin import SMTPConfig
+from app.schemas.admin import OnlineUserOut, SMTPConfig
 from app.core.exceptions import (
     AUTH_INVALID_CREDENTIAL,
     PARAM_FORMAT_INVALID,
@@ -45,9 +46,9 @@ from app.core.exceptions import (
 from app.core.redis import (
     EMAIL_CODE_KEY_PREFIX,
     EMAIL_RESEND_KEY_PREFIX,
+    SESSION_ACTIVE_KEY_PREFIX,
     SESSION_KEY_PREFIX,
     redis_delete,
-    redis_get,
     redis_get_json,
     redis_incr,
     redis_set,
@@ -57,6 +58,7 @@ from app.utils.security import generate_token, hash_password, hash_token, verify
 from app.utils.validation import validate_email, validate_nickname, validate_password
 from app.services.system_config import ConfigService
 from app.settings.config import get_settings
+from app.core.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +66,25 @@ VALID_THEMES = {t.value for t in Theme}
 VALID_STATUS = {s.value for s in UserStatus}
 
 SESSION_TTL_DAYS = 30  # 会话有效期（天）
+SESSION_ACTIVE_THROTTLE_SECONDS = 300  # 会话活跃回写节流窗口（秒）；「在线」判定同窗口
+ONLINE_WINDOW_SECONDS = 600  # 在线用户面板窗口（秒）：节流 5min + 在线判定 5min 缓冲
 LOGIN_FAIL_WINDOW_SECONDS = 900  # 登录失败计数窗口（15 分钟）
-LOGIN_FAIL_MAX = 5  # 触发临时锁定的失败次数
-LOGIN_LOCK_SECONDS = 900  # 临时锁定时长（15 分钟，到期自动恢复）
+LOGIN_FAIL_MAX = 5  # 触发临时冻结的失败次数
+LOGIN_LOCK_SECONDS = 900  # 短时冻结时长（15 分钟，frozen_until 到期自动恢复）
+
+
+def _aware(value: datetime) -> datetime:
+    """naive datetime 按 UTC 归一（DB 驱动可能返回 aware/naive，统一后比较）。"""
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+async def _delete_site_avatar(avatar_url: str) -> None:
+    """删除被替换的站内旧头像对象（best-effort：存储失败只记日志，不影响资料更新）。"""
+    object_key = avatar_url.removeprefix("/api/v1/files/")
+    try:
+        await get_storage().delete(object_key)
+    except Exception:  # noqa: BLE001 - 清理失败（含 MinIO 瞬断）不影响资料更新
+        logger.warning("旧头像对象清理失败（忽略）：%s", object_key)
 
 
 def _smtp_send(cfg: SMTPConfig, message: EmailMessage) -> None:
@@ -117,6 +135,37 @@ class UserService:
         self.sessions = SessionRepository(db)
         self.roles = RoleRepository(db)
 
+    # ---------------- 在线用户（admin 面板） ----------------
+
+    async def admin_list_online_users(
+        self, page: int, page_size: int
+    ) -> PaginatedResponse[OnlineUserOut]:
+        """在线用户面板：窗口内有活跃回写的有效会话（窗口 = 活跃节流 + 在线判定缓冲）。
+
+        同设备去重后每会话即一台在线设备（一个用户可同时在线多台设备，分行展示）。
+        """
+        rows, total = await self.sessions.list_online_sessions(
+            ONLINE_WINDOW_SECONDS, page, page_size
+        )
+        role_map = await self.roles.get_global_role_codes_for_users([u.id for _s, u in rows])
+        items = [
+            OnlineUserOut(
+                user_id=u.id,
+                nickname=u.nickname,
+                email=u.email,
+                avatar_url=u.avatar_url,
+                role=(role_map.get(u.id) or [None])[0],
+                status=u.status,
+                device_info=s.device_info,
+                ip_address=s.ip_address,
+                location=s.location,
+                last_active_at=s.last_active_at,
+                session_created_at=s.created_at,
+            )
+            for s, u in rows
+        ]
+        return PaginatedResponse[OnlineUserOut](items=items, total=total, page=page, page_size=page_size)
+
     # ---------------- 序列化 ----------------
 
     async def to_public(self, user: User) -> UserPublic:
@@ -130,6 +179,7 @@ class UserService:
             signature=user.signature,
             theme=user.theme,
             status=user.status,
+            frozen_until=user.frozen_until,
             last_login_at=user.last_login_at,
             created_at=user.created_at,
             updated_at=user.updated_at,
@@ -159,7 +209,11 @@ class UserService:
                 raise APIError(PARAM_FORMAT_INVALID, "头像必须使用当前用户上传的站内文件 URL 或可信外链", 400)
             if len(patch.avatar_url) > 512:
                 raise APIError(PARAM_FORMAT_INVALID, "头像地址过长（≤512）", 400)
+            old_avatar = user.avatar_url
             user.avatar_url = patch.avatar_url
+            # 换头像时清理被替换的站内旧头像对象，防孤儿对象无限累积
+            if old_avatar and old_avatar != patch.avatar_url and old_avatar.startswith(site_prefix):
+                await _delete_site_avatar(old_avatar)
         if patch.theme is not None:
             if patch.theme not in VALID_THEMES:
                 raise APIError(PARAM_FORMAT_INVALID, "主题仅支持 light / dark", 400)
@@ -170,7 +224,8 @@ class UserService:
 
     async def soft_delete(self, user: User, password: str) -> None:
         """软注销（docs/contracts/users.md）：status='deleted'，邮箱脱敏释放唯一约束。"""
-        if not verify_password(password, user.password):
+        # bcrypt 为 CPU 密集操作，放线程池避免阻塞事件循环
+        if not await asyncio.to_thread(verify_password, password, user.password):
             raise APIError(AUTH_INVALID_CREDENTIAL, "密码错误", 401)
         user.status = UserStatus.DELETED
         user.email = f"u{user.id}@invalid.local"
@@ -188,8 +243,32 @@ class UserService:
         for s in sessions:
             item = SessionOut.model_validate(s)
             item.current = s.token == current_token_hash
+            # 在线判定与活跃节流窗口一致：5 分钟内有活动视为在线（当前会话恒在线）
+            active_at = s.last_active_at
+            if active_at is not None:
+                ref = _aware(active_at)
+                elapsed = datetime.now(ref.tzinfo) - ref
+                item.online = item.current or elapsed <= timedelta(seconds=SESSION_ACTIVE_THROTTLE_SECONDS)
             items.append(item)
         return items
+
+    async def revoke_other_sessions(self, user: User, current_token_hash: str) -> int:
+        """下线其他设备：**物理删除**除当前会话外的全部会话行（与登出同语义，不留撤销记录），
+        同步清 Redis 热点缓存与活跃节流标记，返回删除数。
+
+        缓存 key 必须在删除前按当前有效会话收集（删除后 list 只剩当前会话，会漏删），
+        漏删会导致被下线 token 经热点缓存继续认证。
+        """
+        others = [
+            s.token
+            for s in await self.sessions.list_active_by_user(user.id)
+            if s.token != current_token_hash
+        ]
+        count = await self.sessions.delete_others_by_user(user.id, current_token_hash)
+        for token_hash in others:
+            await redis_delete(f"{SESSION_KEY_PREFIX}{token_hash}")
+            await redis_delete(f"{SESSION_ACTIVE_KEY_PREFIX}{token_hash}")
+        return count
 
     async def revoke_session(self, user: User, session_id: uuid.UUID, current_token_hash: str) -> None:
         session = await self.sessions.get_by_id(session_id)
@@ -214,6 +293,7 @@ class UserService:
             public = UserPublic(
                 id=u.id, email=u.email, email_verified=u.email_verified, nickname=u.nickname,
                 avatar_url=u.avatar_url, signature=u.signature, theme=u.theme, status=u.status,
+                frozen_until=u.frozen_until,
                 last_login_at=u.last_login_at, created_at=u.created_at, updated_at=u.updated_at,
                 roles=roles_map.get(u.id, []),
             )
@@ -247,11 +327,28 @@ class UserService:
     async def admin_unban(self, user_id: uuid.UUID) -> None:
         await self._set_status(user_id, UserStatus.ACTIVE, "解封")
 
-    async def admin_freeze(self, user_id: uuid.UUID, _reason: str | None) -> None:
-        await self._set_status(user_id, UserStatus.FROZEN, "冻结")
+    async def admin_freeze(self, user_id: uuid.UUID, _reason: str | None, *, duration_minutes: int = 15) -> None:
+        """冻结 = 短时封禁：frozen_until = now + duration，到期自动恢复 active（users.md）。"""
+        target = await self.users.get_by_id(user_id)
+        if target is None:
+            raise APIError(RESOURCE_NOT_FOUND, "用户不存在", 404)
+        if target.status == UserStatus.DELETED:
+            raise APIError(RESOURCE_STATE_CONFLICT, "已注销账号不可冻结", 409)
+        target.status = UserStatus.FROZEN
+        target.frozen_until = datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)
+        await self.db.flush()
+        logger.info("admin 冻结 user=%s -> frozen（%d 分钟）", user_id, duration_minutes)
 
     async def admin_unfreeze(self, user_id: uuid.UUID) -> None:
-        await self._set_status(user_id, UserStatus.ACTIVE, "解冻")
+        target = await self.users.get_by_id(user_id)
+        if target is None:
+            raise APIError(RESOURCE_NOT_FOUND, "用户不存在", 404)
+        if target.status == UserStatus.DELETED:
+            raise APIError(RESOURCE_STATE_CONFLICT, "已注销账号不可解冻", 409)
+        target.status = UserStatus.ACTIVE
+        target.frozen_until = None
+        await self.db.flush()
+        logger.info("admin 解冻 user=%s -> active", user_id)
 
 
 class AuthService:
@@ -337,7 +434,8 @@ class AuthService:
                                   user_agent=user_agent, reason="邮箱已注册")
             raise APIError(RESOURCE_STATE_CONFLICT, "邮箱已注册", 409)
 
-        user = await self.users.create(req.email, hash_password(req.password), req.nickname.strip())
+        password_hash = await asyncio.to_thread(hash_password, req.password)
+        user = await self.users.create(req.email, password_hash, req.nickname.strip())
         # 默认角色 user
         user_role = await self.roles.get_by_code("user")
         if user_role is not None:
@@ -351,27 +449,38 @@ class AuthService:
     async def login(self, req: LoginRequest, ip: str | None, user_agent: str | None) -> LoginResult:
         user = await self.users.get_by_email(req.email)
         fail_key = f"login:fail:{req.email}"
-        lock_key = f"login:lock:{req.email}"
 
-        # 临时锁定期内拒绝所有登录尝试（先于密码校验，到期由 Redis TTL 自动恢复）
-        if await redis_get(lock_key) is not None:
-            await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id if user else None,
-                                  email=req.email, ip_address=ip, user_agent=user_agent,
-                                  reason="登录临时锁定期内拒绝")
-            # 失败路径显式提交：审计日志必须持久化（随后抛业务错误，get_db 会回滚）
-            await self.db.commit()
-            raise APIError(RATE_LIMITED, "登录失败次数过多，请稍后再试", 429)
+        # 短时冻结门（先于密码校验）：登录失败超次 / 管理员冻结的账号在 frozen_until
+        # 到期前拒绝一切登录；已到期则自动恢复 active 并放行本次登录（users.md「账号状态语义」）
+        if user is not None and user.status == UserStatus.FROZEN:
+            until = user.frozen_until
+            expired = until is not None and until <= datetime.now(timezone.utc)
+            if not expired:
+                await write_login_log(self.db, LoginAction.LOGIN, False,
+                                      user_id=user.id, email=req.email,
+                                      ip_address=ip, user_agent=user_agent, reason="账号临时冻结中")
+                # 失败路径显式提交：审计日志必须持久化（随后抛业务错误，get_db 会回滚）
+                await self.db.commit()
+                raise APIError(RESOURCE_STATE_CONFLICT, "账号已临时冻结，请稍后再试或联系管理员", 409)
+            user.status = UserStatus.ACTIVE
+            user.frozen_until = None
+            await self.db.flush()
 
-        if user is None or not verify_password(req.password, user.password):
+        if user is None or not await asyncio.to_thread(verify_password, req.password, user.password):
             fails = await redis_incr(fail_key, LOGIN_FAIL_WINDOW_SECONDS)
             if fails >= LOGIN_FAIL_MAX:
-                # 安全策略：失败超次 → 临时锁定（不改动账号状态；管理员冻结仍走 admin 接口，
-                # users.md「账号状态语义」）。锁定 key 带 TTL，到期自动恢复登录。
-                await redis_set(lock_key, "1", LOGIN_LOCK_SECONDS)
-                await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id if user else None,
-                                      email=req.email, ip_address=ip, user_agent=user_agent,
-                                      reason="登录失败超次，触发临时锁定")
-                # 失败路径显式提交：审计日志必须持久化（随后抛业务错误，get_db 会回滚）
+                # 安全策略：失败超次 → 短时冻结落库（status=frozen + frozen_until，
+                # 到期自动恢复；区别于管理员封禁 banned，docs/contracts/users.md）。
+                # 失败计数同步清零，冻结到期后重新起算。
+                if user is not None:
+                    user.status = UserStatus.FROZEN
+                    user.frozen_until = datetime.now(timezone.utc) + timedelta(seconds=LOGIN_LOCK_SECONDS)
+                await redis_delete(fail_key)
+                await write_login_log(self.db, LoginAction.LOGIN, False,
+                                      user_id=user.id if user else None, email=req.email,
+                                      ip_address=ip, user_agent=user_agent,
+                                      reason="登录失败超次，触发临时冻结")
+                # 失败路径显式提交：冻结状态必须持久化（随后抛业务错误，get_db 会回滚）
                 await self.db.commit()
                 raise APIError(RATE_LIMITED, "登录失败次数过多，请稍后再试", 429)
             await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id if user else None,
@@ -383,8 +492,8 @@ class AuthService:
 
         if user.status == UserStatus.FROZEN:
             await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id, email=req.email,
-                                  ip_address=ip, user_agent=user_agent, reason="账号已冻结")
-            raise APIError(RESOURCE_STATE_CONFLICT, "账号已冻结，请联系管理员", 409)
+                                  ip_address=ip, user_agent=user_agent, reason="账号临时冻结中")
+            raise APIError(RESOURCE_STATE_CONFLICT, "账号已临时冻结，请稍后再试或联系管理员", 409)
         if user.status == UserStatus.BANNED:
             await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id, email=req.email,
                                   ip_address=ip, user_agent=user_agent, reason="账号已封禁")
@@ -401,14 +510,27 @@ class AuthService:
         token_hash = hash_token(raw_token)
         now = datetime.now()
         expires_at = now + timedelta(days=SESSION_TTL_DAYS)
+        # 同设备去重（users.md 关键流程 5）：同设备标识的旧有效会话立即失效，
+        # 同一浏览器 / 设备恒只保留一个活跃会话；UA 无法识别（device_info=None）不参与去重。
+        # 先建新会话再清理（排除新 token）：并发登录事务互不可见，「先查后建」双方都
+        # 查不到对方未提交的会话而各建一个（同设备双会话残留 → 在线面板重复显示）；
+        # 「先建后清」让后提交事务必然清掉先到会话，最终收敛为一台设备一个会话
+        device_info = format_device_info(user_agent)
+        location = await lookup_location_async(ip)
         await self.sessions.create(
             user_id=user.id, token_hash=token_hash, expires_at=expires_at,
-            device_info=None, ip_address=ip, user_agent=user_agent,
-            location=lookup_location(ip),
+            device_info=device_info, ip_address=ip, user_agent=user_agent,
+            location=location,
         )
         # Redis 热点缓存（deps.py 校验使用）
         ttl = int((expires_at - now).total_seconds())
         await redis_set(f"{SESSION_KEY_PREFIX}{token_hash}", str(user.id), ttl)
+        if device_info is not None:
+            for stale in await self.sessions.list_valid_by_device(
+                user.id, device_info, exclude_token=token_hash
+            ):
+                await self.sessions.revoke(stale, now)
+                await redis_delete(f"{SESSION_KEY_PREFIX}{stale.token}")
         await self.users.touch_last_login(user, now)
         await write_login_log(self.db, LoginAction.LOGIN, True, user_id=user.id, email=req.email,
                               ip_address=ip, user_agent=user_agent)
@@ -440,7 +562,7 @@ class AuthService:
         user = await self.users.get_by_email(req.email)
         if user is None or user.status == UserStatus.DELETED:
             raise APIError(RESOURCE_NOT_FOUND, "用户不存在", 404)
-        user.password = hash_password(req.new_password)
+        user.password = await asyncio.to_thread(hash_password, req.new_password)
         await self.db.flush()
         await write_login_log(self.db, LoginAction.RESET_PASSWORD, True, user_id=user.id, email=req.email,
                               ip_address=ip, user_agent=user_agent)
@@ -448,10 +570,10 @@ class AuthService:
     # ---------------- 修改密码 / 换绑邮箱（登录态） ----------------
 
     async def change_password(self, user: User, req: ChangePasswordRequest) -> None:
-        if not verify_password(req.old_password, user.password):
+        if not await asyncio.to_thread(verify_password, req.old_password, user.password):
             raise APIError(AUTH_INVALID_CREDENTIAL, "原密码错误", 401)
         validate_password(req.new_password)
-        user.password = hash_password(req.new_password)
+        user.password = await asyncio.to_thread(hash_password, req.new_password)
         await self.db.flush()
 
     async def change_email(self, user: User, req: ChangeEmailRequest, ip: str | None, user_agent: str | None) -> None:

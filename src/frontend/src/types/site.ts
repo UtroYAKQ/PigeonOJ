@@ -2,6 +2,14 @@
  * 公开站点配置（GET /site-config，未登录可读）。
  * 来源 system_configs 的 site 域白名单字段，见 docs/contracts/admin.md。
  */
+
+/** 首页轮播海报项（site.banners 配置元素；image 必填，title / link 可选） */
+export interface SiteBanner {
+  image: string
+  title: string
+  link: string
+}
+
 export interface SiteConfig {
   /** 站点名称（侧栏 / 登录注册页品牌区） */
   name: string
@@ -15,4 +23,8 @@ export interface SiteConfig {
   register_enabled: boolean
   /** 注册是否需要邮箱验证码（关闭时注册表单不展示验证码输入） */
   email_verify_enabled: boolean
+  /** 首页轮播海报（site.banners；空数组 = 不渲染轮播区，回退品牌横幅） */
+  banners: SiteBanner[]
+  /** 首页系统公告（site.announcement；Markdown 文本，经 MarkdownView 渲染；空串 = 不展示） */
+  announcement: string
 }

@@ -6,7 +6,7 @@
  * 滚动只发生在 info-main / problems-scroll 内部，页面级不出滚动条。
  * 「信息」tab 左 7 右 3：左 Markdown 介绍，右创建人 / 创建时间 / 完成进度。
  */
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onActivated, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NTag } from 'naive-ui'
@@ -16,9 +16,11 @@ import MarkdownView from '@/components/MarkdownView.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import { getProblemSet } from '@/api/problemSets'
+import { getTeamProblemSet } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import { renderSolveMark } from '@/utils/solveMark'
 import { formatDateTime } from '@/utils/format'
+import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/visibilityLabel'
 import type { ProblemSetDetail, ProblemSetItem } from '@/types'
 
 const route = useRoute()
@@ -29,10 +31,18 @@ const loading = ref(false)
 const detail = ref<ProblemSetDetail | null>(null)
 const activeTab = ref<'info' | 'problems'>('info')
 
+/** 上下文取参（frontend.md 路由上下文隔离）：团队上下文读团队端点，否则题单统一入口 */
+const teamId = computed(() => (route.params.teamId ? String(route.params.teamId) : null))
+const setId = computed(() =>
+  route.params.setId ? String(route.params.setId) : String(route.params.id),
+)
+
 async function load() {
   loading.value = true
   try {
-    detail.value = await getProblemSet(String(route.params.id))
+    detail.value = await (teamId.value
+      ? getTeamProblemSet(teamId.value, setId.value)
+      : getProblemSet(setId.value))
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.loadFailed'))
   } finally {
@@ -40,6 +50,11 @@ async function load() {
   }
 }
 onMounted(load)
+// keepAlive 页面：从编排页返回时命中缓存实例（onMounted 不再执行），
+// onActivated 强制重拉，保证题单内容与服务器一致（frontend.md 数据时效约定）
+onActivated(() => {
+  if (detail.value) void load()
+})
 
 /** 完成进度：当前用户 AC 题数 / 题单题数（匿名=0） */
 const solvedCount = computed(
@@ -85,7 +100,10 @@ const columns = computed<DataTableColumns<ProblemSetItem>>(() => [
 
 function goProblem(row: ProblemSetItem) {
   if (!detail.value) return
-  router.push(`/problem-sets/${detail.value.id}/problems/${row.problem_id}`)
+  const target = teamId.value
+    ? `/teams/${teamId.value}/sets/${detail.value.id}/problems/${row.problem_id}`
+    : `/problem-sets/${detail.value.id}/problems/${row.problem_id}`
+  router.push(target)
 }
 
 function rowProps(row: ProblemSetItem) {
@@ -111,15 +129,9 @@ function rowKey(row: ProblemSetItem) {
             <n-tag
               size="small"
               :bordered="false"
-              :type="detail.visibility === 'public' ? 'info' : 'error'"
+              :type="problemSetVisibilityTagType(detail.visibility)"
             >
-              {{
-                t(
-                  detail.visibility === 'public'
-                    ? 'problemSets.list.visibilityPublic'
-                    : 'problemSets.list.visibilityPrivate',
-                )
-              }}
+              {{ t(problemSetVisibilityKey(detail.visibility)) }}
             </n-tag>
             <n-tag v-if="detail.status === 'archived'" type="warning" size="small">
               {{ t('problemSets.detail.archived') }}
@@ -146,12 +158,12 @@ function rowKey(row: ProblemSetItem) {
                   :source="detail.description"
                   class="info-main__desc"
                 />
-                <n-empty
-                  v-else
-                  size="small"
-                  :description="t('problemSets.detail.noDescription')"
-                  class="info-main__empty"
-                />
+                <!-- 介绍为空：空态图标 + 文案（对齐全站空态样板）。
+                     table-fill-empty 挂外层容器——直接挂 n-empty 会以 grid 覆盖其
+                     flex 布局，图标与文字被两行拉伸分离（此前展示怪异的根因） -->
+                <div v-else class="table-fill-empty info-main__empty">
+                  <n-empty size="small" :description="t('problemSets.detail.noDescription')" />
+                </div>
               </div>
 
               <aside class="info-aside">
@@ -183,10 +195,12 @@ function rowKey(row: ProblemSetItem) {
             </div>
           </n-tab-pane>
 
-          <!-- 题目列表 tab -->
+          <!-- 题目列表 tab：空态样板（frontend.md）——表格 v-show 隐藏（避免与空态双重渲染），
+               空态用全局 table-fill-empty 在固定高 pane 内拉伸居中 -->
           <n-tab-pane name="problems" :tab="t('problemSets.detail.problems')">
             <div class="pane-fill problems-scroll">
               <n-data-table
+                v-show="detail.items.length"
                 size="medium"
                 :columns="columns"
                 :data="detail.items"
@@ -196,10 +210,9 @@ function rowKey(row: ProblemSetItem) {
                 :row-key="rowKey"
               />
               <n-empty
-                v-if="!detail.items.length"
+                v-show="!detail.items.length"
                 size="large"
                 :description="t('problemSets.detail.empty')"
-                class="problems-empty"
               />
             </div>
           </n-tab-pane>
@@ -267,9 +280,13 @@ function rowKey(row: ProblemSetItem) {
   overflow: auto;
   min-height: 0;
   padding-right: 8px;
+  display: flex;
+  flex-direction: column;
 }
+/* 空态：全局 table-fill-empty 拉伸居中；n-empty 原生布局（图标上 / 文字下 8px）；
+   有界栏去掉 320px 下限 */
 .info-main__empty {
-  padding: 48px 0;
+  min-height: 0;
 }
 .info-aside {
   overflow: auto;
@@ -310,12 +327,14 @@ function rowKey(row: ProblemSetItem) {
   color: var(--app-text-secondary);
 }
 
-/* 题目列表 tab：表格内部滚动 */
+/* 题目列表 tab：表格内部滚动；空态 flex 拉伸居中 */
 .problems-scroll {
   overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 .problems-empty {
-  padding: 40px 0;
+  min-height: 0;
 }
 .item-order {
   color: var(--app-text-secondary);

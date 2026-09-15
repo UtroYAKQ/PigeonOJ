@@ -2,14 +2,18 @@
 /**
  * 团队详情主页（/teams/:id）：社区空间式布局。
  * Hero（渐变横幅 + 头像 + 简介 + 动作区）+ 模块化内容区：
- * 成员 / 团队题库 / 团队题单 / 团队比赛（预留占位）/ 加入申请（管理员）。
- * 邀请走弹窗（链接 + 二维码）；编辑走抽屉；权限按 my_role 显隐（creator ⊇ admin ⊇ member）。
- * Hero 动作区预留扩展：后续团队管理动作（如批量导入、公告等）继续向该区追加。
+ * 成员 / 团队题库 / 团队题单 / 团队比赛 / 加入申请（管理员）。
+ * 团队空间三模块（题库 / 题单 / 比赛）走独立团队端点（docs/contracts/teams.md 团队空间节）：
+ * 成员只读浏览；创建者 / 管理员可引用题目题单、建题单、建比赛、编排与下线。
+ * 团队题库管理视图仅展示已发布题目（带发布验题 / 可见性列），勾选「草稿箱」切换为
+ * 查询本人草稿题目，归档题不再出现在团队空间；权限按 my_role 显隐（creator ⊇ admin ⊇ member）。
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import type { DataTableColumns } from 'naive-ui'
 import {
+  CirclePlus,
   Collection,
   Document,
   MoreFilled,
@@ -18,8 +22,8 @@ import {
   Trophy,
 } from '@element-plus/icons-vue'
 import {
-  NAvatar,
   NButton,
+  NCheckbox,
   NDropdown,
   NDrawer,
   NDrawerContent,
@@ -36,41 +40,82 @@ import {
 } from 'naive-ui'
 
 import {
+  archiveTeamProblemSet,
   createTeamInvite,
   disbandTeam,
   exitTeam,
   getTeam,
   kickTeamMember,
   listTeamApplications,
+  listTeamContests,
   listTeamMembers,
+  listTeamProblemSets,
+  listTeamProblems,
   reviewTeamApplication,
   setTeamAdmin,
+  setTeamMemberNote,
+  submitTeamApplication,
   updateTeam,
 } from '@/api/teams'
 import { uploadImage } from '@/api/files'
+import { ApiError } from '@/api/http'
+import { archiveProblem } from '@/api/problems'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
+import { problemSetVisibilityKey, problemSetVisibilityTagType } from '@/utils/visibilityLabel'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
+import { useUserStore } from '@/stores/user'
+import { useTeamsStore } from '@/stores/teams'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import type { TeamApplicationItem, TeamDetail, TeamMemberItem } from '@/types'
+import SearchFilterBar from '@/components/SearchFilterBar.vue'
+import RefreshButton from '@/components/RefreshButton.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
+import type {
+  ContestSummary,
+  ProblemSetSummary,
+  TeamApplicationItem,
+  TeamDetail,
+  TeamMemberItem,
+  TeamProblemSummary,
+} from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const userStore = useUserStore()
 
 const teamId = String(route.params.id)
 const team = ref<TeamDetail | null>(null)
 const loadFailed = ref(false)
+/** 403（非团队成员）标志：失败态下切换为「申请加入」引导而非裸错误 */
+const forbidden = ref(false)
 const loading = ref(false)
 
 const isCreator = computed(() => team.value?.my_role === 'creator')
 const isAdmin = computed(() => team.value?.my_role === 'creator' || team.value?.my_role === 'admin')
 
-function initialOf(name: string | null | undefined) {
-  return name?.trim()?.charAt(0).toUpperCase() || 'T'
+function formatCompact(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-// ---------------- 模块 tab（内容板块；题库 / 题单 / 比赛为预留占位） ----------------
+function memberRoleOf(row: TeamMemberItem): 'creator' | 'admin' | 'member' {
+  if (row.is_creator) return 'creator'
+  if (row.is_admin) return 'admin'
+  return 'member'
+}
+
+const contestStatusLabel = computed(() => ({
+  running: t('contests.statusRunning'),
+  scheduled: t('contests.statusScheduled'),
+  finished: t('contests.statusFinished'),
+}))
+
+// ---------------- 模块 tab（内容板块） ----------------
 
 type TeamModule = 'members' | 'problems' | 'sets' | 'contests' | 'applications'
 const activeModule = ref<TeamModule>('members')
@@ -79,33 +124,13 @@ const moduleMeta = computed(() => {
   const items: Array<{
     key: TeamModule
     labelKey: string
-    hintKey?: string
     icon: typeof Collection
     adminOnly?: boolean
-    placeholder?: boolean
   }> = [
     { key: 'members', labelKey: 'teams.detail.tabMembers', icon: Setting },
-    {
-      key: 'problems',
-      labelKey: 'teams.modules.problems',
-      hintKey: 'teams.modules.problemsHint',
-      icon: Collection,
-      placeholder: true,
-    },
-    {
-      key: 'sets',
-      labelKey: 'teams.modules.sets',
-      hintKey: 'teams.modules.setsHint',
-      icon: Document,
-      placeholder: true,
-    },
-    {
-      key: 'contests',
-      labelKey: 'teams.modules.contests',
-      hintKey: 'teams.modules.contestsHint',
-      icon: Trophy,
-      placeholder: true,
-    },
+    { key: 'problems', labelKey: 'teams.modules.problems', icon: Collection },
+    { key: 'sets', labelKey: 'teams.modules.sets', icon: Document },
+    { key: 'contests', labelKey: 'teams.modules.contests', icon: Trophy },
     {
       key: 'applications',
       labelKey: 'teams.detail.tabApplications',
@@ -116,14 +141,454 @@ const moduleMeta = computed(() => {
   return items.filter((item) => !item.adminOnly || isAdmin.value)
 })
 
-/** 规划中的模块：并排成能力卡展示，避免逐 tab 切换才能看到全貌 */
-const placeholderModules = computed(() =>
-  moduleMeta.value.flatMap((item) =>
-    item.placeholder && item.hintKey
-      ? [{ key: item.key, labelKey: item.labelKey, hintKey: item.hintKey, icon: item.icon }]
-      : [],
-  ),
-)
+// ---------------- 团队题库 ----------------
+
+const problems = ref<TeamProblemSummary[]>([])
+const problemsLoading = ref(false)
+const problemKeyword = ref('')
+const {
+  page: problemPage,
+  pageSize: problemPageSize,
+  total: problemTotal,
+  changePage: changeProblemPage,
+  resetPage: resetProblemPage,
+} = usePagination()
+
+async function loadProblems() {
+  problemsLoading.value = true
+  try {
+    const result = await listTeamProblems(teamId, {
+      page: problemPage.value,
+      page_size: problemPageSize.value,
+      keyword: problemKeyword.value || undefined,
+      status: draftOnly.value ? 'draft' : undefined,
+    })
+    problems.value = result.items
+    problemTotal.value = result.total
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
+  } finally {
+    problemsLoading.value = false
+  }
+}
+
+function searchProblems() {
+  resetProblemPage()
+  loadProblems()
+}
+
+function openTeamProblem(row: TeamProblemSummary) {
+  void router.push(`/teams/${teamId}/problems/${row.id}`)
+}
+
+/** 草稿箱勾选（仅团队管理）：勾选后列表仅查询草稿题目（后端 status=draft 过滤，仅本人草稿） */
+const draftOnly = ref(false)
+
+function onToggleDraftBox(checked: boolean) {
+  draftOnly.value = checked
+  resetProblemPage()
+  loadProblems()
+}
+
+/** 题库行内操作（⋯ 下拉，仅团队管理可见；backend 仍强校验 owner/admin） */
+type ProblemAction = 'edit' | 'archive'
+
+function problemActions(row: TeamProblemSummary): Array<{ key: ProblemAction; label: string }> {
+  const actions: Array<{ key: ProblemAction; label: string }> = [
+    { key: 'edit', label: t('action.edit') },
+  ]
+  if (row.status === 'published') {
+    actions.push({ key: 'archive', label: t('problems.detail.archive') })
+  }
+  return actions
+}
+
+function onProblemAction(key: ProblemAction, row: TeamProblemSummary) {
+  if (key === 'edit') {
+    void router.push(`/teams/${teamId}/problems/${row.id}/edit/statement`)
+    return
+  }
+  confirmAsyncDialog({
+    title: t('problems.detail.archive'),
+    content: t('problems.mine.archiveConfirm'),
+    positiveText: t('problems.detail.archive'),
+    action: async () => {
+      await archiveProblem(row.id)
+    },
+    successMessage: t('problems.detail.archiveSuccess'),
+    onAfterSuccess: () => loadProblems(),
+  })
+}
+
+/** 引用题目页（团队题目 = 引用制）：tutor / admin 全局身份才拥有可引用的本人题目 */
+const canReference = computed(() => userStore.hasAnyRole(['admin', 'tutor']))
+
+function openProblemReference() {
+  void router.push(`/teams/${teamId}/problems/new`)
+}
+
+/** 团队题目直建向导（POST /problems 带 team_id，团队可见性分支） */
+function openProblemCreate() {
+  void router.push(`/teams/${teamId}/problems/create`)
+}
+
+// ---------------- 团队题单 ----------------
+
+const sets = ref<ProblemSetSummary[]>([])
+const setsLoading = ref(false)
+const setKeyword = ref('')
+const {
+  page: setPage,
+  pageSize: setPageSize,
+  total: setTotal,
+  changePage: changeSetPage,
+  resetPage: resetSetPage,
+} = usePagination()
+
+async function loadSets() {
+  setsLoading.value = true
+  try {
+    const result = await listTeamProblemSets(teamId, {
+      page: setPage.value,
+      page_size: setPageSize.value,
+      keyword: setKeyword.value || undefined,
+    })
+    sets.value = result.items
+    setTotal.value = result.total
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
+  } finally {
+    setsLoading.value = false
+  }
+}
+
+/** 新建 / 引用收敛到题单创建页（引用 tab 仅 tutor / admin 可见） */
+function openSetCreate() {
+  void router.push(`/teams/${teamId}/sets/new`)
+}
+
+/** 团队题库列表列（行点击进团队写题页；限制 + 通过率；管理视图带发布验题 / 可见性列） */
+const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
+  {
+    title: t('problems.list.name'),
+    key: 'title',
+    minWidth: 200,
+    ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'cell-strong' }, row.title),
+  },
+  ...(isAdmin.value
+    ? [
+        {
+          title: t('problems.manage.shareTitle'),
+          key: 'publish',
+          width: 110,
+          render: (row: TeamProblemSummary) => {
+            // 已验题后才可能「需重新验题」（草稿从未验题 → 显示未验题）
+            if (row.is_verified && row.needs_reverification) {
+              return h(
+                NTag,
+                { size: 'small', bordered: false, type: 'warning' },
+                { default: () => t('problems.manage.reverifyTag') },
+              )
+            }
+            return h(
+              NTag,
+              { size: 'small', bordered: false, type: row.is_verified ? 'success' : 'default' },
+              {
+                default: () =>
+                  row.is_verified
+                    ? t('problems.manage.verifiedTag')
+                    : t('problems.manage.unverifiedTag'),
+              },
+            )
+          },
+        },
+      ]
+    : []),
+  ...(isAdmin.value
+    ? [
+        {
+          title: t('problems.list.visibility'),
+          key: 'visibility',
+          width: 96,
+          render: (row: TeamProblemSummary) =>
+            h(
+              NTag,
+              {
+                size: 'small',
+                bordered: false,
+                type: row.visibility === 'team_visible' ? 'info' : 'default',
+              },
+              { default: () => t(`problems.visibility.${row.visibility}`) },
+            ),
+        },
+      ]
+    : []),
+  {
+    title: t('problems.list.difficulty'),
+    key: 'difficulty',
+    width: 80,
+    align: 'center',
+    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
+  },
+  {
+    title: t('problems.list.limits'),
+    key: 'limits',
+    width: 150,
+    render: (row) => `${row.time_limit_ms ?? '--'} ms / ${row.memory_limit_mb ?? '--'} MB`,
+  },
+  {
+    title: t('problems.list.passRate'),
+    key: 'rate',
+    width: 110,
+    align: 'center',
+    render(row) {
+      const total = row.submission_count ?? 0
+      if (!total) return '--'
+      const accepted = row.accepted_count ?? 0
+      return `${accepted}/${total}`
+    },
+  },
+  ...(isAdmin.value
+    ? [
+        {
+          title: '',
+          key: 'ops',
+          width: 48,
+          render: (row: TeamProblemSummary) =>
+            h(
+              NDropdown,
+              {
+                trigger: 'click',
+                options: problemActions(row).map((a) => ({ key: a.key, label: a.label })),
+                onSelect: (key: ProblemAction) => onProblemAction(key, row),
+              },
+              {
+                default: () =>
+                  h(
+                    NButton,
+                    {
+                      circle: true,
+                      quaternary: true,
+                      size: 'tiny',
+                      'aria-label': t('teams.detail.more'),
+                      // 阻断冒泡：行 onClick 会把点击吞成「进入题目」
+                      onClick: (e: MouseEvent) => e.stopPropagation(),
+                    },
+                    { icon: () => h(NIcon, { component: MoreFilled }) },
+                  ),
+              },
+            ),
+        },
+      ]
+    : []),
+])
+
+function rowKeyOfProblem(row: TeamProblemSummary) {
+  return row.id
+}
+
+function rowPropsOfProblem(row: TeamProblemSummary) {
+  return {
+    style: 'cursor: pointer;',
+    onClick: () => {
+      // 草稿箱模式：行点击直接进编辑向导（草稿以继续编辑为主）
+      if (draftOnly.value) {
+        void router.push(`/teams/${teamId}/problems/${row.id}/edit/statement`)
+        return
+      }
+      openTeamProblem(row)
+    },
+  }
+}
+
+/** 团队题单列表列（行点击进团队题单详情；编排 / 下线收敛在 ⋯ 下拉） */
+const setColumns = computed<DataTableColumns<ProblemSetSummary>>(() => [
+  {
+    title: t('problemSets.list.titleLabel'),
+    key: 'title',
+    minWidth: 220,
+    ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'cell-strong' }, row.title),
+  },
+  {
+    title: t('admin.teams.setVisible'),
+    key: 'item_count',
+    width: 80,
+    align: 'center',
+    render: (row) => String(row.item_count),
+  },
+  ...(isAdmin.value
+    ? [
+        {
+          title: t('problems.list.visibility'),
+          key: 'visibility',
+          width: 96,
+          render: (row: ProblemSetSummary) =>
+            h(
+              NTag,
+              {
+                size: 'small',
+                bordered: false,
+                type: problemSetVisibilityTagType(row.visibility),
+              },
+              { default: () => t(problemSetVisibilityKey(row.visibility)) },
+            ),
+        },
+      ]
+    : []),
+  ...(isAdmin.value
+    ? [
+        {
+          title: '',
+          key: 'ops',
+          width: 48,
+          render: (row: ProblemSetSummary) =>
+            h(
+              NDropdown,
+              {
+                trigger: 'click',
+                options: setActions(row).map((a) => ({ key: a.key, label: a.label })),
+                onSelect: (key: SetAction) => onSetAction(key, row),
+              },
+              {
+                default: () =>
+                  h(
+                    NButton,
+                    {
+                      circle: true,
+                      quaternary: true,
+                      size: 'tiny',
+                      'aria-label': t('teams.detail.more'),
+                      // 阻断冒泡：行 onClick 会把点击吞成「进入题单详情」
+                      onClick: (e: MouseEvent) => e.stopPropagation(),
+                    },
+                    { icon: () => h(NIcon, { component: MoreFilled }) },
+                  ),
+              },
+            ),
+        },
+      ]
+    : []),
+])
+
+function rowKeyOfSet(row: ProblemSetSummary) {
+  return row.id
+}
+
+function rowPropsOfSet(row: ProblemSetSummary) {
+  return {
+    style: 'cursor: pointer;',
+    onClick: () => router.push(`/teams/${teamId}/sets/${row.id}`),
+  }
+}
+
+async function onArchiveSet(row: ProblemSetSummary) {
+  confirmAsyncDialog({
+    title: t('teams.space.archiveSet'),
+    content: t('teams.space.archiveSetConfirm', { title: row.title }),
+    positiveText: t('teams.space.archiveSet'),
+    action: async () => {
+      await archiveTeamProblemSet(teamId, row.id)
+    },
+    successMessage: t('teams.space.setArchived'),
+    onAfterSuccess: () => {
+      loadSets()
+    },
+  })
+}
+
+/** 题单行内操作（⋯ 下拉，仅团队管理可见）：编排 / 下线 */
+type SetAction = 'arrange' | 'archive'
+
+function setActions(row: ProblemSetSummary): Array<{ key: SetAction; label: string }> {
+  const actions: Array<{ key: SetAction; label: string }> = [
+    { key: 'arrange', label: t('teams.space.arrange') },
+  ]
+  if (row.status === 'active') {
+    actions.push({ key: 'archive', label: t('teams.space.archiveSet') })
+  }
+  return actions
+}
+
+function onSetAction(key: SetAction, row: ProblemSetSummary) {
+  if (key === 'arrange') {
+    void router.push(`/teams/${teamId}/sets/${row.id}/arrange`)
+    return
+  }
+  void onArchiveSet(row)
+}
+
+// ---------------- 团队比赛 ----------------
+
+const contests = ref<ContestSummary[]>([])
+const contestsLoading = ref(false)
+const contestKeyword = ref('')
+const {
+  page: contestPage,
+  pageSize: contestPageSize,
+  total: contestTotal,
+  changePage: changeContestPage,
+  resetPage: resetContestPage,
+} = usePagination()
+
+async function loadContests() {
+  contestsLoading.value = true
+  try {
+    const result = await listTeamContests(teamId, {
+      page: contestPage.value,
+      page_size: contestPageSize.value,
+      keyword: contestKeyword.value || undefined,
+    })
+    contests.value = result.items
+    contestTotal.value = result.total
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
+  } finally {
+    contestsLoading.value = false
+  }
+}
+
+function openContest(row: ContestSummary) {
+  // 限界上下文：留在团队路由前缀内（frontend.md 路由上下文隔离）
+  void router.push(`/teams/${teamId}/contests/${row.id}`)
+}
+
+type ContestAction = 'manage' | 'tools'
+
+function contestActions(row: ContestSummary): Array<{
+  key: ContestAction
+  label: string
+  disabled?: boolean
+}> {
+  return [
+    {
+      key: 'manage',
+      label: t('contests.detail.manage'),
+      disabled: row.status !== 'scheduled',
+    },
+    { key: 'tools', label: t('contests.tools.title') },
+  ]
+}
+
+function onContestAction(key: ContestAction, row: ContestSummary) {
+  if (key === 'manage') {
+    if (row.status !== 'scheduled') return
+    void router.push(`/teams/${teamId}/contests/${row.id}/edit/basic`)
+    return
+  }
+  void router.push(`/teams/${teamId}/contests/${row.id}/tools`)
+}
+
+function searchContests() {
+  resetContestPage()
+  loadContests()
+}
+
+/** 创建团队比赛 → 独立创建页（题目编排随后在比赛编辑页进行） */
+function openContestCreate() {
+  void router.push(`/teams/${teamId}/contests/new`)
+}
 
 // ---------------- 团队信息 ----------------
 
@@ -132,25 +597,43 @@ async function load() {
   try {
     team.value = await getTeam(teamId)
     loadFailed.value = false
+    forbidden.value = false
   } catch (error) {
     loadFailed.value = true
+    // 2003 = 非团队成员（详情仅成员可见）：给出申请加入出口而非裸错误
+    forbidden.value = error instanceof ApiError && error.code === 2003
     message.error(error instanceof Error ? error.message : t('teams.detail.loadFailed'))
   } finally {
     loading.value = false
   }
 }
 
+/** 非成员兜底：提交加入申请（公开团队可直接申请，私有团队 403 提示走邀请链接） */
+const applying = ref(false)
+function applyFromForbidden() {
+  applying.value = true
+  submitTeamApplication(teamId)
+    .then(() => message.success(t('teams.list.applySuccess')))
+    .catch((error) => {
+      message.error(error instanceof Error ? error.message : t('common.operationFailed'))
+    })
+    .finally(() => {
+      applying.value = false
+    })
+}
+
 // ---------------- 成员 ----------------
 
 const members = ref<TeamMemberItem[]>([])
 const membersLoading = ref(false)
+const memberKeyword = ref('')
 const {
   page: memberPage,
   pageSize: memberPageSize,
   total: memberTotal,
   changePage: changeMemberPage,
-  changeSize: changeMemberSize,
-} = usePagination({ defaultPageSize: 10 })
+  resetPage: resetMemberPage,
+} = usePagination()
 
 async function loadMembers() {
   membersLoading.value = true
@@ -158,6 +641,7 @@ async function loadMembers() {
     const result = await listTeamMembers(teamId, {
       page: memberPage.value,
       page_size: memberPageSize.value,
+      keyword: memberKeyword.value || undefined,
     })
     members.value = result.items
     memberTotal.value = result.total
@@ -168,18 +652,33 @@ async function loadMembers() {
   }
 }
 
-/** 成员行操作（⋯ 下拉）：设 / 撤管理员（仅创建者）、移出（管理员） */
-type MemberAction = 'grant' | 'revoke' | 'kick'
+function searchMembers() {
+  resetMemberPage()
+  loadMembers()
+}
+
+function searchSets() {
+  resetSetPage()
+  loadSets()
+}
+
+/** 成员行操作（⋯ 下拉）：设 / 撤管理员（仅创建者）、移出（管理员）、备注（本人 / 管理员） */
+type MemberAction = 'grant' | 'revoke' | 'kick' | 'note'
 
 function memberActions(row: TeamMemberItem): Array<{ key: MemberAction; label: string }> {
   const actions: Array<{ key: MemberAction; label: string }> = []
+  // 备注：本人可备注自己（普通成员唯一可见的行操作），团队创建者 / 管理员可备注任意成员
+  if (row.user_id === userStore.user?.id || isAdmin.value) {
+    actions.push({ key: 'note', label: t('teams.members.note') })
+  }
   if (isCreator.value && !row.is_creator) {
     actions.push({
       key: row.is_admin ? 'revoke' : 'grant',
       label: t(row.is_admin ? 'teams.members.revokeAdmin' : 'teams.members.grantAdmin'),
     })
   }
-  if (isAdmin.value && !row.is_creator) {
+  // 移出不提供给自己一行：退出走「退出团队」入口（exited 语义，非 kicked）
+  if (isAdmin.value && !row.is_creator && row.user_id !== userStore.user?.id) {
     actions.push({ key: 'kick', label: t('teams.members.kick') })
   }
   return actions
@@ -190,7 +689,34 @@ function onMemberAction(action: MemberAction, row: TeamMemberItem) {
     void onSetAdmin(row, action === 'grant')
     return
   }
+  if (action === 'note') {
+    noteTarget.value = row
+    noteValue.value = row.note ?? ''
+    noteVisible.value = true
+    return
+  }
   onKick(row)
+}
+
+/** 备注编辑弹窗（本人 / 管理员共用；空值 = 清除备注） */
+const noteVisible = ref(false)
+const noteTarget = ref<TeamMemberItem | null>(null)
+const noteValue = ref('')
+const noteSaving = ref(false)
+
+async function onNoteSave() {
+  if (!noteTarget.value) return
+  noteSaving.value = true
+  try {
+    await setTeamMemberNote(teamId, noteTarget.value.user_id, noteValue.value.trim() || null)
+    message.success(t('teams.members.noteSuccess'))
+    noteVisible.value = false
+    await loadMembers()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
+  } finally {
+    noteSaving.value = false
+  }
 }
 
 async function onSetAdmin(row: TeamMemberItem, grant: boolean) {
@@ -294,7 +820,12 @@ async function copyInviteLink() {
 // ---------------- 编辑抽屉 ----------------
 
 const showSettings = ref(false)
-const form = reactive({ name: '', description: '', avatar_url: '' as string | null })
+const form = reactive({
+  name: '',
+  description: '',
+  avatar_url: '' as string | null,
+  visibility: 'private' as 'public' | 'private',
+})
 const saving = ref(false)
 const uploadingAvatar = ref(false)
 
@@ -303,6 +834,7 @@ function openSettings() {
   form.name = team.value.name
   form.description = team.value.description ?? ''
   form.avatar_url = team.value.avatar_url ?? ''
+  form.visibility = team.value.visibility ?? 'private'
   showSettings.value = true
 }
 
@@ -333,6 +865,7 @@ async function saveSettings() {
       name: form.name.trim(),
       description: form.description.trim() || undefined,
       avatar_url: form.avatar_url || undefined,
+      visibility: form.visibility,
     })
     message.success(t('teams.settings.saved'))
     showSettings.value = false
@@ -369,6 +902,8 @@ function onExit() {
     },
     successMessage: t('teams.detail.exitSuccess'),
     onAfterSuccess: () => {
+      // 成员关系已变更：列表页经脏标记重拉，路由回退前台团队页
+      useTeamsStore().markMembershipChanged()
       void router.push('/teams/mine')
     },
   })
@@ -384,6 +919,7 @@ function onDisband() {
     },
     successMessage: t('teams.detail.disbandSuccess'),
     onAfterSuccess: () => {
+      useTeamsStore().markMembershipChanged()
       void router.push('/teams/mine')
     },
   })
@@ -397,6 +933,9 @@ watch(
     if (team.value) {
       loadMembers()
       loadApplications()
+      loadProblems()
+      loadSets()
+      loadContests()
     }
   },
 )
@@ -409,270 +948,504 @@ onMounted(load)
     <div class="team-fill">
       <!-- NSpin 只包 Hero（骨架 / 失败 / 信息），不参与模块卡的高度传导 -->
       <NSpin :show="loading" class="hero-spin">
-      <!-- 加载骨架 -->
-      <div v-if="!team && loading" class="hero hero--skeleton">
-        <NSkeleton height="140px" :sharp="false" style="border-radius: 8px" />
-        <NSkeleton circle width="88px" height="88px" class="hero__avatar hero__avatar--skeleton" />
-        <NSkeleton text style="width: 30%" />
-        <NSkeleton text style="width: 60%" />
-      </div>
+        <!-- 加载骨架 -->
+        <div v-if="!team && loading" class="hero hero--skeleton">
+          <NSkeleton height="140px" :sharp="false" style="border-radius: 8px" />
+          <NSkeleton
+            circle
+            width="88px"
+            height="88px"
+            class="hero__avatar hero__avatar--skeleton"
+          />
+          <NSkeleton text style="width: 30%" />
+          <NSkeleton text style="width: 60%" />
+        </div>
 
-      <!-- 加载失败 -->
-      <div v-else-if="!team && loadFailed" class="hero hero--failed">
-        <NEmpty :description="t('teams.detail.loadFailed')" size="large">
-          <template #extra>
-            <NButton @click="load">{{ t('action.refresh') }}</NButton>
-          </template>
-        </NEmpty>
-      </div>
+        <!-- 加载失败（403 = 非成员：提供申请加入出口） -->
+        <div v-else-if="!team && loadFailed" class="hero hero--failed">
+          <NEmpty
+            :description="
+              forbidden ? t('teams.detail.forbidden') : t('teams.detail.loadFailed')
+            "
+            size="large"
+          >
+            <template #extra>
+              <div class="hero__failed-actions">
+                <NButton
+                  v-if="forbidden"
+                  type="primary"
+                  secondary
+                  :loading="applying"
+                  @click="applyFromForbidden"
+                >
+                  {{ t('teams.list.applyJoin') }}
+                </NButton>
+                <NButton @click="load">{{ t('action.refresh') }}</NButton>
+              </div>
+            </template>
+          </NEmpty>
+        </div>
       </NSpin>
 
       <!-- ======== Hero（不参与模块卡高度链） ======== -->
       <section v-if="team" class="hero">
-          <div class="hero__banner" aria-hidden="true">
-            <span class="hero__orb"></span>
-            <span class="hero__ring"></span>
-          </div>
-          <div class="hero__body">
-            <img v-if="team.avatar_url" :src="team.avatar_url" alt="" class="hero__avatar" />
-            <div v-else class="hero__avatar hero__avatar--fallback" aria-hidden="true">
-              {{ initialOf(team.name) }}
-            </div>
+        <div class="hero__banner" aria-hidden="true">
+          <span class="hero__orb"></span>
+          <span class="hero__ring"></span>
+        </div>
+        <div class="hero__body">
+          <BaseAvatar
+            class="hero__avatar"
+            kind="team"
+            :src="team.avatar_url"
+            :name="team.name"
+            :size="88"
+            :round="false"
+            :radius="10"
+          />
 
-            <div class="hero__main">
-              <div class="hero__title-row">
-                <h1 class="hero__title">{{ team.name }}</h1>
-              </div>
-              <p class="hero__desc" :class="{ 'hero__desc--empty': !team.description }">
-                {{ team.description ?? t('teams.detail.descEmpty') }}
-              </p>
-              <!-- 统计行：成员数 / 创建时间 / 团队 ID（点击复制完整 ID） -->
-              <div class="hero__meta">
-                <span>
-                  {{ t('teams.list.memberCount') }}
-                  <strong class="hero__meta-num">{{ team.member_count }}</strong>
-                </span>
-                <span class="hero__dot" aria-hidden="true">·</span>
-                <span>{{ t('teams.list.createdAt') }} {{ formatDateTime(team.created_at) }}</span>
-                <span class="hero__dot" aria-hidden="true">·</span>
-                <button
-                  type="button"
-                  class="hero__id"
-                  :title="t('teams.detail.teamId')"
-                  @click="copyTeamId"
-                >
-                  {{ t('teams.detail.teamId') }} {{ teamId.slice(0, 8) }}
-                </button>
-              </div>
+          <div class="hero__main">
+            <div class="hero__title-row">
+              <h1 class="hero__title">{{ team.name }}</h1>
             </div>
-
-            <!-- 动作区：预留扩展位，后续团队管理按钮继续向此追加 -->
-            <div class="hero__actions">
-              <NButton
-                v-if="isAdmin"
-                type="primary"
-                size="large"
-                :loading="inviting"
-                @click="onCreateInvite"
+            <p class="hero__desc" :class="{ 'hero__desc--empty': !team.description }">
+              {{ team.description ?? t('teams.detail.descEmpty') }}
+            </p>
+            <!-- 统计行：成员数 / 创建时间 / 团队 ID（点击复制完整 ID） -->
+            <div class="hero__meta">
+              <span>
+                {{ t('teams.list.memberCount') }}
+                <strong class="hero__meta-num">{{ team.member_count }}</strong>
+              </span>
+              <span class="hero__dot" aria-hidden="true">·</span>
+              <span>{{ t('teams.list.createdAt') }} {{ formatDateTime(team.created_at) }}</span>
+              <span class="hero__dot" aria-hidden="true">·</span>
+              <button
+                type="button"
+                class="hero__id"
+                :title="t('teams.detail.teamId')"
+                @click="copyTeamId"
               >
-                <template #icon>
-                  <NIcon :component="Promotion" />
-                </template>
-                {{ t('teams.detail.inviteMembers') }}
-              </NButton>
-              <NButton v-if="isAdmin" secondary size="large" @click="openSettings">
-                <template #icon>
-                  <NIcon :component="Setting" />
-                </template>
-                {{ t('teams.detail.editInfo') }}
-              </NButton>
-              <NDropdown
-                v-if="heroActions.length"
-                trigger="click"
-                :options="heroActions"
-                @select="onHeroAction"
-              >
-                <NButton circle quaternary size="large" :aria-label="t('teams.detail.more')">
-                  <template #icon>
-                    <NIcon :component="MoreFilled" />
-                  </template>
-                </NButton>
-              </NDropdown>
+                {{ t('teams.detail.teamId') }} {{ teamId.slice(0, 8) }}
+              </button>
             </div>
           </div>
+
+          <!-- 动作区：预留扩展位，后续团队管理按钮继续向此追加 -->
+          <div class="hero__actions">
+            <NButton
+              v-if="isAdmin"
+              type="primary"
+              size="large"
+              :loading="inviting"
+              @click="onCreateInvite"
+            >
+              <template #icon>
+                <NIcon :component="Promotion" />
+              </template>
+              {{ t('teams.detail.inviteMembers') }}
+            </NButton>
+            <NButton v-if="isAdmin" secondary size="large" @click="openSettings">
+              <template #icon>
+                <NIcon :component="Setting" />
+              </template>
+              {{ t('teams.detail.editInfo') }}
+            </NButton>
+            <NDropdown
+              v-if="heroActions.length"
+              trigger="click"
+              :options="heroActions"
+              @select="onHeroAction"
+            >
+              <NButton circle quaternary size="large" :aria-label="t('teams.detail.more')">
+                <template #icon>
+                  <NIcon :component="MoreFilled" />
+                </template>
+              </NButton>
+            </NDropdown>
+          </div>
+        </div>
       </section>
 
       <!-- ======== 内容模块（tab 线条直连内容） ======== -->
       <section v-if="team" class="module-area">
         <n-tabs v-model:value="activeModule" type="line" class="module-tabs">
-            <n-tab-pane
-              v-for="moduleItem in moduleMeta"
-              :key="moduleItem.key"
-              :name="moduleItem.key"
-              :tab="t(moduleItem.labelKey)"
-            >
-              <!-- 成员 -->
-              <template v-if="moduleItem.key === 'members'">
-                <div class="pane-scroll">
-                  <NSpin :show="membersLoading" class="pane-spin">
-                    <ul v-if="members.length" class="member-grid">
-                      <li v-for="member in members" :key="member.user_id" class="member-cell">
-                        <NAvatar
-                          :src="member.avatar_url || undefined"
-                          round
-                          :size="44"
-                          :style="{
-                            color: 'var(--app-text-secondary)',
-                            fontSize: '15px',
-                            flexShrink: 0,
-                          }"
+          <n-tab-pane
+            v-for="moduleItem in moduleMeta"
+            :key="moduleItem.key"
+            :name="moduleItem.key"
+            :tab="t(moduleItem.labelKey)"
+          >
+            <!-- 成员 -->
+            <template v-if="moduleItem.key === 'members'">
+              <SearchFilterBar
+                :keyword="memberKeyword"
+                :placeholder="t('teams.members.search')"
+                @update:keyword="
+                  (v: string) => {
+                    memberKeyword = v
+                  }
+                "
+                @search="searchMembers"
+                @reset="searchMembers"
+              >
+                <template #actions>
+                  <RefreshButton
+                    :loading="membersLoading"
+                    :aria-label="t('action.refresh')"
+                    @click="loadMembers"
+                  />
+                </template>
+              </SearchFilterBar>
+              <PaginatedDataTable
+                :data="members"
+                :loading="membersLoading"
+                :total="memberTotal"
+                :page="memberPage"
+                :page-size="memberPageSize"
+                :empty-text="t('teams.members.empty')"
+                @update:page="
+                  (p: number) => {
+                    changeMemberPage(p)
+                    loadMembers()
+                  }
+                "
+              >
+                <template #content>
+                  <div class="pane-scroll">
+                    <NSpin :show="membersLoading" class="pane-spin">
+                      <ul v-if="members.length" class="tile-grid">
+                        <li v-for="member in members" :key="member.user_id" class="tile">
+                          <BaseAvatar
+                            :src="member.avatar_url"
+                            :name="member.nickname"
+                            :size="40"
+                          />
+                          <div class="tile__body">
+                            <div class="tile__head">
+                              <span class="tile__title" :title="member.nickname">{{
+                                member.nickname
+                              }}</span>
+                              <span
+                                v-if="member.note"
+                                class="tile__note"
+                                :title="t('teams.members.note') + '：' + member.note"
+                              >
+                                {{ member.note }}
+                              </span>
+                              <span v-if="member.user_id === userStore.user?.id" class="tile__you">
+                                {{ t('teams.members.you') }}
+                              </span>
+                              <NDropdown
+                                v-if="memberActions(member).length"
+                                class="tile__ops"
+                                trigger="click"
+                                :options="memberActions(member)"
+                                @select="(action: MemberAction) => onMemberAction(action, member)"
+                              >
+                                <NButton
+                                  circle
+                                  quaternary
+                                  size="tiny"
+                                  :aria-label="t('teams.detail.more')"
+                                >
+                                  <template #icon>
+                                    <NIcon :component="MoreFilled" />
+                                  </template>
+                                </NButton>
+                              </NDropdown>
+                            </div>
+                            <div class="tile__foot">
+                              <span class="dot-chip" :class="`dot-chip--${memberRoleOf(member)}`">
+                                <span class="dot-chip__dot" aria-hidden="true" />
+                                {{ t(`teams.role.${memberRoleOf(member)}`) }}
+                              </span>
+                              <span class="tile__meta">
+                                {{ t('teams.members.joinedAt') }}
+                                {{ formatCompact(member.joined_at) }}
+                              </span>
+                            </div>
+                          </div>
+                    </li>
+                  </ul>
+                </NSpin>
+              </div>
+                </template>
+              </PaginatedDataTable>
+            </template>
+
+            <!-- 团队题库 -->
+            <template v-else-if="moduleItem.key === 'problems'">
+              <SearchFilterBar
+                :keyword="problemKeyword"
+                :placeholder="t('teams.space.problemSearch')"
+                @update:keyword="
+                  (v: string) => {
+                    problemKeyword = v
+                  }
+                "
+                @search="searchProblems"
+                @reset="searchProblems"
+              >
+                <template #actions>
+                  <NButton v-if="isAdmin" size="small" secondary @click="openProblemCreate">
+                    <template #icon>
+                      <NIcon :component="Collection" />
+                    </template>
+                    {{ t('problems.create.title') }}
+                  </NButton>
+                  <NButton
+                    v-if="isAdmin && canReference"
+                    size="small"
+                    type="primary"
+                    secondary
+                    @click="openProblemReference"
+                  >
+                    <template #icon>
+                      <NIcon :component="CirclePlus" />
+                    </template>
+                    {{ t('teams.space.referenceProblem') }}
+                  </NButton>
+                  <NCheckbox v-if="isAdmin" :checked="draftOnly" @update:checked="onToggleDraftBox">
+                    {{ t('teams.space.draftBox') }}
+                  </NCheckbox>
+                  <RefreshButton
+                    :loading="problemsLoading"
+                    :aria-label="t('action.refresh')"
+                    @click="loadProblems"
+                  />
+                </template>
+              </SearchFilterBar>
+              <PaginatedDataTable
+                :columns="problemColumns"
+                :data="problems"
+                :loading="problemsLoading"
+                :total="problemTotal"
+                :page="problemPage"
+                :page-size="problemPageSize"
+                :empty-text="t(draftOnly ? 'teams.space.draftsEmpty' : 'teams.space.problemsEmpty')"
+                :table-props="{
+                  size: 'small',
+                  rowKey: rowKeyOfProblem,
+                  rowProps: rowPropsOfProblem,
+                }"
+                @update:page="
+                  (p: number) => {
+                    changeProblemPage(p)
+                    loadProblems()
+                  }
+                "
+              />
+            </template>
+
+            <!-- 团队题单 -->
+            <template v-else-if="moduleItem.key === 'sets'">
+              <SearchFilterBar
+                :keyword="setKeyword"
+                :placeholder="t('problemSets.list.search')"
+                @update:keyword="
+                  (v: string) => {
+                    setKeyword = v
+                  }
+                "
+                @search="searchSets"
+                @reset="searchSets"
+              >
+                <template #actions>
+                  <NButton v-if="isAdmin" size="small" type="primary" @click="openSetCreate">
+                    <template #icon>
+                      <NIcon :component="CirclePlus" />
+                    </template>
+                    {{ t('teams.space.createSet') }}
+                  </NButton>
+                  <RefreshButton
+                    :loading="setsLoading"
+                    :aria-label="t('action.refresh')"
+                    @click="loadSets"
+                  />
+                </template>
+              </SearchFilterBar>
+              <PaginatedDataTable
+                :columns="setColumns"
+                :data="sets"
+                :loading="setsLoading"
+                :total="setTotal"
+                :page="setPage"
+                :page-size="setPageSize"
+                :empty-text="t('teams.space.setsEmpty')"
+                :table-props="{
+                  size: 'small',
+                  rowKey: rowKeyOfSet,
+                  rowProps: rowPropsOfSet,
+                }"
+                @update:page="
+                  (p: number) => {
+                    changeSetPage(p)
+                    loadSets()
+                  }
+                "
+              />
+            </template>
+
+            <!-- 团队比赛 -->
+            <template v-else-if="moduleItem.key === 'contests'">
+              <SearchFilterBar
+                :keyword="contestKeyword"
+                :placeholder="t('contests.list.search')"
+                @update:keyword="
+                  (v: string) => {
+                    contestKeyword = v
+                  }
+                "
+                @search="searchContests"
+                @reset="searchContests"
+              >
+                <template #actions>
+                  <NButton v-if="isAdmin" size="small" type="primary" @click="openContestCreate">
+                    <template #icon>
+                      <NIcon :component="CirclePlus" />
+                    </template>
+                    {{ t('teams.space.createContest') }}
+                  </NButton>
+                  <RefreshButton
+                    :loading="contestsLoading"
+                    :aria-label="t('action.refresh')"
+                    @click="loadContests"
+                  />
+                </template>
+              </SearchFilterBar>
+              <PaginatedDataTable
+                :data="contests"
+                :loading="contestsLoading"
+                :total="contestTotal"
+                :page="contestPage"
+                :page-size="contestPageSize"
+                :empty-text="t('teams.space.contestsEmpty')"
+                @update:page="
+                  (p: number) => {
+                    changeContestPage(p)
+                    loadContests()
+                  }
+                "
+              >
+                <template #content>
+                  <div class="pane-scroll">
+                    <NSpin :show="contestsLoading" class="pane-spin">
+                      <ul v-if="contests.length" class="tile-grid tile-grid--contest">
+                    <li
+                      v-for="contest in contests"
+                      :key="contest.id"
+                      class="tile tile--contest tile--link"
+                      role="button"
+                      tabindex="0"
+                      @click="openContest(contest)"
+                      @keyup.enter="openContest(contest)"
+                    >
+                      <div class="tile__head">
+                        <BaseAvatar
+                          kind="contest"
+                          :src="contest.logo"
+                          :name="contest.title"
+                          :size="40"
+                          :round="false"
+                          :radius="8"
+                          bordered
+                        />
+                        <h3 class="tile__title" :title="contest.title">{{ contest.title }}</h3>
+                        <span class="dot-chip" :class="`dot-chip--${contest.status}`">
+                          <span class="dot-chip__dot" aria-hidden="true" />
+                          {{ contestStatusLabel[contest.status] }}
+                        </span>
+                        <span
+                          v-if="contest.board_frozen"
+                          class="dot-chip dot-chip--frozen"
+                          :title="t('contests.frozenHint')"
                         >
-                          <template v-if="!member.avatar_url">{{ initialOf(member.nickname) }}</template>
-                        </NAvatar>
-                        <div class="member-cell__main">
-                          <span class="member-cell__name" :title="member.nickname">
-                            {{ member.nickname }}
-                          </span>
-                          <span class="member-cell__time">
-                            {{ t('teams.members.joinedAt') }} {{ formatDateTime(member.joined_at) }}
-                          </span>
-                        </div>
-                        <NTag
-                          size="small"
-                          round
-                          :bordered="false"
-                          :type="
-                            member.is_creator ? 'warning' : member.is_admin ? 'info' : 'default'
-                          "
-                          class="member-cell__role"
-                        >
-                          {{
-                            member.is_creator
-                              ? t('teams.role.creator')
-                              : member.is_admin
-                                ? t('teams.role.admin')
-                                : t('teams.role.member')
-                          }}
-                        </NTag>
+                          <span class="dot-chip__dot" aria-hidden="true" />
+                          {{ t('contests.boardFrozenTag') }}
+                        </span>
                         <NDropdown
-                          v-if="memberActions(member).length"
-                          class="member-cell__ops"
+                          v-if="isAdmin"
+                          class="tile__ops"
                           trigger="click"
-                          :options="memberActions(member)"
-                          @select="(action: MemberAction) => onMemberAction(action, member)"
+                          :options="contestActions(contest)"
+                          @select="(action: ContestAction) => onContestAction(action, contest)"
                         >
                           <NButton
                             circle
                             quaternary
                             size="tiny"
                             :aria-label="t('teams.detail.more')"
+                            @click.stop
                           >
                             <template #icon>
                               <NIcon :component="MoreFilled" />
                             </template>
                           </NButton>
                         </NDropdown>
-                      </li>
-                    </ul>
-                    <NEmpty
-                      v-else-if="!membersLoading"
-                      :description="t('teams.members.empty')"
-                      size="large"
-                      class="pane-empty"
-                    />
-                  </NSpin>
-                </div>
+                      </div>
+                      <p class="tile__desc" :class="{ 'tile__desc--empty': !contest.description }">
+                        {{ contest.description ?? '—' }}
+                      </p>
+                      <div class="tile__meta">
+                        <span class="tile__rule">{{ contest.rule_type }}</span>
+                        <span class="tile__sep" aria-hidden="true">·</span>
+                        <span>{{
+                          t('contests.list.problemCount', { count: contest.problem_count })
+                        }}</span>
+                        <span class="tile__sep" aria-hidden="true">·</span>
+                        <span>{{
+                          t('contests.list.registeredCount', { count: contest.registered_count })
+                        }}</span>
+                      </div>
+                      <div class="tile__when">
+                        <span>{{ formatCompact(contest.start_time) }}</span>
+                        <span class="tile__when-arrow" aria-hidden="true">→</span>
+                        <span>{{ formatCompact(contest.end_time) }}</span>
+                      </div>
+                    </li>
+                  </ul>
+                </NSpin>
+              </div>
+                </template>
+              </PaginatedDataTable>
+            </template>
 
-                <div v-if="memberTotal > memberPageSize" class="pane-pager">
-                  <n-pagination
-                    :page="memberPage"
-                    :page-size="memberPageSize"
-                    :item-count="memberTotal"
-                    :page-sizes="[10, 20, 50]"
-                    show-size-picker
-                    @update:page="
-                      (p: number) => {
-                        changeMemberPage(p)
-                        loadMembers()
-                      }
-                    "
-                    @update:page-size="
-                      (s: number) => {
-                        changeMemberSize(s)
-                        loadMembers()
-                      }
-                    "
-                  />
-                </div>
-              </template>
-
-              <!-- 规划中模块：三张能力卡并排，写清各自将提供什么 -->
-              <template v-else-if="moduleItem.placeholder">
-                <div class="module-grid">
-                  <div
-                    v-for="mod in placeholderModules"
-                    :key="mod.key"
-                    class="module-card"
-                    :class="{ 'module-card--active': mod.key === moduleItem.key }"
-                  >
-                    <span class="module-card__icon" aria-hidden="true">
-                      <NIcon :size="26" :component="mod.icon" />
-                    </span>
-                    <h3 class="module-card__title">{{ t(mod.labelKey) }}</h3>
-                    <p class="module-card__hint">{{ t(mod.hintKey) }}</p>
-                    <span class="module-card__badge">{{ t('teams.modules.comingSoon') }}</span>
-                  </div>
-                </div>
-              </template>
-
-              <!-- 加入申请（管理员） -->
-              <template v-else>
-                <div class="pane-scroll">
-                  <NSpin :show="applicationsLoading" class="pane-spin">
-                    <ul v-if="applications.length" class="member-grid">
-                      <li
-                        v-for="application in applications"
-                        :key="application.id"
-                        class="member-cell"
-                      >
-                        <NAvatar
-                          round
-                          :size="44"
-                          :style="{
-                            color: 'var(--app-text-secondary)',
-                            fontSize: '15px',
-                            flexShrink: 0,
-                          }"
-                        >
-                          {{ initialOf(application.nickname) }}
-                        </NAvatar>
-                        <div class="member-cell__main">
-                          <span class="member-cell__name" :title="application.nickname">
+            <!-- 加入申请（管理员） -->
+            <template v-else>
+              <div class="pane-scroll">
+                <NSpin :show="applicationsLoading" class="pane-spin">
+                  <ul v-if="applications.length" class="tile-grid">
+                    <li v-for="application in applications" :key="application.id" class="tile">
+                      <BaseAvatar :name="application.nickname" :size="40" />
+                      <div class="tile__body">
+                        <div class="tile__head">
+                          <span class="tile__title" :title="application.nickname">
                             {{ application.nickname }}
                           </span>
-                          <span class="member-cell__time">
-                            {{ formatDateTime(application.applied_at) }}
-                          </span>
                         </div>
-                        <NTag
-                          size="small"
-                          round
-                          :bordered="false"
-                          :type="application.invite_token ? 'info' : 'default'"
-                          class="member-cell__role"
-                        >
-                          {{
-                            application.invite_token
-                              ? t('teams.applications.viaInvite')
-                              : t('teams.applications.direct')
-                          }}
-                        </NTag>
-                        <div class="member-cell__actions">
-                          <NButton size="small" type="primary" @click="onReview(application, true)">
+                        <div class="tile__foot">
+                          <span
+                            class="dot-chip"
+                            :class="application.invite_token ? 'dot-chip--admin' : ''"
+                          >
+                            <span class="dot-chip__dot" aria-hidden="true" />
+                            {{
+                              application.invite_token
+                                ? t('teams.applications.viaInvite')
+                                : t('teams.applications.direct')
+                            }}
+                          </span>
+                          <span class="tile__meta">{{
+                            formatCompact(application.applied_at)
+                          }}</span>
+                        </div>
+                        <div class="tile__actions">
+                          <NButton size="tiny" type="primary" @click="onReview(application, true)">
                             {{ t('teams.applications.approve') }}
                           </NButton>
                           <NButton
-                            size="small"
+                            size="tiny"
                             quaternary
                             type="error"
                             @click="onReview(application, false)"
@@ -680,19 +1453,20 @@ onMounted(load)
                             {{ t('teams.applications.reject') }}
                           </NButton>
                         </div>
-                      </li>
-                    </ul>
-                    <NEmpty
-                      v-else-if="!applicationsLoading"
-                      :description="t('teams.applications.empty')"
-                      size="large"
-                      class="pane-empty"
-                    />
-                  </NSpin>
-                </div>
-              </template>
-            </n-tab-pane>
-          </n-tabs>
+                      </div>
+                    </li>
+                  </ul>
+                  <NEmpty
+                    v-else-if="!applicationsLoading"
+                    :description="t('teams.applications.empty')"
+                    size="large"
+                    class="pane-empty"
+                  />
+                </NSpin>
+              </div>
+            </template>
+          </n-tab-pane>
+        </n-tabs>
       </section>
     </div>
 
@@ -705,7 +1479,15 @@ onMounted(load)
     >
       <div class="invite-modal">
         <div class="invite-modal__qr">
-          <NQrCode v-if="inviteLink" :value="inviteLink" :size="176" error-correction-level="M" />
+          <!-- padding=0：组件默认 12px 内边距在 border-box 下会挤压画布，
+               右下约 24px 被容器 overflow:hidden 裁掉；留白改由外层承担 -->
+          <NQrCode
+            v-if="inviteLink"
+            :value="inviteLink"
+            :size="176"
+            :padding="0"
+            error-correction-level="M"
+          />
         </div>
         <p class="invite-modal__hint">{{ t('teams.settings.inviteHint') }}</p>
         <div class="invite-modal__link">
@@ -725,6 +1507,33 @@ onMounted(load)
       </div>
     </NModal>
 
+    <!-- 成员备注弹窗：本人 / 管理员共用；空值 = 清除备注 -->
+    <NModal
+      v-model:show="noteVisible"
+      preset="card"
+      style="width: 400px"
+      :title="t('teams.members.noteTarget', { name: noteTarget?.nickname ?? '' })"
+    >
+      <NInput
+        v-model:value="noteValue"
+        :placeholder="t('teams.members.notePlaceholder')"
+        :maxlength="64"
+        show-count
+        clearable
+        @keyup.enter="onNoteSave"
+      />
+      <template #footer>
+        <div class="note-modal__actions">
+          <NButton size="small" quaternary @click="noteVisible = false">
+            {{ t('action.cancel') }}
+          </NButton>
+          <NButton size="small" type="primary" :loading="noteSaving" @click="onNoteSave">
+            {{ t('action.save') }}
+          </NButton>
+        </div>
+      </template>
+    </NModal>
+
     <!-- 编辑信息抽屉 -->
     <NDrawer v-model:show="showSettings" :width="440" placement="right">
       <NDrawerContent :title="t('teams.settings.infoTitle')" closable>
@@ -734,6 +1543,13 @@ onMounted(load)
           </NFormItem>
           <NFormItem :label="t('teams.create.description')">
             <NInput v-model:value="form.description" type="textarea" :rows="4" maxlength="2000" />
+          </NFormItem>
+          <NFormItem :label="t('teams.settings.visibility')">
+            <n-radio-group v-model:value="form.visibility">
+              <n-radio value="private">{{ t('teams.settings.visibilityPrivate') }}</n-radio>
+              <n-radio value="public">{{ t('teams.settings.visibilityPublic') }}</n-radio>
+            </n-radio-group>
+            <span class="field-hint">{{ t('teams.settings.visibilityHint') }}</span>
           </NFormItem>
           <NFormItem :label="t('teams.settings.avatar')">
             <div class="avatar-uploader">
@@ -763,7 +1579,6 @@ onMounted(load)
     </NDrawer>
   </WorkbenchShell>
 </template>
-
 
 <style scoped>
 /* ============================================================
@@ -814,6 +1629,11 @@ onMounted(load)
   display: flex;
   justify-content: center;
 }
+.hero__failed-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
 .hero__avatar--skeleton {
   margin: -44px 0 0 28px;
 }
@@ -848,30 +1668,17 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: 56px 32px;
+  padding: 26px 32px 20px;
   flex-wrap: wrap;
   max-width: 1680px;
   margin: 0 auto;
   width: 100%;
   box-sizing: border-box;
 }
+/* 头像框架由 BaseAvatar（尺寸 / 圆角 / 回退图）承担，这里只保留 Hero 描边与投影 */
 .hero__avatar {
-  width: 88px;
-  height: 88px;
-  border-radius: 10px;
-  object-fit: cover;
   border: 3px solid var(--app-card-bg, #fff);
   box-shadow: 0 2px 12px rgb(0 0 0 / 8%);
-  flex-shrink: 0;
-  background: var(--app-muted-bg);
-}
-.hero__avatar--fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--app-text-secondary);
-  font-size: 32px;
-  font-weight: 800;
 }
 .hero__main {
   flex: 1;
@@ -998,138 +1805,269 @@ onMounted(load)
   display: flex;
   flex-direction: column;
 }
+/* 空态：吃满 pane 剩余高度并垂直居中
+   （.n-empty 自身已是 flex 列 + align-items: center，补 flex:1 + justify-content 居中） */
 .pane-empty {
+  flex: 1;
+  min-height: 0;
+  justify-content: center;
   padding: 56px 0;
 }
 
-/* 成员 / 申请：线条列表（分隔线行，无卡片边框） */
-.member-grid {
-  flex: 1;
-  min-height: 0;
-  grid-auto-rows: minmax(56px, auto);
-  align-content: start;
+/* 成员 / 比赛 / 申请：紧凑小卡片 */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
   list-style: none;
   margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 0 48px;
+  padding: 0 0 4px;
+  align-content: start;
 }
-.member-cell {
+.tile-grid--contest {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+.tile {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-card-bg, #fff);
+  transition: border-color 0.15s ease;
+}
+.tile:hover {
+  border-color: var(--app-text-muted);
+}
+.tile--link {
+  cursor: pointer;
+}
+.tile--contest {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 20px 20px 18px;
+  /* 对齐公开比赛卡片范式：平面方角、纯 1px 边框，无彩条 / 着色底 / 动画 */
+  border-radius: 0;
+}
+.tile--link:hover .tile__title {
+  color: var(--app-primary);
+}
+.tile--link:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+.tile__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tile__head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--app-border);
-  background: transparent;
-  transition: background-color 0.15s ease;
+  gap: 10px;
+  min-width: 0;
 }
-.member-cell:hover {
+.tile__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--app-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+.tile--contest .tile__title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.tile__you {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--app-primary);
+  background: color-mix(in srgb, var(--app-primary) 12%, transparent);
+}
+/* 成员备注：与昵称区分子字体与颜色（小号 / 次要色 / 中性底 chip），截断防挤压 */
+.tile__note {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--app-text-secondary);
   background: var(--app-muted-bg);
 }
-.member-cell__main {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
+.note-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
-.member-cell__name {
-  font-size: 14px;
-  font-weight: 600;
+.tile__ops {
+  flex-shrink: 0;
+  margin: -2px -4px -2px 0;
+}
+.tile__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.tile__meta {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.member-cell__time {
+.tile__desc {
+  margin: 0;
+  min-height: 37px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tile__desc--empty {
+  opacity: 0.55;
+}
+.tile--contest .tile__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: visible;
+  text-overflow: unset;
+}
+.tile__sep {
+  opacity: 0.45;
+}
+.tile__rule {
+  color: var(--app-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.tile__when {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--app-border);
   color: var(--app-text-secondary);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-.member-cell__role {
-  flex-shrink: 0;
+.tile__when-arrow {
+  opacity: 0.55;
 }
-.member-cell__actions {
+.tile__actions {
   display: flex;
   gap: 6px;
-  flex-shrink: 0;
+  margin-top: 2px;
 }
-/* 行内「更多」操作：指针设备下 hover 才浮现，减少每行常驻图标的噪音；
-   触屏（无 hover）与键盘 focus 时保持可见，不影响可操作性 */
+.dot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--app-text-secondary);
+}
+.dot-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--app-text-muted);
+}
+.dot-chip--creator {
+  color: var(--app-warning);
+}
+.dot-chip--creator .dot-chip__dot {
+  background: var(--app-warning);
+}
+.dot-chip--admin {
+  color: var(--app-info);
+}
+.dot-chip--admin .dot-chip__dot {
+  background: var(--app-info);
+}
+/* 比赛状态点标与公开比赛卡片同范式：文本次级色，仅点着色（running 呼吸灯已随彩条样式移除） */
+.dot-chip--running .dot-chip__dot {
+  background: var(--app-success);
+}
+.dot-chip--scheduled .dot-chip__dot {
+  background: var(--app-info);
+}
+.dot-chip--frozen {
+  color: var(--app-warning);
+}
+.dot-chip--frozen .dot-chip__dot {
+  background: var(--app-warning);
+}
 @media (hover: hover) {
-  .member-cell__ops {
+  .tile__ops {
     opacity: 0;
     transition: opacity 0.15s ease;
   }
-  .member-cell:hover .member-cell__ops,
-  .member-cell:focus-within .member-cell__ops {
+  .tile:hover .tile__ops,
+  .tile:focus-within .tile__ops {
     opacity: 1;
   }
 }
 
-/* 分页钉底 */
-.pane-pager {
-  flex-shrink: 0;
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--app-border);
+/* 题库 / 题单列表表格：吃满滚动区，行内操作按钮 */
+.pane-table {
+  flex: 1;
+  min-height: 0;
+}
+.cell-strong {
+  font-weight: 600;
+}
+.cell-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-/* 规划中模块：能力卡并排（不再是「一个图标 + 敬请期待」的死路） */
-.module-grid {
-  flex: 1;
-  min-height: 280px;
-  align-content: center;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 14px;
-}
-.module-card {
-  display: grid;
+/* 分页条由 PaginatedDataTable 统一渲染（.pager 全局间距） */
+
+/* 团队空间模块：工具行（搜索 / 管理动作） */
+.pane-toolbar {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  align-content: start;
-  padding: 18px;
-  border: 1px solid var(--app-border);
-  border-radius: 10px;
-  background: var(--app-card-bg);
-  box-shadow: 0 1px 2px rgb(16 24 40 / 4%);
+  flex-wrap: wrap;
+  padding-bottom: 10px;
 }
-.module-card--active {
-  border-color: color-mix(in srgb, var(--app-primary) 40%, var(--app-border));
-}
-.module-card__icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: var(--app-muted-bg);
-  color: var(--app-text-secondary);
-}
-.module-card--active .module-card__icon {
-  background: color-mix(in srgb, var(--app-primary) 10%, transparent);
-  color: var(--app-primary);
-}
-.module-card__title {
-  margin: 4px 0 0;
-  font-size: 15px;
-  font-weight: 700;
-}
-.module-card__hint {
-  margin: 0;
-  color: var(--app-text-secondary);
-  font-size: 12.5px;
-  line-height: 1.65;
-}
-.module-card__badge {
-  justify-self: start;
-  margin-top: 2px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  color: var(--app-text-secondary);
-  background: var(--app-muted-bg);
+.pane-toolbar__spacer {
+  flex: 1;
 }
 
 /* ======== 邀请弹窗 ======== */
@@ -1142,6 +2080,8 @@ onMounted(load)
   border: 1px solid var(--app-border);
   border-radius: 8px;
   overflow: hidden;
+  /* 组件 padding=0，留白由外层承担，同时避免圆角裁到码点 */
+  padding: 10px;
 }
 .invite-modal__hint {
   margin: 0;
@@ -1214,7 +2154,7 @@ onMounted(load)
     width: 100%;
   }
   .hero__body {
-    padding: 40px 16px;
+    padding: 20px 16px;
   }
   .hero__avatar {
     width: 72px;
@@ -1225,7 +2165,7 @@ onMounted(load)
     padding-left: 16px;
     padding-right: 16px;
   }
-  .member-grid {
+  .tile-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

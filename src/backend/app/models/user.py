@@ -41,6 +41,9 @@ class User(Base):
     theme: Mapped[str] = mapped_column(String(32), nullable=False, default=Theme.LIGHT)
     # active / frozen / banned / deleted（语义见 docs/contracts/users.md「账号状态语义」）
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=UserStatus.ACTIVE, server_default=UserStatus.ACTIVE)
+    # 冻结到期时刻：非空 = 短时冻结（登录失败超次自动置入），到期自动恢复 active；
+    # 空 = 人工冻结（无限期，仅人工解冻）
+    frozen_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

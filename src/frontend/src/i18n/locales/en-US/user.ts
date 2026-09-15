@@ -35,8 +35,8 @@ export default {
     nickname: 'Nickname',
     confirmPassword: 'Confirm password',
     code: 'Email code',
-    loginTitle: 'Log in to PigeonOJ',
-    registerTitle: 'Register PigeonOJ',
+    loginTitle: 'Log in to {name}',
+    registerTitle: 'Register {name}',
     passwordPlaceholder: 'Enter password',
     passwordMin: 'At least 6 characters',
     repeatPassword: 'Enter password again',
@@ -95,8 +95,16 @@ export default {
     expiresAt: 'Expires at',
     empty: 'No login sessions',
     currentSession: 'Current session',
+    online: 'Online',
     revokeConfirm: 'Revoke the login session for "{device}"?',
     revokeTitle: 'Revoke session',
     revoked: 'Session revoked',
+    revokeOthers: 'Sign out other devices',
+    revokeOthersTitle: 'Sign out other devices',
+    revokeOthersConfirm:
+      'Sign out {count} other device session(s)? Your current device stays logged in.',
+    revokedOthers: 'Signed out {count} other device(s)',
+    footnote:
+      'Repeated logins from the same device keep only the latest session; online = active within the last 5 minutes.',
   },
 }

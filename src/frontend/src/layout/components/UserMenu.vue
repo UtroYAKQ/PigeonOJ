@@ -3,7 +3,10 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
+import type { DropdownOption } from 'naive-ui'
+
 import { useUserStore } from '@/stores/user'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,13 +15,6 @@ const userStore = useUserStore()
 
 /** 后台空间内头像菜单提供「回到前台」，前台则对管理员提供「管理后台」入口 */
 const isAdminArea = computed(() => route.path.startsWith('/admin'))
-const avatarText = computed(() => (userStore.user?.nickname ?? '?').slice(0, 1))
-
-interface DropdownOption {
-  label: string
-  key: string
-  disabled?: boolean
-}
 
 const options = computed<DropdownOption[]>(() => {
   if (!userStore.isLoggedIn) return []
@@ -55,9 +51,11 @@ function go(path: string) {
       <n-dropdown trigger="click" placement="bottom-end" :options="options" @select="onSelect">
         <button type="button" class="user-menu__trigger">
           <span class="user-menu__name">{{ userStore.user.nickname }}</span>
-          <n-avatar round :size="30" :src="userStore.user?.avatar_url || undefined">
-            <template v-if="!userStore.user?.avatar_url">{{ avatarText }}</template>
-          </n-avatar>
+          <BaseAvatar
+            :src="userStore.user?.avatar_url"
+            :name="userStore.user?.nickname"
+            :size="30"
+          />
         </button>
       </n-dropdown>
     </template>

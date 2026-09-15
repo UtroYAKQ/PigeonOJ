@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid as _uuid
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
@@ -31,6 +32,7 @@ class MinioStorage:
             raise OSError("MinIO SDK is not installed") from exc
         settings = get_settings()
         self.bucket = settings.minio_bucket
+        self._bucket_ready = False
         self.client: Any = Minio(
             settings.minio_endpoint,
             access_key=settings.minio_access_key,
@@ -38,13 +40,21 @@ class MinioStorage:
             secure=settings.minio_secure,
         )
 
+    def _ensure_bucket(self) -> None:
+        """桶存在性只探查一次（进程内缓存）：put 路径每次都 bucket_exists 会把
+        S3 往返翻倍；桶在运行期被外部删除属于运维事故，不做自愈。"""
+        if self._bucket_ready:
+            return
+        if not self.client.bucket_exists(self.bucket):
+            self.client.make_bucket(self.bucket)
+        self._bucket_ready = True
+
     async def put_bytes(self, object_key: str, content: bytes, content_type: str) -> StoredObject:
         await asyncio.to_thread(self._put_bytes, object_key, content, content_type)
         return StoredObject(object_key, content_type, len(content))
 
     def _put_bytes(self, object_key: str, content: bytes, content_type: str) -> None:
-        if not self.client.bucket_exists(self.bucket):
-            self.client.make_bucket(self.bucket)
+        self._ensure_bucket()
         self.client.put_object(self.bucket, object_key, BytesIO(content), len(content), content_type=content_type)
 
     async def get_bytes(self, object_key: str) -> tuple[bytes, str]:
@@ -60,6 +70,23 @@ class MinioStorage:
 
     async def delete(self, object_key: str) -> None:
         await asyncio.to_thread(self.client.remove_object, self.bucket, object_key)
+
+    async def copy_object(self, object_key: str) -> str:
+        """同桶复制对象，返回新 object key（引用快照复制测试点用）；
+        新对象与源对象互不影响，可独立清理。"""
+        new_key = self._sibling_key(object_key)
+        await asyncio.to_thread(
+            self.client.copy_object,
+            self.bucket,
+            new_key,
+            f"/{self.bucket}/{object_key}",
+        )
+        return new_key
+
+    @staticmethod
+    def _sibling_key(object_key: str) -> str:
+        """生成同前缀的兄弟 key：cases/{uuid}/input → cases/{uuid}/input-{suffix}。"""
+        return f"{object_key}-{_uuid.uuid4().hex[:12]}"
 
 
 _storage: MinioStorage | None = None

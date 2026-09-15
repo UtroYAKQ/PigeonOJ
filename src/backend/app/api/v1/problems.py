@@ -18,6 +18,8 @@ from app.schemas.problem import (
     ProblemSummary,
     ProblemUpdate,
     SamplesUpdate,
+    SpjOut,
+    SpjUpdate,
     TagPublic,
     TestCaseListOut,
     TestCasesOut,
@@ -43,6 +45,7 @@ async def list_problems(
     scope: str = Query(default="all"),
     status: str | None = Query(default=None),
     mine: bool = Query(default=False),
+    ownership: str | None = Query(default=None),
     difficulty_min: int | None = Query(default=None, ge=0),
     difficulty_max: int | None = Query(default=None, ge=0),
     user: User | None = Depends(get_optional_user),
@@ -50,7 +53,8 @@ async def list_problems(
     try:
         query = ProblemQuery(
             page=page, page_size=page_size, keyword=keyword, tag=tag, scope=scope, status=status,
-            mine=mine, difficulty_min=difficulty_min, difficulty_max=difficulty_max,
+            mine=mine, ownership=ownership,
+            difficulty_min=difficulty_min, difficulty_max=difficulty_max,
         )
     except Exception as exc:  # pydantic 校验失败转 1001 信封
         raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
@@ -69,6 +73,7 @@ async def list_problems(
         items.append(item)
     await service.attach_counters(items)
     await service.attach_solve_status(items, user)
+    await service.attach_tags(items)
     return ok(PaginatedResponse(items=items, total=total, page=query.page, page_size=query.page_size))
 
 
@@ -83,15 +88,36 @@ async def create_problem(
     await db.commit()  # 显式提交：确保数据持久化后再返回（get_db 会再次 commit，但无害）
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
+    await service.attach_tags([summary])
     return ok(summary)
 
 
-@router.get("/problems/tags", response_model=ApiResponse[list[TagPublic]])
-async def list_active_tags(service: TagServiceDep) -> ApiResponse[list[TagPublic]]:
+@router.get("/problems/tags")
+async def list_active_tags(
+    service: TagServiceDep,
+    keyword: str | None = Query(default=None, max_length=64),
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=100),
+) -> ApiResponse[list[TagPublic] | PaginatedResponse[TagPublic]]:
     """激活标签列表（public：打标选择器与题库筛选；docs/contracts/problems.md 端点表）。
 
     注意必须先于 /problems/{problem_id} 注册，否则 tags 会被当作 uuid 解析。
+
+    无 keyword / page / page_size：返回全量激活标签（向后兼容旧前端）。
+    传入 page（同时传 page_size）：返回分页结果（带 keyword 搜索）。
     """
+    if page is not None:
+        # 分页模式：支持搜索
+        if page_size is None:
+            page_size = 20
+        rows, total = await service.list_page(keyword, page, page_size)
+        return ok(PaginatedResponse(
+            items=[TagPublic.model_validate(row) for row in rows],
+            total=total,
+            page=page,
+            page_size=page_size,
+        ))
+    # 兼容模式：返回全量激活标签
     rows = await service.list_active()
     return ok([TagPublic.model_validate(row) for row in rows])
 
@@ -116,6 +142,7 @@ async def update_problem(
     await db.commit()  # 显式提交：确保数据持久化
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
+    await service.attach_tags([summary])
     return ok(summary)
 
 
@@ -167,12 +194,49 @@ async def apply_test_cases(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
-    """显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦）。"""
+    """显式生效：把已通过验题的暂存集晋升为生效集（测试点与 SPJ 一并晋升；验题与晋升解耦）。"""
     problem = await service.apply_pending_cases(user, problem_id)
     await db.commit()
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
+    await service.attach_tags([summary])
     return ok(summary)
+
+
+@router.get("/problems/{problem_id}/spj", response_model=ApiResponse[SpjOut])
+async def get_spj(
+    problem_id: uuid.UUID,
+    service: ProblemServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[SpjOut]:
+    """特判程序目标状态回读（暂存优先；仅题目管理者可读，docs/contracts/problems.md）。"""
+    return ok(await service.get_spj_managed(user, problem_id))
+
+
+@router.put("/problems/{problem_id}/spj", response_model=ApiResponse[None])
+async def update_spj(
+    problem_id: uuid.UUID, body: SpjUpdate,
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[None]:
+    """设置 / 覆盖暂存特判程序（C++17 源码；生效集不动，验题通过后随 apply 晋升）。"""
+    await service.replace_spj(user, problem_id, body)
+    await db.commit()  # 显式提交：确保数据持久化
+    return ok(None)
+
+
+@router.delete("/problems/{problem_id}/spj", response_model=ApiResponse[None])
+async def delete_spj(
+    problem_id: uuid.UUID,
+    service: ProblemServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[None]:
+    """暂存移除特判程序（写 pending_spj_oss_id=''，apply 晋升后生效集置 NULL）。"""
+    await service.remove_spj(user, problem_id)
+    await db.commit()  # 显式提交：确保数据持久化
+    return ok(None)
 
 
 @router.put("/problems/{problem_id}/samples", response_model=ApiResponse[None])
@@ -198,6 +262,7 @@ async def publish_problem(
     await db.commit()  # 显式提交：确保数据持久化
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
+    await service.attach_tags([summary])
     return ok(summary)
 
 
@@ -212,6 +277,7 @@ async def archive_problem(
     await db.commit()  # 显式提交：确保数据持久化
     summary = ProblemSummary.model_validate(problem)
     await service.attach_counters([summary])
+    await service.attach_tags([summary])
     return ok(summary)
 
 

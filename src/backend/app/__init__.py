@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.init_app import lifespan, register_exceptions, register_routers
-from app.core.middlewares import request_logging_middleware
+from app.core.middlewares import RequestLoggingMiddleware
 from app.core.log import setup_logging
 from app.settings.config import get_settings
 
@@ -29,9 +29,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # 统一异常处理 + 全量请求日志中间件
+    # 统一异常处理 + 全量请求日志中间件（纯 ASGI：整链返回后落库，见 middlewares.py）
     register_exceptions(_app)
-    _app.middleware("http")(request_logging_middleware)
+    _app.add_middleware(RequestLoggingMiddleware)
     # 路由注册（业务前缀 /api/v1 + 系统端点）
     register_routers(_app, prefix="/api/v1")
     return _app

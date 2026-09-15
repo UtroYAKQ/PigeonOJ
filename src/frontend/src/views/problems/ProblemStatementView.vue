@@ -2,17 +2,23 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { NTag } from 'naive-ui'
 
 import { createProblem, getProblem, listActiveTags, updateProblem } from '@/api/problems'
+import { getTeamProblem, updateTeamProblemStatement } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import WizardShell from '@/components/WizardShell.vue'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
+import TagPicker from '@/components/problem/TagPicker.vue'
 import type { ProblemDetail, ProblemTagItem } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const isEdit = computed(() => Boolean(route.params.id))
+/** 团队上下文（团队空间直建）：route 带 teamId，创建时归属该团队 */
+const teamId = computed(() => (route.params.teamId ? String(route.params.teamId) : null))
+const isTeam = computed(() => teamId.value !== null)
 const saving = ref(false)
 const loading = ref(false)
 const showSolution = ref(false)
@@ -33,7 +39,8 @@ const form = reactive({
   /** 难度分（手动填写；null = 未评分） */
   difficulty: null as number | null,
 })
-const tagOptions = ref<Array<{ label: string; value: string }>>([])
+const showTagPicker = ref(false)
+const tagOptions = ref<ProblemTagItem[]>([])
 /** 官方题解编辑器懒挂载：首次展开折叠面板时才创建编辑器实例 */
 const solutionMounted = ref(false)
 /** 题面说明（可选）：与官方题解同款折叠交互 */
@@ -53,17 +60,33 @@ function toggleSolution() {
 async function loadTagOptions() {
   try {
     const tags: ProblemTagItem[] = await listActiveTags()
-    tagOptions.value = tags.map((item) => ({ label: item.name, value: item.name }))
+    tagOptions.value = tags
   } catch {
     /* 标签加载失败不阻塞题面编辑 */
   }
+}
+
+/** 从 TagPicker 选择标签 */
+function onSelectTag(tag: ProblemTagItem) {
+  if (form.tags.length >= 8) return
+  if (!form.tags.includes(tag.name)) {
+    form.tags.push(tag.name)
+  }
+}
+
+/** 移除已选标签 */
+function removeTag(tagName: string) {
+  form.tags = form.tags.filter((t) => t !== tagName)
 }
 
 async function loadExisting() {
   if (!isEdit.value) return
   loading.value = true
   try {
-    const loaded: ProblemDetail = await getProblem(String(route.params.id))
+    // 团队上下文回读走团队端点（快照题题库裸路径拦截）；保存仍走题库 PUT（owner/admin）
+    const loaded: ProblemDetail = isTeam.value
+      ? await getTeamProblem(teamId.value!, String(route.params.id))
+      : await getProblem(String(route.params.id))
     if (!loaded.can_manage) throw new Error(t('problems.create.noPermission'))
     Object.assign(form, {
       title: loaded.title,
@@ -73,7 +96,8 @@ async function loadExisting() {
       output_description: loaded.output_description ?? '',
       note: loaded.note ?? '',
       solution: loaded.solution ?? '',
-      tags: [...(loaded.tags ?? [])],
+      // loaded.tags 是 ProblemTagItem[]（含 id/name/color），form.tags 需 string[]（仅标签名）
+      tags: (loaded.tags ?? []).map((tag) => tag.name),
       visibility: loaded.visibility ?? 'public',
       time_limit_ms: loaded.time_limit_ms,
       memory_limit_mb: loaded.memory_limit_mb,
@@ -86,15 +110,10 @@ async function loadExisting() {
     }
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
-    router.push('/admin/problems')
+    router.push(isTeam.value ? `/teams/${teamId.value}` : '/admin/problems')
   } finally {
     loading.value = false
   }
-}
-
-/** 标签上限 8：超出部分截断（契约 docs/contracts/problems.md） */
-function onTagsChange(value: string[]) {
-  form.tags = value.slice(0, 8)
 }
 
 function validate(): boolean {
@@ -131,11 +150,21 @@ async function persist(): Promise<string | null> {
     })
     if (isEdit.value) {
       const id = String(route.params.id)
-      await updateProblem(id, payload())
+      if (isTeam.value) {
+        // 团队上下文：走团队端点（题库裸路径对快照题拦截）；可见性切换已在团队分支内
+        // ProblemUpdate extra=forbid，不可携带 team_id（归属由路径给定）
+        await updateTeamProblemStatement(teamId.value!, id, payload())
+      } else {
+        await updateProblem(id, payload())
+      }
       message.success(t('problems.create.saved'))
       return id
     }
-    const created = await createProblem(payload() as Parameters<typeof createProblem>[0])
+    const created = await createProblem({
+      ...payload(),
+      // 团队上下文直建：仅创建载荷携带 team_id（docs/contracts/problems.md）
+      team_id: teamId.value ?? undefined,
+    } as Parameters<typeof createProblem>[0])
     message.success(t('problems.create.saved'))
     return created.id
   } catch (error) {
@@ -146,34 +175,64 @@ async function persist(): Promise<string | null> {
   }
 }
 
-/** 下一步：持久化题面后进入「样例与测试点」页 */
+/** 下一步：持久化题面后进入「样例与测试点」页（团队上下文走团队路由） */
 async function goNext() {
   const id = await persist()
   if (!id) return
-  // 新建用 replace：浏览器后退不会回到 /new 造成重复建草稿
-  const target = `/admin/problems/${id}/edit/cases`
+  const target = isTeam.value
+    ? `/teams/${teamId.value}/problems/${id}/edit/cases`
+    : `/admin/problems/${id}/edit/cases` // 新建用 replace：浏览器后退不会回到 /new 造成重复建草稿
   await (isEdit.value ? router.push(target) : router.replace(target))
 }
 
-/** 保存并退出：持久化题面后返回题目管理列表 */
+/** 保存并退出：持久化题面后返回来源列表 */
 async function saveAndExit() {
   if (!(await persist())) return
-  await router.push('/admin/problems')
+  await router.push(isTeam.value ? `/teams/${teamId.value}` : '/admin/problems')
 }
 
+const chosenTagNames = computed(() => new Set(form.tags))
+
+const tagColorMap = computed(() => {
+  const map = new Map<string, string>()
+  for (const tag of tagOptions.value) {
+    if (tag.color) map.set(tag.name, tag.color)
+  }
+  return map
+})
+
 onMounted(() => {
+  // 团队直建默认「全队成员可见」（docs/contracts/problems.md 团队可见性分支）
+  if (isTeam.value && !isEdit.value) form.visibility = 'team_visible'
   loadTagOptions()
   loadExisting()
 })
 
-const visibilityOptions = computed(() => [
-  { label: t('problems.create.visibilityPublic'), value: 'public' },
-  { label: t('problems.create.visibilityPrivate'), value: 'private' },
-])
+const visibilityOptions = computed(() => {
+  // 分支跟随：团队上下文，或当前可见性已是团队分支（后台编辑团队题）→ 团队分支选项；
+  // 其余（全站题编辑 / 全站新建）→ 全站分支。禁止跨分支由后端强校验。
+  const v = form.visibility
+  if (isTeam.value || v === 'team_visible' || v === 'admin_visible') {
+    return [
+      { label: t('teams.space.teamVisible'), value: 'team_visible' },
+      { label: t('teams.space.adminVisible'), value: 'admin_visible' },
+    ]
+  }
+  return [
+    { label: t('problems.create.visibilityPublic'), value: 'public' },
+    { label: t('problems.create.visibilityPrivate'), value: 'private' },
+  ]
+})
 </script>
 
 <template>
   <div class="page-stack">
+    <TagPicker
+      :show="showTagPicker"
+      :chosen-names="chosenTagNames"
+      @update:show="showTagPicker = $event"
+      @select="onSelectTag"
+    />
     <n-spin :show="loading">
       <WizardShell
         :step="1"
@@ -198,15 +257,35 @@ const visibilityOptions = computed(() => [
           </n-form-item>
           <div class="meta-grid">
             <n-form-item :label="t('problems.create.tags')">
-              <n-select
-                :value="form.tags"
-                multiple
-                clearable
-                filterable
-                :options="tagOptions"
-                :placeholder="t('problems.create.tagsPlaceholder')"
-                @update:value="onTagsChange"
-              />
+              <div class="tag-selector">
+                <div class="tag-selector__chips">
+                  <NTag
+                    v-for="tagName in form.tags"
+                    :key="tagName"
+                    size="small"
+                    closable
+                    :color="
+                      tagColorMap.get(tagName)
+                        ? { color: tagColorMap.get(tagName)!, textColor: '#fff' }
+                        : undefined
+                    "
+                    @close="removeTag(tagName)"
+                  >
+                    {{ tagName }}
+                  </NTag>
+                  <span v-if="!form.tags.length" class="tag-selector__empty">
+                    {{ t('problems.create.tagsPlaceholder') }}
+                  </span>
+                </div>
+                <n-button
+                  size="small"
+                  secondary
+                  :disabled="form.tags.length >= 8"
+                  @click="showTagPicker = true"
+                >
+                  {{ t('problems.create.addTag') }}
+                </n-button>
+              </div>
             </n-form-item>
             <n-form-item :label="t('problems.create.visibility')">
               <n-select v-model:value="form.visibility" :options="visibilityOptions" />
@@ -281,6 +360,22 @@ const visibilityOptions = computed(() => [
 <style scoped>
 .wizard-body {
   min-height: 320px;
+}
+.tag-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tag-selector__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 24px;
+}
+.tag-selector__empty {
+  color: var(--app-text-secondary);
+  font-size: 13px;
 }
 .form-hint {
   margin-bottom: 4px;

@@ -303,6 +303,46 @@ export const adminRoutes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'teams',
+        name: 'admin-teams-section',
+        meta: {
+          title: '团队管理',
+          titleKey: 'nav.teamsManage',
+          icon: 'UserFilled',
+          roles: ['admin'],
+        },
+        children: [
+          {
+            path: '',
+            name: 'admin-teams',
+            component: () => import('@/views/admin/AdminTeamsView.vue'),
+            meta: {
+              title: '团队管理',
+              titleKey: 'nav.teamsManage',
+              icon: 'UserFilled',
+              roles: ['admin'],
+              requiresAuth: true,
+              keepAlive: true,
+            },
+          },
+          {
+            // 团队管理详情（只读浏览：成员 / 团队题库 / 团队题单 / 团队比赛）
+            path: ':id',
+            name: 'admin-team-detail',
+            component: () => import('@/views/admin/AdminTeamDetailView.vue'),
+            meta: {
+              title: '团队详情',
+              titleKey: 'admin.teams.detailTitle',
+              roles: ['admin'],
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              keepAlive: true,
+            },
+          },
+        ],
+      },
+      {
         path: 'users',
         name: 'admin-users',
         component: () => import('@/views/admin/AdminUsersView.vue'),
@@ -312,6 +352,86 @@ export const adminRoutes: RouteRecordRaw[] = [
           icon: 'User',
           roles: ['admin'],
           keepAlive: true,
+        },
+      },
+      {
+        // 首页配置：轮播海报 + 系统公告（独立面板，不经通用配置表格）
+        path: 'home',
+        name: 'admin-home-config',
+        component: () => import('@/views/admin/AdminHomeView.vue'),
+        meta: {
+          title: '首页配置',
+          titleKey: 'nav.homeConfig',
+          icon: 'Picture',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        // 在线用户面板：10 分钟窗口内有活跃回写的有效会话（15s 轮询）
+        path: 'online',
+        name: 'admin-online-users',
+        component: () => import('@/views/admin/AdminOnlineUsersView.vue'),
+        meta: {
+          title: '在线用户',
+          titleKey: 'nav.onlineUsers',
+          icon: 'Aim',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        // 全站提交面板：提交类型 / 用户 / 题目 / 状态 / 语言筛选（admin）
+        path: 'submissions',
+        name: 'admin-submissions',
+        component: () => import('@/views/admin/AdminSubmissionsView.vue'),
+        meta: {
+          title: '提交查看',
+          titleKey: 'nav.submissionsManage',
+          icon: 'Document',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        // 提交查看 · 题目预览（复用预览组件；返回与面包屑挂回提交查看，不入题目管理动线）
+        path: 'submissions/problems/:problemId/preview',
+        name: 'admin-submission-problem-preview',
+        component: () => import('@/views/problems/ProblemPreviewView.vue'),
+        meta: {
+          title: '题目预览',
+          titleKey: 'problems.preview.title',
+          roles: ['admin'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          backFallback: '/admin/submissions',
+          backLabelKey: 'nav.submissionsManage',
+          breadcrumbParent: {
+            titleKey: 'nav.submissionsManage',
+            path: '/admin/submissions',
+          },
+        },
+      },
+      {
+        // 提交查看 · 评测详情（复用题目管理详情组件，problemId 参数名对齐；
+        // 返回与面包屑挂回提交查看，不入题目管理动线）
+        path: 'submissions/problems/:problemId/submissions/:sid',
+        name: 'admin-submission-detail',
+        component: () => import('@/views/problems/ProblemSubmissionDetailView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          roles: ['admin'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          backFallback: '/admin/submissions',
+          backLabelKey: 'nav.submissionsManage',
+          breadcrumbParent: {
+            titleKey: 'nav.submissionsManage',
+            path: '/admin/submissions',
+          },
         },
       },
       {

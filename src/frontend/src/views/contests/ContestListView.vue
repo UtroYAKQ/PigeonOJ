@@ -12,7 +12,9 @@ import { useI18n } from 'vue-i18n'
 import RefreshButton from '@/components/RefreshButton.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import { listContests } from '@/api/contests'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
@@ -22,8 +24,7 @@ const router = useRouter()
 const { t } = useI18n()
 const loading = ref(false)
 const rows = ref<ContestSummary[]>([])
-const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
-  usePagination()
+const { page, pageSize, total, changePage, resetPage, beginLoad, isCurrent } = usePagination()
 const keyword = ref('')
 const statusFilter = ref<'running' | 'scheduled' | 'finished' | null>(null)
 
@@ -75,10 +76,6 @@ const statusLabel = computed<Record<string, string>>(() => ({
   finished: t('contests.statusFinished'),
 }))
 
-function initialOf(row: ContestSummary): string {
-  return (row.title || '?').trim().charAt(0).toUpperCase()
-}
-
 function openContest(row: ContestSummary) {
   router.push(`/contests/${row.id}`)
 }
@@ -90,7 +87,6 @@ function openContest(row: ContestSummary) {
       :keyword="keyword"
       :placeholder="t('contests.list.search')"
       search-width="300px"
-      manual
       @update:keyword="
         (v: string) => {
           keyword = v
@@ -110,114 +106,101 @@ function openContest(row: ContestSummary) {
       </template>
     </SearchFilterBar>
 
-    <n-spin :show="loading" class="cards-fill">
-      <div v-if="rows.length" class="cards">
-        <article
-          v-for="row in rows"
-          :key="row.id"
-          class="contest-card"
-          role="button"
-          tabindex="0"
-          @click="openContest(row)"
-          @keyup.enter="openContest(row)"
+    <!-- 与题库 / 题单同一分页组件（PaginatedDataTable）：卡片墙经 #content 注入，
+         空态与分页条由组件统一渲染；v-show 而非 v-if（分支锚点增删会触发 Vue patch 崩溃） -->
+    <PaginatedDataTable
+      :data="rows"
+      :loading="loading"
+      :total="total"
+      :page="page"
+      :page-size="pageSize"
+      :empty-text="t('contests.list.empty')"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
+    >
+      <template #content>
+        <n-spin
+          v-show="loading || rows.length"
+          :show="loading"
+          class="table-fill"
+          content-style="height: 100%; overflow: auto"
         >
-          <div class="contest-card__top">
-            <img v-if="row.logo" :src="row.logo" alt="" class="contest-card__logo" />
-            <div
-              v-else
-              class="contest-card__logo contest-card__logo--fallback"
-              aria-hidden="true"
+          <div class="cards">
+            <article
+              v-for="row in rows"
+              :key="row.id"
+              class="contest-card"
+              role="button"
+              tabindex="0"
+              @click="openContest(row)"
+              @keyup.enter="openContest(row)"
             >
-              {{ initialOf(row) }}
-            </div>
-            <h3 class="contest-card__title" :title="row.title">{{ row.title }}</h3>
-            <span class="state-chip" :class="`state-chip--${row.status}`">
-              <span class="state-chip__dot" aria-hidden="true" />
-              {{ statusLabel[row.status] }}
-            </span>
-            <span
-              v-if="row.board_frozen"
-              class="state-chip state-chip--frozen"
-              :title="t('contests.frozenHint')"
-            >
-              <span class="state-chip__dot" aria-hidden="true" />
-              {{ t('contests.boardFrozenTag') }}
-            </span>
+              <div class="contest-card__top">
+                <BaseAvatar
+                  kind="contest"
+                  :src="row.logo"
+                  :name="row.title"
+                  :size="40"
+                  :round="false"
+                  :radius="8"
+                  bordered
+                />
+                <h3 class="contest-card__title" :title="row.title">{{ row.title }}</h3>
+                <span class="state-chip" :class="`state-chip--${row.status}`">
+                  <span class="state-chip__dot" aria-hidden="true" />
+                  {{ statusLabel[row.status] }}
+                </span>
+                <span
+                  v-if="row.board_frozen"
+                  class="state-chip state-chip--frozen"
+                  :title="t('contests.frozenHint')"
+                >
+                  <span class="state-chip__dot" aria-hidden="true" />
+                  {{ t('contests.boardFrozenTag') }}
+                </span>
+              </div>
+
+              <p class="contest-card__desc" :class="{ 'contest-card__desc--empty': !row.description }">
+                {{ row.description ?? '—' }}
+              </p>
+
+              <div class="contest-card__meta">
+                <span class="contest-card__rule">{{ row.rule_type }}</span>
+                <span class="contest-card__sep" aria-hidden="true">·</span>
+                <span>{{ t('contests.list.problemCount', { count: row.problem_count }) }}</span>
+                <span class="contest-card__sep" aria-hidden="true">·</span>
+                <span>{{ t('contests.list.registeredCount', { count: row.registered_count }) }}</span>
+              </div>
+
+              <div class="contest-card__footer">
+                <span>{{ formatDateTime(row.start_time) }}</span>
+                <span class="contest-card__range" aria-hidden="true">→</span>
+                <span>{{ formatDateTime(row.end_time) }}</span>
+              </div>
+            </article>
           </div>
-
-          <p class="contest-card__desc" :class="{ 'contest-card__desc--empty': !row.description }">
-            {{ row.description ?? '—' }}
-          </p>
-
-          <div class="contest-card__meta">
-            <span class="contest-card__rule">{{ row.rule_type }}</span>
-            <span class="contest-card__sep" aria-hidden="true">·</span>
-            <span>{{ t('contests.list.problemCount', { count: row.problem_count }) }}</span>
-            <span class="contest-card__sep" aria-hidden="true">·</span>
-            <span>{{ t('contests.list.registeredCount', { count: row.registered_count }) }}</span>
-          </div>
-
-          <div class="contest-card__footer">
-            <span>{{ formatDateTime(row.start_time) }}</span>
-            <span class="contest-card__range" aria-hidden="true">→</span>
-            <span>{{ formatDateTime(row.end_time) }}</span>
-          </div>
-        </article>
-      </div>
-      <div v-else-if="!loading" class="cards-empty">
-        <n-empty size="large" :description="t('contests.list.empty')" />
-      </div>
-    </n-spin>
-
-    <div v-if="total > 0" class="pager">
-      <span class="pager__total">{{ t('contests.list.totalCount', { count: total }) }}</span>
-      <div class="pager__spacer" />
-      <n-pagination
-        :page="page"
-        :page-size="pageSize"
-        :item-count="total"
-        :page-sizes="[12, 24, 48]"
-        show-size-picker
-        @update:page="
-          (p: number) => {
-            changePage(p)
-            load()
-          }
-        "
-        @update:page-size="
-          (s: number) => {
-            changeSize(s)
-            load()
-          }
-        "
-      />
-    </div>
+        </n-spin>
+      </template>
+      <template #pager-left>
+        <span class="pager__total">{{ t('contests.list.totalCount', { count: total }) }}</span>
+      </template>
+    </PaginatedDataTable>
   </WorkbenchShell>
 </template>
 
 <style scoped>
-/* 视口锁定高度链：page-fill 的直接子元素需吃满剩余高度，分页器才能钉底 */
-.cards-fill {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-.cards-fill :deep(.n-spin-container),
-.cards-fill :deep(.n-spin-content) {
-  height: 100%;
-}
+/* 空态与高度链由全局类 table-fill / table-fill-empty 承载（main.css），
+   与题库 / 题单列表同一机制 */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
   min-height: 240px;
   align-content: start;
-}
-.cards-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
 }
 
 /* ---- 卡片：单行头部（头像 + 标题 + 右侧状态点标），纯平面极简 ---- */
@@ -225,9 +208,8 @@ function openContest(row: ContestSummary) {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 18px 18px 16px;
+  padding: 20px 20px 18px;
   border: 1px solid var(--app-border);
-  border-radius: 10px;
   background: var(--app-card-bg, #fff);
   cursor: pointer;
   transition: border-color 0.15s ease;
@@ -248,29 +230,11 @@ function openContest(row: ContestSummary) {
   gap: 10px;
   min-width: 0;
 }
-.contest-card__logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  object-fit: cover;
-  border: 1px solid var(--app-border);
-  flex-shrink: 0;
-}
-.contest-card__logo--fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--app-muted-bg);
-  border: 1px solid var(--app-border);
-  color: var(--app-text-secondary);
-  font-size: 15px;
-  font-weight: 650;
-}
 .contest-card__title {
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.4;
   color: var(--app-text);
@@ -355,17 +319,5 @@ function openContest(row: ContestSummary) {
 }
 .contest-card__range {
   opacity: 0.55;
-}
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 18px;
-  padding-top: 12px;
-  border-top: 1px solid var(--app-border);
-}
-.pager__spacer {
-  flex: 1;
 }
 </style>

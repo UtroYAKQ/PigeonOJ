@@ -1,40 +1,40 @@
 <script setup lang="ts">
 /**
- * 团队中心：我的团队卡片墙（分页）+ 创建团队（admin/tutor）。
+ * 团队中心（docs/contracts/teams.md）：默认公开团队列表（卡片墙，可申请加入），
+ * 右上角「我的团队」勾选切换为在册团队（公开 + 私有）。
+ * 公开团队非成员卡片带「申请加入」（私有团队不进公开列表，仅邀请链接入口）；
  * 卡片范式与比赛列表（ContestListView）一致：单行头部（头像 + 名称 + 右侧角色点标）、
- * 描述两行截断、成员数元信息、底部创建时间；
- * 悬停仅边框加深 + 标题主色，无位移 / 阴影 / 动画。
+ * 描述两行截断、成员数元信息、底部创建时间；悬停仅边框加深 + 题题主色。
  */
-import { computed, onMounted, ref } from 'vue'
+import { onActivated, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { CirclePlus } from '@element-plus/icons-vue'
-import { NButton, NIcon } from 'naive-ui'
 
-import { createTeam, listMyTeams } from '@/api/teams'
-import { message } from '@/utils/feedback'
-import { useUserStore } from '@/stores/user'
+import { listMyTeams, listTeams, submitTeamApplication } from '@/api/teams'
+import BaseAvatar from '@/components/BaseAvatar.vue'
+import { useTeamsStore } from '@/stores/teams'
+import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import RefreshButton from '@/components/RefreshButton.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import { formatDateTime } from '@/utils/format'
 import type { TeamRoleType, TeamSummary } from '@/types'
 
 const router = useRouter()
 const { t } = useI18n()
-const userStore = useUserStore()
-
-const canCreate = computed(() => userStore.hasAnyRole(['admin', 'tutor']))
 
 const loading = ref(false)
 const list = ref<TeamSummary[]>([])
-const { page, pageSize, total, changePage, changeSize, resetPage } = usePagination()
+const { page, pageSize, total, changePage, resetPage } = usePagination()
 const keyword = ref('')
+/** 「我的团队」勾选：默认公开团队列表，勾选后查询本人在册团队（公开 + 私有） */
+const mineOnly = ref(false)
 
-const showCreate = ref(false)
-const creating = ref(false)
-const createForm = ref({ name: '', description: '' })
+/** 加入申请本地态：申请中团队 id 与已申请集合（防重复点击，重复申请由后端 3003 兜底） */
+const applyingId = ref('')
+const appliedIds = ref(new Set<string>())
 
 /** 我的角色 → 点标（语义色 class + 文案 key；创建者警示橙 / 管理员信息蓝 / 成员中性灰） */
 const roleMeta: Record<TeamRoleType, { cls: string; labelKey: string }> = {
@@ -43,18 +43,15 @@ const roleMeta: Record<TeamRoleType, { cls: string; labelKey: string }> = {
   member: { cls: 'role-chip--member', labelKey: 'teams.role.member' },
 }
 
-function initialOf(team: TeamSummary) {
-  return team.name?.trim()?.charAt(0).toUpperCase() || 'T'
-}
-
 async function load() {
   loading.value = true
   try {
-    const result = await listMyTeams({
+    const query = {
       page: page.value,
       page_size: pageSize.value,
       keyword: keyword.value || undefined,
-    })
+    }
+    const result = mineOnly.value ? await listMyTeams(query) : await listTeams(query)
     list.value = result.items
     total.value = result.total
   } catch (error) {
@@ -69,33 +66,55 @@ function onSearch() {
   load()
 }
 
-function openTeam(team: TeamSummary) {
-  void router.push(`/teams/${team.id}`)
+function onToggleMine(checked: boolean) {
+  mineOnly.value = checked
+  resetPage()
+  load()
 }
 
-async function doCreate() {
-  if (!createForm.value.name.trim()) {
-    message.warning(t('teams.create.nameRequired'))
+function openTeam(team: TeamSummary) {
+  // 成员进详情；公开团队非成员点卡片弹出申请确认（详情仅成员可见，后端 2003）
+  if (team.my_role) {
+    void router.push(`/teams/${team.id}`)
     return
   }
-  creating.value = true
+  if (mineOnly.value) return
+  if (appliedIds.value.has(team.id)) {
+    message.info(t('teams.list.appliedHint'))
+    return
+  }
+  confirmAsyncDialog({
+    title: t('teams.list.applyTitle'),
+    content: t('teams.list.applyConfirm', { name: team.name }),
+    positiveText: t('teams.list.applyJoin'),
+    action: () => submitTeamApplication(team.id),
+    successMessage: t('teams.list.applySuccess'),
+    onAfterSuccess: () => {
+      appliedIds.value.add(team.id)
+    },
+  })
+}
+
+async function onApply(team: TeamSummary) {
+  applyingId.value = team.id
   try {
-    const team = await createTeam({
-      name: createForm.value.name.trim(),
-      description: createForm.value.description.trim() || undefined,
-    })
-    message.success(t('teams.create.success'))
-    showCreate.value = false
-    createForm.value = { name: '', description: '' }
-    void router.push(`/teams/${team.id}`)
+    await submitTeamApplication(team.id)
+    appliedIds.value.add(team.id)
+    message.success(t('teams.list.applySuccess'))
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.operationFailed'))
   } finally {
-    creating.value = false
+    applyingId.value = ''
   }
 }
 
 onMounted(load)
+
+// keepAlive 缓存页：退出 / 解散团队回退到本页时（脏标记）重拉，
+// 避免「我的团队」与角色标签显示过期成员关系；其余返回仍由刷新按钮兜底
+onActivated(() => {
+  if (useTeamsStore().consumeMembershipDirty()) void load()
+})
 </script>
 
 <template>
@@ -103,6 +122,7 @@ onMounted(load)
     <SearchFilterBar
       :keyword="keyword"
       :placeholder="t('teams.list.search')"
+      search-width="300px"
       @update:keyword="
         (v: string) => {
           keyword = v
@@ -112,157 +132,111 @@ onMounted(load)
       @reset="onSearch"
     >
       <template #actions>
+        <n-checkbox :checked="mineOnly" @update:checked="onToggleMine">
+          {{ t('teams.list.myTeams') }}
+        </n-checkbox>
         <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
-        <n-button v-if="canCreate" type="primary" @click="showCreate = true">
-          <template #icon>
-            <n-icon :component="CirclePlus" />
-          </template>
-          {{ t('teams.list.create') }}
-        </n-button>
       </template>
     </SearchFilterBar>
 
-    <n-spin :show="loading" class="cards-fill">
-      <div v-if="list.length" class="cards">
-        <article
-          v-for="team in list"
-          :key="team.id"
-          class="team-card"
-          role="button"
-          tabindex="0"
-          @click="openTeam(team)"
-          @keyup.enter="openTeam(team)"
-        >
-          <div class="team-card__top">
-            <img v-if="team.avatar_url" :src="team.avatar_url" alt="" class="team-card__avatar" />
-            <div
-              v-else
-              class="team-card__avatar team-card__avatar--fallback"
-              aria-hidden="true"
-            >
-              {{ initialOf(team) }}
-            </div>
-            <h3 class="team-card__title" :title="team.name">{{ team.name }}</h3>
-            <span
-              v-if="team.my_role"
-              class="role-chip"
-              :class="roleMeta[team.my_role].cls"
-            >
-              <span class="role-chip__dot" aria-hidden="true" />
-              {{ t(roleMeta[team.my_role].labelKey) }}
-            </span>
-          </div>
-
-          <p class="team-card__desc" :class="{ 'team-card__desc--empty': !team.description }">
-            {{ team.description ?? '—' }}
-          </p>
-
-          <div class="team-card__meta">
-            <span class="team-card__count">
-              {{ t('teams.list.memberCount') }}
-              <strong>{{ team.member_count }}</strong>
-            </span>
-          </div>
-
-          <div class="team-card__footer">
-            <span>{{ formatDateTime(team.created_at) }}</span>
-          </div>
-        </article>
-      </div>
-      <div v-else-if="!loading" class="cards-empty">
-        <n-empty size="large" :description="t('teams.list.empty')">
-          <template #extra>
-            <n-button v-if="canCreate" type="primary" size="small" @click="showCreate = true">
-              {{ t('teams.list.create') }}
-            </n-button>
-          </template>
-        </n-empty>
-      </div>
-    </n-spin>
-
-    <div v-if="total > 0" class="pager">
-      <span class="pager__total">{{ t('teams.list.totalCount', { count: total }) }}</span>
-      <div class="pager__spacer" />
-      <n-pagination
-        :page="page"
-        :page-size="pageSize"
-        :item-count="total"
-        :page-sizes="[12, 24, 48]"
-        show-size-picker
-        @update:page="
-          (p: number) => {
-            changePage(p)
-            load()
-          }
-        "
-        @update:page-size="
-          (s: number) => {
-            changeSize(s)
-            load()
-          }
-        "
-      />
-    </div>
-
-    <n-modal
-      v-model:show="showCreate"
-      :title="t('teams.list.create')"
-      preset="card"
-      style="width: 480px"
+    <!-- 与题库 / 题单同一分页组件（PaginatedDataTable）：卡片墙经 #content 注入，
+         空态与分页条由组件统一渲染；v-show 而非 v-if（分支锚点增删会触发 Vue patch 崩溃） -->
+    <PaginatedDataTable
+      :data="list"
+      :loading="loading"
+      :total="total"
+      :page="page"
+      :page-size="pageSize"
+      :empty-text="t(mineOnly ? 'teams.list.empty' : 'teams.list.emptyPublic')"
+      @update:page="
+        (p: number) => {
+          changePage(p)
+          load()
+        }
+      "
     >
-      <n-form label-placement="top">
-        <n-form-item :label="t('teams.create.name')" required>
-          <n-input
-            v-model:value="createForm.name"
-            maxlength="64"
-            :placeholder="t('teams.create.namePlaceholder')"
-          />
-        </n-form-item>
-        <n-form-item :label="t('teams.create.description')">
-          <n-input
-            v-model:value="createForm.description"
-            type="textarea"
-            :rows="3"
-            maxlength="2000"
-            :placeholder="t('teams.create.descriptionPlaceholder')"
-          />
-        </n-form-item>
-      </n-form>
-      <template #footer>
-        <div class="modal-actions">
-          <n-button @click="showCreate = false">{{ t('action.cancel') }}</n-button>
-          <n-button type="primary" :loading="creating" @click="doCreate">
-            {{ t('action.save') }}
-          </n-button>
-        </div>
+      <template #content>
+        <n-spin
+          v-show="loading || list.length"
+          :show="loading"
+          class="table-fill"
+          content-style="height: 100%; overflow: auto"
+        >
+          <div class="cards">
+            <article
+              v-for="team in list"
+              :key="team.id"
+              class="team-card"
+              role="button"
+              tabindex="0"
+              @click="openTeam(team)"
+              @keyup.enter="openTeam(team)"
+            >
+              <div class="team-card__top">
+                <BaseAvatar
+                  kind="team"
+                  :src="team.avatar_url"
+                  :name="team.name"
+                  :size="40"
+                  :round="false"
+                  :radius="8"
+                  bordered
+                />
+                <h3 class="team-card__title" :title="team.name">{{ team.name }}</h3>
+                <span v-if="team.my_role" class="role-chip" :class="roleMeta[team.my_role].cls">
+                  <span class="role-chip__dot" aria-hidden="true" />
+                  {{ t(roleMeta[team.my_role].labelKey) }}
+                </span>
+                <span v-else-if="!mineOnly" class="role-chip role-chip--public">
+                  <span class="role-chip__dot" aria-hidden="true" />
+                  {{ t('teams.list.publicTeam') }}
+                </span>
+              </div>
+
+              <p class="team-card__desc" :class="{ 'team-card__desc--empty': !team.description }">
+                {{ team.description ?? '—' }}
+              </p>
+
+              <div class="team-card__meta">
+                <span class="team-card__count">
+                  {{ t('teams.list.memberCount') }}
+                  <strong>{{ team.member_count }}</strong>
+                </span>
+                <n-button
+                  v-if="!mineOnly && !team.my_role && !appliedIds.has(team.id)"
+                  size="tiny"
+                  type="primary"
+                  secondary
+                  :loading="applyingId === team.id"
+                  @click.stop="onApply(team)"
+                >
+                  {{ t('teams.list.applyJoin') }}
+                </n-button>
+              </div>
+
+              <div class="team-card__footer">
+                <span>{{ formatDateTime(team.created_at) }}</span>
+              </div>
+            </article>
+          </div>
+        </n-spin>
       </template>
-    </n-modal>
+      <template #pager-left>
+        <span class="pager__total">{{ t('teams.list.totalCount', { count: total }) }}</span>
+      </template>
+    </PaginatedDataTable>
   </WorkbenchShell>
 </template>
 
 <style scoped>
-/* 视口锁定高度链：page-fill 的直接子元素需吃满剩余高度，分页器才能钉底 */
-.cards-fill {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-.cards-fill :deep(.n-spin-container),
-.cards-fill :deep(.n-spin-content) {
-  height: 100%;
-}
+/* 空态与高度链由全局类 table-fill / table-fill-empty 承载（main.css），
+   与题库 / 题单列表同一机制 */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
   min-height: 240px;
   align-content: start;
-}
-.cards-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
 }
 
 /* ---- 团队卡片：单行头部（头像 + 名称 + 右侧角色点标），纯平面极简 ---- */
@@ -270,9 +244,8 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 18px 18px 16px;
+  padding: 20px 20px 18px;
   border: 1px solid var(--app-border);
-  border-radius: 10px;
   background: var(--app-card-bg, #fff);
   cursor: pointer;
   transition: border-color 0.15s ease;
@@ -293,29 +266,11 @@ onMounted(load)
   gap: 10px;
   min-width: 0;
 }
-.team-card__avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  object-fit: cover;
-  border: 1px solid var(--app-border);
-  flex-shrink: 0;
-}
-.team-card__avatar--fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--app-muted-bg);
-  border: 1px solid var(--app-border);
-  color: var(--app-text-secondary);
-  font-size: 15px;
-  font-weight: 650;
-}
 .team-card__title {
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.4;
   color: var(--app-text);
@@ -351,6 +306,12 @@ onMounted(load)
 }
 .role-chip--admin .role-chip__dot {
   background: var(--app-info);
+}
+.role-chip--public {
+  color: var(--app-success);
+}
+.role-chip--public .role-chip__dot {
+  background: var(--app-success);
 }
 /* 描述固定两行高度：无描述也占位，保证同排卡片底部对齐 */
 .team-card__desc {
@@ -391,27 +352,5 @@ onMounted(load)
   font-size: 11px;
   color: var(--app-text-secondary);
   font-variant-numeric: tabular-nums;
-}
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 18px;
-  padding-top: 12px;
-  border-top: 1px solid var(--app-border);
-}
-.pager__spacer {
-  flex: 1;
-}
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-@media (max-width: 700px) {
-  .pager {
-    justify-content: center;
-  }
 }
 </style>

@@ -75,6 +75,8 @@ class Submission(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     __table_args__ = (
         Index("ix_submissions_user_problem_created", "user_id", "problem_id", "created_at"),
+        Index("ix_submissions_problem_created", "problem_id", "created_at"),
+        Index("ix_submissions_contest_created", "contest_id", "created_at"),
         Index("ix_submissions_status", "status"),
         Index("ix_submissions_verification", "verification_id"),
         CheckConstraint(
@@ -96,5 +98,7 @@ class SubmissionTestCaseResult(Base):
     memory_used_kb: Mapped[int | None] = mapped_column(Integer)
     score: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     output: Mapped[str | None] = mapped_column(Text)
+    # SPJ 判定信息（特判程序 stdout ≤2KB；非 SPJ 提交为 NULL，docs/contracts/judge.md「SPJ 特判」）
+    message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     __table_args__ = (UniqueConstraint("submission_id", "test_case_id", name="uq_submission_case"), Index("ix_results_test_case", "test_case_id"))

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PigeonOJ 判题节点</title>
+  <style>
+    :root {
+      --primary: #F4511E;
+      --ok: #18A058;
+      --err: #D03050;
+      --warn: #F0A020;
+      --bg: #f4f6f8;
+      --card: #fff;
+      --text: #1f2328;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--card); }
+    header h1 { margin: 0; font-size: 16px; font-weight: 650; }
+    header .id { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .layout {
+      max-width: 1080px; margin: 20px auto; padding: 0 16px 32px;
+      display: grid; grid-template-columns: minmax(320px, 420px) 1fr; gap: 20px; align-items: start;
+    }
+    @media (max-width: 840px) { .layout { grid-template-columns: 1fr; } }
+    .status {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border: 1px solid var(--border); border-radius: 3px;
+      background: var(--card); margin-bottom: 12px;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--muted); }
+    .dot.connected { background: var(--ok); }
+    .dot.connecting, .dot.reconnecting { background: var(--warn); animation: pulse 1s ease-in-out infinite; }
+    .dot.disconnected { background: var(--err); }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .status strong { font-size: 15px; }
+    .status .hint { color: var(--muted); font-size: 12px; }
+    .status .hint.err { color: var(--err); }
+    .metrics { display: flex; gap: 14px; color: var(--muted); font-size: 12px; margin-left: auto; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 3px; padding: 16px; margin-bottom: 12px; }
+    .card h2 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight: 600; }
+    label { display: block; margin: 8px 0 4px; color: var(--muted); font-size: 12px; }
+    input[type=text], input[type=number], input[type=password] {
+      width: 100%; padding: 7px 9px; border: 1px solid var(--border);
+      border-radius: 3px; background: #fff; color: var(--text); font: inherit;
+    }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+    .inline { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
+    .btns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    button { border: 0; border-radius: 3px; padding: 7px 12px; cursor: pointer; font: inherit; }
+    .primary { background: var(--primary); color: #fff; }
+    .secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .msg { margin-top: 8px; font-size: 12px; min-height: 1.3em; color: var(--muted); }
+    .msg.ok { color: var(--ok); }
+    .msg.err { color: var(--err); }
+    .docs h2 { margin: 0 0 12px; font-size: 15px; color: var(--text); }
+    .docs h3 { margin: 16px 0 6px; font-size: 13px; }
+    .docs p, .docs li { color: var(--muted); font-size: 13px; }
+    .docs p { margin: 0 0 8px; }
+    .docs ul { margin: 0 0 8px; padding-left: 1.2em; }
+    .docs code { font: 12px/1.4 ui-monospace, monospace; background: var(--bg); padding: 1px 5px; border-radius: 2px; color: var(--text); }
+    .docs .k { display: inline-block; min-width: 4.5em; color: var(--text); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>判题节点</h1>
+    <div class="id" id="nodeMeta">—</div>
+  </header>
+  <div class="layout">
+    <div>
+      <div class="status">
+        <i class="dot disconnected" id="connDot"></i>
+        <div>
+          <strong id="connText">断开</strong>
+          <div class="hint" id="connHint">尚未连上网关</div>
+        </div>
+        <div class="metrics">
+          <span>任务 <b id="sTasks">0/0</b></span>
+          <span>CPU <b id="sCpu">0</b>%</span>
+          <span>内存 <b id="sMem">0</b>%</span>
+        </div>
+      </div>
+      <section class="card">
+        <h2>网关</h2>
+        <label>地址 host:port</label>
+        <input id="gateway" type="text" placeholder="127.0.0.1:50051" autocomplete="off">
+        <label>令牌</label>
+        <input id="token" type="password" placeholder="与后端 JUDGE_GATEWAY_TOKENS 之一相同" autocomplete="off">
+        <label class="inline"><input id="tls" type="checkbox"> TLS</label>
+        <div class="btns">
+          <button class="primary" type="button" id="saveBtn">保存</button>
+          <button class="secondary" type="button" id="pingBtn">测试连通</button>
+          <button class="secondary" type="button" id="reconnectBtn">重连</button>
+        </div>
+        <div class="msg" id="msg"></div>
+      </section>
+      <section class="card">
+        <h2>容量</h2>
+        <div class="grid">
+          <div>
+            <label>展示名</label>
+            <input id="name" type="text" placeholder="默认用节点 ID">
+          </div>
+          <div>
+            <label>并发</label>
+            <input id="capacity" type="number" min="1" step="1">
+          </div>
+          <div>
+            <label>并行测试点</label>
+            <input id="caseParallel" type="number" min="1" step="1">
+          </div>
+          <div>
+            <label>缓存上限 MB</label>
+            <input id="cacheMax" type="number" min="0" step="1">
+          </div>
+        </div>
+      </section>
+    </div>
+    <aside class="card docs">
+      <h2>怎么用</h2>
+      <p>这个节点负责执行用户代码。它主动连接后端 gRPC 网关，不需要对外开放判题端口。本页只绑在本机回环（<code>127.0.0.1:18080</code>）。</p>
+
+      <h3>第一次连上</h3>
+      <ul>
+        <li>地址填网关的 <code>主机:端口</code>。本机 Docker 一般是 <code>host.docker.internal:50051</code>。</li>
+        <li>令牌必须和后端 <code>JUDGE_GATEWAY_TOKENS</code> 里的某一个完全一致。</li>
+        <li>点「测试连通」只检查 TCP 能否连上，不验证令牌、也不做 TLS 握手。</li>
+        <li>点「保存」。改了地址 / 令牌 / TLS 会自动重连；只改容量不会断线。</li>
+        <li>顶栏变成「已连接」才算注册成功，之后才会收到题目。</li>
+      </ul>
+
+      <h3>状态</h3>
+      <ul>
+        <li><span class="k">已连接</span> 已向网关注册，可以判题。</li>
+        <li><span class="k">连接中</span> 正在建立通道（第一次连）。</li>
+        <li><span class="k">重连中</span> 断开后或点了「重连」，正在重新注册。</li>
+        <li><span class="k">断开</span> 未连上。原因会写在状态栏：后端没开、令牌错误、或 TLS 不对。</li>
+      </ul>
+
+      <h3>TLS</h3>
+      <p>只决定连网关时要不要加密，<strong>不限制端口</strong>。端口以地址栏为准，例如 <code>oj.example.com:443</code> 或 <code>oj.example.com:8443</code>。生产若用 nginx 把 gRPC 挂在 HTTPS 同端口，再勾 TLS。本机 / 内网明文 <code>:50051</code> 不要勾。</p>
+
+      <h3>容量</h3>
+      <ul>
+        <li><span class="k">并发</span> 这台机器同时判几份提交。太大容易把容器内存打满（默认限制 1g）。</li>
+        <li><span class="k">并行测试点</span> 一份 IOI / 练习题里同时跑几个测试点。ACM 比赛仍是失败即停、串行。</li>
+        <li><span class="k">缓存上限</span> 题目数据本地缓存，超出按最近使用淘汰。0 表示不限制。</li>
+      </ul>
+
+      <h3>配置会丢吗</h3>
+      <p>保存写入容器 <code>/cache/node.runtime.toml</code>（已挂载卷），优先于 compose 环境变量，重建容器后仍在。改完若顶栏还是旧值，刷新本页即可。</p>
+    </aside>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const LABELS = {
+      connected: ["已连接", "网关注册成功"],
+      connecting: ["连接中", "正在建立 gRPC 通道"],
+      reconnecting: ["重连中", "断开后正在重新注册"],
+      disconnected: ["断开", "未连上网关"],
+    };
+    const setMsg = (text, cls) => { $("msg").className = "msg " + (cls || ""); $("msg").textContent = text || ""; };
+
+    async function api(path, opts) {
+      const res = await fetch(path, Object.assign({ headers: { "Content-Type": "application/json" } }, opts));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      return data;
+    }
+
+    function fill(s) {
+      const state = s.connection_state || (s.connected ? "connected" : "disconnected");
+      const [title, hint] = LABELS[state] || LABELS.disconnected;
+      $("nodeMeta").textContent = (s.name || s.node_id) + " · " + s.gateway;
+      $("sTasks").textContent = s.running_tasks + "/" + s.capacity;
+      $("sCpu").textContent = s.cpu_usage;
+      $("sMem").textContent = s.memory_usage;
+      $("connDot").className = "dot " + state;
+      $("connText").textContent = title;
+      $("connHint").textContent = (s.last_error && state !== "connected")
+        ? s.last_error
+        : (hint + " · 缓存 " + s.cache_used_mb + "/" + s.cache_max_mb + " MB");
+      $("connHint").className = "hint" + (s.last_error && state !== "connected" ? " err" : "");
+      if (!$("gateway").dataset.dirty) $("gateway").value = s.gateway || "";
+      if (!$("token").dataset.dirty) $("token").value = s.token_masked || "";
+      $("tls").checked = !!s.tls;
+      if (!$("name").dataset.dirty) $("name").value = s.name || "";
+      if (!$("capacity").dataset.dirty) $("capacity").value = s.capacity;
+      if (!$("caseParallel").dataset.dirty) $("caseParallel").value = s.case_parallel;
+      if (!$("cacheMax").dataset.dirty) $("cacheMax").value = s.cache_max_mb;
+    }
+
+    async function refresh() { fill(await api("/api/status")); }
+
+    ["gateway", "token", "name", "capacity", "caseParallel", "cacheMax"].forEach((id) => {
+      $(id).addEventListener("input", () => { $(id).dataset.dirty = "1"; });
+    });
+
+    $("pingBtn").onclick = async () => {
+      setMsg("探测中…");
+      try {
+        const r = await api("/api/ping", { method: "POST", body: JSON.stringify({ gateway: $("gateway").value }) });
+        setMsg(r.ok ? "TCP 可达 " + r.host + ":" + r.port + "（" + r.latency_ms + " ms）" : "不可达 — " + r.error, r.ok ? "ok" : "err");
+      } catch (e) { setMsg(e.message, "err"); }
+    };
+
+    $("saveBtn").onclick = async () => {
+      setMsg("保存中…");
+      try {
+        const r = await api("/api/config", { method: "POST", body: JSON.stringify({
+          gateway: $("gateway").value, token: $("token").value, tls: $("tls").checked,
+          name: $("name").value, capacity: Number($("capacity").value),
+          case_parallel: Number($("caseParallel").value), cache_max_mb: Number($("cacheMax").value),
+        })});
+        ["gateway", "token", "name", "capacity", "caseParallel", "cacheMax"].forEach((id) => { delete $(id).dataset.dirty; });
+        setMsg(r.reconnect ? "已保存，正在重连" : "已保存", "ok");
+        setTimeout(refresh, 500);
+      } catch (e) { setMsg(e.message, "err"); }
+    };
+
+    $("reconnectBtn").onclick = async () => {
+      setMsg("请求重连…");
+      try {
+        await api("/api/reconnect", { method: "POST", body: "{}" });
+        setMsg("已请求重连");
+        setTimeout(refresh, 400);
+      } catch (e) { setMsg(e.message, "err"); }
+    };
+
+    refresh().catch((e) => setMsg(e.message, "err"));
+    setInterval(() => refresh().catch(() => {}), 2000);
+  </script>
+</body>
+</html>

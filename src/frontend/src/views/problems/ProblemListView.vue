@@ -33,6 +33,8 @@ const difficultyMax = ref<number | null>(null)
 const userStore = useUserStore()
 const isManager = computed(() => userStore.isAdmin || userStore.hasAnyRole(['tutor']))
 const mineOnly = ref(false)
+/** 标签列默认隐藏，右上角「显示标签」勾选后展示 */
+const showTags = ref(false)
 
 async function load() {
   const seq = beginLoad()
@@ -106,16 +108,46 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
         h('div', { class: 'problem-name__row' }, [
           h('strong', null, row.title),
           row.visibility === 'private'
-            ? h(NTag, { size: 'small', bordered: false, type: 'error' }, { default: () => t('problems.list.privateTag') })
+            ? h(
+                NTag,
+                { size: 'small', bordered: false, type: 'error' },
+                { default: () => t('problems.list.privateTag') },
+              )
             : null,
-        ])      
+        ]),
+      ])
+    },
+  },
+  {
+    title: t('problems.list.tags'),
+    key: 'tags',
+    width: 200,
+    render(row) {
+      const tags = row.tags ?? []
+      // 未开启「显示标签」或无标签时显示弱化占位，避免单元格空白
+      if (!showTags.value || tags.length === 0) {
+        return h('span', { class: 'cell-muted' }, '--')
+      }
+      return h('div', { class: 'problem-tags' }, [
+        h(
+          NTag,
+          {
+            size: 'small',
+            bordered: true,
+            color: tags[0].color ? { color: tags[0].color, textColor: '#fff' } : undefined,
+          },
+          { default: () => tags[0].name },
+        ),
+        tags.length > 1
+          ? h(NTag, { size: 'small', bordered: true }, { default: () => `+${tags.length - 1}` })
+          : null,
       ])
     },
   },
   {
     title: t('problems.list.limits'),
     key: 'limits',
-    width: 220,
+    width: 180,
     render: (row) => `${row.time_limit_ms} ms / ${row.memory_limit_mb} MB`,
   },
   {
@@ -184,6 +216,9 @@ function rowProps(row: ProblemSummary) {
         />
       </div>
       <template #actions>
+        <n-checkbox v-model:checked="showTags">
+          {{ t('problems.list.showTags') }}
+        </n-checkbox>
         <n-checkbox v-if="isManager" v-model:checked="mineOnly" @update:checked="onSearch">
           {{ t('problems.list.mineOnly') }}
         </n-checkbox>
@@ -250,5 +285,10 @@ function rowProps(row: ProblemSummary) {
 }
 .difficulty-filter__sep {
   color: var(--app-text-secondary);
+}
+.problem-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 </style>

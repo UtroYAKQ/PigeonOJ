@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, update, String
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.enums import UserRoleScope
 from app.models.user import Role, User, UserRole, UserSession
@@ -103,6 +104,15 @@ class SessionRepository:
     async def get_by_id(self, session_id: uuid.UUID) -> UserSession | None:
         return await self.db.get(UserSession, session_id)
 
+    async def touch_activity(self, token_hash: str, now: datetime) -> None:
+        """按 token 回写会话活跃时间（认证链路节流调用；无需先查行，条件 UPDATE 即可）。"""
+        await self.db.execute(
+            update(UserSession)
+            .where(UserSession.token == token_hash, UserSession.revoked_at.is_(None))
+            .values(last_active_at=now)
+            .execution_options(synchronize_session=False)
+        )
+
     async def list_active_by_user(self, user_id: uuid.UUID) -> list[UserSession]:
         stmt = (
             select(UserSession)
@@ -114,6 +124,77 @@ class SessionRepository:
             .order_by(UserSession.created_at.desc())
         )
         return list((await self.db.execute(stmt)).scalars().all())
+
+    async def list_online_sessions(
+        self, window_seconds: int, page: int, page_size: int
+    ) -> tuple[list[tuple[UserSession, User]], int]:
+        """在线用户（管理端）：每用户每设备最近活跃会话（last_active_at 在窗口内且会话有效）。
+
+        同 (user_id, device_info) 只保留最近活跃一行——登录侧同设备去重存在并发窗口
+        （并发登录事务互不可见，见 services/user.py login），可能残留同设备双会话；
+        展示层在此收敛，保证「每行 = 一台在线设备」（admin.md 在线用户面板）。
+        device_info 为 NULL（UA 无法识别）不参与去重，与登录侧语义一致：各自成行。
+        返回 (会话, 用户) 行按活跃时间倒序分页；total 为去重后的在线设备数。
+        """
+        deadline = datetime.now() - timedelta(seconds=window_seconds)
+        conditions = [
+            UserSession.revoked_at.is_(None),
+            UserSession.expires_at > datetime.now(),
+            UserSession.last_active_at > deadline,
+        ]
+        # NULL 设备标识须以会话 id 充当分组键：PostgreSQL 窗口分区把 NULL 视为同组，
+        # 直接按 device_info 分区会把所有「未知设备」会话错误合并成一行
+        device_key = func.coalesce(UserSession.device_info, func.cast(UserSession.id, String))
+        ranked = (
+            select(
+                UserSession,
+                User,
+                func.row_number()
+                .over(
+                    partition_by=(UserSession.user_id, device_key),
+                    order_by=(UserSession.last_active_at.desc(), UserSession.created_at.desc()),
+                )
+                .label("rn"),
+            )
+            .join(User, User.id == UserSession.user_id)
+            .where(*conditions)
+            .subquery()
+        )
+        session_row = aliased(UserSession, ranked)
+        user_row = aliased(User, ranked)
+        deduped = select(session_row, user_row).where(ranked.c.rn == 1)
+        total = (
+            await self.db.execute(select(func.count()).select_from(deduped.subquery()))
+        ).scalar_one()
+        stmt = (
+            deduped.order_by(ranked.c.last_active_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list((await self.db.execute(stmt)).all()), total
+
+    async def list_valid_by_device(
+        self, user_id: uuid.UUID, device_info: str, exclude_token: str | None = None
+    ) -> list[UserSession]:
+        """同用户同设备标识的有效会话（同设备去重：登录替换旧会话用）。"""
+        stmt = select(UserSession).where(
+            UserSession.user_id == user_id,
+            UserSession.device_info == device_info,
+            UserSession.revoked_at.is_(None),
+            UserSession.expires_at > datetime.now(),
+        )
+        if exclude_token:
+            stmt = stmt.where(UserSession.token != exclude_token)
+        return list((await self.db.execute(stmt)).scalars().all())
+
+    async def delete_others_by_user(self, user_id: uuid.UUID, keep_token: str) -> int:
+        """物理删除该用户除 keep_token 外的全部会话行（一键下线其他设备，与登出同语义），返回删除数。"""
+        result = await self.db.execute(
+            delete(UserSession)
+            .where(UserSession.user_id == user_id, UserSession.token != keep_token)
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount or 0
 
     async def revoke(self, session: UserSession, now: datetime) -> None:
         session.revoked_at = now
@@ -216,6 +297,20 @@ class RoleRepository:
             if team_id in result:
                 result[team_id].add(code)
         return result
+
+    async def has_team_manager_role(self, user_id: uuid.UUID) -> bool:
+        """用户是否持有任意团队的创建者 / 管理员授权（team_creator / team_admin）。"""
+        stmt = (
+            select(func.count())
+            .select_from(UserRole)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.scope == UserRoleScope.TEAM,
+                Role.code.in_(["team_creator", "team_admin"]),
+            )
+        )
+        return int(await self.db.scalar(stmt) or 0) > 0
 
     async def grant_team_role(self, user_id: uuid.UUID, team_id: uuid.UUID, code: str) -> None:
         """授予团队角色（幂等：已存在则跳过，唯一约束兜底）。"""

@@ -79,18 +79,25 @@ const backLabel = computed(() => {
 })
 
 /** 返回：有来路时原路返回（验题工作台 / 提交列表等）；直接进入则回题目详情
- * （题单 / 比赛上下文路由时回上下文内写题页，不跳出） */
+ * （题单 / 比赛 / 团队上下文路由时回上下文内写题页，不跳出） */
 function back() {
   if (canGoBack.value) {
     router.back()
     return
   }
-  if (route.params.setId && route.params.problemId) {
+  if (route.params.teamId && route.params.cid && route.params.problemId) {
+    // 团队比赛上下文：回团队路由内写题页
+    router.push(
+      `/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}/problems/${String(route.params.problemId)}`,
+    )
+  } else if (route.params.setId && route.params.problemId) {
     router.push(
       `/problem-sets/${String(route.params.setId)}/problems/${String(route.params.problemId)}`,
     )
   } else if (route.params.cid && route.params.problemId) {
     router.push(`/contests/${String(route.params.cid)}/problems/${String(route.params.problemId)}`)
+  } else if (route.params.teamId && route.params.problemId) {
+    router.push(`/teams/${String(route.params.teamId)}/problems/${String(route.params.problemId)}`)
   } else if (submission.value?.problem_id) {
     router.push(`/problems/${submission.value.problem_id}`)
   } else {
@@ -109,6 +116,14 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
     key: 'status',
     minWidth: 170,
     render: (row) => h(StatusTag, { status: row.status }),
+  },
+  {
+    // SPJ 判定信息（特判程序输出，如 "wrong answer expected 3, found 4"；非 SPJ 恒 '-'）
+    title: t('problems.submission.spjMessage'),
+    key: 'message',
+    minWidth: 180,
+    ellipsis: { tooltip: true },
+    render: (row) => row.message ?? '-',
   },
   {
     title: t('problems.submission.time'),
@@ -147,7 +162,6 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => [
               t('problems.submission.verifyType')
             }}</span>
             <RefreshButton
-              v-if="isRunning"
               :loading="loading"
               :aria-label="t('action.refresh')"
               @click="refreshNow"

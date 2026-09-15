@@ -3,6 +3,7 @@ import { reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { uploadAvatar } from '@/api/files'
+import BaseAvatar from '@/components/BaseAvatar.vue'
 import { useUserStore } from '@/stores/user'
 import { message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
@@ -77,9 +78,7 @@ async function onSave() {
     <div class="profile-grid">
       <n-card :bordered="false">
         <div class="identity-avatar">
-          <n-avatar round :size="104" :src="form.avatar_url || undefined">
-            <template v-if="!form.avatar_url">{{ (form.nickname || '?').slice(0, 1) }}</template>
-          </n-avatar>
+          <BaseAvatar :src="form.avatar_url" :name="form.nickname" :size="104" />
           <n-button :loading="uploadingAvatar" @click="avatarInput?.click()">
             {{ form.avatar_url ? t('action.change') : t('action.upload') }}
           </n-button>

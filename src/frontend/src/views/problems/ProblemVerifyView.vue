@@ -18,13 +18,16 @@ import {
   publishProblem,
   submitVerifyCode,
 } from '@/api/problems'
+import { getTeamProblem } from '@/api/teams'
 import { listSubmissions } from '@/api/judge'
 import { useSelfTest } from '@/composables/useSelfTest'
+import { usePagination } from '@/composables/usePagination'
 import type { ProblemDetail, ProblemLanguage, Submission } from '@/types'
 import { dialog, message } from '@/utils/feedback'
 import { copyToClipboard } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/format'
 import StatusTag from '@/components/StatusTag.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import ProblemWorkbench from '@/components/problem/ProblemWorkbench.vue'
 import WizardShell from '@/components/WizardShell.vue'
 
@@ -34,6 +37,9 @@ const { t } = useI18n()
 
 const loading = ref(false)
 const problemId = String(route.params.id)
+/** 团队上下文：回读走团队端点，跳转 / 提交评测结果均落团队路由 */
+const teamId = route.params.teamId ? String(route.params.teamId) : null
+const isTeam = teamId !== null
 /** 完整详情（含验题状态），驱动门禁与状态标签 */
 const detail = ref<ProblemDetail | null>(null)
 
@@ -102,7 +108,10 @@ async function onSubmit() {
       language: language.value,
     })
     message.success(t('problems.verify.submitted'))
-    router.push(`/problems/${problemId}/submissions/${res.submission_id}`)
+    const target = isTeam
+      ? `/teams/${teamId}/problems/${problemId}/submissions/${res.submission_id}`
+      : `/problems/${problemId}/submissions/${res.submission_id}`
+    router.push(target)
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.operationFailed'))
   } finally {
@@ -110,26 +119,54 @@ async function onSubmit() {
   }
 }
 
-// ---- 我的提交弹窗（工作台「我的提交」按钮触发，与做题页同款）----
+// ---- 我的提交弹窗（工作台「我的提交」按钮触发时才请求 + 分页）----
 const subsVisible = ref(false)
 const mySubmissions = ref<Submission[]>([])
+const subsLoading = ref(false)
+const subsPaging = usePagination({ defaultPageSize: 10 })
 
 function openSubs() {
   subsVisible.value = true
+  subsPaging.resetPage()
   void loadMySubmissions()
 }
+
+/** beginLoad/isCurrent 防慢响应竞态（快翻页时旧响应丢弃） */
 async function loadMySubmissions() {
+  const seq = subsPaging.beginLoad()
+  subsLoading.value = true
   try {
-    const result = await listSubmissions({ problem_id: problemId, page_size: 5 })
+    const result = await listSubmissions({
+      problem_id: problemId,
+      page: subsPaging.page.value,
+      page_size: subsPaging.pageSize.value,
+    })
+    if (!subsPaging.isCurrent(seq)) return
     mySubmissions.value = result.items
+    subsPaging.total.value = result.total
   } catch {
     mySubmissions.value = []
+  } finally {
+    if (subsPaging.isCurrent(seq)) subsLoading.value = false
   }
+}
+
+function onSubsPage(page: number) {
+  subsPaging.changePage(page)
+  void loadMySubmissions()
+}
+
+function onSubsPageSize(pageSize: number) {
+  subsPaging.changeSize(pageSize)
+  void loadMySubmissions()
 }
 
 function openSubmission(row: Submission) {
   subsVisible.value = false
-  router.push(`/problems/${problemId}/submissions/${row.id}`)
+  const target = isTeam
+    ? `/teams/${teamId}/problems/${problemId}/submissions/${row.id}`
+    : `/problems/${problemId}/submissions/${row.id}`
+  router.push(target)
 }
 
 const submissionColumns = computed<DataTableColumns<Submission>>(() => [
@@ -263,23 +300,30 @@ async function onApply() {
 async function loadExisting() {
   loading.value = true
   try {
-    const loaded: ProblemDetail = await getProblem(problemId)
+    // 团队题目经团队上下文端点回读（题库裸路径按可见性拦截）
+    const loaded: ProblemDetail = await (isTeam
+      ? getTeamProblem(teamId!, problemId)
+      : getProblem(problemId))
     if (!loaded.can_manage) throw new Error(t('problems.create.noPermission'))
     detail.value = loaded
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
-    router.push('/admin/problems')
+    router.push(isTeam ? `/teams/${teamId}` : '/admin/problems')
   } finally {
     loading.value = false
   }
 }
 
 function goPrev() {
-  router.push(`/admin/problems/${problemId}/edit/cases`)
+  router.push(
+    isTeam
+      ? `/teams/${teamId}/problems/${problemId}/edit/cases`
+      : `/admin/problems/${problemId}/edit/cases`,
+  )
 }
 function cancelEdit() {
   // 未发布离开：草稿保留，可随时从管理工作台继续
-  router.push('/admin/problems')
+  router.push(isTeam ? `/teams/${teamId}` : '/admin/problems')
 }
 
 onMounted(() => void loadExisting())
@@ -357,23 +401,31 @@ onMounted(() => void loadExisting())
       </n-spin>
     </WizardShell>
 
-    <!-- 我的提交弹窗（本人该题最近提交，点击行跳评测结果页） -->
+    <!-- 我的提交弹窗（本人该题提交，懒加载 + 分页，点击行跳评测结果页） -->
     <n-modal
       v-model:show="subsVisible"
       preset="card"
       :title="t('problems.detail.mySubmissions')"
       style="width: min(720px, 92vw)"
     >
-      <n-data-table
-        v-if="mySubmissions.length"
-        size="small"
+      <PaginatedDataTable
         :columns="submissionColumns"
         :data="mySubmissions"
-        :row-props="
-          (row: Submission) => ({ style: 'cursor: pointer;', onClick: () => openSubmission(row) })
-        "
+        :loading="subsLoading"
+        :total="subsPaging.total.value"
+        :page="subsPaging.page.value"
+        :page-size="subsPaging.pageSize.value"
+        :empty-text="t('problems.detail.noSubmissions')"
+        :table-props="{
+          size: 'small',
+          rowProps: (row: Submission) => ({
+            style: 'cursor: pointer;',
+            onClick: () => openSubmission(row),
+          }),
+        }"
+        @update:page="onSubsPage"
+        @update:page-size="onSubsPageSize"
       />
-      <n-empty v-else :description="t('problems.detail.noSubmissions')" />
     </n-modal>
 
     <!-- 邀请验题弹窗 -->

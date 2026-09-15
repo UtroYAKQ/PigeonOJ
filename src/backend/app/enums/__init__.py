@@ -20,7 +20,12 @@ from app.enums.problem import (
     VerificationStatus,
 )
 from app.enums.system_config import ConfigCategory
-from app.enums.team import TeamApplicationStatus, TeamMemberStatus, TeamStatus
+from app.enums.team import (
+    TeamApplicationStatus,
+    TeamMemberStatus,
+    TeamStatus,
+    TeamVisibility,
+)
 from app.enums.user import Theme, UserRoleScope, UserStatus
 
 __all__ = [
@@ -51,6 +56,7 @@ __all__ = [
     "ReportTargetType",
     # 团队域
     "TeamStatus",
+    "TeamVisibility",
     "TeamMemberStatus",
     "TeamApplicationStatus",
     # 审计域

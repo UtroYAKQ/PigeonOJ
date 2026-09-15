@@ -67,11 +67,46 @@ class ContestRepository:
     async def list_manage(
         self, *, page: int, page_size: int, status: str | None, keyword: str | None = None,
         owner_id: uuid.UUID | None = None,
+        contest_type: ContestType | None = None,
     ) -> tuple[list[Contest], int]:
-        """管理视图：全部状态比赛；owner_id 非 None 时仅该创建者（单一所有权模型）。"""
-        conditions = [Contest.contest_type == ContestType.PUBLIC]
+        """管理视图：全部状态比赛；owner_id 非 None 时仅该创建者（单一所有权模型）；
+        contest_type 缺省 = 全量（公开 + 团队），显式传入按类型过滤。"""
+        conditions = []
+        if contest_type is not None:
+            conditions.append(Contest.contest_type == contest_type)
         if owner_id is not None:
             conditions.append(Contest.owner_id == owner_id)
+        if status:
+            conditions.append(Contest.status == status)
+        if keyword:
+            conditions.append(Contest.title.ilike(f"%{keyword}%"))
+        total = (
+            await self.db.scalar(select(func.count()).select_from(Contest).where(*conditions))
+        ) or 0
+        rows = list(
+            (
+                await self.db.execute(
+                    select(Contest)
+                    .where(*conditions)
+                    .order_by(Contest.start_time.desc())
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            ).scalars()
+        )
+        return rows, int(total)
+
+    async def list_team(
+        self,
+        team_id: uuid.UUID,
+        *,
+        page: int,
+        page_size: int,
+        status: str | None,
+        keyword: str | None = None,
+    ) -> tuple[list[Contest], int]:
+        """团队比赛列表（docs/contracts/teams.md 团队空间节）：本团队全部状态比赛，开赛时间倒序。"""
+        conditions: list = [Contest.contest_type == ContestType.TEAM, Contest.team_id == team_id]
         if status:
             conditions.append(Contest.status == status)
         if keyword:
@@ -182,33 +217,73 @@ class ContestRepository:
             )
         )
 
+    async def solve_status_map_for_contest(
+        self, contest_id: uuid.UUID, user_id: uuid.UUID, problem_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, bool]:
+        """本人在该比赛内的作答状态（详情题目列表 solved 标识，比赛提交口径）：
+
+        True=本场存在 AC 提交；False=本场已尝试未通过；未提交过的题不在返回中。
+        仅统计 submit_type=contest 且 contest_id 匹配的本场比赛提交
+        （练习 / 验题通过不算作本场已解出；补题提交计入）。
+        """
+        if not problem_ids:
+            return {}
+        rows = (
+            await self.db.execute(
+                select(
+                    Submission.problem_id,
+                    func.bool_or(Submission.status == SubmissionStatus.ACCEPTED).label("solved"),
+                )
+                .where(
+                    Submission.contest_id == contest_id,
+                    Submission.user_id == user_id,
+                    Submission.submit_type == SubmitType.CONTEST,
+                    Submission.problem_id.in_(problem_ids),
+                )
+                .group_by(Submission.problem_id)
+            )
+        ).all()
+        return {row.problem_id: bool(row.solved) for row in rows}
+
     async def replace_problems(self, contest_id: uuid.UUID, rows: list[ContestProblem]) -> None:
         await self.db.execute(delete(ContestProblem).where(ContestProblem.contest_id == contest_id))
         self.db.add_all(rows)
         await self.db.flush()
 
     async def list_arrangeable(
-        self, user_id: uuid.UUID, problem_ids: list[uuid.UUID]
+        self, user_id: uuid.UUID, problem_ids: list[uuid.UUID],
+        *, team_id: uuid.UUID | None = None,
     ) -> list[Problem]:
         """编排候选校验：已发布且（全站公开 或 本人私有）题目（docs/contracts/contests.md）。
 
-        团队题目（team_id）随 teams 模块引入后，此处需一并排除团队题库题目。
+        - 全站编排（team_id=None）：一律排除团队题目（team_id 非空）——团队是封闭空间，
+          团队题目不得流入公开比赛 / 题单（docs/contracts/teams.md）
+        - 团队编排（team_id 非 None）：额外放开该团队的题目（admin_visible / team_visible）
         """
         if not problem_ids:
             return []
-        return list(
-            (
-                await self.db.execute(
-                    select(Problem).where(
-                        Problem.id.in_(problem_ids),
-                        Problem.status == ProblemStatus.PUBLISHED,
-                        or_(
-                            Problem.visibility == ProblemVisibility.PUBLIC,
-                            Problem.owner_id == user_id,
-                        ),
-                    )
+        conditions: list = [
+            Problem.id.in_(problem_ids),
+            Problem.status == ProblemStatus.PUBLISHED,
+        ]
+        if team_id is None:
+            conditions.append(Problem.team_id.is_(None))
+            conditions.append(
+                or_(
+                    Problem.visibility == ProblemVisibility.PUBLIC,
+                    Problem.owner_id == user_id,
                 )
-            ).scalars()
+            )
+        else:
+            conditions.append(
+                or_(
+                    Problem.visibility == ProblemVisibility.PUBLIC,
+                    Problem.owner_id == user_id,
+                    Problem.team_id == team_id,
+                )
+            )
+        return list(
+            (await self.db.execute(select(Problem).where(*conditions))).scalars()
         )
 
     async def search_arrangeable(
@@ -218,15 +293,31 @@ class ContestRepository:
         keyword: str | None,
         page: int,
         page_size: int,
+        team_id: uuid.UUID | None = None,
     ) -> tuple[list[Problem], int]:
-        """编排页题目搜索：已发布且（全站公开 或 本人私有），标题模糊，开题时间倒序。"""
-        conditions = [
+        """编排页题目搜索：已发布且（全站公开 或 本人私有），标题模糊，开题时间倒序。
+
+        team_id 非 None（团队比赛编排）时额外包含该团队题目。
+        """
+        conditions: list = [
             Problem.status == ProblemStatus.PUBLISHED,
-            or_(
-                Problem.visibility == ProblemVisibility.PUBLIC,
-                Problem.owner_id == user_id,
-            ),
         ]
+        if team_id is None:
+            conditions.append(Problem.team_id.is_(None))
+            conditions.append(
+                or_(
+                    Problem.visibility == ProblemVisibility.PUBLIC,
+                    Problem.owner_id == user_id,
+                )
+            )
+        else:
+            conditions.append(
+                or_(
+                    Problem.visibility == ProblemVisibility.PUBLIC,
+                    Problem.owner_id == user_id,
+                    Problem.team_id == team_id,
+                )
+            )
         if keyword:
             conditions.append(Problem.title.ilike(f"%{keyword}%"))
         total = (

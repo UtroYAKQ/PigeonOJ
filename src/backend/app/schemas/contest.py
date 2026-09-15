@@ -56,7 +56,7 @@ class ContestUpdate(BaseModel):
     """编辑比赛（缺省不动；problems 传即全量重排；时间合法性在服务层对合并值校验）。
 
     赛时守卫：比赛开始后（status != scheduled）结构性字段被服务层拒绝（3002）——
-    赛中调整走受控端点（公告 PUT /announcement；延时与封榜策略后续迭代）。
+    赛中调整走受控端点（公告 / 延时 / 封榜时间）。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -80,8 +80,28 @@ class AnnouncementUpdate(BaseModel):
     announcement: str = Field(default="", max_length=64 * 1024)
 
 
+class ContestExtend(BaseModel):
+    """赛时延时（POST /contests/{id}/extend）：新结束时间必须晚于当前结束时间。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    end_time: datetime
+
+
+class FreezeTimeUpdate(BaseModel):
+    """调整封榜时间（PUT /contests/{id}/freeze-time；null = 取消封榜，仅未封榜时）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    freeze_time: datetime | None = None
+
+
 class ContestProblemItemOut(BaseModel):
-    """比赛题目列表项（letter 为榜单元信息；详情另经统一入口端点获取）。"""
+    """比赛题目列表项（letter 为榜单元信息；详情另经统一入口端点获取）。
+
+    solved 为本人在该比赛内的作答状态（仅详情 / 列表端点对登录用户填充）：
+    true=本场已通过 / false=已尝试未通过 / null=未提交过（或匿名）。
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -91,6 +111,7 @@ class ContestProblemItemOut(BaseModel):
     sort_order: int
     title: str
     difficulty: int | None = None
+    solved: bool | None = None
 
 
 class ContestSummary(BaseModel):
@@ -180,6 +201,9 @@ class ContestSubmissionItem(BaseModel):
     score: int | None = None
     time_used_ms: int | None = None
     memory_used_kb: int | None = None
+    # 赛制快照（创建时落库，docs/contracts/contests.md）：ACM 二值分不展示为 IOI 分数；
+    # 历史数据可能为 NULL（快照列后补），可空
+    rule_type: RuleType | None = None
     nickname: str
     created_at: datetime
 

@@ -35,7 +35,7 @@ from app import app
 from app.services.system_config import EMAIL_CODE_HTML_TEMPLATE_DEFAULT
 from app.models.user import Role, User, UserRole
 from app.core.database import Base, SessionLocal, engine
-from app.core.redis import get_redis
+from app.core.redis import close_redis, get_redis
 from app.core.storage import StoredObject
 from app.utils.security import hash_password
 
@@ -59,6 +59,8 @@ CONFIG_SEEDS = [
     ("site", "site.icp", "", "ICP 备案号"),
     ("site", "site.default_theme", "light", "默认主题样式"),
     ("site", "site.register_enabled", True, "是否开放注册"),
+    ("site", "site.banners", [], "首页轮播海报（JSON 数组 [{image, title?, link?}]）"),
+    ("site", "site.announcement", "", "首页系统公告（空串 = 不展示）"),
     ("auth_email", "email.code.expire_seconds", 600, "验证码有效期（秒）"),
     ("auth_email", "email.code.resend_seconds", 60, "验证码重发间隔（秒）"),
     ("auth_email", "email.code.max_attempts", 5, "验证码最大尝试次数"),
@@ -76,7 +78,7 @@ CONFIG_SEEDS = [
     ("contest", "contest.freeze_default_seconds", 3600, "封榜默认时长（秒）"),
     ("contest", "contest.penalty_factor_minutes", 20, "罚时系数（分钟）"),
     ("sandbox", "sandbox.judge_concurrency", 8, "全局判题并发上限"),
-    ("sandbox", "sandbox.cooldown_seconds", 10, "提交冷却时长（秒）"),
+    ("sandbox", "sandbox.cooldown_seconds", 2, "提交冷却时长（秒）"),
     ("log", "log.retention_days", 30, "日志保留天数"),
     ("log", "log.record_get_logs", True, "是否记录 GET 请求日志（关闭后仅记录写操作）"),
     ("community", "community.feature_switches", {"solution": True, "post": True, "comment": True}, "社区功能开关"),
@@ -85,7 +87,12 @@ CONFIG_SEEDS = [
 
 @pytest_asyncio.fixture(autouse=True)
 async def prepare_db():
-    """每个用例重建表结构 + 种子（用例级隔离；async fixture 使用函数级事件循环）。"""
+    """每个用例重建表结构 + 种子（用例级隔离；async fixture 使用函数级事件循环）。
+
+    前后各 engine.dispose()：pytest-asyncio 每用例新建事件循环，asyncpg 连接绑定
+    创建时的 loop——丢弃全部池连接，保证连接生命周期与当前 loop 一致（防跨 loop 复用）。
+    """
+    await engine.dispose()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
@@ -117,6 +124,8 @@ async def prepare_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await (await get_redis()).flushdb()
+    await close_redis()
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture
@@ -161,8 +170,10 @@ def fake_storage(monkeypatch) -> FakeStorage:
     storage = FakeStorage()
     for target in (
         "app.services.file.get_storage",
+        "app.services.user.get_storage",
         "app.api.v1.files.get_storage",
         "app.services.problem.get_storage",
+        "app.services.problem_import.get_storage",
         "app.services.judge.get_storage",
         "app.rpc.judge_jobs.get_storage",
         "app.rpc.judge_gateway.get_storage",

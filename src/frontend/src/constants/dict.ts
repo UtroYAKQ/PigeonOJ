@@ -45,15 +45,23 @@ export const REPORT_STATUS = statusProxy(
   ['pending', 'handled', 'ignored'] as const,
   { pending: 'warning', handled: 'success', ignored: 'info' },
 )
-export const LOG_LEVEL = statusProxy('dictionary.logLevel', ['error', 'warning', 'fatal'] as const, {
-  error: 'danger',
-  warning: 'warning',
-  fatal: 'danger',
-})
-export const SANDBOX_STATUS = statusProxy('dictionary.sandboxStatus', ['online', 'offline'] as const, {
-  online: 'success',
-  offline: 'info',
-})
+export const LOG_LEVEL = statusProxy(
+  'dictionary.logLevel',
+  ['error', 'warning', 'fatal'] as const,
+  {
+    error: 'danger',
+    warning: 'warning',
+    fatal: 'danger',
+  },
+)
+export const SANDBOX_STATUS = statusProxy(
+  'dictionary.sandboxStatus',
+  ['online', 'offline'] as const,
+  {
+    online: 'success',
+    offline: 'info',
+  },
+)
 export const REPORT_TYPE = labels('dictionary.reportType', [
   'problem',
   'solution',

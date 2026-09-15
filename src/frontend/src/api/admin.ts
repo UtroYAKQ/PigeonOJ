@@ -6,6 +6,9 @@
 import { apiRequest } from './http'
 import { buildQuery } from '@/utils/query'
 import type {
+  AdminProblemSetListQuery,
+  AdminSubmission,
+  AdminTeamListQuery,
   AdminUserQuery,
   ConfigCategory,
   ContestListQuery,
@@ -13,29 +16,123 @@ import type {
   GlobalRoleCode,
   LogQuery,
   LogType,
+  OnlineUser,
   PageResult,
-  ProblemSetListQuery,
   ProblemSetSummary,
   ProblemTagItem,
   Report,
   ReportStatus,
   SandboxNode,
   SystemConfigItem,
+  TeamAdminDetail,
+  TeamAdminSummary,
+  TeamMemberItem,
+  TeamProblemSummary,
   User,
 } from '@/types'
 
 // ---------------- 管理列表（单一所有权模型：admin 全量、tutor 等仅本人创建） ----------------
+
+/** GET /admin/users/online — 在线用户面板（10 分钟窗口内有活跃回写的有效会话） */
+export function adminListOnlineUsers(query: { page?: number; page_size?: number } = {}) {
+  return apiRequest<PageResult<OnlineUser>>('GET', `/admin/users/online${buildQuery(query)}`)
+}
+
+export interface AdminSubmissionQuery {
+  page?: number
+  page_size?: number
+  submit_type?: string
+  status?: string
+  language?: string
+  keyword?: string
+  problem_id?: string
+}
+
+/** GET /admin/submissions — 全站提交面板（提交类型 / 用户 / 题目 / 状态 / 语言筛选） */
+export function adminListSubmissions(query: AdminSubmissionQuery = {}) {
+  return apiRequest<PageResult<AdminSubmission>>('GET', `/admin/submissions${buildQuery(query)}`)
+}
 
 /** GET /admin/contests — 比赛管理视图（admin 全量、tutor 仅本人创建，全部状态） */
 export function adminListContests(query: ContestListQuery = {}) {
   return apiRequest<PageResult<ContestSummary>>('GET', `/admin/contests${buildQuery(query)}`)
 }
 
-/** GET /admin/problem-sets — 题单管理视图（admin 全量、tutor 仅本人创建，含私有与已下线） */
-export function adminListProblemSets(
-  query: ProblemSetListQuery & { status?: 'active' | 'archived' } = {},
-) {
+/** GET /admin/problem-sets — 题单管理视图（admin 全量、tutor 仅本人创建，含私有与已下线；ownership 过滤来源） */
+export function adminListProblemSets(query: AdminProblemSetListQuery = {}) {
   return apiRequest<PageResult<ProblemSetSummary>>('GET', `/admin/problem-sets${buildQuery(query)}`)
+}
+
+// ---------------- 团队管理（docs/contracts/teams.md 管理端：admin 全量只读浏览） ----------------
+
+/** GET /admin/teams — 团队管理列表（admin 全量，含已解散；成员数 / 创建人昵称 / 状态） */
+export function adminListTeams(query: AdminTeamListQuery = {}) {
+  return apiRequest<PageResult<TeamAdminSummary>>('GET', `/admin/teams${buildQuery(query)}`)
+}
+
+/** GET /admin/teams/:id — 团队管理详情（免团队成员校验，含已解散团队） */
+export function adminGetTeam(teamId: string) {
+  return apiRequest<TeamAdminDetail>('GET', `/admin/teams/${teamId}`)
+}
+
+/** GET /admin/teams/:id/members — 团队成员列表（admin 管理视图；keyword 模糊昵称） */
+export function adminListTeamMembers(
+  teamId: string,
+  query: { page?: number; page_size?: number; keyword?: string; status?: string } = {},
+) {
+  return apiRequest<PageResult<TeamMemberItem>>(
+    'GET',
+    `/admin/teams/${teamId}/members${buildQuery(query)}`,
+  )
+}
+
+/** GET /admin/teams/:id/problems — 团队题库列表（admin 管理视图：全部状态 / 可见性） */
+export function adminListTeamProblems(
+  teamId: string,
+  query: {
+    page?: number
+    page_size?: number
+    keyword?: string
+    status?: 'draft' | 'published' | 'archived'
+    visibility?: 'admin_visible' | 'team_visible'
+  } = {},
+) {
+  return apiRequest<PageResult<TeamProblemSummary>>(
+    'GET',
+    `/admin/teams/${teamId}/problems${buildQuery(query)}`,
+  )
+}
+
+/** GET /admin/teams/:id/problem-sets — 团队题单列表（admin 管理视图：含已下线） */
+export function adminListTeamProblemSets(
+  teamId: string,
+  query: {
+    page?: number
+    page_size?: number
+    keyword?: string
+    status?: 'active' | 'archived'
+  } = {},
+) {
+  return apiRequest<PageResult<ProblemSetSummary>>(
+    'GET',
+    `/admin/teams/${teamId}/problem-sets${buildQuery(query)}`,
+  )
+}
+
+/** GET /admin/teams/:id/contests — 团队比赛列表（admin 管理视图：全部状态） */
+export function adminListTeamContests(
+  teamId: string,
+  query: {
+    page?: number
+    page_size?: number
+    keyword?: string
+    status?: 'scheduled' | 'running' | 'finished'
+  } = {},
+) {
+  return apiRequest<PageResult<ContestSummary>>(
+    'GET',
+    `/admin/teams/${teamId}/contests${buildQuery(query)}`,
+  )
 }
 
 // ---------------- 用户管理 ----------------
@@ -60,9 +157,12 @@ export function adminUnbanUser(userId: string) {
   return apiRequest<null>('POST', `/admin/users/${userId}/unban`)
 }
 
-/** POST /admin/users/:id/freeze — 冻结 */
-export function adminFreezeUser(userId: string, reason: string) {
-  return apiRequest<null>('POST', `/admin/users/${userId}/freeze`, { reason })
+/** POST /admin/users/:id/freeze — 冻结（短时封禁：duration_minutes 到期自动恢复，缺省 15 分钟） */
+export function adminFreezeUser(userId: string, reason: string, durationMinutes?: number) {
+  return apiRequest<null>('POST', `/admin/users/${userId}/freeze`, {
+    reason,
+    duration_minutes: durationMinutes,
+  })
 }
 
 /** POST /admin/users/:id/unfreeze — 解冻 */
@@ -118,9 +218,9 @@ export function adminHandleReport(reportId: string, action: 'handled' | 'ignored
 
 // ---------------- 标签管理（docs/contracts/problems.md /admin/tags*） ----------------
 
-/** GET /admin/tags — 全量标签（含已归档，激活在前） */
-export function adminListTags() {
-  return apiRequest<ProblemTagItem[]>('GET', '/admin/tags')
+/** GET /admin/tags — 标签管理分页列表（含已归档，激活在前；keyword 模糊匹配标签名） */
+export function adminListTags(query: { page: number; page_size: number; keyword?: string }) {
+  return apiRequest<PageResult<ProblemTagItem>>('GET', `/admin/tags${buildQuery(query)}`)
 }
 
 /** POST /admin/tags — 新增标签（name 全局唯一） */

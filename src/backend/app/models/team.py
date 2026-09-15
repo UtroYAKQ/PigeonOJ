@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.enums import TeamApplicationStatus, TeamMemberStatus, TeamStatus
+from app.enums import TeamApplicationStatus, TeamMemberStatus, TeamStatus, TeamVisibility
 
 
 class Team(Base):
@@ -31,6 +31,13 @@ class Team(Base):
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=TeamStatus.ACTIVE, server_default=TeamStatus.ACTIVE
     )
+    # 可见性：public 团队中心可见可直接申请加入；private 不进团队中心（仅邀请链接申请）
+    visibility: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=TeamVisibility.PRIVATE,
+        server_default=TeamVisibility.PRIVATE,
+    )
     disbanded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -43,6 +50,7 @@ class Team(Base):
     __table_args__ = (
         Index("ix_teams_creator", "creator_id"),
         Index("ix_teams_status", "status"),
+        Index("ix_teams_visibility_status", "visibility", "status"),
     )
 
 
@@ -68,6 +76,8 @@ class TeamMember(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 成员备注：本人可备注自己，团队创建者 / 管理员可备注任意成员；展示于昵称之后
+    note: Mapped[str | None] = mapped_column(String(64))
 
     __table_args__ = (
         Index(

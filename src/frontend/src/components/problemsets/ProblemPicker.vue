@@ -12,12 +12,21 @@ import { Search } from '@element-plus/icons-vue'
 import { listProblems } from '@/api/problems'
 import { usePagination } from '@/composables/usePagination'
 import { useUserStore } from '@/stores/user'
-import type { ProblemSummary } from '@/types'
+import type { PageResult, ProblemSummary } from '@/types'
 
 const props = defineProps<{
   show: boolean
   /** 已选题目 id：用于去重与「已添加」禁用态 */
   chosenIds?: Set<string>
+  /** 进入时默认勾选「我的」（团队引用等场景：仅本人题目可被引用） */
+  defaultMine?: boolean
+  /** 自定义候选源（团队编排走 arrangeable）；缺省为全站题库 */
+  loader?: (query: {
+    page: number
+    page_size: number
+    keyword?: string
+    mine?: boolean
+  }) => Promise<PageResult<ProblemSummary>>
 }>()
 
 const emit = defineEmits<{
@@ -29,7 +38,7 @@ const { t } = useI18n()
 const userStore = useUserStore()
 
 const keyword = ref('')
-const mineOnly = ref(false)
+const mineOnly = ref(props.defaultMine ?? false)
 const items = ref<ProblemSummary[]>([])
 const { page, pageSize, total, changePage, resetPage, beginLoad, isCurrent } = usePagination()
 
@@ -40,12 +49,13 @@ async function load() {
   const s = ++seq
   const guard = beginLoad()
   try {
-    const result = await listProblems({
+    const query = {
       page: page.value,
       page_size: pageSize.value,
       keyword: keyword.value || undefined,
       mine: mineOnly.value,
-    })
+    }
+    const result = await (props.loader ? props.loader(query) : listProblems(query))
     if (s !== seq || !isCurrent(guard)) return
     items.value = result.items
     total.value = result.total
@@ -63,7 +73,7 @@ watch(
   (show) => {
     if (!show) return
     keyword.value = ''
-    mineOnly.value = false
+    mineOnly.value = props.defaultMine ?? false
     resetPage()
     void load()
   },
@@ -158,7 +168,7 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
         <n-button size="small" secondary @click="onSearch">
           {{ t('action.search') }}
         </n-button>
-        <n-checkbox v-if="isManager" :checked="mineOnly" @update:checked="toggleMine">
+        <n-checkbox v-if="isManager && !loader" :checked="mineOnly" @update:checked="toggleMine">
           {{ t('problems.list.mineOnly') }}
         </n-checkbox>
       </div>
@@ -170,13 +180,8 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
         :bordered="false"
         :bottom-bordered="false"
         :row-key="rowKey"
+        :empty="t('problemSets.detail.noResult')"
         class="picker-table"
-      />
-      <n-empty
-        v-if="!items.length"
-        size="small"
-        :description="t('problemSets.detail.noResult')"
-        class="picker-empty"
       />
       <div class="picker-pager">
         <n-pagination
@@ -207,9 +212,6 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
 }
 .picker-table {
   min-height: 220px;
-}
-.picker-empty {
-  padding: 12px 0;
 }
 .picker-pager {
   display: flex;

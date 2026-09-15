@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
 import logging
 import os
 import socket
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -29,6 +29,33 @@ from gen import judge_pb2, judge_pb2_grpc  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("judge-node")
+
+# 与后端 app/rpc/judge_gateway._GRPC_MAX_MESSAGE_BYTES 对齐
+# （测试点 ≤8MB，默认输出 5MB×N；gRPC 默认 4MB 会卡死 Connect / FetchProblemData）
+_GRPC_MAX_MESSAGE_BYTES = 128 * 1024 * 1024
+_GRPC_CHANNEL_OPTIONS = (
+    ("grpc.max_send_message_length", _GRPC_MAX_MESSAGE_BYTES),
+    ("grpc.max_receive_message_length", _GRPC_MAX_MESSAGE_BYTES),
+)
+
+
+def classify_gateway_error(*, code: str = "", details: str = "", text: str = "") -> tuple[str, str]:
+    """把 gRPC / 传输失败收成管理页可读原因：(code, message)。"""
+    blob = f"{code} {details} {text}".lower()
+    if "unauthenticated" in blob or "invalid node token" in blob or "invalid token" in blob:
+        return "token", "令牌错误：与后端 JUDGE_GATEWAY_TOKENS 不一致"
+    if any(k in blob for k in ("ssl", "tls", "handshake", "certificate", "wrong_version_number", "cert")):
+        return "tls", "TLS 握手失败：本机明文网关不要勾 TLS；公网请检查证书"
+    if any(k in blob for k in (
+        "unavailable", "connection refused", "failed to connect",
+        "name resolution", "dns", "timed out", "timeout",
+        "network is unreachable", "no route to host",
+    )):
+        return "unreachable", "后端网关未在监听，或地址/端口不对"
+    if "cancel" in blob:
+        return "cancelled", "连接被关闭（若反复出现，先测连通并核对令牌）"
+    msg = (details or text or code or "未知错误").strip()
+    return "unknown", f"连接失败：{msg}"
 
 
 def aggregate_status(statuses: list[str]) -> str:
@@ -104,16 +131,60 @@ class NodeDaemon:
         self._pending: set[asyncio.Task] = set()
         self.heartbeat_interval = 10
         self.cpu_sample: tuple[int, int] | None = None  # (idle, total) 上次 /proc/stat 采样
+        self._cancels: dict[str, threading.Event] = {}
+        self.registered = False
+        self.reconnect_requested = False
+        self.connection_state = "disconnected"
+        self.last_error_code = ""
+        self.last_error = ""
+        self._had_connection = False
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._channel = None
+
+    def request_reconnect(self) -> None:
+        self.reconnect_requested = True
+        self.connection_state = "reconnecting"
+        channel = self._channel
+        loop = self._loop
+        if channel is None or loop is None or loop.is_closed():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(channel.close(), loop)
+        except RuntimeError:
+            pass
+
+    def record_gateway_error(self, exc: BaseException) -> None:
+        code = ""
+        details = ""
+        if isinstance(exc, grpc.aio.AioRpcError):
+            try:
+                code = exc.code().name
+            except Exception:
+                code = ""
+            details = exc.details() or ""
+        new_code, new_msg = classify_gateway_error(code=code, details=details, text=str(exc))
+        if self.last_error_code == "token" and new_code in {"cancelled", "unknown"}:
+            return
+        self.last_error_code = new_code
+        self.last_error = new_msg
 
     async def run(self) -> None:
         cfg = self.cfg
+        self._loop = asyncio.get_running_loop()
+        was_reconnect = self.reconnect_requested or self._had_connection
+        self.reconnect_requested = False
+        self.registered = False
+        self.connection_state = "reconnecting" if was_reconnect else "connecting"
         self.semaphore = asyncio.Semaphore(max(1, cfg.node.capacity))
         if cfg.server.tls:
             # TLS 模式：连公网域名 443（nginx grpc_pass 按服务路径转发到网关），
             # Let's Encrypt 等公共证书在 gRPC 默认根证书信任链内
-            channel = grpc.aio.secure_channel(cfg.server.address, grpc.ssl_channel_credentials())
+            channel = grpc.aio.secure_channel(
+                cfg.server.address, grpc.ssl_channel_credentials(), options=_GRPC_CHANNEL_OPTIONS
+            )
         else:
-            channel = grpc.aio.insecure_channel(cfg.server.address)
+            channel = grpc.aio.insecure_channel(cfg.server.address, options=_GRPC_CHANNEL_OPTIONS)
+        self._channel = channel
         stub = judge_pb2_grpc.JudgeGatewayStub(channel)
 
         async def outgoing():
@@ -122,7 +193,8 @@ class NodeDaemon:
                 node_id=self.node_id,
                 name=cfg.node.name or self.node_id,
                 capacity=cfg.node.capacity,
-                version="nsjail-node-1.0",
+                version="nsjail-node-1.3",
+                supports_spj=True,
             ))
             while True:
                 msg = await self.outbox.get()
@@ -140,15 +212,35 @@ class NodeDaemon:
                     self.heartbeat_interval = max(3, sm.ack.heartbeat_interval_seconds)
                     log.info("注册成功：%s（心跳间隔 %ss）", sm.ack.node_id, self.heartbeat_interval)
                     registered = True
+                    self.registered = True
+                    self._had_connection = True
+                    self.connection_state = "connected"
+                    self.last_error_code = ""
+                    self.last_error = ""
                     continue
                 kind = sm.WhichOneof("payload")
                 if kind == "job":
                     self._spawn(self._execute_job(stub, sm.job))
                 elif kind == "run_code":
                     self._spawn(self._execute_run_code(sm.run_code))
+                elif kind == "cancel":
+                    ev = self._cancels.get(sm.cancel.submission_id)
+                    if ev is not None:
+                        ev.set()
+        except grpc.aio.AioRpcError as exc:
+            self.record_gateway_error(exc)
+        except asyncio.CancelledError as exc:
+            self.record_gateway_error(exc)
+            raise
         finally:
             heartbeat_task.cancel()
             cache_gc_task.cancel()
+            self.registered = False
+            self._channel = None
+            if self.reconnect_requested or self._had_connection:
+                self.connection_state = "reconnecting"
+            else:
+                self.connection_state = "disconnected"
             await channel.close()
             log.info("连接关闭")
 
@@ -213,31 +305,43 @@ class NodeDaemon:
         return self.cache.dir_for(job.problem_id, job.data_version)
 
     async def _execute_job(self, stub, job: judge_pb2.SubmitJob) -> None:
+        cancel = threading.Event()
+        self._cancels[job.submission_id] = cancel
         async with self.semaphore:
             self.running_tasks += 1
             try:
-                result = await self._execute_inner(stub, job)
+                if cancel.is_set():
+                    log.info("作业取消（未开始）%s", job.submission_id)
+                    return
+                result = await self._execute_inner(stub, job, cancel)
+                if cancel.is_set():
+                    log.info("作业取消 %s", job.submission_id)
+                    return
             except Exception as exc:  # noqa: BLE001 - 节点侧故障以 system_error 回传
                 log.exception("作业执行异常 submission=%s", job.submission_id)
+                if cancel.is_set():
+                    return
                 result = {
                     "submission_id": job.submission_id, "status": "system_error",
                     "error_message": f"node error: {exc}"[:2000], "cases": [],
                 }
             finally:
                 self.running_tasks -= 1
+                self._cancels.pop(job.submission_id, None)
             await self.outbox.put(_to_result_message(result))
             log.info("判题完成 %s → %s (score=%s)", job.submission_id, result["status"], result.get("score"))
 
-    async def _execute_inner(self, stub, job: judge_pb2.SubmitJob) -> dict:
+    async def _execute_inner(self, stub, job: judge_pb2.SubmitJob, cancel: threading.Event | None = None) -> dict:
         data_dir = await self._ensure_data(stub, job)
-        # 标记使用中：防止缓存回收删除正在判题的数据目录
         self.cache.mark_in_use(data_dir.name)
         try:
-            return await self._judge_with_data(job, data_dir)
+            return await self._judge_with_data(job, data_dir, cancel)
         finally:
             self.cache.unmark_in_use(data_dir.name)
 
-    async def _judge_with_data(self, job: judge_pb2.SubmitJob, data_dir: Path) -> dict:
+    async def _judge_with_data(
+        self, job: judge_pb2.SubmitJob, data_dir: Path, cancel: threading.Event | None = None
+    ) -> dict:
         limits = ResourceLimits(
             time_limit_ms=job.limits.time_limit_ms,
             memory_limit_mb=job.limits.memory_limit_mb,
@@ -252,6 +356,23 @@ class NodeDaemon:
             cpu_cores=limits.cpu_cores,
             process_limit=limits.process_limit,
         )
+        # SPJ 特判（docs/contracts/judge.md「SPJ 特判」）：编译预算与提交一致；
+        # 运行时限 max(2×单点时限, 5s)、内存与提交一致、输出上限 16KB（超出即 checker 故障）
+        spj_source: bytes | None = None
+        if job.spj:
+            spj_path = data_dir / "spj.cpp"
+            if not spj_path.is_file():
+                return {"submission_id": job.submission_id, "status": "system_error",
+                        "time_used_ms": 0, "memory_used_kb": None,
+                        "error_message": "special judge data missing (spj.cpp)", "cases": []}
+            spj_source = spj_path.read_bytes()
+        spj_limits = ResourceLimits(
+            time_limit_ms=max(2 * limits.time_limit_ms, 5_000),
+            memory_limit_mb=limits.memory_limit_mb,
+            output_limit_kb=16,
+            process_limit=limits.process_limit,
+            cpu_cores=limits.cpu_cores,
+        )
         cases = await asyncio.to_thread(
             self._load_cases_sync, job, data_dir, limits
         )
@@ -261,6 +382,10 @@ class NodeDaemon:
             cases,
             compile_limits=compile_limits,
             stop_on_failure=job.stop_on_failure,
+            spj_source=spj_source,
+            spj_limits=spj_limits,
+            cancel_event=cancel,
+            max_parallel=self.cfg.sandbox.case_parallel,
         )
 
         max_time = 0
@@ -271,23 +396,28 @@ class NodeDaemon:
             case_results.append({
                 "test_case_id": tc.test_case_id, "status": res.status,
                 "time_used_ms": res.time_used_ms, "memory_used_kb": res.memory_used_kb or 0,
-                "output": res.stdout,
+                "output": res.stdout, "message": res.message,
             })
         status = aggregate_status([r.status for r in results])
         error_message = ""
         if results and results[0].compile:
             error_message = results[0].stderr.decode("utf-8", errors="replace")[:8000]
+        elif any(r.status == "system_error" for r in results):
+            # 逐点 system_error 仅由特判程序故障产生：统一口径、不回传 stderr 细节
+            error_message = "special judge program failed"
         return {"submission_id": job.submission_id, "status": status,
                 "time_used_ms": max_time, "memory_used_kb": None,
                 "error_message": error_message, "cases": case_results}
 
     def _load_cases_sync(self, job: judge_pb2.SubmitJob, data_dir: Path, limits: ResourceLimits) -> list[JudgeCase]:
-        """同步加载测试点文件（在 to_thread 工作线程中执行）。"""
+        """只登记测试点路径，真正读文件推迟到执行该点（ACM 短路不读后续）。"""
         cases = []
         for tc in job.cases:
-            stdin = (data_dir / "cases" / f"{tc.test_case_id}.in").read_bytes()
-            expected = (data_dir / "cases" / f"{tc.test_case_id}.out").read_bytes()
-            cases.append(JudgeCase(job.language, job.code, stdin, expected, limits))
+            cases.append(JudgeCase(
+                job.language, job.code, limits=limits,
+                stdin_path=data_dir / "cases" / f"{tc.test_case_id}.in",
+                expected_path=data_dir / "cases" / f"{tc.test_case_id}.out",
+            ))
         return cases
 
     async def _execute_run_code(self, job: judge_pb2.RunCodeJob) -> None:
@@ -359,7 +489,7 @@ def _to_result_message(result: dict) -> judge_pb2.NodeMessage:
             judge_pb2.CaseResult(
                 test_case_id=c["test_case_id"], status=c["status"],
                 time_used_ms=c["time_used_ms"], memory_used_kb=c["memory_used_kb"],
-                output=c["output"],
+                output=c["output"], message=c.get("message") or b"",
             )
             for c in result.get("cases", [])
         ],
@@ -377,17 +507,37 @@ def main() -> None:
         raise SystemExit(64)
     Path(cfg.paths.workspace).mkdir(parents=True, exist_ok=True)
 
-    # 后端可能尚未就绪：连接失败按退避重试，直到注册成功或被手动停止
+    from admin_server import NodeAdmin
+
+    daemon = NodeDaemon(cfg)
+    admin = NodeAdmin(daemon, args.config)
+    admin.start()
+    if cfg.admin.bind and cfg.admin.port > 0:
+        log.info("管理页 http://%s:%s/", cfg.admin.bind, cfg.admin.port)
+
     backoff = 3
-    while True:
-        try:
-            asyncio.run(NodeDaemon(cfg).run())
-            return  # 服务端优雅关闭
-        except KeyboardInterrupt:
-            raise SystemExit(0)
-        except grpc.aio.AioRpcError as exc:
-            log.warning("连接后端失败：%s；%ss 后重试", exc.details(), backoff)
-        time.sleep(backoff)
+    try:
+        while True:
+            try:
+                asyncio.run(daemon.run())
+                if daemon.reconnect_requested:
+                    log.info("按管理页请求重连网关")
+                else:
+                    log.info("网关连接结束，%ss 后重连", backoff)
+            except KeyboardInterrupt:
+                raise SystemExit(0)
+            except asyncio.CancelledError as exc:
+                daemon.record_gateway_error(exc)
+                log.warning("%s；%ss 后重试", daemon.last_error or "网关连接被取消", backoff)
+            except grpc.aio.AioRpcError as exc:
+                daemon.record_gateway_error(exc)
+                log.warning("%s；%ss 后重试", daemon.last_error, backoff)
+            except Exception as exc:  # noqa: BLE001 - 保管理页存活，网关异常只重连
+                daemon.record_gateway_error(exc)
+                log.warning("%s；%ss 后重试", daemon.last_error, backoff)
+            time.sleep(backoff)
+    finally:
+        admin.stop()
 
 
 if __name__ == "__main__":

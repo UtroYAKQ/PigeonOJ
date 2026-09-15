@@ -20,6 +20,8 @@ export interface Submission {
   problem_id?: string
   language?: string
   submit_type?: string
+  /** 赛制快照：ACM 二值分（AC=满分否则 0）不展示为 IOI 分数 */
+  rule_type?: 'ACM' | 'IOI' | null
   code?: string
   status: SubmissionStatus
   /** 赛制计分：ACM 二值（AC=满分否则 0）；IOI / 练习 = 通过测试点比例部分计分 */
@@ -39,6 +41,8 @@ export interface SubmissionCaseResult {
   memory_used_kb: number | null
   score: number | null
   output: string | null
+  /** SPJ 判定信息（特判程序输出，如 "wrong answer expected 3, found 4"；非 SPJ 为 null） */
+  message?: string | null
 }
 
 export interface SubmissionListQuery {

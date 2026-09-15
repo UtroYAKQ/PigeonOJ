@@ -35,6 +35,13 @@ declare module 'vue-router' {
     /** 对象上下文页面（详情、创建、提交结果等）；不进入侧边栏菜单 */
     contextPage?: boolean
     /**
+     * 复用页的返回兜底路径（无历史直达打开时 goBackOrFallback 落点），
+     * 缺省由组件自身默认值兜底（如题目预览回 /admin/problems）
+     */
+    backFallback?: string
+    /** 复用页的返回按钮文案 key（如提交查看上下文题目预览回「返回提交查看」） */
+    backLabelKey?: string
+    /**
      * 面包屑父级工作台：上下文页在面包屑中挂到所属工作台下，
      * 如 管理后台/题目管理/编辑题目（{ titleKey: 'nav.problemsManage', path: '/admin/problems' }）。
      * path 支持按当前路由解析的动态路径（如题单上下文写题页挂到具体题单详情：

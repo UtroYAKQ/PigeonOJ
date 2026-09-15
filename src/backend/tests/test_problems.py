@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import urllib.parse
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select, text
 
 from app.models.judge import Submission, SubmissionTestCaseResult
 from app.models.problem import Problem, TestCase
+from app.models.team import Team
 from app.models.user import User, UserRole
 from app.core.database import SessionLocal
 
@@ -810,6 +811,51 @@ async def test_problem_submission_detail_manage_view(client, admin_headers, user
 
 
 @pytest.mark.asyncio
+async def test_submission_detail_cases_follow_judged_order(client, admin_headers):
+    """提交详情测试点按判定集顺序展示（回归：旧实现按结果行 UUID 主键排序导致乱序；
+    无测试点引用的历史行排尾）。"""
+    from app.services.judge import SubmissionService
+
+    async with SessionLocal() as db:
+        admin = (
+            await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))
+        ).scalar_one()
+        case_ids = [uuid.uuid4() for _ in range(3)]
+        problem = Problem(
+            title="P-order", description="D", owner_id=admin.id,
+            status="published", visibility="public", verified_at=datetime.now(),
+            active_case_ids=[str(case_ids[2]), str(case_ids[0]), str(case_ids[1])],
+        )
+        db.add(problem)
+        await db.flush()
+        for i, cid in enumerate(case_ids):
+            db.add(TestCase(
+                id=cid, problem_id=problem.id, name=f"c{i + 1}",
+                input_oss_id=f"cases/{cid}.in",
+                expected_output_oss_id=f"cases/{cid}.out",
+                sort_order=i + 1,
+            ))
+        submission = Submission(
+            user_id=admin.id, problem_id=problem.id, language="cpp17",
+            code="x", status="accepted",
+        )
+        db.add(submission)
+        await db.flush()
+        # 结果行按与判定集不同的顺序落库（行主键为随机 UUID，不得影响展示顺序）
+        for cid in case_ids:
+            db.add(SubmissionTestCaseResult(
+                submission_id=submission.id, test_case_id=cid, status="accepted", score=33,
+            ))
+        db.add(SubmissionTestCaseResult(
+            submission_id=submission.id, test_case_id=None, status="system_error", score=0,
+        ))
+        await db.commit()
+
+        detail = await SubmissionService(db).build_detail(submission)
+    assert [c.case_name for c in detail.cases] == ["c3", "c1", "c2", None]
+
+
+@pytest.mark.asyncio
 async def test_replace_cases_keeps_history_results(client, admin_headers, fake_storage):
     """回归（行不可变版本化）：全量替换只改写暂存集，旧行退役留档，
     历史判题结果的 test_case_id 外键恒有效（不再置空）。"""
@@ -1239,6 +1285,57 @@ async def test_list_scope_mine_shows_own_private_problems(client, admin_headers,
     assert "My Private" not in {item["title"] for item in resp.json()["data"]["items"]}
 
 
+@pytest.mark.asyncio
+async def test_list_scope_mine_ownership_filter(client):
+    """scope=mine 的 ownership 过滤：solo=全站题 / team=团队题；非法值 1001。"""
+    tutor_headers = await _tutor_headers(client)
+    await _create_problem(client, tutor_headers, title="Solo Problem", visibility="public")
+
+    # 直接种子一道团队题（owner=tutor）
+    async with SessionLocal() as db:
+        tutor_uid = (
+            await db.execute(select(User).where(User.email == "tutor@pigeonoj.dev"))
+        ).scalar_one().id
+        team = Team(name="归属过滤队", creator_id=tutor_uid)
+        db.add(team)
+        await db.flush()
+        team_problem = Problem(
+            title="Team Problem",
+            description="D",
+            owner_id=tutor_uid,
+            status="published",
+            visibility="team_visible",
+            team_id=team.id,
+            verified_at=datetime.now(timezone.utc),
+        )
+        db.add(team_problem)
+        await db.commit()
+        team_problem_id = str(team_problem.id)
+
+    # solo → 仅全站题
+    resp = await client.get(
+        "/api/v1/problems?scope=mine&ownership=solo", headers=tutor_headers
+    )
+    assert resp.json()["code"] == 0, resp.text
+    items = resp.json()["data"]["items"]
+    assert "Solo Problem" in {it["title"] for it in items}
+    assert "Team Problem" not in {it["title"] for it in items}
+
+    # team → 仅团队题
+    resp = await client.get(
+        "/api/v1/problems?scope=mine&ownership=team", headers=tutor_headers
+    )
+    assert resp.json()["code"] == 0, resp.text
+    items = resp.json()["data"]["items"]
+    assert {it["id"] for it in items} == {team_problem_id}
+
+    # 非法值 → 1001
+    resp = await client.get(
+        "/api/v1/problems?scope=mine&ownership=bogus", headers=tutor_headers
+    )
+    assert resp.json()["code"] == 1001
+
+
 # ---- 标签体系 ----
 
 
@@ -1281,7 +1378,9 @@ async def test_tag_admin_crud_and_archive(client, admin_headers, user_headers):
     resp = await client.get("/api/v1/problems/tags")
     assert resp.json()["data"] == []
     resp = await client.get("/api/v1/admin/tags", headers=admin_headers)
-    names = {item["name"]: item["status"] for item in resp.json()["data"]}
+    # 管理列表为分页信封（items 数组）
+    items = resp.json()["data"]["items"]
+    names = {item["name"]: item["status"] for item in items}
     assert names["DP"] == "archived"
 
 
@@ -1292,14 +1391,15 @@ async def test_problem_tag_assignment_and_filter(client, admin_headers):
     problem = await _create_problem(client, admin_headers, tags=["图论", "入门"])
 
     resp = await client.get(f"/api/v1/problems/{problem['id']}", headers=admin_headers)
-    assert resp.json()["data"]["tags"] == ["入门", "图论"]  # 按名排序返回
+    # 详情标签为对象数组（id/name/color），按名排序返回
+    assert [tag["name"] for tag in resp.json()["data"]["tags"]] == ["入门", "图论"]
 
     # 编辑全量替换：清空再单挂一个
     resp = await client.put(
         f"/api/v1/problems/{problem['id']}", json={"tags": ["图论"]}, headers=admin_headers
     )
     resp = await client.get(f"/api/v1/problems/{problem['id']}", headers=admin_headers)
-    assert resp.json()["data"]["tags"] == ["图论"]
+    assert [tag["name"] for tag in resp.json()["data"]["tags"]] == ["图论"]
 
     # 未知 / 归档标签名 → 1001
     resp = await client.put(
@@ -1323,3 +1423,141 @@ async def test_problem_tag_assignment_and_filter(client, admin_headers):
         await db.commit()
     resp = await client.get("/api/v1/problems?tag=图论")
     assert resp.json()["data"]["total"] == 1
+
+
+# ---- SPJ 特判程序管理（docs/contracts/problems.md「SPJ 特判程序」） ----
+
+SPJ_CODE = "#include <bits/stdc++.h>\nint main(int argc, char** argv){ return 0; }\n"
+
+
+async def _get_spj(client, headers, pid: str) -> dict:
+    resp = await client.get(f"/api/v1/problems/{pid}/spj", headers=headers)
+    assert resp.json()["code"] == 0, resp.text
+    return resp.json()["data"]
+
+
+@pytest.mark.asyncio
+async def test_spj_crud_staged_semantics(client, admin_headers, fake_storage):
+    """PUT 写暂存（清已验标记）/ GET 回读暂存优先 / DELETE 写暂存移除；生效集在晋升前不动。"""
+    data = await _create_problem(client, admin_headers)
+    pid = data["id"]
+
+    # GET：未配置 → code=None、staged=False
+    body = await _get_spj(client, admin_headers, pid)
+    assert body == {"code": None, "staged": False}
+    resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
+    assert resp.json()["data"]["has_spj"] is False
+
+    # PUT：写暂存
+    resp = await client.put(f"/api/v1/problems/{pid}/spj", json={"code": SPJ_CODE}, headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+    body = await _get_spj(client, admin_headers, pid)
+    assert body == {"code": SPJ_CODE, "staged": True}
+    # 生效集未变 → 详情仍非 SPJ 题
+    resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
+    assert resp.json()["data"]["has_spj"] is False
+
+    # 覆盖暂存（key 变化，旧暂存对象清理）
+    code2 = SPJ_CODE + "// v2\n"
+    await client.put(f"/api/v1/problems/{pid}/spj", json={"code": code2}, headers=admin_headers)
+    assert (await _get_spj(client, admin_headers, pid))["code"] == code2
+
+    # DELETE：暂存移除（非空暂存 → ''；幂等）
+    resp = await client.delete(f"/api/v1/problems/{pid}/spj", headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+    body = await _get_spj(client, admin_headers, pid)
+    assert body == {"code": None, "staged": True}
+    resp = await client.delete(f"/api/v1/problems/{pid}/spj", headers=admin_headers)
+    assert resp.json()["code"] == 0, resp.text
+
+
+@pytest.mark.asyncio
+async def test_spj_requires_manage_permission(client, admin_headers, user_headers):
+    """SPJ 源码仅题目管理者可读写：普通用户 403、匿名 401。"""
+    data = await _create_problem(client, admin_headers)
+    pid = data["id"]
+    for method, path, payload in (
+        ("GET", f"/api/v1/problems/{pid}/spj", None),
+        ("PUT", f"/api/v1/problems/{pid}/spj", {"code": SPJ_CODE}),
+        ("DELETE", f"/api/v1/problems/{pid}/spj", None),
+    ):
+        resp = await client.request(method, path, json=payload, headers=user_headers)
+        assert resp.status_code == 403, (method, resp.text)
+        resp = await client.request(method, path, json=payload)
+        assert resp.status_code == 401, (method, resp.text)
+
+
+@pytest.mark.asyncio
+async def test_spj_code_size_limit(client, admin_headers):
+    """源码 ≤256KB UTF-8 字节，超出 1001。"""
+    data = await _create_problem(client, admin_headers)
+    resp = await client.put(
+        f"/api/v1/problems/{data['id']}/spj",
+        json={"code": "a" * (256 * 1024 + 1)},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 1001
+
+
+@pytest.mark.asyncio
+async def test_spj_apply_promotion_and_removal(client, admin_headers, fake_storage):
+    """apply 单事务晋升：SPJ 覆盖 / '' 置 NULL；验题-晋升解耦全链路。"""
+    data = await _create_problem(client, admin_headers)
+    pid = data["id"]
+
+    # 仅暂存 SPJ（无测试点暂存改动）：未验题不可晋升（3002）
+    await client.put(f"/api/v1/problems/{pid}/spj", json={"code": SPJ_CODE}, headers=admin_headers)
+    resp = await client.post(f"/api/v1/problems/{pid}/test-cases/apply", headers=admin_headers)
+    assert resp.json()["code"] == 3002
+
+    # 验题通过 → 晋升：spj_oss_id 落生效、暂存清空
+    await _pass_verification(pid)
+    await _apply_pending(client, admin_headers, pid)
+    body = await _get_spj(client, admin_headers, pid)
+    assert body == {"code": SPJ_CODE, "staged": False}
+    async with SessionLocal() as db:
+        row = await db.get(Problem, uuid.UUID(pid))
+        assert row.spj_oss_id and row.pending_spj_oss_id is None
+    resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
+    assert resp.json()["data"]["has_spj"] is True
+
+    # 暂存移除 → 验题 → 晋升：生效置 NULL
+    await client.delete(f"/api/v1/problems/{pid}/spj", headers=admin_headers)
+    await _pass_verification(pid)
+    await _apply_pending(client, admin_headers, pid)
+    async with SessionLocal() as db:
+        row = await db.get(Problem, uuid.UUID(pid))
+        assert row.spj_oss_id is None and row.pending_spj_oss_id is None
+    resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
+    assert resp.json()["data"]["has_spj"] is False
+
+
+@pytest.mark.asyncio
+async def test_spj_apply_requires_pending_change(client, admin_headers):
+    """无任何暂存改动（测试点与 SPJ 均无）→ apply 3002。"""
+    data = await _create_problem(client, admin_headers)
+    resp = await client.post(f"/api/v1/problems/{data['id']}/test-cases/apply", headers=admin_headers)
+    assert resp.json()["code"] == 3002
+
+
+@pytest.mark.asyncio
+async def test_spj_reverification_and_publish_block(client, admin_headers):
+    """SPJ 暂存改动触发重验口径：needs_reverification=true、publish 3002。"""
+    data = await _create_problem(client, admin_headers)
+    pid = data["id"]
+    async with SessionLocal() as db:
+        row = await db.get(Problem, uuid.UUID(pid))
+        row.status = "published"
+        row.verified_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    await client.put(f"/api/v1/problems/{pid}/spj", json={"code": SPJ_CODE}, headers=admin_headers)
+    resp = await client.get(f"/api/v1/problems/{pid}", headers=admin_headers)
+    assert resp.json()["data"]["needs_reverification"] is True
+    resp = await client.post(f"/api/v1/problems/{pid}/publish", headers=admin_headers)
+    assert resp.json()["code"] == 3002
+
+    # scope=mine 列表 needs_reverification 同步透出
+    resp = await client.get("/api/v1/problems?scope=mine", headers=admin_headers)
+    item = next(it for it in resp.json()["data"]["items"] if it["id"] == pid)
+    assert item["needs_reverification"] is True

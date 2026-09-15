@@ -76,7 +76,7 @@ _MESSAGES: dict[str, str] = {
     "当前站点未开放注册": "Registration is currently disabled",
     "邮箱已注册": "Email already registered",
     "该邮箱已被使用": "This email is already in use",
-    "账号已冻结，请联系管理员": "Account is frozen, please contact the administrator",
+    "账号已临时冻结，请稍后再试或联系管理员": "Account is temporarily frozen, please try again later or contact the administrator",
     "账号已封禁，请联系管理员": "Account is banned, please contact the administrator",
     "账号已注销，请联系管理员": "Account is deleted, please contact the administrator",
     "登录失败次数过多，请稍后再试": "Too many failed login attempts, please try again later",
@@ -155,7 +155,7 @@ _MESSAGES: dict[str, str] = {
     "邀请链接已失效": "Invite link has expired",
     "代码不能超过 64KB": "Code must be smaller than 64KB",
     "提交验题代码时必须指定语言": "Language is required when submitting verification code",
-    "测试点内容不能超过 5MB": "Test case content must be smaller than 5MB",
+    "测试点内容不能超过 8MB": "Test case content must be smaller than 8MB",
     "样例内容不能超过 64KB": "Sample content must be smaller than 64KB",
     # ---- 标签 ----
     "标签不存在": "Tag not found",

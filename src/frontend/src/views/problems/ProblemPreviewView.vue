@@ -21,14 +21,26 @@ const problemId = computed(() => String(route.params.problemId ?? route.params.i
 /** 题单管理上下文标志（返回文案与兜底路径随之切换） */
 const inSetContext = computed(() => Boolean(route.params.setId))
 
-/** 返回来源工作台：题单管理上下文回题单详情，其余回题目管理；直达打开兜底固定路径 */
+/**
+ * 返回来源工作台：题单上下文回题单详情；其余按 meta.backFallback 兜底
+ * （提交查看上下文声明回 /admin/submissions），未声明落回题目管理；直达打开兜底固定路径。
+ */
 function backToManage() {
   if (inSetContext.value) {
     goBackOrFallback(router, `/admin/problem-sets/${String(route.params.setId)}`)
     return
   }
-  goBackOrFallback(router, '/admin/problems')
+  goBackOrFallback(router, String(route.meta.backFallback ?? '/admin/problems'))
 }
+
+/** 返回按钮文案：题单上下文回题单详情；声明 meta.backLabelKey 用之；缺省回题目管理 */
+const backLabel = computed(() =>
+  inSetContext.value
+    ? t('problemSets.detail.backToSet')
+    : route.meta.backLabelKey
+      ? t(String(route.meta.backLabelKey))
+      : t('problems.preview.backToList'),
+)
 
 async function load() {
   loading.value = true
@@ -54,9 +66,7 @@ onMounted(load)
         </template>
         <template #header-extra>
           <n-button secondary @click="backToManage">
-            {{
-              inSetContext ? t('problemSets.detail.backToSet') : t('problems.preview.backToList')
-            }}
+            {{ backLabel }}
           </n-button>
         </template>
 
@@ -69,7 +79,7 @@ onMounted(load)
       >
         <template #extra>
           <n-button @click="backToManage">
-            {{ t('problems.preview.backToList') }}
+            {{ backLabel }}
           </n-button>
         </template>
       </n-empty>

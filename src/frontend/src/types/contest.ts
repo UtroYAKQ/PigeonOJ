@@ -50,6 +50,8 @@ export interface ContestProblemItem {
   sort_order: number
   title: string
   difficulty?: number | null
+  /** 本人在该比赛内的作答状态：true=已通过 / false=已尝试未通过 / null=未提交过（匿名恒 null） */
+  solved?: boolean | null
 }
 
 export interface ContestSummary {
@@ -159,6 +161,8 @@ export interface ContestSubmissionItem {
   score: number | null
   time_used_ms: number | null
   memory_used_kb: number | null
+  /** 赛制快照：ACM 二值分不展示为 IOI 分数 */
+  rule_type: ContestRuleType
   nickname: string
   created_at: string
 }
@@ -169,4 +173,6 @@ export interface ContestListQuery {
   status?: ContestStatusType
   /** 名称关键字（模糊匹配） */
   keyword?: string
+  /** 类型过滤（管理视图）：public=公开赛 / team=团队赛；缺省 = 全量 */
+  contest_type?: 'public' | 'team'
 }

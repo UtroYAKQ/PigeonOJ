@@ -10,6 +10,9 @@ export const i18n = createI18n<any, 'zh-CN' | 'en-US', false>({
   locale: savedLocale === 'en-US' ? 'en-US' : 'zh-CN',
   fallbackLocale: 'zh-CN',
   messages: { 'zh-CN': zhMessages, 'en-US': enMessages },
+  // 缺 key 警告仅开发环境输出（vitest 的 MODE='test' 也静音，dict.spec 故意查未知键回退）
+  missingWarn: import.meta.env.MODE === 'development',
+  fallbackWarn: import.meta.env.MODE === 'development',
 })
 
 export function setLocale(locale: 'zh-CN' | 'en-US') {

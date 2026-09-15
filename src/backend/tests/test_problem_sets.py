@@ -72,11 +72,14 @@ async def test_create_requires_manager_role(client: httpx.AsyncClient, user_head
     assert body["data"]["visibility"] == "public"
     assert body["data"]["item_count"] == 0
 
-    # 团队题单随 teams 模块开放 → 1001
-    resp = await client.post(
-        "/api/v1/problem-sets", json={"title": "团队题单", "visibility": "team"}, headers=tutor
-    )
-    assert resp.json()["code"] == 1001
+    # 团队分支可见性随 teams 模块开放 → 1001（team_visible / admin_visible 均拒绝）
+    for visibility in ("team_visible", "admin_visible"):
+        resp = await client.post(
+            "/api/v1/problem-sets",
+            json={"title": "团队题单", "visibility": visibility},
+            headers=tutor,
+        )
+        assert resp.json()["code"] == 1001
 
 
 async def test_center_lists_public_active_only(client: httpx.AsyncClient) -> None:
@@ -402,6 +405,57 @@ async def test_admin_manage_list(client: httpx.AsyncClient, user_headers) -> Non
     )
     assert resp.json()["code"] == 0
     assert resp.json()["data"]["total"] == 3
+
+    # 来源过滤：solo=全站题单（3 个均 solo，列表项带 team_id=null）/ team=团队题单
+    resp = await client.get(
+        "/api/v1/admin/problem-sets?ownership=solo",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert resp.json()["code"] == 0
+    items = resp.json()["data"]["items"]
+    assert resp.json()["data"]["total"] == 3
+    assert all(it["team_id"] is None for it in items)
+
+    # 团队题单（team_id 非空）出现在管理视图且可按 ownership=team 过滤
+    from sqlalchemy import select as sa_select
+
+    from app.core.database import SessionLocal
+    from app.models.problem_set import ProblemSet as ProblemSetModel
+    from app.models.team import Team as TeamModel
+    from app.models.user import User as UserModel
+
+    async with SessionLocal() as db:
+        tutor_uid = (
+            await db.execute(sa_select(UserModel).where(UserModel.email == "tutor@pigeonoj.dev"))
+        ).scalar_one().id
+        team = TeamModel(name="管理来源队", creator_id=tutor_uid)
+        db.add(team)
+        await db.flush()
+        db.add(
+            ProblemSetModel(
+                title="管理团队题单",
+                owner_id=tutor_uid,
+                team_id=team.id,
+                visibility="team_visible",
+                status="active",
+            )
+        )
+        await db.commit()
+    resp = await client.get(
+        "/api/v1/admin/problem-sets?ownership=team", headers=admin_headers
+    )
+    assert resp.json()["code"] == 0, resp.text
+    items = resp.json()["data"]["items"]
+    assert resp.json()["data"]["total"] == 1
+    assert items[0]["title"] == "管理团队题单"
+    assert items[0]["team_id"] is not None
+    assert items[0]["visibility"] == "team_visible"
+
+    # 非法 ownership → 1001
+    resp = await client.get(
+        "/api/v1/admin/problem-sets?ownership=bogus", headers=admin_headers
+    )
+    assert resp.json()["code"] == 1001
 
 
 async def test_set_submission(client: httpx.AsyncClient, user_headers) -> None:

@@ -64,7 +64,11 @@ const columns = computed<DataTableColumns<ProblemSetSummary>>(() => [
       return h('div', { class: 'set-name__row' }, [
         h('strong', null, row.title),
         row.visibility === 'private'
-          ? h(NTag, { size: 'small', bordered: false, type: 'error' }, { default: () => t('problemSets.list.privateTag') })
+          ? h(
+              NTag,
+              { size: 'small', bordered: false, type: 'error' },
+              { default: () => t('problemSets.list.privateTag') },
+            )
           : null,
       ])
     },

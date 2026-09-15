@@ -7,38 +7,54 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 
 from app.api.deps import (
     AdminConfigServiceDep,
     ContestServiceDep,
     LogServiceDep,
+    ProblemImportServiceDep,
     ProblemSetServiceDep,
     ReportServiceDep,
     SandboxServiceDep,
     SessionDep,
+    SubmissionServiceDep,
     TagServiceDep,
+    TeamServiceDep,
+    TeamSpaceServiceDep,
     UserServiceDep,
 )
 from app.models.user import User
-from app.enums import ContestStatus, ProblemSetStatus
+from app.enums import ContestStatus, ContestType, ProblemSetStatus, TeamStatus
 from app.schemas.contest import ContestSummary
+from app.schemas.judge import AdminSubmissionItem
 from app.schemas.admin import (
     ConfigItemOut,
     ConfigUpdateRequest,
     ExceptionLogOut,
     LoginLogOut,
+    OnlineUserOut,
     ReportHandleRequest,
     ReportOut,
     RequestLogOut,
     RoleUpdateRequest,
     SandboxNodeOut,
     StatusReasonRequest,
+    FreezeRequest,
 )
-from app.schemas.problem import TagCreate, TagOut, TagUpdate
+from app.schemas.problem import (
+    FpsImportItemOut,
+    FpsImportResult,
+    TagCreate,
+    TagOut,
+    TagUpdate,
+    TeamProblemSummary,
+)
 from app.schemas.problem_set import ProblemSetSummary
+from app.schemas.team import TeamAdminDetail, TeamAdminSummary, TeamMemberOut
 from app.schemas.user import UserPublic
 from app.core.dependency import get_current_admin, get_current_user
+from app.core.exceptions import APIError, PARAM_FORMAT_INVALID
 from app.utils.pagination import PaginatedResponse
 from app.utils.response import ApiResponse, ok
 
@@ -59,6 +75,53 @@ async def list_users(
     status: str | None = None,
 ) -> ApiResponse[PaginatedResponse[UserPublic]]:
     return ok(await service.admin_list_users(page, page_size, keyword, status))
+
+
+@router.get("/users/online", response_model=ApiResponse[PaginatedResponse[OnlineUserOut]])
+async def list_online_users(
+    service: UserServiceDep,
+    admin: User = _admin,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+) -> ApiResponse[PaginatedResponse[OnlineUserOut]]:
+    """在线用户面板：10 分钟窗口内有活跃回写的有效会话（活跃时间倒序分页）。
+
+    同设备去重下每行 = 一台在线设备（一个用户可多台设备同时在线，分行展示）。
+    """
+    return ok(await service.admin_list_online_users(page, page_size))
+
+
+@router.get(
+    "/submissions", response_model=ApiResponse[PaginatedResponse[AdminSubmissionItem]]
+)
+async def list_all_submissions(
+    service: SubmissionServiceDep,
+    admin: User = _admin,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    submit_type: str | None = Query(default=None, max_length=32),
+    user_id: uuid.UUID | None = Query(default=None),
+    problem_id: uuid.UUID | None = Query(default=None),
+    status: str | None = Query(default=None),
+    language: str | None = Query(default=None, max_length=32),
+    keyword: str | None = Query(default=None, max_length=64),
+) -> ApiResponse[PaginatedResponse[AdminSubmissionItem]]:
+    """全站提交面板（admin）：提交类型 / 用户 / 题目 / 状态 / 语言筛选，keyword 模糊匹配昵称。
+
+    user_id 亦可经「提交人昵称」搜索定位；行内含题目标题，点击行进入题目管理视角评测详情。
+    """
+    from app.enums import SubmissionStatus, SubmitType
+
+    try:
+        status_value = SubmissionStatus(status) if status else None
+        submit_type_value = SubmitType(submit_type) if submit_type else None
+    except ValueError as exc:
+        raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
+    items, total = await service.list_admin_summaries(
+        submit_type=submit_type_value, user_id=user_id, problem_id=problem_id,
+        status=status_value, language=language, keyword=keyword, page=page, page_size=page_size,
+    )
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
 
 
 @router.put("/users/{user_id}/roles", response_model=ApiResponse[None])
@@ -97,10 +160,14 @@ async def unban_user(
 async def freeze_user(
     user_id: uuid.UUID,
     service: UserServiceDep,
-    body: StatusReasonRequest | None = None,
+    body: FreezeRequest | None = None,
     admin: User = _admin,
 ) -> ApiResponse[None]:
-    await service.admin_freeze(user_id, body.reason if body else None)
+    await service.admin_freeze(
+        user_id,
+        body.reason if body else None,
+        duration_minutes=body.duration_minutes if body else 15,
+    )
     return ok(None)
 
 
@@ -191,14 +258,22 @@ async def handle_report(
 
 
 # ---- 标签管理（docs/contracts/problems.md 端点表 /admin/tags*） ----
-@router.get("/tags", response_model=ApiResponse[list[TagOut]])
+@router.get("/tags", response_model=ApiResponse[PaginatedResponse[TagOut]])
 async def list_tags(
     service: TagServiceDep,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=64),
     admin: User = _admin,
-) -> ApiResponse[list[TagOut]]:
-    """标签管理全量列表（含已归档；激活在前）。"""
-    rows = await service.list_all()
-    return ok([TagOut.model_validate(row) for row in rows])
+) -> ApiResponse[PaginatedResponse[TagOut]]:
+    """标签管理分页列表（含已归档；激活在前、归档在后；keyword 模糊匹配标签名）。"""
+    rows, total = await service.list_all_page(keyword, page, page_size)
+    return ok(
+        PaginatedResponse(
+            items=[TagOut.model_validate(row) for row in rows],
+            total=total, page=page, page_size=page_size,
+        )
+    )
 
 
 @router.post("/tags", response_model=ApiResponse[TagOut])
@@ -238,6 +313,66 @@ async def archive_tag(
     return ok(TagOut.model_validate(tag))
 
 
+@router.post("/problems/import", response_model=ApiResponse[FpsImportResult])
+async def import_fps_problems(
+    service: ProblemImportServiceDep,
+    admin: User = _admin,
+    file: UploadFile = File(...),
+) -> ApiResponse[FpsImportResult]:
+    """FPS 题库一键导入（admin；docs/contracts/problems.md「FPS 题库导入」）。
+
+    上传 ZIP（内含 fps XML，兼容 cp437 中文文件名）或单个 XML；逐题建库，
+    有测试点直接发布、带 checker 写暂存并保持草稿；单次最多尝试 20 题，
+    超出分批上传。导入人即题目 owner。格式错误经服务层转 1001 信封。"""
+    data = await file.read()
+    summary = await service.import_archive(data, file.filename or "", owner=admin)
+    return ok(FpsImportResult(
+        total_parsed=summary.total_parsed,
+        imported=summary.imported,
+        truncated=summary.truncated,
+        results=[FpsImportItemOut.model_validate(item, from_attributes=True) for item in summary.results],
+    ))
+
+
+@router.get("/problems/export")
+async def export_problems_zip(
+    service: ProblemImportServiceDep,
+    admin: User = _admin,
+    ids: str = Query(..., max_length=1000),
+) -> Response:
+    """批量导出为 ZIP（admin；docs/contracts/problems.md「FPS 题库导入」）。
+
+    `ids` 为逗号分隔的题目 id（≤20）；ZIP 内含单文件 fps.xml（一题一 item，
+    可直接经导入端点回灌）。文件下载为原始响应，不经统一信封。"""
+    try:
+        pid_list = [uuid.UUID(part.strip()) for part in ids.split(",") if part.strip()]
+    except ValueError as exc:
+        raise APIError(PARAM_FORMAT_INVALID, "ids 必须为逗号分隔的题目 UUID", 400) from exc
+    if not pid_list:
+        raise APIError(PARAM_FORMAT_INVALID, "ids 不能为空", 400)
+    content, filename, _count = await service.export_batch(pid_list)
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/problems/{problem_id}/export")
+async def export_problem_xml(
+    problem_id: uuid.UUID,
+    service: ProblemImportServiceDep,
+    admin: User = _admin,
+) -> Response:
+    """单题导出为 fps.xml 附件（admin）：仅生效集内容（测试点 / 生效特判 / 样例）。"""
+    content, filename = await service.export_single(problem_id)
+    return Response(
+        content=content,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ---- 比赛管理视图（单一所有权模型：admin 全量、tutor 仅本人创建，docs/contracts/contests.md） ----
 @router.get("/contests", response_model=ApiResponse[PaginatedResponse[ContestSummary]])
 async def admin_list_contests(
@@ -247,11 +382,14 @@ async def admin_list_contests(
     page_size: int = Query(default=20, ge=1, le=100),
     status: ContestStatus | None = Query(default=None),
     keyword: str | None = Query(default=None, max_length=128),
+    contest_type: ContestType | None = Query(default=None),
 ) -> ApiResponse[PaginatedResponse[ContestSummary]]:
-    """比赛管理视图：admin 全量比赛、其余管理角色仅本人创建（含全部状态）。"""
+    """比赛管理视图：admin 全量比赛（公开 + 团队，contest_type 过滤）、
+    其余管理角色仅本人创建（含全部状态）。"""
     await service.require_manager(user)
     items, total = await service.list_manage(
-        user=user, page=page, page_size=page_size, status=status, keyword=keyword
+        user=user, page=page, page_size=page_size, status=status, keyword=keyword,
+        contest_type=contest_type,
     )
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
 
@@ -266,11 +404,129 @@ async def admin_list_problem_sets(
     page_size: int = Query(default=20, ge=1, le=100),
     keyword: str | None = Query(default=None, max_length=128),
     status: ProblemSetStatus | None = Query(default=None),
+    ownership: str | None = Query(default=None),
     user: User = Depends(get_current_user),
 ) -> ApiResponse[PaginatedResponse[ProblemSetSummary]]:
-    """题单管理视图：admin 全量；其余管理角色仅本人创建（单一所有权模型）。"""
+    """题单管理视图：admin 全量；其余管理角色仅本人创建（单一所有权模型）；
+    ownership 过滤来源：solo=全站题单 / team=团队题单（非法值 1001）。"""
+    if ownership not in (None, "solo", "team"):
+        raise APIError(PARAM_FORMAT_INVALID, "ownership 参数不合法", 400)
     await service.require_manager(user)
     rows, total = await service.list_manage(
-        user=user, page=page, page_size=page_size, keyword=keyword, status=status
+        user=user, page=page, page_size=page_size, keyword=keyword, status=status,
+        ownership=ownership,
     )
     return ok(PaginatedResponse(items=rows, total=total, page=page, page_size=page_size))
+
+
+# ---- 团队管理视图（docs/contracts/teams.md 管理端：admin 全量只读浏览，免团队角色） ----
+
+
+@router.get("/teams", response_model=ApiResponse[PaginatedResponse[TeamAdminSummary]])
+async def admin_list_teams(
+    service: TeamServiceDep,
+    space: TeamSpaceServiceDep,
+    admin: User = _admin,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=64),
+    status: TeamStatus | None = Query(default=None),
+) -> ApiResponse[PaginatedResponse[TeamAdminSummary]]:
+    """团队管理列表（admin 全量，含已解散）：成员数 / 资源计数 / 创建人昵称 / 状态。"""
+    items, total = await service.admin_list_teams(page, page_size, keyword, status)
+    counts = await space.count_team_resources([item.id for item in items])
+    for item in items:
+        item.problem_count = counts.get(item.id, {}).get("problems", 0)
+        item.problem_set_count = counts.get(item.id, {}).get("sets", 0)
+        item.contest_count = counts.get(item.id, {}).get("contests", 0)
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.get("/teams/{team_id}", response_model=ApiResponse[TeamAdminDetail])
+async def admin_get_team(
+    team_id: uuid.UUID,
+    service: TeamServiceDep,
+    space: TeamSpaceServiceDep,
+    admin: User = _admin,
+) -> ApiResponse[TeamAdminDetail]:
+    """团队管理详情（免团队成员校验，含已解散团队与创建人昵称 / 资源计数）。"""
+    detail = await service.admin_get_detail(team_id)
+    counts = await space.count_team_resources([detail.id])
+    detail.problem_count = counts.get(detail.id, {}).get("problems", 0)
+    detail.problem_set_count = counts.get(detail.id, {}).get("sets", 0)
+    detail.contest_count = counts.get(detail.id, {}).get("contests", 0)
+    return ok(detail)
+
+
+@router.get("/teams/{team_id}/members", response_model=ApiResponse[PaginatedResponse[TeamMemberOut]])
+async def admin_list_team_members(
+    team_id: uuid.UUID,
+    service: TeamServiceDep,
+    admin: User = _admin,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=64),
+    status: str | None = Query(default=None),
+) -> ApiResponse[PaginatedResponse[TeamMemberOut]]:
+    """团队成员列表（admin 管理视图；status 缺省 = 在册成员，keyword 模糊昵称）。"""
+    items, total = await service.admin_list_members(team_id, status, page, page_size, keyword)
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.get(
+    "/teams/{team_id}/problems", response_model=ApiResponse[PaginatedResponse[TeamProblemSummary]]
+)
+async def admin_list_team_problems(
+    team_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    admin: User = _admin,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=128),
+    status: str | None = Query(default=None),
+    visibility: str | None = Query(default=None),
+) -> ApiResponse[PaginatedResponse[TeamProblemSummary]]:
+    """团队题库列表（admin 管理视图：全部状态 / 可见性，含草稿与归档）。"""
+    items, total = await service.admin_list_problems(
+        team_id, keyword=keyword, status=status, visibility=visibility,
+        page=page, page_size=page_size,
+    )
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.get(
+    "/teams/{team_id}/problem-sets", response_model=ApiResponse[PaginatedResponse[ProblemSetSummary]]
+)
+async def admin_list_team_problem_sets(
+    team_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    admin: User = _admin,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=128),
+    status: str | None = Query(default=None),
+) -> ApiResponse[PaginatedResponse[ProblemSetSummary]]:
+    """团队题单列表（admin 管理视图：含已下线）。"""
+    items, total = await service.admin_list_problem_sets(
+        team_id, keyword=keyword, status=status, page=page, page_size=page_size
+    )
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.get(
+    "/teams/{team_id}/contests", response_model=ApiResponse[PaginatedResponse[ContestSummary]]
+)
+async def admin_list_team_contests(
+    team_id: uuid.UUID,
+    service: TeamSpaceServiceDep,
+    admin: User = _admin,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=128),
+    status: str | None = Query(default=None),
+) -> ApiResponse[PaginatedResponse[ContestSummary]]:
+    """团队比赛列表（admin 管理视图：全部状态比赛）。"""
+    items, total = await service.admin_list_contests(
+        team_id, keyword=keyword, status=status, page=page, page_size=page_size
+    )
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))

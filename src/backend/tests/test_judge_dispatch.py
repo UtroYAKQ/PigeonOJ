@@ -6,8 +6,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid as uuid_mod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -15,12 +16,15 @@ from sqlalchemy import select
 from app.rpc.judge_gateway import (
     REGISTRY,
     NodeConnection,
+    _available_nodes,
     _attach_pump_watchdog,
+    _iter_rpc_chunks,
     _pump_incoming,
     _reset_to_pending,
     _token_ok,
     dispatch_submission,
     maintenance_loop,
+    maintenance_once,
     send_job,
 )
 from app.rpc.gen import judge_pb2
@@ -28,10 +32,11 @@ from app.models.judge import Submission
 from app.models.problem import Problem, TestCase
 from app.models.user import User
 from app.core.database import SessionLocal
+from app.core.redis import get_redis
 
 
-def _add_node(node_id: str, inflight: int = 0, capacity: int = 2) -> NodeConnection:
-    conn = NodeConnection(node_id=node_id, name=node_id, capacity=capacity, version="test")
+def _add_node(node_id: str, inflight: int = 0, capacity: int = 2, supports_spj: bool = False) -> NodeConnection:
+    conn = NodeConnection(node_id=node_id, name=node_id, capacity=capacity, version="test", supports_spj=supports_spj)
     for i in range(inflight):
         conn.inflight.add(f"fake-{node_id}-{i}")
     REGISTRY.register(conn)
@@ -43,8 +48,8 @@ async def _any_user_id() -> str:
         return str((await db.execute(select(User).limit(1))).scalar_one().id)
 
 
-async def _seed_problem_with_case(storage) -> str:
-    """已发布题目 + 1 个生效测试点（数据写入 fake storage）。"""
+async def _seed_problem_with_case(storage, *, spj: bool = False) -> str:
+    """已发布题目 + 1 个生效测试点（数据写入 fake storage）；spj=True 额外配置生效特判程序。"""
     from datetime import datetime
 
     async with SessionLocal() as db:
@@ -52,7 +57,8 @@ async def _seed_problem_with_case(storage) -> str:
         problem = Problem(title=f"P-{uuid_mod.uuid4().hex[:8]}", description="D",
                           owner_id=uuid_mod.UUID(await _any_user_id()),
                           status="published", visibility="public", verified_at=datetime.now(),
-                          active_case_ids=[str(case_id)], case_status="ok")
+                          active_case_ids=[str(case_id)], case_status="ok",
+                          spj_oss_id=f"problems/spj/{case_id}/code" if spj else None)
         db.add(problem)
         await db.flush()
         db.add(TestCase(id=case_id, problem_id=problem.id, name="c1",
@@ -62,6 +68,8 @@ async def _seed_problem_with_case(storage) -> str:
         pid = str(problem.id)
     storage.store[f"cases/{case_id}.in"] = (b"1\n", "text/plain")
     storage.store[f"cases/{case_id}.out"] = (b"2\n", "text/plain")
+    if spj:
+        storage.store[f"problems/spj/{case_id}/code"] = (b"int main(){return 0;}", "text/x-c++src")
     return pid
 
 
@@ -84,6 +92,31 @@ async def test_dispatch_returns_none_without_nodes():
     from app.rpc.judge_gateway import dispatch_submission
 
     assert await dispatch_submission(uuid_mod.uuid4()) is None
+
+
+@pytest.mark.asyncio
+async def test_dispatch_skips_nodes_at_capacity():
+    _add_node("full", inflight=2, capacity=2)
+    free = _add_node("free", inflight=0, capacity=2)
+    assert [n.node_id for n in _available_nodes()] == ["free"]
+    assert min(_available_nodes(), key=lambda n: n.task_count).node_id == free.node_id
+
+
+@pytest.mark.asyncio
+async def test_dispatch_returns_none_when_all_nodes_full():
+    _add_node("full-a", inflight=2, capacity=2)
+    _add_node("full-b", inflight=4, capacity=4)
+    assert await dispatch_submission(uuid_mod.uuid4()) is None
+
+
+def test_iter_rpc_chunks_splits_and_rejoins():
+    payload = b"x" * (1024 * 1024 + 13)
+    chunks = list(_iter_rpc_chunks("cases/1.in", payload))
+    assert len(chunks) == 2
+    assert all(c.path == "cases/1.in" for c in chunks)
+    assert b"".join(c.content for c in chunks) == payload
+    empty = list(_iter_rpc_chunks("empty", b""))
+    assert len(empty) == 1 and empty[0].content == b""
 
 
 @pytest.mark.asyncio
@@ -110,6 +143,28 @@ async def test_send_job_claims_and_pushes(client, admin_headers, fake_storage):
     async with SessionLocal() as db:
         row = await db.get(Submission, uuid_mod.UUID(sid))
         assert row.status == "judging"
+
+
+@pytest.mark.asyncio
+async def test_send_job_carries_case_metadata_only(client, admin_headers, fake_storage):
+    """回归（性能）：派发不得从 MinIO 读测试点数据本体——数据由节点经
+    FetchProblemData 按 data_version 拉取；对象缺失时作业仍可构建、消息仅含元数据。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    fake_storage.store.clear()  # 任何 get_bytes 都会抛 OSError
+    conn = _add_node("gw-meta")
+
+    resp = await client.post(
+        "/api/v1/submissions",
+        json={"problem_id": pid, "language": "cpp17", "code": "int main(){}"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    sid = resp.json()["data"]["submission_id"]
+
+    msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+    assert msg.job.submission_id == sid
+    assert len(msg.job.cases) == 1
+    assert msg.job.cases[0].test_case_id and msg.job.cases[0].name
 
 
 @pytest.mark.asyncio
@@ -295,3 +350,198 @@ async def test_stale_node_excluded_from_dispatch():
     with pytest.raises(GatewayUnavailableError):
         await dispatch_run_code(problem=None, sandbox_config=None, language="python3",
                                 code=b"print(1)", stdin_data=b"", max_concurrent=4)
+
+async def _submit(client, admin_headers, pid: str) -> str:
+    resp = await client.post(
+        "/api/v1/submissions",
+        json={"problem_id": pid, "language": "cpp17", "code": "int main(){}"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    return resp.json()["data"]["submission_id"]
+
+
+async def _set_updated_at(sid: str, minutes_ago: int) -> None:
+    async with SessionLocal() as db:
+        row = await db.get(Submission, uuid_mod.UUID(sid))
+        row.updated_at = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_superseded_conn_cannot_reset_new_inflight(client, admin_headers, fake_storage):
+    """回归（重连竞态）：同 ID 重连后，旧（僵尸）连接的迟到清理不得重置
+    新连接正在判的提交——否则新节点回传结果被 apply_job_result 以「非 judging」
+    丢弃、白判一遍并重新排队（断线重连后题卡在排队的根因之一）。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    old = _add_node("race-node")
+    sid = await _submit(client, admin_headers, pid)
+    await asyncio.wait_for(old.outbox.get(), timeout=5)
+    assert sid in old.inflight
+
+    new = NodeConnection(node_id="race-node", name="race-node", capacity=2, version="test")
+    REGISTRY.register(new)  # 同 ID 重连：in-flight 移交并清空旧连接
+    assert sid in new.inflight and not old.inflight
+
+    # 旧连接迟到 finally：回收必须为空，重置 no-op，提交保持 judging
+    recovered_old = REGISTRY.unregister(old)
+    assert recovered_old == set()
+    await _reset_to_pending(recovered_old, reason="test")
+    async with SessionLocal() as db:
+        row = await db.get(Submission, uuid_mod.UUID(sid))
+        assert row.status == "judging"
+
+    # 新连接真实离线：正常回收
+    await _reset_to_pending(REGISTRY.unregister(new), reason="test")
+    async with SessionLocal() as db:
+        row = await db.get(Submission, uuid_mod.UUID(sid))
+        assert row.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_registration_kick_dispatches_backlog_immediately(client, admin_headers, fake_storage):
+    """回归（节点上线派积压）：断线期间滞留的 pending 提交，在节点重新注册
+    （踢醒事件）后立即重派，不必等扫描周期——修复「节点上线了题还在一直排队」。"""
+    from app.rpc import judge_gateway as gw
+
+    pid = await _seed_problem_with_case(fake_storage)
+    sid = await _submit(client, admin_headers, pid)  # 提交时无在线节点 → 滞留 pending
+    await _set_updated_at(sid, minutes_ago=10)
+
+    conn = _add_node("kick-node")  # 节点上线
+    gw._MAINTENANCE_KICK.set()     # 注册路径的踢醒（Connect 内同款）
+    task = asyncio.create_task(gw.maintenance_loop(interval=30))
+    try:
+        msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+        assert msg.WhichOneof("payload") == "job"
+        assert msg.job.submission_id == sid
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_failed_dispatch_lock_only_short_cooldown(client, admin_headers, fake_storage):
+    """回归（锁语义）：派发失败（无在线节点）只冷却一个扫描周期量级（≤60s），
+    不再冻结 300s；派发成功后锁升级为在途保护窗。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    sid = await _submit(client, admin_headers, pid)
+    await _set_updated_at(sid, minutes_ago=10)
+
+    # 无在线节点 → 派发失败：冷却锁必须短（修复断线期烧 300s 锁、恢复后仍长时间排队）
+    await maintenance_once(30)
+    ttl = await get_redis().ttl(f"judge:requeue:{sid}")
+    assert 0 < ttl <= 60
+
+    # 冷却到期（模拟 TTL 过期）→ 节点已上线 → 下一轮巡检即派发成功，锁升级为在途保护
+    await get_redis().delete(f"judge:requeue:{sid}")
+    conn = _add_node("lock-node")
+    await maintenance_once(30)
+    msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+    assert msg.job.submission_id == sid
+    ttl = await get_redis().ttl(f"judge:requeue:{sid}")
+    assert ttl > 200
+
+
+@pytest.mark.asyncio
+async def test_reset_exhausted_marks_system_error(client, admin_headers, fake_storage):
+    """回收重派满 3 次后转 system_error，不再 pending 空转。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    conn = _add_node("retry-node")
+    sid = await _submit(client, admin_headers, pid)
+    assert sid in conn.inflight
+    r = get_redis()
+    await r.set(f"judge:attempts:{sid}", "2")
+    await _reset_to_pending({sid}, reason="test")
+    async with SessionLocal() as db:
+        row = await db.get(Submission, uuid_mod.UUID(sid))
+        assert row.status == "system_error"
+        assert "retry exhausted" in row.error_message
+
+
+# ---- SPJ 特判派发（docs/contracts/judge.md「SPJ 特判」） ----
+
+
+@pytest.mark.asyncio
+async def test_non_spj_job_dispatches_with_spj_flag_false(client, admin_headers, fake_storage):
+    """普通题派发：SubmitJob.spj=False，旧节点（supports_spj=False）照常接单。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    conn = _add_node("legacy-node", supports_spj=False)
+    sid = await _submit(client, admin_headers, pid)
+    msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+    assert msg.WhichOneof("payload") == "job"
+    assert msg.job.spj is False
+
+
+@pytest.mark.asyncio
+async def test_spj_submission_fails_without_capable_node(client, admin_headers, fake_storage):
+    """SPJ 题派给旧节点会退化为默认比对静默误判：无支持节点 → 直接落 system_error。"""
+    pid = await _seed_problem_with_case(fake_storage, spj=True)
+    _add_node("legacy-node", supports_spj=False)
+
+    resp = await client.post(
+        "/api/v1/submissions",
+        json={"problem_id": pid, "language": "cpp17", "code": "int main(){}"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    sid = resp.json()["data"]["submission_id"]
+    async with SessionLocal() as db:
+        row = await db.get(Submission, uuid_mod.UUID(sid))
+        assert row.status == "system_error"
+        assert "special judge" in row.error_message
+
+
+@pytest.mark.asyncio
+async def test_spj_job_dispatched_to_capable_node_with_flag(client, admin_headers, fake_storage):
+    """SPJ 题只派给 supports_spj 节点，SubmitJob.spj=True。"""
+    pid = await _seed_problem_with_case(fake_storage, spj=True)
+    capable = _add_node("spj-node", supports_spj=True)
+    _add_node("legacy-node", supports_spj=False)
+
+    sid = await _submit(client, admin_headers, pid)
+    msg = await asyncio.wait_for(capable.outbox.get(), timeout=5)
+    assert msg.job.submission_id == sid
+    assert msg.job.spj is True
+    assert len(msg.job.cases) == 1
+
+
+@pytest.mark.asyncio
+async def test_data_fingerprint_changes_with_spj_key():
+    """指纹必须覆盖特判程序：SPJ 覆盖 / 移除 / 晋升都使 data_version 变化，
+    节点缓存失效；否则改判后仍命中旧数据目录。"""
+    from types import SimpleNamespace
+
+    from app.rpc.judge_jobs import data_fingerprint
+
+    rows = [SimpleNamespace(updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc))]
+    base = data_fingerprint(rows, spj_key=None)
+    assert data_fingerprint(rows, spj_key="a") != base
+    assert data_fingerprint(rows, spj_key="b") != data_fingerprint(rows, spj_key="a")
+    assert data_fingerprint(rows, spj_key=None) == base
+
+
+@pytest.mark.asyncio
+async def test_stream_problem_data_includes_spj_file(client, admin_headers, fake_storage):
+    """配置特判程序的数据包：manifest 带 spj 标记并额外下发 spj.cpp；普通题不带。"""
+    from app.rpc import judge_jobs
+
+    pid_spj = await _seed_problem_with_case(fake_storage, spj=True)
+    async with SessionLocal() as db:
+        chunks = {}
+        async for path, content in judge_jobs.stream_problem_data(db, uuid_mod.UUID(pid_spj)):
+            chunks[path] = content
+    manifest = json.loads(chunks["manifest.json"])
+    assert manifest["spj"] is True
+    assert any(path.endswith(".in") for path in chunks)
+    assert any(path == "spj.cpp" and b"return 0" in content for path, content in chunks.items())
+
+    pid_plain = await _seed_problem_with_case(fake_storage)
+    async with SessionLocal() as db:
+        chunks_plain = {}
+        async for path, content in judge_jobs.stream_problem_data(db, uuid_mod.UUID(pid_plain)):
+            chunks_plain[path] = content
+    manifest_plain = json.loads(chunks_plain["manifest.json"])
+    assert manifest_plain["spj"] is False
+    assert "spj.cpp" not in chunks_plain

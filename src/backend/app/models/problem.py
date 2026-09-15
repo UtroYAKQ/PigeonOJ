@@ -52,6 +52,10 @@ class Problem(Base):
     # 测试点集合：生效集（判题唯一来源）/ 暂存集（NULL=无暂存改动）
     active_case_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     pending_case_ids: Mapped[list | None] = mapped_column(JSONB)
+    # SPJ 特判程序源码（MinIO 对象 key，C++17，docs/contracts/problems.md「SPJ 特判程序」）：
+    # 生效集 / 暂存集双字段与测试点同语义；暂存 '' = 暂存移除特判程序
+    spj_oss_id: Mapped[str | None] = mapped_column(String(512))
+    pending_spj_oss_id: Mapped[str | None] = mapped_column(String(512))
     case_status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=CaseStatus.EMPTY)
     cases_revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     # 暂存集已通过验题、待显式应用（验题与晋升解耦，见决策记录修订）
@@ -70,6 +74,13 @@ class Problem(Base):
     # 验题通过时间即「已验题」事实载体（is_verified 列已移除，≡ verified_at 非空）
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 经团队引用进入团队题库的时间（引用来源标记；NULL=非引用产生，docs/contracts/teams.md 团队空间节）
+    # 引用语义（0030 起）= 快照复制新题：源题留个人题库，本行继承题面 / 测试点 / 验题状态，
+    # source_problem_id 指向源题（同团队同源唯一），统计数据从零累计（纯团队口径）
+    referenced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_problem_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("problems.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
@@ -77,6 +88,13 @@ class Problem(Base):
         Index("ix_problems_owner", "owner_id"),
         Index("ix_problems_visibility_status", "visibility", "status"),
         Index("ix_problems_team_visibility_status", "team_id", "visibility", "status"),
+        Index(
+            "uq_problems_team_source",
+            "team_id",
+            "source_problem_id",
+            unique=True,
+            postgresql_where=text("source_problem_id IS NOT NULL"),
+        ),
         CheckConstraint(
             "("
             "(team_id IS NULL     AND visibility IN ('private','public')) OR"

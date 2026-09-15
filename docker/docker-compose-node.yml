@@ -1,7 +1,7 @@
 # 判题节点编排：在任意可出站访问后端网关的服务器上部署。
 # 配置统一来自 .env.node（模板见 .env.node.example），仓库根目录执行：
 #   docker compose --env-file .env.node --project-directory . -f docker/docker-compose-node.yml up -d --build
-# 节点只做出站连接后端网关，不开放任何入站端口；privileged 仅为 nsjail 嵌套 namespace 所需。
+# 判题 gRPC 只出站；可选管理页默认映射到宿主机 127.0.0.1:18080。privileged 仅为 nsjail 嵌套 namespace 所需。
 services:
   judge-node:
     build:
@@ -14,14 +14,21 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      SERVER_ADDRESS: ${SERVER_ADDRESS:?请在 .env.node 设置后端网关地址}
+      # SERVER_ADDRESS 完整覆盖优先；否则由 SERVER_HOST + SERVER_GRPC_PORT 拼装（默认 50051）
+      SERVER_ADDRESS: ${SERVER_ADDRESS:-${SERVER_HOST:-host.docker.internal}:${SERVER_GRPC_PORT:-50051}}
       SERVER_TOKEN: ${SERVER_TOKEN:?请在 .env.node 设置注册令牌}
       SERVER_TLS: ${SERVER_TLS:-false}
       JUDGE_NODE_ID: ${JUDGE_NODE_ID:-}
       JUDGE_NODE_NAME: ${JUDGE_NODE_NAME:-}
       JUDGE_NODE_CAPACITY: ${JUDGE_NODE_CAPACITY:-2}
+      JUDGE_CASE_PARALLEL: ${JUDGE_CASE_PARALLEL:-4}
       JUDGE_CACHE_MAX_MB: ${JUDGE_CACHE_MAX_MB:-512}
       JUDGE_CACHE_GC_INTERVAL_SECONDS: ${JUDGE_CACHE_GC_INTERVAL_SECONDS:-300}
+      JUDGE_ADMIN_BIND: ${JUDGE_ADMIN_BIND:-0.0.0.0}
+      JUDGE_ADMIN_PORT: ${JUDGE_ADMIN_PORT:-18080}
+    ports:
+      # 只映射到宿主机回环，避免把管理页暴露到公网
+      - "127.0.0.1:${JUDGE_ADMIN_PORT:-18080}:${JUDGE_ADMIN_PORT:-18080}"
     volumes:
       # 宿主机工作区 → 容器 /workspace（每作业子目录自动创建/清理，nsjail 内唯一可写挂载）
       - ${NODE_WORKSPACE_DIR:?请在 .env.node 设置工作区目录}:/workspace

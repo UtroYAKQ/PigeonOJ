@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import TeamMemberStatus, TeamStatus
+from app.enums import TeamMemberStatus, TeamStatus, TeamVisibility
 from app.models.team import Team, TeamMember, TeamMemberApplication
 from app.models.user import User
 
@@ -33,6 +33,23 @@ class TeamRepository:
         )
         return (await self.db.execute(stmt)).scalar_one_or_none()
 
+    async def active_member_team_ids(
+        self, user_id: uuid.UUID, team_ids: list[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """用户在这些团队中在册（team_members.active）的团队 id 集合。
+
+        成员判定唯一口径（与 get_detail 的 get_active_member 一致）；
+        user_roles 角色行不作为成员依据（历史脏数据会导致卡片态与详情权限不一致）。
+        """
+        if not team_ids:
+            return set()
+        stmt = select(TeamMember.team_id).where(
+            TeamMember.team_id.in_(team_ids),
+            TeamMember.user_id == user_id,
+            TeamMember.status == TeamMemberStatus.ACTIVE,
+        )
+        return set((await self.db.execute(stmt)).scalars().all())
+
     async def get_application(self, application_id: uuid.UUID) -> TeamMemberApplication | None:
         return await self.db.get(TeamMemberApplication, application_id)
 
@@ -49,14 +66,22 @@ class TeamRepository:
         return (await self.db.execute(stmt)).scalar_one_or_none()
 
     async def list_members(
-        self, team_id: uuid.UUID, status: str | None, page: int, page_size: int
+        self,
+        team_id: uuid.UUID,
+        status: str | None,
+        page: int,
+        page_size: int,
+        keyword: str | None = None,
     ) -> tuple[list[tuple[TeamMember, User]], int]:
-        """成员列表（join 用户，入队时间倒序分页；status 缺省 = 在册成员）。"""
+        """成员列表（join 用户，入队时间倒序分页；status 缺省 = 在册成员；
+        keyword 模糊匹配昵称，docs/contracts/teams.md）。"""
         conditions = [TeamMember.team_id == team_id]
         if status:
             conditions.append(TeamMember.status == status)
         else:
             conditions.append(TeamMember.status == TeamMemberStatus.ACTIVE)
+        if keyword:
+            conditions.append(User.nickname.ilike(f"%{keyword}%"))
         total = (
             await self.db.scalar(
                 select(func.count())
@@ -154,3 +179,59 @@ class TeamRepository:
             ).scalars()
         )
         return rows, int(total)
+
+    async def list_public(
+        self, page: int, page_size: int, keyword: str | None = None
+    ) -> tuple[list[Team], int]:
+        """团队中心公开列表：仅 public + active（私有团队不进任何公开列表，
+        docs/contracts/teams.md）；创建时间倒序，keyword 模糊匹配团队名称。"""
+        conditions = [
+            Team.visibility == TeamVisibility.PUBLIC,
+            Team.status == TeamStatus.ACTIVE,
+        ]
+        if keyword:
+            conditions.append(Team.name.ilike(f"%{keyword}%"))
+        total = (
+            await self.db.scalar(select(func.count()).select_from(Team).where(*conditions)) or 0
+        )
+        rows = list(
+            (
+                await self.db.execute(
+                    select(Team)
+                    .where(*conditions)
+                    .order_by(Team.created_at.desc())
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                )
+            ).scalars()
+        )
+        return rows, int(total)
+
+    async def list_all(
+        self,
+        page: int,
+        page_size: int,
+        keyword: str | None = None,
+        status: TeamStatus | None = None,
+    ) -> tuple[list[tuple[Team, str | None]], int]:
+        """团队管理列表（admin 全量，创建时间倒序；keyword 模糊团队名称、status 过滤；
+        join 创建人带昵称，docs/contracts/teams.md 管理端）。"""
+        conditions: list = []
+        if keyword:
+            conditions.append(Team.name.ilike(f"%{keyword}%"))
+        if status:
+            conditions.append(Team.status == status)
+        total = (
+            await self.db.scalar(select(func.count()).select_from(Team).where(*conditions)) or 0
+        )
+        rows = (
+            await self.db.execute(
+                select(Team, User.nickname)
+                .join(User, User.id == Team.creator_id)
+                .where(*conditions)
+                .order_by(Team.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        ).all()
+        return [(team, nickname) for team, nickname in rows], int(total)

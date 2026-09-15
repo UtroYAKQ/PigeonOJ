@@ -114,17 +114,19 @@ ORDER BY r.created_at DESC, r.id DESC
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | GET | /admin/users | admin | 用户列表 | 分页/关键字/状态 | user[] |
+| GET | /admin/users/online | admin | **在线用户面板**：10 分钟窗口内有活跃回写的有效会话（活跃回写节流 5min + 在线判定缓冲；活跃时间倒序分页）；**同设备去重**：同 `user_id + device_info` 只展示最近活跃一行（收敛登录竞态可能残留的同设备双会话；UA 无法识别的会话不参与去重、各自成行），每行 = 一台在线设备，total 为去重后的设备数 | 分页 | onlineUser[]（用户 / 角色 / 状态 / 设备 / IP·归属地 / 登录与最近活跃时间） |
+| GET | /admin/submissions | admin | **全站提交面板**：跨题目 / 跨用户提交列表，提交时间倒序分页；行内含题目标题（submit_type / user_id / problem_id / status / language 精确过滤，keyword 模糊匹配提交人昵称；前端「查看题目」与「评测结果」分别经 `/admin/submissions/preview/{problem_id}` 与 `/admin/submissions/problems/{problem_id}/submissions/{sid}` 只读查看，返回与面包屑留在提交查看上下文、不入题目管理动线） | 分页/submit_type/user_id/problem_id/status/language/keyword | submission[]（含 problem_title / nickname） |
 | PUT | /admin/users/{id}/roles | admin | 全局角色授权（**单一角色模型**：整体替换该用户唯一全局角色，写 `user_roles` scope='global'） | role_id | - |
 | POST | /admin/users/{id}/ban | admin | 封禁（违规 / 异常，仅可人工解封） | reason | - |
 | POST | /admin/users/{id}/unban | admin | 解封 | - | - |
-| POST | /admin/users/{id}/freeze | admin | 冻结（立即拦截登录；人工解冻） | reason | - |
+| POST | /admin/users/{id}/freeze | admin | 冻结（**短时封禁**：置 `frozen` + `frozen_until = now + duration_minutes`，到期自动恢复 active；`duration_minutes` 缺省 15，范围 1–10080） | reason?, duration_minutes? | - |
 | POST | /admin/users/{id}/unfreeze | admin | 解冻 | - | - |
 | GET/PUT | /admin/configs | admin | 系统配置（分域） | - | - |
-| GET | /site-config | public | 公开站点配置（白名单字段：name / logo / icp / default_theme / register_enabled / email_verify_enabled；前端壳层与注册页消费） | - | siteConfig |
-| POST | /files/upload/avatar | auth | 上传当前用户头像到 MinIO | multipart file（≤2MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL，供 `avatar_url` 直接存储/渲染） |
-| POST | /files/upload/image | auth | 公共图片上传（题面插图等 Markdown 引用场景，登录用户可用），存 MinIO `users/{uid}/images/` | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
-| POST | /files/upload/site-logo | admin | 站点 Logo 上传（站点配置 `site.logo` 引用），存 MinIO `site/logo/` | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
-| GET | /files/{object_key} | public | 读取头像 / 公共图片 / 站点 Logo 等公开文件；不允许读取测试点 | object_key（仅 `users/` 或 `site/logo/` 前缀） | binary |
+| GET | /site-config | public | 公开站点配置（白名单字段：name / logo / icp / default_theme / register_enabled / email_verify_enabled / banners（首页轮播海报）/ announcement（系统公告）；前端壳层 / 首页 / 注册页消费） | - | siteConfig |
+| POST | /files/upload/avatar | auth | 上传当前用户头像到 MinIO（频控：≤10 次/小时/用户，超次 4002） | multipart file（≤2MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL，供 `avatar_url` 直接存储/渲染） |
+| POST | /files/upload/image | auth | 公共图片上传（题面插图等 Markdown 引用场景，登录用户可用），存 MinIO `users/{uid}/images/`（频控：≤30 次/小时/用户） | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
+| POST | /files/upload/site-logo | admin | 站点 Logo 上传（站点配置 `site.logo` 引用），存 MinIO `site/logo/`（频控：≤10 次/小时/用户） | multipart file（≤5MB，JPG/PNG/WEBP/GIF） | url（站内文件 URL） |
+| GET | /files/{object_key} | public | 读取头像 / 公共图片 / 站点 Logo 等公开文件；不允许读取测试点。对象 key 含 uuid、内容不可变：响应带 `Cache-Control: public, max-age=31536000, immutable` + `ETag`，命中 `If-None-Match` 回 304（浏览器长缓存，首页轮播大图不重复回源） | object_key（仅 `users/` 或 `site/logo/` 前缀） | binary（304 时无 body） |
 | GET | /admin/logs/{type} | admin | 日志查询 / 筛选 / 导出（keyword：request=请求号/路径，login=邮箱/动作，exception=消息/堆栈；nickname：按用户昵称模糊过滤，经 `users.nickname` 关联，与 keyword 可叠加） | 分页/keyword/nickname/时间范围 | log[] |
 | DELETE | /admin/logs/{type} | admin | 一键清空指定类型日志（全表删除，危险操作；type ∈ request / login / exception，非法值 3001） | - | - |
 | GET | /admin/sandbox/status | admin | 沙箱状态展示（读 Redis `sandbox:node:<id>`；指标由网关心跳写入） | - | nodes[{id, name, status, channel, load, cpu_usage, memory_usage, running_tasks, capacity, version, last_heartbeat_at}] |
@@ -132,7 +134,7 @@ ORDER BY r.created_at DESC, r.id DESC
 
 > **实现状态**：上表端点均已实现。
 
-> **账号状态语义**：`frozen`（冻结：管理员手动冻结，人工解冻）与 `banned`（封禁：管理员主动封禁，仅可人工解封）均拦截登录；登录失败超次为 Redis 临时锁定（到期自动恢复），不涉及账号状态。区分见 `users.md`「账号状态语义」。
+> **账号状态语义**：`frozen`（冻结 = **短时封禁**：带 `frozen_until` 到期自动恢复，登录失败超次与管理员限时冻结共用；`frozen_until` 为空的历史数据仍为人工解冻）与 `banned`（封禁：管理员主动封禁，仅可人工解封）均拦截登录。区分见 `users.md`「账号状态语义」。
 
 ## 错误码
 
@@ -145,12 +147,13 @@ ORDER BY r.created_at DESC, r.id DESC
 ## 关键流程 / 验收条件
 
 1. **全局角色授权**：`PUT /admin/users/{id}/roles` 写 `user_roles`（`scope='global'`、`object_id=NULL`）；**单一角色模型**——每个用户恰好持有一个全局角色（`admin` / `tutor` / `user`），授权为整体替换而非叠加；唯一索引兜底防重复。
-2. **封禁 / 解封、冻结 / 解冻**：写 `users.status`（`banned` / `frozen`），均立即拦截登录；`frozen` 可到期自动解冻，`banned` 仅人工解封。
+2. **封禁 / 解封、冻结 / 解冻**：写 `users.status`（`banned` / `frozen`），均立即拦截登录；`frozen` 带 `frozen_until` 到期自动解冻（解冻端点可提前结束），`banned` 仅人工解封。
 3. **系统配置**：按 `category` 分域读写 `system_configs`；修改人记录 `updated_by`。业务侧实时读库（无缓存），保存后立即生效；已接线消费方：`auth_email` 验证码策略 / 注册邮箱验证开关 / SMTP 发信、`sandbox` 冷却 / 并发、`site.register_enabled` 注册开关、`site` 公开展示字段（经 `/site-config`）。
 4. **日志**：`request_logs`（含沙箱子记录）、`login_logs`、`exception_logs` 按条件查询 / 导出。
 
 ## 明确不做
 
-- 文件上传由服务端校验类型 / 大小并生成对象 key；头像对象使用 `users/{user_id}/avatar/{uuid}`，站点 Logo 使用 `site/logo/{uuid}`，测试点对象不暴露下载 / 预签名 URL（判题内部链路）
+- 文件上传由服务端校验类型 / 大小并生成对象 key；头像对象使用 `users/{user_id}/avatar/{uuid}`，站点 Logo 使用 `site/logo/{uuid}`，测试点对象不暴露下载 / 预签名 URL（判题内部链路）；
+  上传按用户 Redis 固定窗口频控（见 docs/security.md「上传与文件安全」），换头像时 best-effort 删除被替换的站内旧头像对象
 - 日志请求体不回传明文（脱敏摘要）
 - Token 用量仅统计、不做额度控制

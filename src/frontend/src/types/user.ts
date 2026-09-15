@@ -22,6 +22,8 @@ export interface User {
   signature: string | null
   theme: string // 'light' | 'dark'
   status: UserStatus
+  /** 冻结到期时刻（frozen 状态专用；null = 无限期 / 非冻结） */
+  frozen_until?: string | null
   last_login_at: string | null
   created_at: string
   updated_at: string
@@ -42,6 +44,8 @@ export interface UserSession {
   created_at: string
   /** 是否为当前登录会话（仅本人会话列表返回） */
   current?: boolean
+  /** 在线中（5 分钟内有活动；服务端判定，与活跃回写节流窗口一致） */
+  online?: boolean
 }
 
 export interface LoginResult {

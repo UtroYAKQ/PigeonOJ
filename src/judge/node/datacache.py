@@ -44,9 +44,13 @@ class ProblemDataCache:
         count = 0
         try:
             async for chunk in chunk_stream:
-                dest = tmp / chunk.path
+                rel = str(chunk.path).replace("\\", "/").lstrip("/")
+                if not rel or rel.startswith("/") or ".." in Path(rel).parts:
+                    raise RuntimeError("invalid problem data path")
+                dest = tmp / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(chunk.content)
+                with dest.open("ab") as fh:
+                    fh.write(chunk.content or b"")
                 count += 1
             if count == 0 or not (tmp / "manifest.json").exists():
                 raise RuntimeError("empty or invalid problem data stream")

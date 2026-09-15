@@ -4,9 +4,13 @@
 py-ip2region v3 的 Searcher 以 file 模式打开（每次查询 1~2 次磁盘 IO，无内存驻留压力），
 进程生命周期内单例复用。查询失败 / 文件缺失一律返回 None，不影响日志主流程。
 数据更新：从 ip2region 官方仓库（lionsoul2014/ip2region）重新下载 xdb 覆盖本文件即可。
+
+异步路径（请求日志中间件 / 登录）必须经 lookup_location_async 调用：file 模式查询
+含磁盘 IO，放线程池避免阻塞事件循环。
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from threading import Lock
@@ -66,3 +70,11 @@ def lookup_location(ip: str | None) -> str | None:
     if not parts:
         return None
     return " ".join(dict.fromkeys(parts))
+
+
+async def lookup_location_async(ip: str | None) -> str | None:
+    """lookup_location 的异步包装：xdb file 模式查询含磁盘 IO，放线程池执行，
+    避免阻塞事件循环（请求日志中间件 / 登录路径使用）。"""
+    if not ip:
+        return None
+    return await asyncio.to_thread(lookup_location, ip)

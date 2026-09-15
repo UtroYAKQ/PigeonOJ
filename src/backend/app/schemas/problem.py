@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -23,6 +24,8 @@ class ProblemCreate(BaseModel):
     """创建题目：生命周期只允许从 draft 起步，发布走 POST /problems/{id}/publish。
 
     题面要素（题目背景 / 题面 / 输入说明 / 输出说明）均为必填；tags 为激活标签名（≤8）。
+    team_id 非空 = 团队题目直建（团队空间端点上下文）：visibility 须为团队分支
+    （admin_visible / team_visible，缺省 admin_visible），referenced_at 恒 NULL。
     """
 
     title: str = Field(min_length=1, max_length=255)
@@ -39,6 +42,8 @@ class ProblemCreate(BaseModel):
     memory_limit_mb: int = Field(default=256, ge=16, le=4096)
     # 难度分（手动填写；NULL=未评分；仅约束非负，不设上限）
     difficulty: int | None = Field(default=None, ge=0)
+    # 团队上下文创建（POST /problems 携带 team_id，docs/contracts/problems.md 端点表）
+    team_id: uuid.UUID | None = None
 
     @field_validator("tags")
     @classmethod
@@ -88,6 +93,9 @@ class ProblemQuery(BaseModel):
     status: ProblemStatus | None = None
     # 题库中心「我的」勾选：仅本人已发布（任意可见性）；仅 scope=all 分支生效
     mine: bool = False
+    # 管理视图来源过滤（仅 scope=mine 生效）：solo=全站题（team_id IS NULL）/
+    # team=团队题（team_id 非空）；缺省不过滤
+    ownership: Literal["solo", "team"] | None = None
     # 难度分闭区间筛选（未评分题目不落在任何区间内）
     difficulty_min: int | None = Field(default=None, ge=0)
     difficulty_max: int | None = Field(default=None, ge=0)
@@ -106,15 +114,15 @@ class TestCaseItem(BaseModel):
     id: uuid.UUID | None = None
     name: str | None = Field(default=None, max_length=64)
     # PATCH 增量语义：None（字段缺省或显式 null）= 内容不变；字符串（含 ""）= 设置为该内容
-    input: str | None = Field(default=None, max_length=5 * 1024 * 1024)
-    expected_output: str | None = Field(default=None, max_length=5 * 1024 * 1024)
+    input: str | None = Field(default=None, max_length=8 * 1024 * 1024)
+    expected_output: str | None = Field(default=None, max_length=8 * 1024 * 1024)
     sort_order: int = Field(default=0, ge=0)
 
     @field_validator("input", "expected_output")
     @classmethod
     def content_bytes_limit(cls, value: str | None) -> str | None:
-        if value is not None and len(value.encode("utf-8")) > 5 * 1024 * 1024:
-            raise ValueError("测试点内容不能超过 5MB")
+        if value is not None and len(value.encode("utf-8")) > 8 * 1024 * 1024:
+            raise ValueError("测试点内容不能超过 8MB")
         return value
 
 
@@ -249,6 +257,15 @@ class ProblemSummary(BaseModel):
     accepted_count: int = 0
     # 当前用户作答状态（登录请求回填）：True=已通过 / False=已尝试未通过 / None=未提交过或未登录
     solved: bool | None = None
+    # 标签列表（含 id/name/color，用于前端渲染彩色标签）
+    tags: list[TagPublic] = Field(default_factory=list)
+
+
+class TeamProblemSummary(ProblemSummary):
+    """团队题库列表项（团队空间端点返回）：额外携带引用来源与可见性。"""
+
+    # 引用时间（非空 = 经团队引用进入团队题库；团队自建题恒 NULL）
+    referenced_at: datetime | None = None
 
 
 class TestCaseOut(BaseModel):
@@ -277,6 +294,48 @@ class TestCasesOut(BaseModel):
     """增量更新测试点响应：目标状态合并视图（PATCH /problems/{id}/test-cases）。"""
 
     cases: list[TestCaseOut]
+
+
+class SpjUpdate(BaseModel):
+    """特判程序源码（PUT /problems/{id}/spj；C++17 单文件，≤256KB UTF-8 字节）。"""
+
+    code: str = Field(min_length=1)
+
+    @field_validator("code")
+    @classmethod
+    def code_bytes_limit(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 256 * 1024:
+            raise ValueError("特判程序源码不能超过 256KB")
+        return value
+
+
+class SpjOut(BaseModel):
+    """特判程序目标状态回读（暂存优先；code=None 表示目标状态无特判程序）。"""
+
+    code: str | None = None
+    staged: bool = False
+
+
+class FpsImportItemOut(BaseModel):
+    """FPS 导入单题结果（POST /admin/problems/import；docs/contracts/problems.md「FPS 题库导入」）。
+
+    status：published（有测试点，直接可做）/ draft（无测试点）/ draft_spj（带 checker，
+    暂存待验题晋升）/ duplicate（库内已有同标题）/ skipped_spj（无法重建特判程序）/ failed。
+    """
+
+    title: str
+    status: str
+    problem_id: str | None = None
+    message: str | None = None
+
+
+class FpsImportResult(BaseModel):
+    """FPS 导入汇总：单次最多尝试 20 题（超出 truncated，分批导入）。"""
+
+    total_parsed: int
+    imported: int
+    truncated: bool
+    results: list[FpsImportItemOut]
 
 
 class ProblemDetail(BaseModel):
@@ -310,11 +369,13 @@ class ProblemDetail(BaseModel):
     submission_count: int = 0
     accepted_count: int = 0
     samples: list[SampleOut] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list)
+    tags: list[TagPublic] = Field(default_factory=list)
     can_manage: bool = False
     needs_reverification: bool = False
     case_status: str | None = None
     samples_updated_at: datetime | None = None
+    # SPJ 特判题标记（生效集特判程序非空；详情页展示「Special Judge」徽标，judge.md「SPJ 特判」）
+    has_spj: bool = False
 
 
 # ---- 验题相关 Response Schemas ----
@@ -338,7 +399,7 @@ class VerificationInviteOut(BaseModel):
     input_description: str | None
     output_description: str | None
     note: str | None = None
-    tags: list[str]
+    tags: list[TagPublic] = Field(default_factory=list)
     time_limit_ms: int
     memory_limit_mb: int
     samples: list[SampleOut]

@@ -5,7 +5,8 @@ import { useAppStore } from '@/stores/app'
 import { isRenderableLogo } from '@/utils/logo'
 
 const appStore = useAppStore()
-const name = computed(() => appStore.siteConfig.name || 'PigeonOJ')
+// 站点名兜底收敛到 app store（siteName getter）
+const name = computed(() => appStore.siteName)
 // 外链 URL 或站内文件 URL 直接渲染；空值 / 不可识别形态回退默认图标
 const logoUrl = computed(() =>
   isRenderableLogo(appStore.siteConfig.logo) ? appStore.siteConfig.logo : '',
@@ -31,18 +32,18 @@ const logoUrl = computed(() =>
   text-decoration: none;
 }
 .side-logo__mark {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border-radius: 6px;
-  font-size: 20px;
+  font-size: 24px;
   color: var(--app-primary);
   background: var(--app-muted-bg);
 }
 .side-logo__img {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 6px;
   object-fit: contain;
 }
@@ -56,8 +57,8 @@ const logoUrl = computed(() =>
   color: var(--app-primary);
 }
 .side-logo.collapsed .side-logo__mark {
-  width: 32px;
-  height: 32px;
-  font-size: 18px;
+  width: 36px;
+  height: 36px;
+  font-size: 20px;
 }
 </style>

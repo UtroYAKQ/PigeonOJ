@@ -39,6 +39,8 @@ from app.core.redis import (
 )
 from app.core.storage import get_storage
 from app.core.dependency import is_admin, is_manager
+from app.repositories.team import TeamRepository
+from app.repositories.user import RoleRepository
 from app.models.problem import (
     Problem,
     ProblemCounter,
@@ -57,6 +59,9 @@ from app.schemas.problem import (
     ProblemUpdate,
     SampleOut,
     SamplesUpdate,
+    SpjOut,
+    SpjUpdate,
+    TagPublic,
     TestCaseListOut,
     TestCaseOut,
     TestCasesPatch,
@@ -102,6 +107,16 @@ def judged_case_ids(problem: Problem, *, verify: bool) -> list[uuid.UUID]:
     return _uuid_list(problem.active_case_ids)
 
 
+def judged_spj_key(problem: Problem, *, verify: bool = False) -> str | None:
+    """判定集特判程序对象 key（docs/contracts/judge.md「SPJ 特判」）：
+
+    验题提交按暂存判（暂存 '' = 移除 → None），练习 / 比赛恒用生效集。
+    """
+    if verify and problem.pending_spj_oss_id is not None:
+        return problem.pending_spj_oss_id or None
+    return problem.spj_oss_id or None
+
+
 async def list_active_cases(db: AsyncSession, problem: Problem) -> list[TestCase]:
     """生效集行（判题唯一数据来源），按集合顺序。"""
     return await TestCaseRepository(db).list_by_ids(problem.id, _uuid_list(problem.active_case_ids))
@@ -113,10 +128,12 @@ async def list_judged_cases(db: AsyncSession, problem: Problem, *, verify: bool 
 
 
 def needs_reverification(problem: Problem) -> bool:
-    """重验精确判定：存在暂存改动，或样例晚于最近验题通过时间。"""
+    """重验精确判定：存在暂存改动（测试点 / 特判程序），或样例晚于最近验题通过时间。"""
     if problem.verified_at is None:
         return True
     if problem.pending_case_ids is not None:
+        return True
+    if getattr(problem, "pending_spj_oss_id", None) is not None:
         return True
     return bool(
         problem.samples_updated_at and problem.samples_updated_at > problem.verified_at
@@ -138,7 +155,7 @@ class ProblemDetailData:
 
     problem: Problem
     samples: list[SampleOut]
-    tags: list[str]
+    tags: list[TagPublic]
     can_manage: bool
     needs_reverification: bool
     # 通过率计数（problem_counters，无记录按 0）
@@ -202,6 +219,7 @@ class ProblemService:
                 verified_at=row.verified_at,
                 samples_updated_at=row.samples_updated_at,
                 pending_case_ids=row.pending_case_ids,
+                pending_spj_oss_id=row.pending_spj_oss_id,
             )
             flags[row.id] = needs_reverification(snapshot)
         return flags
@@ -230,9 +248,35 @@ class ProblemService:
             if item.id in status_map:
                 item.solved = status_map[item.id]
 
+    async def attach_tags(self, summaries: list) -> None:
+        """按 id 批量回填标签（含 color）到 ProblemSummary；API 层调用。"""
+        ids = {item.id for item in summaries}
+        if not ids:
+            return
+        tags_map = await self.verifications.tags_for_problems(list(ids))
+        for item in summaries:
+            tags = tags_map.get(item.id, [])
+            item.tags = [TagPublic.model_validate(t) for t in tags]
+
     async def create(self, user: object, body: ProblemCreate) -> Problem:
         if not await is_manager(self.db, user):
             raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
+        team_id = getattr(body, "team_id", None)
+        if body.visibility in (ProblemVisibility.ADMIN_VISIBLE, ProblemVisibility.TEAM_VISIBLE):
+            if team_id is None:
+                # 团队分支可见性仅经团队引用 / 团队上下文创建设置（docs/contracts/teams.md）
+                raise APIError(PARAM_FORMAT_INVALID, "团队可见性仅可经团队引用设置", 400)
+        elif team_id is not None:
+            # 团队题目必须落团队可见性分支（可见性 CHECK 双分支一致）
+            raise APIError(PARAM_FORMAT_INVALID, "团队题目可见性须为团队分支", 400)
+        if team_id is not None:
+            # 团队上下文直建：须为该团队创建者 / 管理员（或全局 admin），且团队存在
+            team = await TeamRepository(self.db).get_by_id(team_id)
+            if team is None:
+                raise APIError(RESOURCE_NOT_FOUND, "团队不存在", 404)
+            codes = set(await RoleRepository(self.db).get_team_role_codes(user.id, team_id))
+            if not ({"team_creator", "team_admin"} & codes or await is_admin(self.db, user)):
+                raise APIError(AUTH_FORBIDDEN, "无权限为该团队创建题目", 403)
         problem = Problem(
             title=body.title,
             background=body.background,
@@ -246,6 +290,7 @@ class ProblemService:
             memory_limit_mb=body.memory_limit_mb,
             difficulty=body.difficulty,
             owner_id=user.id,
+            team_id=team_id,
         )
         problem = await self.problems.create(problem)
         if body.tags:
@@ -259,6 +304,15 @@ class ProblemService:
         if problem is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不存在", 404)
         can_manage = user is not None and await _can_manage(self.db, user, problem)
+        # 团队快照题（source_problem_id 非空 = 经引用复制）：题库裸路径一律拦截，
+        # 访问 / 交题 / 自测只能走团队上下文端点（成员 + 归属门控，docs/contracts/teams.md）；
+        # 例外：全局 admin（管理动线只读浏览团队资源，teams.md 管理端）
+        if (
+            problem.source_problem_id is not None
+            and not bypass_visibility
+            and not await is_admin(self.db, user)
+        ):
+            raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         if not can_manage and problem.status != ProblemStatus.PUBLISHED:
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         # 私有题仅创建者 / admin 可见（docs/contracts/problems.md 可见性表）；
@@ -270,14 +324,14 @@ class ProblemService:
             and problem.visibility != ProblemVisibility.PUBLIC
         ):
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
-        tags = await self.verifications.tag_names(problem_id)
-        tag_names = sorted(tags)
+        tags = await self.verifications.tags_for(problem_id)
+        tag_list = [TagPublic.model_validate(t) for t in tags]
         samples = self._samples_view(problem)
         counter = await self.db.get(ProblemCounter, problem_id)
         return ProblemDetailData(
             problem=problem,
             samples=samples,
-            tags=tag_names,
+            tags=tag_list,
             can_manage=can_manage,
             needs_reverification=(
                 needs_reverification(problem) if problem.verified_at and problem.is_verified else False
@@ -297,6 +351,57 @@ class ProblemService:
         ids, _staged = staged_target(problem)
         updated_at = await self.test_cases.max_updated_at(problem_id, ids)
         return TestCaseListOut(cases=cases, updated_at=updated_at)
+
+    async def get_spj_managed(self, user: object, problem_id: uuid.UUID) -> SpjOut:
+        """特判程序目标状态回读（暂存优先；docs/contracts/problems.md「SPJ 特判程序」）。
+
+        仅题目管理者可读；暂存 ''（暂存移除）与无特判程序同样返回 code=None。
+        """
+        problem = await self._require_manage(user, problem_id)
+        staged = problem.pending_spj_oss_id is not None
+        key = problem.pending_spj_oss_id if staged else problem.spj_oss_id
+        code = None
+        if key:
+            raw, _ = await get_storage().get_bytes(key)
+            code = raw.decode("utf-8", errors="replace")
+        return SpjOut(code=code, staged=staged)
+
+    async def replace_spj(self, user: object, problem_id: uuid.UUID, body: SpjUpdate) -> None:
+        """设置 / 覆盖**暂存**特判程序（生效集不动，验题通过后随 apply 晋升）。"""
+        problem = await self._require_manage(user, problem_id)
+        if problem.status == ProblemStatus.ARCHIVED:
+            raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑特判程序", 409)
+        try:
+            storage = get_storage()
+        except OSError as exc:
+            raise APIError(SYSTEM_UPSTREAM_FAILURE, "对象存储服务未配置或不可用", 503) from exc
+        key = f"problems/{problem_id}/spj/{uuid.uuid4()}/code"
+        try:
+            await storage.put_bytes(key, body.code.encode("utf-8"), "text/x-c++src; charset=utf-8")
+        except Exception as exc:
+            raise APIError(SYSTEM_UPSTREAM_FAILURE, "特判程序上传失败", 503) from exc
+        stale = [k for k in (problem.pending_spj_oss_id,) if k and k != key]
+        problem.pending_spj_oss_id = key
+        problem.pending_verified = False  # 任何新的暂存写入都会使「已验」标记失效
+        problem.updated_at = datetime.now()
+        await self.db.flush()
+        schedule_object_cleanup(stale)
+
+    async def remove_spj(self, user: object, problem_id: uuid.UUID) -> None:
+        """暂存移除特判程序（写 pending_spj_oss_id=''，apply 晋升后生效集置 NULL）。"""
+        problem = await self._require_manage(user, problem_id)
+        if problem.status == ProblemStatus.ARCHIVED:
+            raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑特判程序", 409)
+        if problem.spj_oss_id is None and problem.pending_spj_oss_id is None:
+            raise APIError(RESOURCE_STATE_CONFLICT, "题目未配置特判程序", 409)
+        if problem.pending_spj_oss_id == "":
+            return  # 已处于暂存移除状态（幂等）
+        stale = [k for k in (problem.pending_spj_oss_id,) if k]
+        problem.pending_spj_oss_id = ""
+        problem.pending_verified = False  # 任何新的暂存写入都会使「已验」标记失效
+        problem.updated_at = datetime.now()
+        await self.db.flush()
+        schedule_object_cleanup(stale)
 
     async def get_detail_view(
         self, problem_id: uuid.UUID, user: object | None, *, bypass_visibility: bool = False
@@ -362,6 +467,16 @@ class ProblemService:
         if body.solution is not None:
             problem.solution = body.solution
         if body.visibility is not None:
+            # 可见性不得越分支切换（docs/contracts/problems.md）：团队题在
+            # team_visible/admin_visible 之间、全站题在 public/private 之间
+            # 可经题库编辑由题目管理者切换；跨分支仅可经团队引用 / 团队空间动作。
+            is_team_branch = problem.team_id is not None
+            incoming_team_branch = body.visibility in (
+                ProblemVisibility.ADMIN_VISIBLE,
+                ProblemVisibility.TEAM_VISIBLE,
+            )
+            if is_team_branch != incoming_team_branch:
+                raise APIError(PARAM_FORMAT_INVALID, "题目可见性不可跨分支修改", 400)
             problem.visibility = body.visibility
         if body.time_limit_ms is not None:
             problem.time_limit_ms = body.time_limit_ms
@@ -592,19 +707,28 @@ class ProblemService:
             raise APIError(SYSTEM_UPSTREAM_FAILURE, "测试点上传失败", 503) from exc
 
     async def apply_pending_cases(self, user: object, problem_id: uuid.UUID) -> Problem:
-        """显式生效（点「保存」才晋升）：把已通过验题的暂存集晋升为生效集。
+        """显式生效（点「保存」才晋升）：把已通过验题的暂存改动晋升为生效集。
 
+        测试点与特判程序一并晋升（docs/contracts/problems.md「SPJ 特判程序」）。
         前置：存在暂存改动且已打「已验待生效」标记；任何新的暂存写入都会清除标记。
         """
         problem = await self._require_manage(user, problem_id)
         if problem.status == ProblemStatus.ARCHIVED:
             raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可应用测试点", 409)
-        if problem.pending_case_ids is None:
-            raise APIError(RESOURCE_STATE_CONFLICT, "没有待生效的测试点改动", 409)
+        if problem.pending_case_ids is None and problem.pending_spj_oss_id is None:
+            raise APIError(RESOURCE_STATE_CONFLICT, "没有待生效的改动", 409)
         if not problem.pending_verified:
-            raise APIError(RESOURCE_STATE_CONFLICT, "测试点尚未通过验题，不能生效", 409)
-        problem.active_case_ids = problem.pending_case_ids
-        problem.pending_case_ids = None
+            raise APIError(RESOURCE_STATE_CONFLICT, "暂存改动尚未通过验题，不能生效", 409)
+        if problem.pending_case_ids is not None:
+            problem.active_case_ids = problem.pending_case_ids
+            problem.pending_case_ids = None
+        pending_spj = problem.pending_spj_oss_id
+        if pending_spj is not None:
+            # '' = 暂存移除特判程序（生效置 NULL）；非空 key = 暂存覆盖
+            stale = [k for k in (problem.spj_oss_id,) if k and k != (pending_spj or None)]
+            problem.spj_oss_id = pending_spj or None
+            problem.pending_spj_oss_id = None
+            schedule_object_cleanup(stale)
         problem.pending_verified = False
         problem.case_status = derive_case_status(problem)
         problem.cases_revision += 1
@@ -638,6 +762,8 @@ class ProblemService:
             raise APIError(RESOURCE_STATE_CONFLICT, "题目无正式测试点，不可发布", 409)
         if problem.pending_case_ids is not None:
             raise APIError(RESOURCE_STATE_CONFLICT, "测试点存在待验证的改动，请重新验题", 409)
+        if problem.pending_spj_oss_id is not None:
+            raise APIError(RESOURCE_STATE_CONFLICT, "特判程序存在待验证的改动，请重新验题", 409)
         if problem.verified_at and problem.samples_updated_at and problem.samples_updated_at > problem.verified_at:
             raise APIError(RESOURCE_STATE_CONFLICT, "样例在验题通过后被修改，请重新验题", 409)
         problem.status = ProblemStatus.PUBLISHED
@@ -730,6 +856,7 @@ class ProblemService:
         problem = await self.problems.get_by_id(problem_id)
         if problem is None:
             raise APIError(RESOURCE_NOT_FOUND, "题目不存在", 404)
+        tags = await self.verifications.tags_for(problem.id)
         return VerificationInviteOut(
             problem_id=str(problem.id),
             problem_title=problem.title,
@@ -741,7 +868,7 @@ class ProblemService:
             input_description=problem.input_description,
             output_description=problem.output_description,
             note=problem.note,
-            tags=await self.verifications.tag_names(problem.id),
+            tags=[TagPublic.model_validate(t) for t in tags],
             time_limit_ms=problem.time_limit_ms,
             memory_limit_mb=problem.memory_limit_mb,
             samples=self._samples_view(problem),
@@ -808,6 +935,7 @@ def to_problem_detail(detail: ProblemDetailData) -> ProblemDetail:
         needs_reverification=bool(detail.needs_reverification),
         case_status=problem.case_status,
         samples_updated_at=problem.samples_updated_at,
+        has_spj=bool(problem.spj_oss_id),
     )
 
 

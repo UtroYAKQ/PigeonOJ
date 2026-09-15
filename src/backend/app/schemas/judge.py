@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.enums import SubmissionStatus, SubmitType
+from app.enums import RuleType, SubmissionStatus, SubmitType
 from app.schemas.admin import SandboxNodeOut
 
 
@@ -99,6 +99,23 @@ class ProblemSubmissionItem(BaseModel):
     created_at: datetime
 
 
+class AdminSubmissionItem(BaseModel):
+    """全站提交面板条目（admin 专用：跨题目 / 跨用户，附题目标题）。"""
+
+    id: uuid.UUID
+    problem_id: uuid.UUID
+    problem_title: str | None = None
+    user_id: uuid.UUID
+    nickname: str
+    language: str
+    submit_type: SubmitType
+    status: SubmissionStatus
+    score: int
+    time_used_ms: int | None
+    memory_used_kb: int | None
+    created_at: datetime
+
+
 class SubmissionDetail(BaseModel):
     """提交详情（含代码和测试点结果）。"""
 
@@ -108,6 +125,8 @@ class SubmissionDetail(BaseModel):
     problem_id: uuid.UUID
     language: str
     submit_type: SubmitType
+    # 赛制快照（创建时落库）：ACM 二值分前端不展示为 IOI 分数
+    rule_type: RuleType | None = None
     code: str
     status: SubmissionStatus
     score: int
@@ -127,6 +146,8 @@ class TestCaseResult(BaseModel):
     memory_used_kb: int | None
     score: int | None
     output: str | None
+    # SPJ 判定信息（特判程序输出，如 "wrong answer expected 3, found 4"；非 SPJ 为 None）
+    message: str | None = None
 
 
 class SubmissionDetailOut(SubmissionDetail):

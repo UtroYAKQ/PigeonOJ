@@ -29,3 +29,8 @@ export function listSessions() {
 export function revokeSession(sessionId: string) {
   return apiRequest<null>('DELETE', `/users/me/sessions/${sessionId}`)
 }
+
+/** DELETE /users/me/sessions — 下线其他设备（批量撤销除当前会话外的全部有效会话） */
+export function revokeOtherSessions() {
+  return apiRequest<null>('DELETE', '/users/me/sessions')
+}

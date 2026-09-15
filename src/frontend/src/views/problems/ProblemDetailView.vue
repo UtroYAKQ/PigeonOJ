@@ -8,10 +8,21 @@ import { createSubmission, listSubmissions } from '@/api/judge'
 import { getProblem } from '@/api/problems'
 import { createProblemSetSubmission, getProblemSetProblem } from '@/api/problemSets'
 import { createContestSubmission, getContestProblem } from '@/api/contests'
+import { createTeamContestSubmission, getTeamContestProblem } from '@/api/teams'
+import {
+  createTeamProblemSubmission,
+  createTeamSetProblemSubmission,
+  getTeamProblem,
+  getTeamSetProblem,
+  runTeamProblemCode,
+  runTeamSetProblemCode,
+} from '@/api/teams'
 import { useCodeDraft } from '@/composables/useCodeDraft'
 import { useSelfTest } from '@/composables/useSelfTest'
+import { usePagination } from '@/composables/usePagination'
 import { dialog, message } from '@/utils/feedback'
 import StatusTag from '@/components/StatusTag.vue'
+import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import ProblemWorkbench from '@/components/problem/ProblemWorkbench.vue'
 import type { ProblemDetail, ProblemLanguage, Submission } from '@/types'
 
@@ -23,27 +34,61 @@ const submitting = ref(false)
 const subsVisible = ref(false)
 const language = ref<ProblemLanguage>('cpp17')
 const mySubmissions = ref<Submission[]>([])
+/** 我的提交弹窗：懒加载 + 分页（进入题目页不请求提交记录） */
+const subsLoading = ref(false)
+const subsPaging = usePagination({ defaultPageSize: 10 })
 
-/** 题目 id：题库路由取 params.id；题单 / 比赛上下文路由取 params.problemId */
+/** 题目 id：题库路由取 params.id；题单 / 比赛 / 团队上下文路由取 params.problemId */
 const problemId = computed(() => String(route.params.problemId ?? route.params.id))
-/** 上下文标识（同一组件复用于 题库 / 题单 / 比赛 三种上下文，取参与链接随上下文切换） */
-const context = computed<'problems' | 'problem-sets' | 'contests'>(() =>
-  route.params.cid ? 'contests' : route.params.setId ? 'problem-sets' : 'problems',
+/** 上下文标识（同一组件复用于 题库 / 题单 / 比赛 / 团队 / 团队题单 / 团队比赛 六种上下文）：
+ * 团队题单（teamId + setId）、团队比赛（teamId + cid）为独立上下文，
+ * 读 / 交题 / 自测按上下文分派端点 */
+const context = computed<
+  'problems' | 'problem-sets' | 'contests' | 'teams' | 'team-sets' | 'team-contests'
+>(() =>
+  route.params.teamId && route.params.cid
+    ? 'team-contests'
+    : route.params.cid
+      ? 'contests'
+      : route.params.setId && route.params.teamId
+        ? 'team-sets'
+        : route.params.setId
+          ? 'problem-sets'
+          : route.params.teamId
+            ? 'teams'
+            : 'problems',
 )
 const contextId = computed(() =>
-  context.value === 'contests'
+  context.value === 'contests' || context.value === 'team-contests'
     ? String(route.params.cid)
-    : context.value === 'problem-sets'
+    : context.value === 'team-sets'
       ? String(route.params.setId)
-      : '',
+      : context.value === 'problem-sets'
+        ? String(route.params.setId)
+        : context.value === 'teams'
+          ? String(route.params.teamId)
+          : '',
+)
+/** 团队上下文 id（team-sets / teams 时为 teamId，供团队端点拼装） */
+const teamContextId = computed(() =>
+  context.value === 'team-sets' || context.value === 'teams' ? String(route.params.teamId) : '',
 )
 /** 评测结果路由基路径：上下文内保持不跳出（评测结果页同构复用） */
 const submissionsBase = computed(() => {
   if (context.value === 'contests') {
     return `/contests/${contextId.value}/problems/${problemId.value}`
   }
+  if (context.value === 'team-contests') {
+    return `/teams/${String(route.params.teamId)}/contests/${contextId.value}/problems/${problemId.value}`
+  }
+  if (context.value === 'team-sets') {
+    return `/teams/${teamContextId.value}/sets/${contextId.value}/problems/${problemId.value}`
+  }
   if (context.value === 'problem-sets') {
     return `/problem-sets/${contextId.value}/problems/${problemId.value}`
+  }
+  if (context.value === 'teams') {
+    return `/teams/${contextId.value}/problems/${problemId.value}`
   }
   return `/problems/${problemId.value}`
 })
@@ -57,35 +102,86 @@ const { restore: restoreDraft } = useCodeDraft({
   language,
 })
 
-// 用户自测：控制台状态在 composable 内（docs/contracts/judge.md「用户自测」）
+/** 团队上下文自测走团队端点（题库端点对团队题目按可见性拦截）；其余上下文走题库端点 */
 const {
   selfTestInput,
   selfTesting,
   selfTestResult,
   runSelfTest: doSelfTest,
-} = useSelfTest(() => problemId.value)
+} = useSelfTest(() => problemId.value, {
+  runner:
+    context.value === 'team-sets'
+      ? (payload) =>
+          runTeamSetProblemCode(teamContextId.value, contextId.value, payload.problem_id, {
+            language: payload.language,
+            code: payload.code,
+            input: payload.input,
+          })
+      : context.value === 'teams'
+        ? (payload) =>
+            runTeamProblemCode(String(route.params.teamId), payload.problem_id, {
+              language: payload.language,
+              code: payload.code,
+              input: payload.input,
+            })
+        : undefined,
+})
 
 async function load() {
   try {
-    // 统一入口：各上下文走本模块详情端点（归属 / 窗口校验），题库走题库端点
+    // 统一入口：各上下文走本模块详情端点（归属 / 窗口校验），题库走题库端点；
+    // 团队比赛复用比赛端点（叠加团队门控，docs/contracts/teams.md）
     problem.value =
-      context.value === 'contests'
-        ? await getContestProblem(contextId.value, problemId.value)
-        : context.value === 'problem-sets'
-          ? await getProblemSetProblem(contextId.value, problemId.value)
-          : await getProblem(problemId.value)
-    await loadMySubmissions()
+      context.value === 'team-contests'
+        ? await getTeamContestProblem(String(route.params.teamId), contextId.value, problemId.value)
+        : context.value === 'contests'
+          ? await getContestProblem(contextId.value, problemId.value)
+          : context.value === 'team-sets'
+            ? await getTeamSetProblem(teamContextId.value, contextId.value, problemId.value)
+            : context.value === 'problem-sets'
+              ? await getProblemSetProblem(contextId.value, problemId.value)
+            : context.value === 'teams'
+              ? await getTeamProblem(contextId.value, problemId.value)
+              : await getProblem(problemId.value)
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
   }
 }
+
+/** 我的提交：仅弹窗打开 / 翻页时请求（beginLoad/isCurrent 防慢响应竞态） */
 async function loadMySubmissions() {
+  const seq = subsPaging.beginLoad()
+  subsLoading.value = true
   try {
-    const result = await listSubmissions({ problem_id: problemId.value, page_size: 5 })
+    const result = await listSubmissions({
+      problem_id: problemId.value,
+      page: subsPaging.page.value,
+      page_size: subsPaging.pageSize.value,
+    })
+    if (!subsPaging.isCurrent(seq)) return
     mySubmissions.value = result.items
+    subsPaging.total.value = result.total
   } catch {
     /* 未登录等场景静默 */
+  } finally {
+    if (subsPaging.isCurrent(seq)) subsLoading.value = false
   }
+}
+
+function openSubs() {
+  subsVisible.value = true
+  subsPaging.resetPage()
+  void loadMySubmissions()
+}
+
+function onSubsPage(page: number) {
+  subsPaging.changePage(page)
+  void loadMySubmissions()
+}
+
+function onSubsPageSize(pageSize: number) {
+  subsPaging.changeSize(pageSize)
+  void loadMySubmissions()
 }
 
 function openSubmission(row: Submission) {
@@ -109,15 +205,41 @@ async function submit() {
       if (!current) return
       submitting.value = true
       try {
-        // 统一入口：各上下文走本模块交题端点（题单：归属校验；比赛：窗口校验，赛后自动补题）
+        // 统一入口：各上下文走本模块交题端点（题单：归属校验；比赛：窗口校验，赛后自动补题；
+        // 团队：团队门控）
         let result: { submission_id: string; status: string }
-        if (context.value === 'contests') {
+        if (context.value === 'team-contests') {
+          result = await createTeamContestSubmission(
+            String(route.params.teamId),
+            contextId.value,
+            current.id,
+            {
+              language: language.value,
+              code: code.value,
+            },
+          )
+        } else if (context.value === 'contests') {
           result = await createContestSubmission(contextId.value, current.id, {
             language: language.value,
             code: code.value,
           })
+        } else if (context.value === 'team-sets') {
+          result = await createTeamSetProblemSubmission(
+            teamContextId.value,
+            contextId.value,
+            current.id,
+            {
+              language: language.value,
+              code: code.value,
+            },
+          )
         } else if (context.value === 'problem-sets') {
           result = await createProblemSetSubmission(contextId.value, current.id, {
+            language: language.value,
+            code: code.value,
+          })
+        } else if (context.value === 'teams') {
+          result = await createTeamProblemSubmission(contextId.value, current.id, {
             language: language.value,
             code: code.value,
           })
@@ -185,28 +307,36 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
       :self-testing="selfTesting"
       :self-test-result="selfTestResult"
       hide-published-status
-      @show-submissions="subsVisible = true"
+      @show-submissions="openSubs"
       @submit="submit"
       @self-test="runSelfTest"
     />
 
-    <!-- 提交历史弹窗 -->
+    <!-- 提交历史弹窗（懒加载 + 分页） -->
     <n-modal
       v-model:show="subsVisible"
       preset="card"
       :title="t('problems.detail.mySubmissions')"
       style="width: min(720px, 92vw)"
     >
-      <n-data-table
-        v-if="mySubmissions.length"
-        size="small"
+      <PaginatedDataTable
         :columns="submissionColumns"
         :data="mySubmissions"
-        :row-props="
-          (row: Submission) => ({ style: 'cursor: pointer;', onClick: () => openSubmission(row) })
-        "
+        :loading="subsLoading"
+        :total="subsPaging.total.value"
+        :page="subsPaging.page.value"
+        :page-size="subsPaging.pageSize.value"
+        :empty-text="t('problems.detail.noSubmissions')"
+        :table-props="{
+          size: 'small',
+          rowProps: (row: Submission) => ({
+            style: 'cursor: pointer;',
+            onClick: () => openSubmission(row),
+          }),
+        }"
+        @update:page="onSubsPage"
+        @update:page-size="onSubsPageSize"
       />
-      <n-empty v-else :description="t('problems.detail.noSubmissions')" />
     </n-modal>
   </div>
 </template>

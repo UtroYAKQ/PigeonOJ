@@ -13,8 +13,9 @@
 | description | TEXT | NULL | 题单说明 |
 | team_id | UUID | NULL, FK → teams.id | 归属团队；NULL=全站题单，非 NULL=团队题单 |
 | owner_id | UUID | NOT NULL, FK → users.id | 创建者 |
-| visibility | VARCHAR(16) | NOT NULL DEFAULT 'public' | `public` / `private` / `team`；全站题单用 public/private，团队题单用 team |
+| visibility | VARCHAR(16) | NOT NULL DEFAULT 'public' | `public` / `private` / `team_visible` / `admin_visible`；全站题单用 public/private，团队题单用 team_visible（全队可见，原 `team` 值迁移 0032 更名）/ admin_visible（仅团队创建者与管理员可见） |
 | status | VARCHAR(16) | NOT NULL DEFAULT 'active' | `active` / `archived` |
+| referenced_at | TIMESTAMPTZ | NULL | 团队复制来源字段：非空 = 复制自本人全站题单的团队题单（复制时间，快照语义仅来源标记，见 teams.md 团队空间节）；团队直建 / 全站题单恒 NULL |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
 CHECK 约束（归属与可见性匹配）：
@@ -43,11 +44,21 @@ CHECK (
 
 ## 数据所有权
 
-- 题单中心仅展示公开题单（`visibility='public'`、`team_id` 为空）
-- 团队题单仅在所属团队空间内展示（按 `team_id` 过滤），不进入题单中心
+- 题单中心仅展示公开题单（`visibility='public'`、`team_id` 为空）；「我的」勾选
+  （mine=true）为本人未下线的**全站**题单（团队题单属封闭空间不进题单中心）
+- 团队题单仅在所属团队空间内展示（按 `team_id` 过滤），不进入题单中心；可见性
+  `team_visible`（全队成员可见，缺省）/ `admin_visible`（仅团队创建者与管理员可见，
+  与团队题目 admin_visible 同门：列表 / 详情 / 题单内题目 / 交题 / 自测均对普通成员拦截）；
+  团队题单的
+  创建 / 复制来源 / 编排 / 下线 / 详情浏览 / 题单内题目 / 交题 / 自测全部走
+  teams.md 团队空间节独立端点（`/teams/{team_id}/problem-sets/...` 前缀，
+  限界上下文隔离，不走本模块统一入口 `GET /problem-sets/{id}`）
+- 团队题单内编排候选 = 已发布且（本团队题目 ∪ 全站公开 ∪ 本人私有）；
+  全站题单编排一律排除团队题目（`team_id` 非空，封闭空间隔离）
 - 题单内题目展示受题目自身可见性约束（见 `problems.md`）；用户在题单中访问题目时按题单访问权限展示题面
 - 管理题单（创建 / 编辑 / 编排题目）角色门为 `admin/tutor/team_creator/team_admin`；
-  **单个题单的管理权按单一所有权模型判定**：`admin` 可管理全站题单，其余管理角色仅可管理本人创建的题单
+  **单个题单的管理权按单一所有权模型判定**：`admin` 可管理全站题单，其余管理角色仅可管理本人创建的题单；
+  团队题单由团队创建者 / 管理员管理
 
 ## 端点
 
@@ -58,15 +69,16 @@ CHECK (
 | GET | /problem-sets | public / auth | 题单中心列表：仅公开且未下线的全站题单；`mine=true`（题单中心「我的」勾选，须登录，匿名 401）改为仅本人未下线题单（含私有） | 分页/keyword/mine | problem_set[]（含 item_count） |
 | POST | /problem-sets | admin/tutor | 创建题单（team_id 为空；`visibility='team'` 随 teams 模块开放，当前返回 1001） | title/description?/visibility | problem_set |
 | GET | /problem-sets/{id} | public/owner | 题单详情：条目按 `sort_order` 展示，携带题目元信息（title / difficulty / time_limit_ms / memory_limit_mb）；登录请求条目带 `solved` 作答状态（`true`=已通过 / `false`=已尝试未通过 / `null`=未提交过，未登录恒 `null`，口径与题库列表一致）；私有 / 已下线题单仅创建者与管理角色可见（2003），`can_manage` 标记管理入口 | - | problem_set_detail |
-| GET | /admin/problem-sets | admin/tutor | 题单管理视图：admin 全量、tutor 仅本人创建（含私有与已下线），供管理后台编排维护 | 分页/keyword/status | problem_set[]（含 item_count） |
+| GET | /admin/problem-sets | admin/tutor | 题单管理视图：admin 全量、tutor 仅本人创建（含私有与已下线），供管理后台编排维护；`ownership` 过滤来源（`solo`=全站题单 / `team`=团队题单，非法值 1001）；列表项带 `team_id`（区分来源） | 分页/keyword/status/ownership | problem_set[]（含 item_count / team_id） |
 | GET | /problem-sets/{id}/problems/{pid} | public/owner | **题单内题目详情（统一入口）**：题单可见 + 题目属于该题单校验（题目不属于该题单 3001）后，返回与 `GET /problems/{id}` 完全一致的详情装配；题单上下文内前端只调本端点 | - | problem |
 | POST | /problem-sets/{id}/problems/{pid}/submissions | auth | 题单内交题：题单须可见（私有 / 已下线按可见性拦截 2003）、题目必须属于该题单（否则 3001）；落库 / 派发 / 计分与 `POST /submissions` 完全一致（`submit_type='practice'`） | language/code（≤64KB） | submission_id / status |
 | PUT | /problem-sets/{id} | admin/tutor | 编辑题单元信息（title / description / visibility，缺省不动） | title?/description?/visibility? | problem_set |
 | PUT | /problem-sets/{id}/items | admin/tutor/team_creator/team_admin | 编排题目：全量替换题单内列表；可编排题目 = 已发布且（全站公开 **或 本人私有**，admin 同权；与比赛编排同规则，草稿 / 归档 / 他人私有返回 1001）；同一题单内重复返回 3003 | items[{problem_id, sort_order}] | - |
 | POST | /problem-sets/{id}/archive | admin/tutor | 下线题单（`status='archived'`，退出题单中心；创建者 / 管理角色仍可直接访问详情） | - | problem_set |
 
-> 团队题单端点（`GET /teams/{team_id}/problem-sets` 等）随 teams 模块一并实现；
-> `team_id` 列与 CHECK 约束已按本契约落库（迁移 0018），teams 表建立后补 FK。
+> 团队题单端点已随 teams.md 团队空间节实现（创建（含可选复制来源）/ 编排 / 下线 /
+> 列表走 `/teams/{team_id}/problem-sets*` 独立端点）；`team_id` 列、CHECK 约束与
+> `referenced_at` 来源字段已落库（迁移 0018 / 0022 / 0029）。
 
 ## 当前基础前端页面
 
@@ -82,9 +94,9 @@ CHECK (
 | 错误码 | HTTP | 说明 |
 | --- | --- | --- |
 | 3001 | 404 | 题单不存在 |
-| 2003 | 403 | 越权管理非本人 / 非团队题单；私有 / 已下线题单对无权限者不可见 |
+| 2003 | 403 | 越权管理非本人 / 非团队题单；私有 / 已下线 / 团队题单对无权限者不可见 |
 | 3003 | 409 | 题目重复加入题单（同一题单内 problem_id 重复） |
-| 1001 | 400 | 团队题单暂未开放 / 编排含未发布或不可见题目 / 可见性非法 |
+| 1001 | 400 | 团队题单暂未开放 / 编排含未发布或不可见题目（含团队题目编入全站题单）/ 可见性非法 |
 
 ## 关键流程 / 验收条件
 
@@ -113,5 +125,6 @@ CHECK (
 
 - 已实现（迁移 0018）：全站题单端到端——题单中心列表 / 详情刷题页 / 创建 / 编辑 / 编排 / 下线；
   创建与编辑权限按契约收敛为 `admin/tutor`（团队角色待 teams 模块）
-- 待 teams 模块：团队题单（`team_id` / `visibility='team'` 列与约束已落库，应用层暂拒绝创建）；
-  团队题库题目（`team_id` 列落地后）加入团队题单的候选范围随之放开
+- 已实现（迁移 0029，随 teams.md 团队空间节）：团队题单（创建（含可选复制来源）/ 编排 /
+  下线 / 列表走团队端点；详情复用本模块端点并对团队成员放行）；
+  团队题目进入团队题单的编排候选随之放开；全站编排排除团队题目

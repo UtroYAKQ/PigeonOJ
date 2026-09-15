@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit import ExceptionLog, LoginLog, RequestLog
 from app.models.user import User
-from app.utils.geolocation import lookup_location
+from app.utils.geolocation import lookup_location_async
 from app.utils.request_meta import parse_user_agent
 
 
@@ -31,7 +31,7 @@ async def write_login_log(
             action=action,
             ip_address=ip_address,
             user_agent=user_agent,
-            location=lookup_location(ip_address),
+            location=await lookup_location_async(ip_address),
             success=success,
             reason=reason,
         )
@@ -63,7 +63,7 @@ async def write_request_log(
             user_id=user_id,
             ip_address=ip_address,
             user_agent=user_agent,
-            location=lookup_location(ip_address),
+            location=await lookup_location_async(ip_address),
             duration_ms=duration_ms,
             extra={"device": parse_user_agent(user_agent)},
         )

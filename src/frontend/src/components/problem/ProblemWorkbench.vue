@@ -60,7 +60,7 @@ const { isDesktop, splitRef, layoutStyle, startResize, resetSplit, updateSplitHe
 const collapsed = ref(true)
 const activeTab = ref<'result' | 'input'>('result')
 
-// 控制台为编辑器上方浮层，高度可上下拖拽（比例持久化，与分栏 composable 同款交互）
+// 控制台与编辑区上下排布（不遮挡代码）；开关钮统一承担「单击展开/收起」与「按住上下拖拽调高」（px 持久化，与分栏 composable 同款交互）
 const CONSOLE_H_KEY = 'pigeonoj.problems.consoleHeight.v2'
 const CONSOLE_H_DEFAULT = 440
 function loadConsoleHeight(): number {
@@ -69,34 +69,71 @@ function loadConsoleHeight(): number {
 }
 const consoleHeight = ref(loadConsoleHeight())
 const editorShellRef = ref<HTMLElement>()
+const consoleRef = ref<HTMLElement>()
 let resizingConsole = false
+// 开关钮按下后先「待判定」：位移超过阈值才算拖拽，否则抬起时按单击开关处理
+let toggleArmed = false
+let toggleStartY = 0
+const TOGGLE_DRAG_THRESHOLD = 3
+// 高度拖拽走「按下时实际高度 + 指针位移」的增量口径：
+// 收起态起拖从收起条高度平滑长出（不跳到持久化高度），展开态起拖顶缘同样跟手
+let dragBaseHeight = 0
+let heightBeforeDrag = CONSOLE_H_DEFAULT
 
-/** 顶缘拖拽带按下：进入高度拖拽（收起态下拖拽自动展开，变化即时可见） */
-function startConsoleResize(event: PointerEvent) {
+/** 开关钮按下：仅记录起点，是否进入拖拽由后续位移决定（见 onConsolePointerMove） */
+function onTogglePointerDown(event: PointerEvent) {
+  if (event.button !== 0) return
   event.preventDefault()
-  resizingConsole = true
-  collapsed.value = false
-  // 仅禁止文本选中，光标保持不变（用户要求拖拽无光标反馈）
-  document.body.classList.add('is-console-resizing')
+  toggleArmed = true
+  toggleStartY = event.clientY
 }
 
 function onConsolePointerMove(event: PointerEvent) {
+  if (toggleArmed && !resizingConsole) {
+    if (Math.abs(event.clientY - toggleStartY) < TOGGLE_DRAG_THRESHOLD) return
+    // 越过阈值进入高度拖拽：收起态自动展开
+    resizingConsole = true
+    heightBeforeDrag = consoleHeight.value
+    // 基准取此刻面板的真实渲染高度（收起态 = 收起条高度），保证展开瞬间无跳变
+    dragBaseHeight = consoleRef.value?.getBoundingClientRect().height ?? consoleHeight.value
+    collapsed.value = false
+    // 仅禁止文本选中，光标保持不变（用户要求拖拽无光标反馈）
+    document.body.classList.add('is-console-resizing')
+  }
   if (!resizingConsole || !editorShellRef.value) return
   const rect = editorShellRef.value.getBoundingClientRect()
-  const height = Math.round(rect.bottom - event.clientY)
-  // 下限保证可读；上限给编辑器留最小操作空间
-  consoleHeight.value = Math.min(Math.max(140, height), Math.max(200, Math.floor(rect.height) - 60))
+  // 拖拽中下限放宽到 40（跟手连续）；上限给编辑器留最小操作空间
+  const height = Math.round(dragBaseHeight + (toggleStartY - event.clientY))
+  consoleHeight.value = Math.min(Math.max(40, height), Math.max(200, Math.floor(rect.height) - 60))
 }
 
 function endConsoleResize() {
-  if (!resizingConsole) return
-  resizingConsole = false
-  document.body.classList.remove('is-console-resizing')
-  localStorage.setItem(CONSOLE_H_KEY, String(consoleHeight.value))
+  if (!toggleArmed) return
+  toggleArmed = false
+  if (resizingConsole) {
+    resizingConsole = false
+    document.body.classList.remove('is-console-resizing')
+    if (consoleHeight.value < 140) {
+      // 没拖出可读高度：视为取消——收回面板并还原拖前高度（收起态轻拖、展开态拖到底都走这里）
+      collapsed.value = true
+      consoleHeight.value = heightBeforeDrag
+    } else {
+      localStorage.setItem(CONSOLE_H_KEY, String(consoleHeight.value))
+    }
+    return
+  }
+  // 全程未拖动：按单击开关处理
+  collapsed.value = !collapsed.value
+}
+
+/** 键盘兜底：Enter/Space 触发的 click（detail=0）切换展开/收起；鼠标/触屏点击已由指针路径处理 */
+function onToggleClick(event: MouseEvent) {
+  if (event.detail === 0) collapsed.value = !collapsed.value
 }
 
 useEventListener(window, 'pointermove', onConsolePointerMove)
 useEventListener(window, 'pointerup', endConsoleResize)
+useEventListener(window, 'pointercancel', endConsoleResize)
 
 const canSelfTest = () => Boolean(code.value.trim()) && !props.selfTesting
 
@@ -150,7 +187,7 @@ watch(
   >
     <!-- 左栏：题面（独立滚动） -->
     <section class="problem-workbench__statement">
-      <n-card :bordered="false" class="statement-card" content-style="padding: 20px;">
+      <n-card :bordered="false" class="statement-card" content-style="padding: 10px 20px 20px;">
         <template #header>
           <ProblemMetaBar
             :problem="problem"
@@ -174,7 +211,7 @@ watch(
       @dblclick="resetSplit"
     />
 
-    <!-- 右栏：编辑器工作台 + 自测控制台浮层 -->
+    <!-- 右栏：编辑器工作台 + 自测控制台（上下排布） -->
     <section class="problem-workbench__editor">
       <div ref="editorShellRef" class="editor-shell">
         <div class="editor-toolbar">
@@ -193,20 +230,13 @@ watch(
           <CodeEditor v-model="code" :language="language" />
         </div>
 
-        <!-- 自测控制台：覆盖在编辑器之上的浮层，顶缘可拖拽调整高度 -->
+        <!-- 自测控制台：编辑区下方的常规流面板（上下布局），展开时编辑区让出高度而非被遮挡；
+             开关钮统一承担单击展开/收起与按住上下拖拽调高 -->
         <div
+          ref="consoleRef"
           class="console"
-          :class="{ 'console--collapsed': collapsed }"
           :style="collapsed ? undefined : { height: `${consoleHeight}px` }"
         >
-          <!-- 顶缘拖拽带：小线 + 面板边缘作为滑动判定区（中间切换钮浮于其上） -->
-          <div
-            class="console__resize"
-            role="separator"
-            aria-orientation="horizontal"
-            :aria-label="t('problems.detail.selfTestResizeHint')"
-            @pointerdown="startConsoleResize"
-          />
           <button
             type="button"
             class="console__toggle"
@@ -215,7 +245,8 @@ watch(
                 ? t('problems.detail.selfTestExpand')
                 : t('problems.detail.selfTestCollapse')
             "
-            @click="collapsed = !collapsed"
+            @pointerdown="onTogglePointerDown"
+            @click="onToggleClick"
           >
             <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
               <path
@@ -303,11 +334,19 @@ watch(
                     }}</span
                   >
                 </div>
-                <pre v-if="selfTestResult.error_message" class="console__stderr">{{
-                  selfTestResult.error_message
-                }}</pre>
-                <pre class="console__stdout">{{
-                  selfTestResult.output || t('problems.detail.noOutput')
+                <!-- 输出 / 报错共用一个展示框（有报错即无正常输出，互斥展示）；
+                     底色与自测输入框一致（卡片底 + 边框），报错仅文字转红 -->
+                <pre
+                  class="console__output"
+                  :class="{
+                    'console__output--error': selfTestResult.error_message,
+                    'console__output--empty':
+                      !selfTestResult.error_message && !selfTestResult.output,
+                  }"
+                  >{{
+                  selfTestResult.error_message ||
+                  selfTestResult.output ||
+                  t('problems.detail.noOutput')
                 }}</pre>
               </div>
             </template>
@@ -336,6 +375,10 @@ watch(
 }
 .statement-card {
   flex: 1;
+}
+/* 压缩 meta 条（卡片头）与题面首个分区（题目背景）之间的大间隔 */
+.statement-card :deep(.n-card-header) {
+  padding-bottom: 6px;
 }
 
 .problem-workbench__divider {
@@ -393,37 +436,18 @@ watch(
   flex: 1;
   min-height: 0;
 }
-.editor-shell {
-  position: relative;
-}
 
-/* 自测控制台：覆盖在编辑器之上的底部浮层，顶缘（小线 + 边缘）可拖拽调高 */
+/* 自测控制台：常规流内位于编辑区下方的面板（上下布局），
+   顶缘（小线 + 边缘）可拖拽调高；空间不足时按 flex 收缩规则压缩，不会溢出容器。
+   与编辑器的分隔由编辑器自身边框提供，无浮层阴影 */
 .console {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  /* 高于 Monaco 内部滚动条浮层（z-index:11），避免编辑器右侧滚动条压在自测弹窗上 */
+  position: relative;
+  /* 高于 Monaco 内部滚动条浮层（z-index:11），避免编辑器右侧滚动条压在自测面板上 */
   z-index: 20;
-  border-top: 1px solid var(--app-border);
   background: var(--app-card-bg);
-  box-shadow: 0 -6px 20px rgb(0 0 0 / 0.08);
-}
-.console--collapsed {
-  height: auto !important;
-}
-.console__resize {
-  position: absolute;
-  top: -8px;
-  left: 0;
-  right: 0;
-  height: 14px;
-  cursor: default;
-  touch-action: none;
-  z-index: 3;
 }
 /* 把手凹口：与面板轮廓融为一体的圆角顶部标签（同底色、边框延续），
-   点击切换展开/收起；凹口两侧的顶缘为拖拽区。无悬浮线、无光标/提示变化 */
+   单击切换展开/收起，按住上下拖拽调高（位移阈值区分意图）。无悬浮线、无光标变化 */
 .console__toggle {
   position: absolute;
   top: -13px;
@@ -440,6 +464,8 @@ watch(
   background: var(--app-card-bg);
   color: var(--app-text-muted);
   cursor: pointer;
+  /* 触屏按住拖拽调高需禁掉默认滚动手势 */
+  touch-action: none;
   z-index: 4;
 }
 .console__toggle svg {
@@ -513,8 +539,8 @@ watch(
   font-size: 12px;
   color: var(--app-text-secondary);
 }
-.console__stderr,
-.console__stdout {
+/* 输出 / 报错单框：底色与自测输入框一致（卡片底 + 边框），报错仅文字转红 */
+.console__output {
   flex: 1;
   margin: 0;
   overflow: auto;
@@ -522,18 +548,17 @@ watch(
   word-break: break-word;
   font-size: 12.5px;
   line-height: 1.55;
+  border: 1px solid var(--app-border);
   border-radius: var(--app-radius-sm, 4px);
   padding: 8px 10px;
   min-height: 0;
+  color: var(--app-text);
 }
-.console__stderr {
-  flex: 0 1 auto;
-  max-height: 45%;
+.console__output--error {
   color: var(--app-error);
-  background: color-mix(in srgb, var(--app-error) 8%, transparent);
 }
-.console__stdout {
-  background: var(--app-surface-muted);
+.console__output--empty {
+  color: var(--app-text-muted);
 }
 
 @media (max-width: 899px) {

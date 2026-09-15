@@ -20,9 +20,11 @@ from app.schemas.contest import (
     BoardOut,
     ContestCreate,
     ContestDetail,
+    ContestExtend,
     ContestSubmissionItem,
     ContestSummary,
     ContestUpdate,
+    FreezeTimeUpdate,
     MyContestItem,
     ScoreboardShowOut,
 )
@@ -100,7 +102,7 @@ async def list_contest_submissions(
     problem_id: uuid.UUID | None = Query(default=None),
     user: User = Depends(get_current_user),
 ) -> ApiResponse[PaginatedResponse[ContestSubmissionItem]]:
-    """比赛提交记录（管理角色随时可见，参赛者赛后开放）。
+    """比赛提交记录（管理角色随时可见，赛后向所有登录用户开放）。
 
     keyword 模糊匹配提交人昵称；language / status / problem_id 精确过滤。
     """
@@ -179,7 +181,7 @@ async def list_contest_problems(
     service: ContestServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[list]:
-    """比赛题目列表（已报名 + 开赛后；letter / 分值随行）。"""
+    """比赛题目列表（赛中报名者可见，赛后所有登录用户可见；letter / 分值随行）。"""
     items = await service.list_problems(user, contest_id)
     return ok(items)
 
@@ -253,8 +255,8 @@ async def get_contest_board(
     service: ContestServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[BoardOut]:
-    """榜单（封榜时按冻结快照展示；解冻由 admin/tutor 手动触发）。"""
-    return ok(await service.board(contest_id))
+    """榜单（封榜时按冻结快照展示；解冻由 admin/tutor 手动触发）。团队比赛限团队成员。"""
+    return ok(await service.board(contest_id, user))
 
 
 @router.post("/{contest_id}/unfreeze", response_model=ApiResponse[ContestSummary])
@@ -282,6 +284,36 @@ async def update_contest_announcement(
     """更新比赛公告（管理角色；赛时允许，空字符串 = 清空）。"""
     summary = await service.update_announcement(user, contest_id, body)
     await db.commit()  # 显式提交：确保数据持久化
+    return ok(summary)
+
+
+@router.post("/{contest_id}/extend", response_model=ApiResponse[ContestSummary])
+async def extend_contest(
+    contest_id: uuid.UUID,
+    body: ContestExtend,
+    service: ContestServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ContestSummary]:
+    """赛时延时（管理角色）：新结束时间必须晚于当前结束时间；已结束则重新开赛。"""
+    summary = await service.extend(user, contest_id, body)
+    await db.commit()
+    return ok(summary)
+
+
+@router.put("/{contest_id}/freeze-time", response_model=ApiResponse[ContestSummary])
+async def update_contest_freeze_time(
+    contest_id: uuid.UUID,
+    body: FreezeTimeUpdate,
+    service: ContestServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ContestSummary]:
+    """调整封榜时间（管理角色；未封榜时可改；null = 取消封榜）。"""
+    summary = await service.update_freeze_time(user, contest_id, body)
+    await db.commit()
+    if summary.board_frozen:
+        await service.invalidate_board_cache(contest_id)
     return ok(summary)
 
 

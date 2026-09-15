@@ -31,7 +31,7 @@ export const frontRoutes: RouteRecordRaw[] = [
           titleKey: 'problems.detail.title',
           requiresAuth: true,
           hidden: true,
-          contextPage: true
+          contextPage: true,
         },
       },
       {
@@ -249,6 +249,404 @@ export const frontRoutes: RouteRecordRaw[] = [
           contextPage: true,
           keepAlive: true,
           breadcrumbParent: { titleKey: 'nav.teams', path: '/teams/mine' },
+        },
+      },
+      {
+        // 团队题单创建页：新建 / 引用我的题单（引用 tab 仅 tutor / admin）
+        path: ':teamId/sets/new',
+        name: 'team-set-create',
+        component: () => import('@/views/teams/TeamSetCreateView.vue'),
+        meta: {
+          title: '新建题单',
+          titleKey: 'teams.space.createSet',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队题目引用页：团队题目 = 引用制（tutor / admin 引用本人题目）
+        path: ':teamId/problems/new',
+        name: 'team-problem-reference',
+        component: () => import('@/views/teams/TeamProblemReferenceView.vue'),
+        meta: {
+          title: '引用题目',
+          titleKey: 'teams.space.referenceProblem',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队比赛创建页：精简表单，编排题目在比赛编辑页进行
+        path: ':teamId/contests/new',
+        name: 'team-contest-create',
+        component: () => import('@/views/teams/TeamContestCreateView.vue'),
+        meta: {
+          title: '创建比赛',
+          titleKey: 'teams.space.createContest',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        path: ':teamId/contests/:cid/tools',
+        name: 'team-contest-tools',
+        component: () => import('@/views/admin/AdminContestToolsView.vue'),
+        meta: {
+          title: '赛时工具',
+          titleKey: 'contests.tools.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        path: ':teamId/contests/:cid/edit/basic',
+        name: 'team-contest-edit-basic',
+        component: () => import('@/views/admin/AdminContestBasicView.vue'),
+        meta: {
+          title: '编辑比赛',
+          titleKey: 'contests.list.editTitle',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        path: ':teamId/contests/:cid/edit/problems',
+        name: 'team-contest-edit-problems',
+        component: () => import('@/views/admin/AdminContestArrangeView.vue'),
+        meta: {
+          title: '编排题目',
+          titleKey: 'contests.wizard.arrange',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队比赛详情（限界上下文：路由隔离；数据仍复用比赛统一端点并叠加团队门控）
+        path: ':teamId/contests/:cid',
+        name: 'team-contest-detail',
+        component: () => import('@/views/contests/ContestDetailView.vue'),
+        meta: {
+          title: '比赛详情',
+          titleKey: 'contests.detail.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队比赛内题目详情：面包屑 团队 / 比赛详情 / 题目详情
+        path: ':teamId/contests/:cid/problems/:problemId',
+        name: 'team-contest-problem',
+        component: () => import('@/views/problems/ProblemDetailView.vue'),
+        meta: {
+          title: '题目详情',
+          titleKey: 'problems.detail.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: [
+            {
+              titleKey: 'teams.detail.title',
+              path: (route) => `/teams/${String(route.params.teamId)}`,
+            },
+            {
+              titleKey: 'contests.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}`,
+            },
+          ],
+        },
+      },
+      {
+        // 团队比赛内题目评测结果
+        path: ':teamId/contests/:cid/problems/:problemId/submissions/:id',
+        name: 'team-contest-problem-submission',
+        component: () => import('@/views/problems/SubmissionView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: [
+            {
+              titleKey: 'teams.detail.title',
+              path: (route) => `/teams/${String(route.params.teamId)}`,
+            },
+            {
+              titleKey: 'contests.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}`,
+            },
+            {
+              titleKey: 'problems.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}/problems/${String(route.params.problemId)}`,
+            },
+          ],
+        },
+      },
+      {
+        // 团队比赛提交记录的评测结果
+        path: ':teamId/contests/:cid/submissions/:sid',
+        name: 'team-contest-submission-detail',
+        component: () => import('@/views/contests/ContestSubmissionView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: [
+            {
+              titleKey: 'teams.detail.title',
+              path: (route) => `/teams/${String(route.params.teamId)}`,
+            },
+            {
+              titleKey: 'contests.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/contests/${String(route.params.cid)}`,
+            },
+          ],
+        },
+      },
+      {
+        // 团队题单编排（与后台题单详情同款页面；候选源走团队 arrangeable 端点）
+        path: ':teamId/sets/:setId/arrange',
+        name: 'team-set-arrange',
+        component: () => import('@/views/admin/AdminProblemSetDetailView.vue'),
+        meta: {
+          title: '编排题目',
+          titleKey: 'problemSets.detail.arrangeTitle',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队题单详情（限界上下文：读 / 交题 / 自测均走团队端点，不走题单统一入口）
+        // 复用题单详情组件，按上下文取参（route.params.teamId 分派团队端点与路由）
+        path: ':teamId/sets/:setId',
+        name: 'team-set-detail',
+        component: () => import('@/views/problemsets/ProblemSetDetailView.vue'),
+        meta: {
+          title: '团队题单详情',
+          titleKey: 'problemSets.detail.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队题单内题目详情（复用题库详情组件；上下文取参 + 团队 API 分派）
+        path: ':teamId/sets/:setId/problems/:problemId',
+        name: 'team-set-problem',
+        component: () => import('@/views/problems/ProblemDetailView.vue'),
+        meta: {
+          title: '题目详情',
+          titleKey: 'problems.detail.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: [
+            {
+              titleKey: 'teams.detail.title',
+              path: (route) => `/teams/${String(route.params.teamId)}`,
+            },
+            {
+              titleKey: 'problemSets.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/sets/${String(route.params.setId)}`,
+            },
+          ],
+        },
+      },
+      {
+        // 团队题单内评测结果
+        path: ':teamId/sets/:setId/problems/:problemId/submissions/:id',
+        name: 'team-set-problem-submission',
+        component: () => import('@/views/problems/SubmissionView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: [
+            {
+              titleKey: 'teams.detail.title',
+              path: (route) => `/teams/${String(route.params.teamId)}`,
+            },
+            {
+              titleKey: 'problemSets.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/sets/${String(route.params.setId)}`,
+            },
+            {
+              titleKey: 'problems.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/sets/${String(route.params.setId)}/problems/${String(route.params.problemId)}`,
+            },
+          ],
+        },
+      },
+      {
+        // 团队题目直建向导（第一步题面）：POST /problems 带 team_id（团队可见性分支）
+        path: ':teamId/problems/create',
+        name: 'team-problem-create',
+        component: () => import('@/views/problems/ProblemStatementView.vue'),
+        meta: {
+          title: '创建题目',
+          titleKey: 'problems.create.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队题目编辑向导第一步（题面）：回读 / 更新走团队端点（豁免题库可见性）
+        path: ':teamId/problems/:id/edit/statement',
+        name: 'team-problem-edit-statement',
+        component: () => import('@/views/problems/ProblemStatementView.vue'),
+        meta: {
+          title: '编辑题目',
+          titleKey: 'problems.create.editTitle',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队题目向导第二步：样例与测试点（回读走团队端点，豁免题库可见性）
+        path: ':teamId/problems/:id/edit/cases',
+        name: 'team-problem-edit-cases',
+        component: () => import('@/views/problems/ProblemCasesView.vue'),
+        meta: {
+          title: '样例与测试点',
+          titleKey: 'problems.wizard.cases',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队题目向导第三步：验题与发布
+        path: ':teamId/problems/:id/edit/verify',
+        name: 'team-problem-edit-verify',
+        component: () => import('@/views/problems/ProblemVerifyView.vue'),
+        meta: {
+          title: '验题与发布',
+          titleKey: 'problems.wizard.verifyPublish',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        // 团队题库上下文的写题页：复用题库详情组件，交题 / 评测结果均不跳出团队
+        path: ':teamId/problems/:problemId',
+        name: 'team-problem',
+        component: () => import('@/views/problems/ProblemDetailView.vue'),
+        meta: {
+          title: '题目详情',
+          titleKey: 'problems.detail.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: {
+            titleKey: 'teams.detail.title',
+            path: (route) => `/teams/${String(route.params.teamId)}`,
+          },
+        },
+      },
+      {
+        path: ':teamId/problems/:problemId/submissions/:id',
+        name: 'team-problem-submission',
+        component: () => import('@/views/problems/SubmissionView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: [
+            {
+              titleKey: 'teams.detail.title',
+              path: (route) => `/teams/${String(route.params.teamId)}`,
+            },
+            {
+              titleKey: 'problems.detail.title',
+              path: (route) =>
+                `/teams/${String(route.params.teamId)}/problems/${String(route.params.problemId)}`,
+            },
+          ],
         },
       },
     ],

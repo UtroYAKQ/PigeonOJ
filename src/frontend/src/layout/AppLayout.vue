@@ -70,17 +70,9 @@ const cacheScope = computed(() => userStore.user?.id ?? 'anon')
         -->
         <router-view v-slot="{ Component, route }" :key="cacheScope">
           <keep-alive :max="8">
-            <component
-              :is="Component"
-              v-if="route.meta.keepAlive"
-              :key="route.fullPath"
-            />
+            <component :is="Component" v-if="route.meta.keepAlive" :key="route.fullPath" />
           </keep-alive>
-          <component
-            :is="Component"
-            v-if="!route.meta.keepAlive"
-            :key="route.fullPath"
-          />
+          <component :is="Component" v-if="!route.meta.keepAlive" :key="route.fullPath" />
         </router-view>
       </main>
       <footer v-if="appStore.siteConfig.icp" class="app-footer">

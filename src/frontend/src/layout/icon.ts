@@ -2,12 +2,14 @@
  * 侧边栏 / 二级菜单图标映射：meta.icon 字符串 → Element Plus 图标组件。
  */
 import {
+  Aim,
   Collection,
   Document,
   HomeFilled,
   Lock,
   Monitor,
   Odometer,
+  Picture,
   PriceTag,
   Setting,
   Trophy,
@@ -30,6 +32,8 @@ export const iconMap: Record<string, Component> = {
   Document,
   Warning,
   PriceTag,
+  Aim,
+  Picture,
 }
 
 export function resolveIcon(name?: string): Component | null {

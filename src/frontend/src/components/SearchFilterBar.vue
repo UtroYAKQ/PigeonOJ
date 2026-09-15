@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { Search as SearchIcon } from '@element-plus/icons-vue'
-import { useDebounceFn } from '@vueuse/core'
-import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 // showSearch 必须显式给默认值 true：Boolean prop 缺省时会被 Vue 强转为 false（而非 undefined），
 // 「未传 = 显示」的语义必须经 withDefaults 落实，否则搜索输入框永远不渲染
-const props = withDefaults(
+withDefaults(
   defineProps<{
     /** 搜索关键词 v-model */
     keyword?: string
@@ -14,12 +12,10 @@ const props = withDefaults(
     placeholder?: string
     /** 搜索框宽度（默认 240px） */
     searchWidth?: string
-    /** 是否显示搜索框（默认 true） */
+    /** 是否显示搜索框与查询按钮（默认 true） */
     showSearch?: boolean
-    /** true = 手动模式：输入不触发查询，展示「查询」按钮（点击 / 回车 → search） */
-    manual?: boolean
   }>(),
-  { searchWidth: '240px', showSearch: true, manual: false },
+  { searchWidth: '240px', showSearch: true },
 )
 
 const emit = defineEmits<{
@@ -30,21 +26,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-// 中文输入法组词过程不触发搜索（compositionend 后再统一触发）
-const composing = ref(false)
-// 300ms 防抖：连续输入只触发一次 search（useDebounceFn 自动取消前次未触发的调用，卸载自动清理）
-const scheduleSearch = useDebounceFn(() => emit('search'), 300)
-function onCompositionStart() {
-  composing.value = true
-}
-function onCompositionEnd() {
-  composing.value = false
-  if (!props.manual) scheduleSearch()
-}
-function onInput(value: string) {
-  emit('update:keyword', value)
-  if (!composing.value && !props.manual) scheduleSearch()
-}
+// 搜索统一手动触发（docs/frontend.md「表格工作台」）：输入只同步关键词，
+// 点击「查询」或回车才发起；清空（X）立即按空关键词重查
 </script>
 
 <template>
@@ -56,9 +39,7 @@ function onInput(value: string) {
       class="search-filter-bar__search"
       :style="{ width: searchWidth }"
       :placeholder="placeholder"
-      @input="onInput"
-      @compositionstart="onCompositionStart"
-      @compositionend="onCompositionEnd"
+      @input="(v: string) => emit('update:keyword', v)"
       @keyup.enter="$emit('search')"
       @clear="$emit('reset')"
     >
@@ -66,9 +47,9 @@ function onInput(value: string) {
         <n-icon size="15"><SearchIcon /></n-icon>
       </template>
     </n-input>
-    <!-- 手动模式：查询作用于全部条件，按钮置于筛选组末尾收尾（而非插在关键词后） -->
+    <!-- 查询作用于全部条件，按钮置于筛选组末尾收尾（而非插在关键词后） -->
     <slot />
-    <n-button v-if="manual && showSearch" type="primary" @click="$emit('search')">
+    <n-button v-if="showSearch" type="primary" @click="$emit('search')">
       {{ t('action.search') }}
     </n-button>
     <div class="search-filter-bar__spacer" />

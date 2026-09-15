@@ -55,16 +55,32 @@ html.dark .monaco-editor .suggest-widget {
   color: var(--app-text-muted);
 }
 
-/* 匹配片段高亮（主题已设 highlightForeground，这里兜底） */
+/* 匹配片段高亮（主题 highlightForeground 同源）：
+   light 用主色 pressed 深橙（#f4511e 白底对比 3.5:1 偏浅）、dark 用 GitHub dark 橙；
+   加粗强化，保证输入时匹配字符一眼可辨 */
 .monaco-editor .suggest-widget .monaco-list-row .highlight {
-  color: var(--app-primary);
+  color: #d84315;
+  font-weight: 600;
+}
+html.dark .monaco-editor .suggest-widget .monaco-list-row .highlight {
+  color: #ffa657;
+}
+/* 聚焦行（当前选中项）匹配高亮：Monaco 0.52+ 拆分 focusHighlightForeground，
+   未覆盖时继承基础主题浅青蓝默认值，这里与主题键双保险（!important 压内部规则） */
+.monaco-editor .suggest-widget .monaco-list-row.focused .highlight {
+  color: #d84315 !important;
+}
+html.dark .monaco-editor .suggest-widget .monaco-list-row.focused .highlight {
+  color: #ffa657 !important;
 }
 
-/* 右侧类型标签 / detail：弱化、略小 */
+/* 右侧类型标签 / detail：text-muted（#8a9099 / 45% 白）过浅，升为次要文本色；
+   opacity 兜底压过 Monaco 内部可能存在的透明度削弱 */
 .monaco-editor .suggest-widget .monaco-list-row .label-description,
 .monaco-editor .suggest-widget .monaco-list-row .type-label {
-  color: var(--app-text-muted);
+  color: var(--app-text-secondary);
   font-size: 12px;
+  opacity: 1 !important;
 }
 
 /* 文档说明面板 */

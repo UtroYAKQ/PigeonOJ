@@ -115,8 +115,24 @@ export function unfreezeContestBoard(id: string): Promise<ContestSummary> {
 }
 
 /** 更新比赛公告（管理角色，赛时可改；空字符串 = 清空） */
-export function updateContestAnnouncement(id: string, announcement: string): Promise<ContestSummary> {
+export function updateContestAnnouncement(
+  id: string,
+  announcement: string,
+): Promise<ContestSummary> {
   return apiRequest('PUT', `/contests/${id}/announcement`, { announcement })
+}
+
+/** 赛时延时：新结束时间必须晚于当前结束时间；已结束则重新开赛 */
+export function extendContest(id: string, endTime: string): Promise<ContestSummary> {
+  return apiRequest('POST', `/contests/${id}/extend`, { end_time: endTime })
+}
+
+/** 调整封榜时间（未封榜时可改；null = 取消封榜） */
+export function updateContestFreezeTime(
+  id: string,
+  freezeTime: string | null,
+): Promise<ContestSummary> {
+  return apiRequest('PUT', `/contests/${id}/freeze-time`, { freeze_time: freezeTime })
 }
 
 /** 滚榜数据（管理角色专用，只读不解冻）：快照榜 + 最终榜 + 封榜期揭晓序列 */

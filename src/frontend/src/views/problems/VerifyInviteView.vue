@@ -8,6 +8,7 @@ import { resolveVerifyInvite } from '@/api/problems'
 import { createSubmission } from '@/api/judge'
 import type { ProblemLanguage } from '@/types'
 import { useUserStore } from '@/stores/user'
+import { useAppStore } from '@/stores/app'
 import { dialog, message } from '@/utils/feedback'
 import { useSplitPane } from '@/composables/useSplitPane'
 import { languageOptions } from '@/constants/languages'
@@ -35,6 +36,7 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const userStore = useUserStore()
+const appStore = useAppStore()
 
 // 与题库详情页同款可拖拽分栏（比例共享持久化；窄屏自动上下堆叠）
 const { isDesktop, splitRef, layoutStyle, startResize, resetSplit } = useSplitPane()
@@ -98,7 +100,7 @@ function submit() {
 <template>
   <div class="verify-page">
     <header class="verify-brand" @click="router.push('/')">
-      <span>🐦</span><strong>PigeonOJ</strong>
+      <span>🐦</span><strong>{{ appStore.siteName }}</strong>
     </header>
 
     <n-spin :show="resolving">

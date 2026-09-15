@@ -1,4 +1,4 @@
-﻿﻿<p align="center">
+﻿<p align="center">
   <img alt="Docs First" src="https://img.shields.io/badge/Docs--First-blue?style=flat-square" />
   <img alt="OJ + AI" src="https://img.shields.io/badge/OJ%20%2B%20AI-teal?style=flat-square" />
   <img alt="Platform" src="https://img.shields.io/badge/Type-Platform-purple?style=flat-square" />
@@ -32,7 +32,7 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 
 ## 快速开始
 
-- **Windows 一键启动（推荐）**：双击根目录 `run-local.bat` —— 自动拉起 PostgreSQL / MinIO / Redis，构建沙箱基础层与判题节点镜像并启动 1 个本地判题节点，执行数据库迁移与演示账号引导，随后弹出后端（8000）与前端（5173）窗口。
+- **Windows 一键启动（推荐）**：双击根目录 `run-local.bat` —— 自动拉起 PostgreSQL / MinIO / Redis，检测并安装缺失的前后端依赖，判题节点镜像缺失时才构建，并在独立窗口启动 1 个本地判题节点，执行数据库迁移与演示账号引导，随后弹出后端（默认 8000，可经 `.env` 的 `SERVER_PORT` 覆盖）与前端（5173）窗口。
 - **生产环境**（后端 + 前端 + 基础设施）：
 
   ```bash

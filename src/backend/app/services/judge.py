@@ -1,6 +1,7 @@
 """判题域服务：提交创建、历史查询、详情、用户自测。"""
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 
@@ -17,10 +18,11 @@ from app.core.exceptions import (
 from app.core.redis import get_redis
 from app.core.storage import get_storage
 from app.models.judge import SandboxConfig, Submission, SubmissionTestCaseResult
-from app.models.problem import TestCase
+from app.models.problem import Problem, TestCase
 from app.repositories.judge import JudgeRepository, SubmissionRepository, TestCaseRepository
 from app.repositories.problem import ProblemRepository
 from app.schemas.judge import (
+    AdminSubmissionItem,
     ProblemSubmissionItem,
     SelfTestRequest,
     SubmissionCreate,
@@ -32,11 +34,16 @@ from app.schemas.judge import (
 from app.services.problem import (
     can_manage_problem,
     get_problem,
+    judged_case_ids,
 )
 from app.services.system_config import ConfigService
 
 # 自测冷却 Redis Key 前缀（docs/operations.md Redis 约定；存在即冷却中）
 _SELFTEST_COOLDOWN_KEY_PREFIX = "judge:selftest:"
+
+# 提交详情逐测试点程序输出并发拉取上限（对象存储往返；串行随测试点数线性恶化，
+# 限并发既压平延迟又避免瞬时打满 MinIO 连接）
+_CASE_OUTPUT_CONCURRENCY = 8
 
 
 @dataclass(frozen=True)
@@ -65,15 +72,26 @@ class SelfTestService:
         self.problems = ProblemRepository(db)
         self.config_service = ConfigService(db)
 
-    async def create_order(self, user: object, problem_id: uuid.UUID, body: SelfTestRequest) -> SelfTestOrder:
-        """校验并组装自测派发载荷：404 / 403（可见性）/ 1001（语言白名单）。"""
+    async def create_order(
+        self,
+        user: object,
+        problem_id: uuid.UUID,
+        body: SelfTestRequest,
+        *,
+        bypass_visibility: bool = False,
+    ) -> SelfTestOrder:
+        """校验并组装自测派发载荷：404 / 403（可见性）/ 1001（语言白名单）。
+
+        bypass_visibility 供团队空间等引用上下文使用（各自门控通过后豁免题库裸路径校验）。
+        """
         problem = await get_problem(self.db, problem_id)
         # 与题目详情页同一访问规则：已发布 或 具备管理权限；私有题额外要求创建者 / admin
-        # （题库裸路径严格校验；题单 / 比赛上下文经各自门控豁免）
+        # （题库裸路径严格校验；题单 / 比赛 / 团队上下文经各自门控豁免）
         if problem.status != ProblemStatus.PUBLISHED and not await can_manage_problem(self.db, user, problem):
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         if (
-            problem.visibility != ProblemVisibility.PUBLIC
+            not bypass_visibility
+            and problem.visibility != ProblemVisibility.PUBLIC
             and not await can_manage_problem(self.db, user, problem)
         ):
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
@@ -88,7 +106,7 @@ class SelfTestService:
             problem=problem,
             sandbox_config=config,
             cooldown_seconds=int(
-                await self.config_service.get_value("sandbox", "sandbox.cooldown_seconds", 10)
+                await self.config_service.get_value("sandbox", "sandbox.cooldown_seconds", 2)
             ),
             max_concurrent=int(
                 await self.config_service.get_value("sandbox", "sandbox.judge_concurrency", 8)
@@ -180,6 +198,35 @@ class SubmissionService:
         rows, total = await self.list_for_user(user, query)
         return [SubmissionSummary.model_validate(row) for row in rows], total
 
+    async def list_admin_summaries(
+        self, *, submit_type: str | None, user_id: uuid.UUID | None,
+        problem_id: uuid.UUID | None, status: str | None, language: str | None,
+        keyword: str | None, page: int, page_size: int,
+    ) -> tuple[list[AdminSubmissionItem], int]:
+        """全站提交面板（admin 专用，docs/contracts/admin.md）：跨题目 / 跨用户，
+        submit_type / user_id / problem_id / status / language 精确过滤，keyword 模糊匹配昵称。"""
+        rows, title_map, total = await self.submissions.list_all_for_admin(
+            submit_type=submit_type, user_id=user_id, problem_id=problem_id,
+            status=status, language=language, keyword=keyword, page=page, page_size=page_size,
+        )
+        return [
+            AdminSubmissionItem(
+                id=submission.id,
+                problem_id=submission.problem_id,
+                problem_title=title_map.get(submission.problem_id),
+                user_id=submission.user_id,
+                nickname=user_row.nickname,
+                language=submission.language,
+                submit_type=submission.submit_type,
+                status=submission.status,
+                score=submission.score,
+                time_used_ms=submission.time_used_ms,
+                memory_used_kb=submission.memory_used_kb,
+                created_at=submission.created_at,
+            )
+            for submission, user_row in rows
+        ], total
+
     async def list_problem_summaries(
         self, user: object, problem_id: uuid.UUID, status: str | None, keyword: str | None,
         language: str | None, submit_type: str | None, page: int, page_size: int,
@@ -231,33 +278,47 @@ class SubmissionService:
         return await self.build_detail(submission)
 
     async def build_detail(self, submission: Submission) -> SubmissionDetailOut:
-        """装配提交详情（含代码、逐测试点明细；访问控制由调用方完成）。"""
+        """装配提交详情（含代码、逐测试点明细；访问控制由调用方完成）。
+
+        测试点按判定集（active_case_ids；验题提交优先暂存集）列表顺序展示，
+        与派发执行顺序及测试点编辑页一致；结果行主键为随机 UUID，
+        按 id 排序会乱序（回归修复）。sort_order 列在纯调序后可能滞后，
+        不作为排序依据；不在集合内的历史行（测试点已被替换 / 删除）按落库顺序排尾。
+        """
         storage = get_storage()
         results = list(
             (
                 await self.db.execute(
                     select(SubmissionTestCaseResult)
                     .where(SubmissionTestCaseResult.submission_id == submission.id)
-                    .order_by(SubmissionTestCaseResult.id)
+                    .order_by(SubmissionTestCaseResult.created_at, SubmissionTestCaseResult.id)
                 )
             ).scalars()
         )
+        position_by_case = await self._judged_case_position(submission)
+        results.sort(key=lambda r: position_by_case.get(r.test_case_id, len(position_by_case)))
         case_ids = [r.test_case_id for r in results if r.test_case_id]
         name_by_id: dict[uuid.UUID, str | None] = (
             dict((await self.db.execute(select(TestCase.id, TestCase.name).where(TestCase.id.in_(case_ids)))).all())
             if case_ids
             else {}
         )
-        cases = []
-        for r in results:
-            output = None
-            if r.output:
+        # 逐点程序输出并发拉取（受限并发）：串行 await 使详情延迟随测试点数线性增长
+        semaphore = asyncio.Semaphore(_CASE_OUTPUT_CONCURRENCY)
+
+        async def _fetch_output(key: str | None) -> str | None:
+            if not key:
+                return None
+            async with semaphore:
                 try:
-                    raw, _ = await storage.get_bytes(r.output)
-                    output = raw.decode("utf-8", errors="replace")
+                    raw, _ = await storage.get_bytes(key)
+                    return raw.decode("utf-8", errors="replace")
                 except Exception:
-                    output = None
-            cases.append(TestCaseResult(
+                    return None
+
+        outputs = await asyncio.gather(*(_fetch_output(r.output) for r in results))
+        cases = [
+            TestCaseResult(
                 id=r.id,
                 case_name=name_by_id.get(r.test_case_id),
                 status=r.status,
@@ -265,10 +326,27 @@ class SubmissionService:
                 memory_used_kb=r.memory_used_kb,
                 score=r.score,
                 output=output,
-            ))
+                message=r.message,
+            )
+            for r, output in zip(results, outputs, strict=True)
+        ]
         detail = SubmissionDetailOut.model_validate(submission)
         detail.cases = cases
         return detail
+
+    async def _judged_case_position(self, submission: Submission) -> dict[uuid.UUID, int]:
+        """测试点 id → 判定集内位置。验题提交暂存集优先、生效集兜底
+        （暂存晋升后 pending 清空，判题时的暂存点即现生效点）。"""
+        problem = await self.db.get(Problem, submission.problem_id)
+        if problem is None:
+            return {}
+        if submission.submit_type == SubmitType.VERIFY:
+            ids = judged_case_ids(problem, verify=True)
+            known = set(ids)
+            ids += [cid for cid in judged_case_ids(problem, verify=False) if cid not in known]
+        else:
+            ids = judged_case_ids(problem, verify=False)
+        return {cid: idx for idx, cid in enumerate(ids)}
 
     async def create_verify_submission(self, user: object, problem_id: uuid.UUID, body: object) -> Submission:
         from app.services.problem import get_pending_verification, attach_verification_code

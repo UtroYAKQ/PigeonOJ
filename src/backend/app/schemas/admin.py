@@ -29,6 +29,13 @@ class StatusReasonRequest(BaseModel):
     reason: str | None = None
 
 
+class FreezeRequest(BaseModel):
+    """冻结请求：冻结 = 短时封禁（duration_minutes 分钟后自动恢复，1-10080；缺省 15 分钟）。"""
+
+    reason: str | None = None
+    duration_minutes: int = Field(default=15, ge=1, le=7 * 24 * 60)
+
+
 class ReportHandleRequest(BaseModel):
     action: ReportAction
 
@@ -64,6 +71,27 @@ class RequestLogOut(BaseModel):
     device: dict | None = None
     duration_ms: int | None
     created_at: str
+
+    @field_validator("ip_address", mode="before")
+    @classmethod
+    def coerce_ip(cls, v):
+        return str(v) if v is not None else None
+
+
+class OnlineUserOut(BaseModel):
+    """在线用户面板条目（每活跃会话一行；同设备去重下即每在线设备一个在线用户）。"""
+
+    user_id: uuid.UUID
+    nickname: str
+    email: str
+    avatar_url: str | None = None
+    role: str | None = None
+    status: str
+    device_info: str | None = None
+    ip_address: str | None = None
+    location: str | None = None
+    last_active_at: datetime
+    session_created_at: datetime
 
     @field_validator("ip_address", mode="before")
     @classmethod
@@ -135,6 +163,14 @@ class SandboxNodeOut(BaseModel):
     last_heartbeat_at: str
 
 
+class SiteBanner(BaseModel):
+    """首页轮播海报项（site.banners 配置项元素；image 必填，title / link 可选）。"""
+
+    image: str
+    title: str = ""
+    link: str = ""
+
+
 class SitePublicConfig(BaseModel):
     """公开站点配置（GET /site-config）。"""
 
@@ -144,6 +180,8 @@ class SitePublicConfig(BaseModel):
     default_theme: str
     register_enabled: bool
     email_verify_enabled: bool
+    banners: list[SiteBanner] = []
+    announcement: str = ""
 
 
 class EmailCodePolicy(BaseModel):

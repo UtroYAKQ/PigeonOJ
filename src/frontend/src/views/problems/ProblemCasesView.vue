@@ -1,16 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
-import { getProblem, getProblemTestCases, patchTestCases, replaceSamples } from '@/api/problems'
-import { message } from '@/utils/feedback'
-import type {
-  ProblemDetail,
-  ProblemTestCase,
-  TestCaseDraft,
-  TestCaseUpsertPayload,
-} from '@/types'
+import { deleteProblemSpj, getProblem, getProblemSpj, getProblemTestCases, patchTestCases, replaceProblemSpj, replaceSamples } from '@/api/problems'
+import { getTeamProblem } from '@/api/teams'
+import { dialog, message } from '@/utils/feedback'
+import type { ProblemDetail, ProblemTestCase, TestCaseDraft, TestCaseUpsertPayload } from '@/types'
 import TestCaseImporter from '@/components/problem/TestCaseImporter.vue'
 import WizardShell from '@/components/WizardShell.vue'
 
@@ -20,10 +16,22 @@ const { t } = useI18n()
 const saving = ref(false)
 const loading = ref(false)
 const problemId = String(route.params.id)
+/** 团队上下文：回读走团队端点（豁免题库可见性），步骤跳转回团队路由 */
+const teamId = route.params.teamId ? String(route.params.teamId) : null
+const isTeam = teamId !== null
 
 const cases = ref<TestCaseDraft[]>([])
 /** 展示样例（problems.samples；仅展示与自测，不参与判题；explanation 为选填样例解释） */
 const samples = ref<Array<{ input: string; output: string; explanation: string }>>([])
+
+/** SPJ 特判程序（docs/contracts/problems.md「SPJ 特判程序」）：
+ * 编辑的是暂存集（验题通过后随 apply 晋升生效） */
+const spjCode = ref('')
+const spjSaving = ref(false)
+/** 服务器端目标状态基线：null = 目标状态无特判程序 */
+const spjBaseline = ref<string | null>(null)
+const spjStaged = ref(false)
+const spjDirty = computed(() => spjCode.value !== (spjBaseline.value ?? ''))
 
 function addCase() {
   cases.value.push({
@@ -57,7 +65,10 @@ function normalize() {
 async function loadExisting() {
   loading.value = true
   try {
-    const loaded: ProblemDetail = await getProblem(problemId)
+    // 团队题目经团队上下文端点回读（题库裸路径按可见性拦截，docs/contracts/teams.md）
+    const loaded: ProblemDetail = await (isTeam
+      ? getTeamProblem(teamId!, problemId)
+      : getProblem(problemId))
     if (!loaded.can_manage) throw new Error(t('problems.create.noPermission'))
     // 测试点走独立管理端点（详情不再携带）
     const caseList = await getProblemTestCases(problemId)
@@ -75,12 +86,17 @@ async function loadExisting() {
       output: item.output,
       explanation: item.explanation ?? '',
     }))
+    // SPJ 目标状态回读（暂存优先；code=null 表示目标状态无特判程序）
+    const spj = await getProblemSpj(problemId)
+    spjCode.value = spj.code ?? ''
+    spjBaseline.value = spj.code
+    spjStaged.value = spj.staged
     // 记录服务器端基线快照，保存时按行 diff 只提交变化的测试点
     serverCases = caseList.cases ?? []
     serverSamples = samples.value.map((item) => ({ ...item }))
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
-    router.push('/admin/problems')
+    router.push(isTeam ? `/teams/${teamId}` : '/admin/problems')
   } finally {
     loading.value = false
   }
@@ -127,7 +143,46 @@ function diffCases(validCases: TestCaseDraft[]): {
   return { upserts, delete_ids }
 }
 
-/** 持久化样例 + 测试点；成功返回 true */
+/** 持久化特判程序（按基线 diff 决定 PUT / DELETE；无改动跳过）；成功返回 true */
+async function saveSpj(): Promise<boolean> {
+  if (!spjDirty.value) return true
+  spjSaving.value = true
+  try {
+    if (spjCode.value.trim()) {
+      await replaceProblemSpj(problemId, spjCode.value)
+      spjBaseline.value = spjCode.value
+      spjStaged.value = true
+      message.success(t('problems.create.spjSaved'))
+    } else if (spjBaseline.value !== null) {
+      await deleteProblemSpj(problemId)
+      spjBaseline.value = null
+      spjStaged.value = true
+      message.success(t('problems.create.spjRemoved'))
+    }
+    return true
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.saveFailed'))
+    return false
+  } finally {
+    spjSaving.value = false
+  }
+}
+
+/** 移除特判程序：确认后清空并立即写暂存移除（apply 晋升后生效集才真正置空） */
+function removeSpj() {
+  dialog.warning({
+    title: t('problems.create.spjRemove'),
+    content: t('problems.create.spjRemoveConfirm'),
+    positiveText: t('problems.create.spjRemove'),
+    negativeText: t('action.cancel'),
+    onPositiveClick: () => {
+      spjCode.value = ''
+      void saveSpj()
+    },
+  })
+}
+
+/** 持久化样例 + 测试点 + 特判程序；成功返回 true */
 async function save(): Promise<boolean> {
   normalize()
   saving.value = true
@@ -156,6 +211,8 @@ async function save(): Promise<boolean> {
       await replaceSamples(problemId, validSamples)
       serverSamples = validSamples.map((item) => ({ ...item }))
     }
+    const spjOk = await saveSpj()
+    if (!spjOk) return false
     message.success(t('problems.create.saved'))
     return true
   } catch (error) {
@@ -174,16 +231,23 @@ function goNext() {
     return
   }
   void save().then((ok) => {
-    if (ok) router.push(`/admin/problems/${problemId}/edit/verify`)
+    const target = isTeam
+      ? `/teams/${teamId}/problems/${problemId}/edit/verify`
+      : `/admin/problems/${problemId}/edit/verify`
+    if (ok) router.push(target)
   })
 }
 function goPrev() {
-  router.push(`/admin/problems/${problemId}/edit/statement`)
+  router.push(
+    isTeam
+      ? `/teams/${teamId}/problems/${problemId}/edit/statement`
+      : `/admin/problems/${problemId}/edit/statement`,
+  )
 }
-/** 保存并退出：持久化样例与测试点后返回题目管理列表 */
+/** 保存并退出：持久化样例与测试点后返回来源列表 */
 function saveAndExit() {
   void save().then((ok) => {
-    if (ok) router.push('/admin/problems')
+    if (ok) router.push(isTeam ? `/teams/${teamId}` : '/admin/problems')
   })
 }
 
@@ -287,6 +351,49 @@ onMounted(loadExisting)
             </div>
           </div>
           <n-empty v-else :description="t('problems.create.contentRequired')" />
+
+          <!-- SPJ 特判程序：C++17 单文件 checker，写暂存集（验题通过后晋升生效） -->
+          <div class="spj-section">
+            <div class="samples-head">
+              <h3 class="samples-title">{{ t('problems.create.spjTitle') }}</h3>
+              <div class="spj-actions">
+                <n-tag v-if="spjStaged" size="small" type="warning" round :bordered="false">
+                  {{ t('problems.create.stagedBadge') }}
+                </n-tag>
+                <n-tag v-if="spjDirty" size="small" round :bordered="false">
+                  {{ t('problems.create.spjModified') }}
+                </n-tag>
+                <n-button
+                  size="small"
+                  type="primary"
+                  secondary
+                  :disabled="!spjDirty"
+                  :loading="spjSaving"
+                  @click="saveSpj"
+                >
+                  {{ t('problems.create.spjSave') }}
+                </n-button>
+                <n-button
+                  v-if="spjBaseline !== null"
+                  size="small"
+                  type="error"
+                  secondary
+                  :disabled="spjSaving"
+                  @click="removeSpj"
+                >
+                  {{ t('problems.create.spjRemove') }}
+                </n-button>
+              </div>
+            </div>
+            <p class="spj-desc">{{ t('problems.create.spjDesc') }}</p>
+            <n-input
+              v-model:value="spjCode"
+              type="textarea"
+              :rows="10"
+              class="spj-editor"
+              :placeholder="t('problems.create.spjPlaceholder')"
+            />
+          </div>
         </div>
       </WizardShell>
     </n-spin>
@@ -365,6 +472,27 @@ onMounted(loadExisting)
 /* 样例解释：通栏选填输入（Markdown），留空 = 该组无解释 */
 .sample-explanation-input {
   margin-top: 12px;
+}
+/* SPJ 特判程序区块：与样例区分隔，等宽编辑 */
+.spj-section {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--app-border);
+}
+.spj-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.spj-desc {
+  margin: 4px 0 10px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+.spj-editor :deep(textarea),
+.spj-editor :deep(.n-input__textarea-el) {
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Courier New', monospace;
+  font-size: 13px;
 }
 @media (max-width: 760px) {
   .case-content {

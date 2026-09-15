@@ -4,33 +4,35 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.judge import Submission, SubmissionTestCaseResult
-from app.models.problem import TestCase
+from app.models.problem import Problem, TestCase
 from app.models.user import User
 
 
 class JudgeRepository:
-    async def write_case_result(
-        self, db: AsyncSession, submission_id: uuid.UUID, test_case, *, status: str,
-        time_used_ms: int | None, memory_used_kb: int | None, score: int, output: str | None,
+    async def write_case_results(
+        self, db: AsyncSession, submission_id: uuid.UUID, rows: list[dict]
     ) -> None:
-        record = await db.scalar(
-            select(SubmissionTestCaseResult).where(
-                SubmissionTestCaseResult.submission_id == submission_id,
-                SubmissionTestCaseResult.test_case_id == test_case.id,
-            )
+        """批量写入逐测试点结果：PG INSERT ... ON CONFLICT DO UPDATE 单次往返
+        （重判场景命中 uq_submission_case 唯一约束转更新，幂等可重复应用）。"""
+        if not rows:
+            return
+        stmt = pg_insert(SubmissionTestCaseResult).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_submission_case",
+            set_={
+                "status": stmt.excluded.status,
+                "time_used_ms": stmt.excluded.time_used_ms,
+                "memory_used_kb": stmt.excluded.memory_used_kb,
+                "score": stmt.excluded.score,
+                "output": stmt.excluded.output,
+                "message": stmt.excluded.message,
+            },
         )
-        if record is None:
-            record = SubmissionTestCaseResult(submission_id=submission_id, test_case_id=test_case.id, status=status)
-            db.add(record)
-        record.status = status
-        record.time_used_ms = time_used_ms
-        record.memory_used_kb = memory_used_kb
-        record.score = score
-        record.output = output
-        await db.flush()
+        await db.execute(stmt)
 
     async def finish_submission(
         self, db: AsyncSession, submission: Submission, *, status: str, score: int,
@@ -116,6 +118,56 @@ class SubmissionRepository:
             )
         ).all()
         return [(submission, user) for submission, user in rows], int(total)
+
+    async def list_all_for_admin(
+        self, *, submit_type: str | None, user_id: uuid.UUID | None,
+        problem_id: uuid.UUID | None, status: str | None, language: str | None,
+        keyword: str | None, page: int, page_size: int,
+    ) -> tuple[list[tuple[Submission, User]], dict[uuid.UUID, str], int]:
+        """全站提交（admin 管理面板）：submit_type / user / problem / status / language 精确过滤，
+        keyword 模糊匹配提交人昵称；join 用户 + join 题目取标题，提交时间倒序分页。
+
+        返回 (行, 题目标题映射, total)；标题映射供 service 组装（列表项含题号短 ID + 标题）。
+        """
+        conditions = []
+        if submit_type:
+            conditions.append(Submission.submit_type == submit_type)
+        if user_id:
+            conditions.append(Submission.user_id == user_id)
+        if problem_id:
+            conditions.append(Submission.problem_id == problem_id)
+        if status:
+            conditions.append(Submission.status == status)
+        if language:
+            conditions.append(Submission.language == language)
+        if keyword:
+            conditions.append(User.nickname.ilike(f"%{keyword}%"))
+
+        count_stmt = select(func.count()).select_from(Submission)
+        rows_stmt = (
+            select(Submission, User, Problem.title)
+            # 显式 join：rows_stmt 引用 Problem.title，缺 join 会退化为笛卡尔积
+            # （每行被题目总数放大，列表出现同一提交重复多行，回归修复）
+            .join(User, User.id == Submission.user_id)
+            .join(Problem, Problem.id == Submission.problem_id)
+        )
+        if conditions:
+            count_stmt = count_stmt.join(User, User.id == Submission.user_id).where(*conditions)
+            rows_stmt = rows_stmt.where(*conditions)
+        total = (await self.db.scalar(count_stmt)) or 0
+        rows = (
+            await self.db.execute(
+                rows_stmt.order_by(Submission.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        ).all()
+        title_map = {submission.problem_id: title for submission, _user, title in rows}
+        return (
+            [(submission, user) for submission, user, _title in rows],
+            title_map,
+            int(total),
+        )
 
 
 class TestCaseRepository:
