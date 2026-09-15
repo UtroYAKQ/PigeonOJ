@@ -71,6 +71,7 @@ declare module 'vue' {
     RouterView: typeof import('vue-router')['RouterView']
     SearchFilterBar: typeof import('./../components/SearchFilterBar.vue')['default']
     StatusTag: typeof import('./../components/StatusTag.vue')['default']
+    SubmissionResultView: typeof import('./../components/SubmissionResultView.vue')['default']
     TagPicker: typeof import('./../components/problem/TagPicker.vue')['default']
     TestCaseImporter: typeof import('./../components/problem/TestCaseImporter.vue')['default']
     WizardShell: typeof import('./../components/WizardShell.vue')['default']
