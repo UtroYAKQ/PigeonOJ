@@ -1,21 +1,17 @@
 <script setup lang="ts">
 /**
  * 组织详情（/orgs/:id，docs/contracts/orgs.md）：组织空间式布局。
- * Hero（头像 + 名称 + 简介 + 动作区）+ 模块化内容区：
- * 成员 / 组织团队 / 组织题库 / 组织设置。
- * 权限按 my_role 显隐（org_admin ⊇ org_member）；组织题库为封闭上下文——
- * 列表走组织端点，题目编辑复用题库统一端点（行点击进编辑向导，仅创建走组织端点）；
- * 非成员访问返回 2003，页面呈现无权访问态（组织无申请加入通道）。
+ * Hero（头像 + 名称 + 简介 + 动作区）+ 模块化内容区（tab 切换 + 数据装配）：
+ * 成员 / 组织团队 / 组织题库，各模块面板见 ./components/*Panel.vue（面板自持列表数据）。
+ * 权限按 my_role 显隐（org_admin ⊇ org_member）；非成员访问返回 2003，
+ * 页面呈现无权访问态（组织无申请加入通道）；编辑 / 解散等组织级动作收敛在本组件。
  */
-import { computed, h, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import type { DataTableColumns } from 'naive-ui'
-import { CirclePlus, Collection, MoreFilled, Setting, UserFilled } from '@element-plus/icons-vue'
+import { Setting } from '@element-plus/icons-vue'
 import {
   NButton,
-  NCheckbox,
-  NDropdown,
   NDrawer,
   NDrawerContent,
   NEmpty,
@@ -23,35 +19,23 @@ import {
   NFormItem,
   NIcon,
   NInput,
-  NModal,
+  NSkeleton,
+  NSpin,
   NTag,
 } from 'naive-ui'
 
-import {
-  addOrgMembers,
-  createOrgTeam,
-  disbandOrg,
-  getOrg,
-  listOrgMembers,
-  listOrgProblems,
-  listOrgTeams,
-  removeOrgMember,
-  setOrgMemberNote,
-  updateOrg,
-} from '@/api/orgs'
+import { disbandOrg, getOrg, updateOrg } from '@/api/orgs'
 import { uploadImage } from '@/api/files'
 import { ApiError } from '@/api/http'
 import BaseAvatar from '@/components/BaseAvatar.vue'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
-import { usePagination } from '@/composables/usePagination'
-import { formatCompact, formatDateTime } from '@/utils/format'
-import { renderDifficulty, renderRatio } from '@/utils/problemCells'
+import { formatDateTime } from '@/utils/format'
 import { useUserStore } from '@/stores/user'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import SearchFilterBar from '@/components/SearchFilterBar.vue'
-import RefreshButton from '@/components/RefreshButton.vue'
-import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
-import type { OrgDetail, OrgMemberItem, TeamProblemSummary, TeamSummary } from '@/types'
+import OrgMembersPanel from './components/OrgMembersPanel.vue'
+import OrgTeamsPanel from './components/OrgTeamsPanel.vue'
+import OrgProblemsPanel from './components/OrgProblemsPanel.vue'
+import type { OrgDetail } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -84,493 +68,21 @@ async function copyOrgId() {
 
 // ---------------- 模块 tab（内容板块） ----------------
 
-type OrgModule = 'members' | 'teams' | 'problems' | 'settings'
+type OrgModule = 'members' | 'teams' | 'problems'
 const activeModule = ref<OrgModule>('members')
 
 const moduleMeta = computed(() => [
-  { key: 'members' as OrgModule, labelKey: 'orgs.detail.tabMembers', icon: Setting },
-  { key: 'teams' as OrgModule, labelKey: 'orgs.detail.tabTeams', icon: UserFilled },
-  { key: 'problems' as OrgModule, labelKey: 'orgs.detail.tabProblems', icon: Collection },
+  { key: 'members' as OrgModule, labelKey: 'orgs.detail.tabMembers' },
+  { key: 'teams' as OrgModule, labelKey: 'orgs.detail.tabTeams' },
+  { key: 'problems' as OrgModule, labelKey: 'orgs.detail.tabProblems' },
 ])
 
-// ---------------- 成员 ----------------
+// ---------------- 面板联动 ----------------
 
-const members = ref<OrgMemberItem[]>([])
-const membersLoading = ref(false)
-const memberKeyword = ref('')
-const {
-  page: memberPage,
-  pageSize: memberPageSize,
-  total: memberTotal,
-  changePage: changeMemberPage,
-  resetPage: resetMemberPage,
-} = usePagination()
-
-async function loadMembers() {
-  membersLoading.value = true
-  try {
-    const result = await listOrgMembers(orgId, {
-      page: memberPage.value,
-      page_size: memberPageSize.value,
-      keyword: memberKeyword.value || undefined,
-    })
-    members.value = result.items
-    memberTotal.value = result.total
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
-  } finally {
-    membersLoading.value = false
-  }
+/** 成员移出 / 添加后：重拉组织概要（成员数等），面板已自行刷新列表 */
+function onMembershipChanged() {
+  void load()
 }
-
-function searchMembers() {
-  resetMemberPage()
-  loadMembers()
-}
-
-/** 成员行操作（⋯ 下拉）：备注（本人 / org_admin）、移出（org_admin）。
- * 授·撤组织管理员不放组织空间页（收敛到管理后台组织详情，docs/contracts/orgs.md）。 */
-type MemberAction = 'kick' | 'note'
-
-function memberActions(row: OrgMemberItem): Array<{ key: MemberAction; label: string }> {
-  const actions: Array<{ key: MemberAction; label: string }> = []
-  if (row.user_id === userStore.user?.id || isOrgAdmin.value) {
-    actions.push({ key: 'note', label: t('orgs.members.note') })
-  }
-  // 移出不提供给自己一行（无退出组织通道，避免误操作后失去自身管理权）
-  if (isOrgAdmin.value && row.user_id !== userStore.user?.id) {
-    actions.push({ key: 'kick', label: t('orgs.members.kick') })
-  }
-  return actions
-}
-
-function onMemberAction(action: MemberAction, row: OrgMemberItem) {
-  if (action === 'note') {
-    noteTarget.value = row
-    noteValue.value = row.note ?? ''
-    noteVisible.value = true
-    return
-  }
-  onKick(row)
-}
-
-/** 备注编辑弹窗（本人 / org_admin 共用；空值 = 清除备注） */
-const noteVisible = ref(false)
-const noteTarget = ref<OrgMemberItem | null>(null)
-const noteValue = ref('')
-const noteSaving = ref(false)
-
-async function onNoteSave() {
-  if (!noteTarget.value) return
-  noteSaving.value = true
-  try {
-    await setOrgMemberNote(orgId, noteTarget.value.user_id, noteValue.value.trim() || null)
-    message.success(t('orgs.members.noteSuccess'))
-    noteVisible.value = false
-    await loadMembers()
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
-  } finally {
-    noteSaving.value = false
-  }
-}
-
-function onKick(row: OrgMemberItem) {
-  confirmAsyncDialog({
-    title: t('orgs.members.kick'),
-    content: t('orgs.members.kickConfirm', { name: row.nickname }),
-    positiveText: t('orgs.members.kick'),
-    action: async () => {
-      await removeOrgMember(orgId, row.user_id)
-    },
-    successMessage: t('orgs.members.kickSuccess'),
-    onAfterSuccess: () => {
-      loadMembers()
-      load()
-    },
-  })
-}
-
-const memberColumns = computed<DataTableColumns<OrgMemberItem>>(() => [
-  {
-    title: t('orgs.members.search'),
-    key: 'nickname',
-    minWidth: 200,
-    ellipsis: { tooltip: true },
-    render(row) {
-      return h('div', { class: 'cell-user' }, [
-        h(BaseAvatar, { src: row.avatar_url, name: row.nickname, size: 32 }),
-        h('span', { class: 'cell-strong' }, row.nickname),
-        row.user_id === userStore.user?.id
-          ? h('span', { class: 'cell-you' }, t('orgs.members.you'))
-          : null,
-      ])
-    },
-  },
-  {
-    title: t('orgs.role.admin'),
-    key: 'role',
-    width: 130,
-    render(row) {
-      return h(
-        NTag,
-        { size: 'small', bordered: false, type: row.is_admin ? 'info' : 'default' },
-        {
-          default: () => t(row.is_admin ? 'orgs.role.admin' : 'orgs.role.member'),
-        },
-      )
-    },
-  },
-  {
-    title: t('orgs.members.note'),
-    key: 'note',
-    minWidth: 140,
-    ellipsis: { tooltip: true },
-    render: (row) => row.note ?? '—',
-  },
-  {
-    title: t('orgs.members.joinedAt'),
-    key: 'joined_at',
-    width: 170,
-    render: (row) => formatCompact(row.joined_at),
-  },
-  ...(isOrgAdmin.value || isMember.value
-    ? [
-        {
-          title: '',
-          key: 'ops',
-          width: 48,
-          render: (row: OrgMemberItem) =>
-            memberActions(row).length
-              ? h(
-                  NDropdown,
-                  {
-                    trigger: 'click',
-                    options: memberActions(row).map((a) => ({ key: a.key, label: a.label })),
-                    onSelect: (key: MemberAction) => onMemberAction(key, row),
-                  },
-                  {
-                    default: () =>
-                      h(
-                        NButton,
-                        { circle: true, quaternary: true, size: 'tiny', 'aria-label': t('orgs.detail.more') },
-                        { icon: () => h(NIcon, { component: MoreFilled }) },
-                      ),
-                  },
-                )
-              : null,
-        },
-      ]
-    : []),
-])
-
-// ---- 添加成员（org_admin：单个 UUID + 批量 textarea） ----
-
-const showAddMember = ref(false)
-const addingMember = ref(false)
-const addForm = ref({ userId: '', batch: '' })
-
-function openAddMember() {
-  addForm.value = { userId: '', batch: '' }
-  showAddMember.value = true
-}
-
-async function doAddMembers() {
-  const ids = new Set<string>()
-  if (addForm.value.userId.trim()) ids.add(addForm.value.userId.trim())
-  for (const line of addForm.value.batch.split(/\r?\n/)) {
-    const id = line.trim()
-    if (id) ids.add(id)
-  }
-  if (!ids.size) {
-    message.warning(t('orgs.members.userIdPlaceholder'))
-    return
-  }
-  addingMember.value = true
-  try {
-    await addOrgMembers(orgId, [...ids])
-    message.success(t('orgs.members.addSuccess'))
-    showAddMember.value = false
-    await loadMembers()
-    load()
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
-  } finally {
-    addingMember.value = false
-  }
-}
-
-// ---------------- 组织团队 ----------------
-
-const teams = ref<TeamSummary[]>([])
-const teamsLoading = ref(false)
-const teamKeyword = ref('')
-const {
-  page: teamPage,
-  pageSize: teamPageSize,
-  total: teamTotal,
-  changePage: changeTeamPage,
-  resetPage: resetTeamPage,
-} = usePagination()
-
-async function loadTeams() {
-  teamsLoading.value = true
-  try {
-    const result = await listOrgTeams(orgId, {
-      page: teamPage.value,
-      page_size: teamPageSize.value,
-      keyword: teamKeyword.value || undefined,
-    })
-    teams.value = result.items
-    teamTotal.value = result.total
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
-  } finally {
-    teamsLoading.value = false
-  }
-}
-
-function searchTeams() {
-  resetTeamPage()
-  loadTeams()
-}
-
-const teamColumns = computed<DataTableColumns<TeamSummary>>(() => [
-  {
-    title: t('teams.list.name'),
-    key: 'name',
-    minWidth: 200,
-    ellipsis: { tooltip: true },
-    render(row) {
-      return h('div', { class: 'cell-user' }, [
-        h(BaseAvatar, { src: row.avatar_url, name: row.name, size: 32, kind: 'team' }),
-        h('span', { class: 'cell-strong' }, row.name),
-      ])
-    },
-  },
-  {
-    title: t('teams.list.description'),
-    key: 'description',
-    minWidth: 180,
-    ellipsis: { tooltip: true },
-    render: (row) => row.description ?? '—',
-  },
-  {
-    title: t('teams.settings.visibility'),
-    key: 'visibility',
-    width: 90,
-    render: (row) =>
-      h(
-        NTag,
-        { size: 'small', bordered: false, type: row.visibility === 'public' ? 'success' : 'default' },
-        {
-          default: () =>
-            t(row.visibility === 'public' ? 'teams.settings.visibilityPublic' : 'teams.settings.visibilityPrivate'),
-        },
-      ),
-  },
-  {
-    title: t('orgs.teams.memberCount'),
-    key: 'member_count',
-    width: 80,
-    align: 'center',
-    render: (row) => String(row.member_count),
-  },
-  {
-    title: t('teams.list.createdAt'),
-    key: 'created_at',
-    width: 170,
-    render: (row) => formatDateTime(row.created_at),
-  },
-])
-
-function rowPropsOfTeam(row: TeamSummary) {
-  return { style: 'cursor: pointer;', onClick: () => router.push(`/teams/${row.id}`) }
-}
-
-/** 创建团队（org_admin；teams.org_id 固定为本组织，创建者自动 team_creator） */
-const showCreateTeam = ref(false)
-const creatingTeam = ref(false)
-const teamForm = ref({ name: '', description: '', visibility: 'private' as 'public' | 'private' })
-
-function openCreateTeam() {
-  teamForm.value = { name: '', description: '', visibility: 'private' }
-  showCreateTeam.value = true
-}
-
-async function doCreateTeam() {
-  if (!teamForm.value.name.trim()) {
-    message.warning(t('teams.create.nameRequired'))
-    return
-  }
-  creatingTeam.value = true
-  try {
-    await createOrgTeam(orgId, {
-      name: teamForm.value.name.trim(),
-      description: teamForm.value.description.trim() || undefined,
-      visibility: teamForm.value.visibility,
-    })
-    message.success(t('orgs.teams.created'))
-    showCreateTeam.value = false
-    await loadTeams()
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
-  } finally {
-    creatingTeam.value = false
-  }
-}
-
-// ---------------- 组织题库 ----------------
-
-const problems = ref<TeamProblemSummary[]>([])
-const problemsLoading = ref(false)
-const problemKeyword = ref('')
-const {
-  page: problemPage,
-  pageSize: problemPageSize,
-  total: problemTotal,
-  changePage: changeProblemPage,
-  resetPage: resetProblemPage,
-} = usePagination()
-
-async function loadProblems() {
-  problemsLoading.value = true
-  try {
-    const result = await listOrgProblems(orgId, {
-      page: problemPage.value,
-      page_size: problemPageSize.value,
-      keyword: problemKeyword.value || undefined,
-      status: draftOnly.value ? 'draft' : undefined,
-    })
-    problems.value = result.items
-    problemTotal.value = result.total
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.loadFailed'))
-  } finally {
-    problemsLoading.value = false
-  }
-}
-
-function searchProblems() {
-  resetProblemPage()
-  loadProblems()
-}
-
-/** 草稿箱勾选：勾选后列表查询全组织草稿题目（后端 status=draft 过滤） */
-const draftOnly = ref(false)
-
-function onToggleDraftBox(checked: boolean) {
-  draftOnly.value = checked
-  resetProblemPage()
-  loadProblems()
-}
-
-/** 创建题目（组织成员 my_role 非空）：进组织题目创建向导（POST /orgs/{orgId}/problems） */
-function openProblemCreate() {
-  void router.push(`/me/orgs/${orgId}/problems/new`)
-}
-
-/** 行点击：已发布题进组织作答页（组织成员可交题 / 自测，docs/contracts/orgs.md）；
- * 草稿进编辑向导（草稿不可作答）。 */
-function openOrgProblem(row: TeamProblemSummary) {
-  const base = `/me/orgs/${orgId}/problems/${row.id}`
-  void router.push(row.status === 'published' ? base : `${base}/edit/statement`)
-}
-
-/** 题库行内操作（⋯ 下拉）：组织成员均具组织题库写权（org_member），草稿 / 已发布均可编辑 */
-type ProblemRowAction = 'edit'
-
-function problemRowActions(): Array<{ key: ProblemRowAction; label: string }> {
-  return [{ key: 'edit', label: t('action.edit') }]
-}
-
-function onProblemRowAction(key: ProblemRowAction, row: TeamProblemSummary) {
-  if (key === 'edit') {
-    void router.push(`/me/orgs/${orgId}/problems/${row.id}/edit/statement`)
-  }
-}
-
-const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
-  {
-    title: t('problems.list.name'),
-    key: 'title',
-    minWidth: 200,
-    ellipsis: { tooltip: true },
-    render: (row) => h('span', { class: 'cell-strong' }, row.title),
-  },
-  {
-    title: t('problems.manage.shareTitle'),
-    key: 'publish',
-    width: 110,
-    render: (row) => {
-      // 已验题后才可能「需重新验题」（草稿从未验题 → 显示未验题）
-      if (row.is_verified && row.needs_reverification) {
-        return h(
-          NTag,
-          { size: 'small', bordered: false, type: 'warning' },
-          { default: () => t('problems.manage.reverifyTag') },
-        )
-      }
-      return h(
-        NTag,
-        { size: 'small', bordered: false, type: row.is_verified ? 'success' : 'default' },
-        {
-          default: () =>
-            row.is_verified ? t('problems.manage.verifiedTag') : t('problems.manage.unverifiedTag'),
-        },
-      )
-    },
-  },
-  {
-    title: t('problems.list.difficulty'),
-    key: 'difficulty',
-    width: 80,
-    align: 'center',
-    render: (row) => renderDifficulty(row),
-  },
-  {
-    title: t('problems.list.limits'),
-    key: 'limits',
-    width: 150,
-    render: (row) => `${row.time_limit_ms ?? '--'} ms / ${row.memory_limit_mb ?? '--'} MB`,
-  },
-  {
-    title: t('problems.list.passRate'),
-    key: 'rate',
-    width: 110,
-    align: 'center',
-    render: (row) => renderRatio(row),
-  },
-  {
-    title: '',
-    key: 'ops',
-    width: 48,
-    render: (row: TeamProblemSummary) =>
-      h(
-        NDropdown,
-        {
-          trigger: 'click',
-          options: problemRowActions().map((a) => ({ key: a.key, label: a.label })),
-          onSelect: (key: ProblemRowAction) => onProblemRowAction(key, row),
-        },
-        {
-          default: () =>
-            h(
-              NButton,
-              {
-                circle: true,
-                quaternary: true,
-                size: 'tiny',
-                'aria-label': t('orgs.detail.more'),
-                // 阻断冒泡：行 onClick 会把点击吞成「进入题目 / 进编辑向导」
-                onClick: (e: MouseEvent) => e.stopPropagation(),
-              },
-              { icon: () => h(NIcon, { component: MoreFilled }) },
-            ),
-        },
-      ),
-  },
-])
 
 // ---------------- 组织信息（编辑抽屉 / 解散） ----------------
 
@@ -660,17 +172,6 @@ async function load() {
   }
 }
 
-watch(
-  () => org.value?.id,
-  () => {
-    if (org.value) {
-      loadMembers()
-      loadTeams()
-      loadProblems()
-    }
-  },
-)
-
 onMounted(load)
 </script>
 
@@ -720,12 +221,7 @@ onMounted(load)
             <NTag v-if="org.status === 'disbanded'" size="small" type="error" :bordered="false">
               {{ t('orgs.detail.statusDisbanded') }}
             </NTag>
-            <NTag
-              v-else-if="org.my_role"
-              size="small"
-              type="info"
-              :bordered="false"
-            >
+            <NTag v-else-if="org.my_role" size="small" type="info" :bordered="false">
               {{ t(org.my_role === 'admin' ? 'orgs.role.admin' : 'orgs.role.member') }}
             </NTag>
             <NTag v-else-if="isSiteAdminViewer" size="small" type="warning" :bordered="false">
@@ -749,7 +245,12 @@ onMounted(load)
             <span class="hero__dot" aria-hidden="true">·</span>
             <span>{{ t('orgs.list.createdAt') }} {{ formatDateTime(org.created_at) }}</span>
             <span class="hero__dot" aria-hidden="true">·</span>
-            <button type="button" class="hero__id" :title="t('orgs.detail.orgId')" @click="copyOrgId">
+            <button
+              type="button"
+              class="hero__id"
+              :title="t('orgs.detail.orgId')"
+              @click="copyOrgId"
+            >
               {{ t('orgs.detail.orgId') }} {{ orgId.slice(0, 8) }}
             </button>
           </div>
@@ -763,13 +264,7 @@ onMounted(load)
             </template>
             {{ t('orgs.detail.editInfo') }}
           </NButton>
-          <NButton
-            v-if="userStore.isAdmin"
-            type="error"
-            secondary
-            size="large"
-            @click="onDisband"
-          >
+          <NButton v-if="userStore.isAdmin" type="error" secondary size="large" @click="onDisband">
             {{ t('orgs.settings.disband') }}
           </NButton>
         </div>
@@ -783,264 +278,30 @@ onMounted(load)
             :key="moduleItem.key"
             :name="moduleItem.key"
             :tab="t(moduleItem.labelKey)"
+            display-directive="show"
           >
             <!-- 成员 -->
-            <template v-if="moduleItem.key === 'members'">
-              <SearchFilterBar
-                :keyword="memberKeyword"
-                :placeholder="t('orgs.members.search')"
-                @update:keyword="
-                  (v: string) => {
-                    memberKeyword = v
-                  }
-                "
-                @search="searchMembers"
-                @reset="searchMembers"
-              >
-                <template #actions>
-                  <NButton v-if="isOrgAdmin" size="small" type="primary" secondary @click="openAddMember">
-                    <template #icon>
-                      <NIcon :component="CirclePlus" />
-                    </template>
-                    {{ t('orgs.members.add') }}
-                  </NButton>
-                  <RefreshButton
-                    :loading="membersLoading"
-                    :aria-label="t('action.refresh')"
-                    @click="loadMembers"
-                  />
-                </template>
-              </SearchFilterBar>
-              <PaginatedDataTable
-                :columns="memberColumns"
-                :data="members"
-                :loading="membersLoading"
-                :total="memberTotal"
-                :page="memberPage"
-                :page-size="memberPageSize"
-                :empty-text="t('orgs.members.empty')"
-                :table-props="{ size: 'small' }"
-                @update:page="
-                  (p: number) => {
-                    changeMemberPage(p)
-                    loadMembers()
-                  }
-                "
-              />
-            </template>
+            <OrgMembersPanel
+              v-if="moduleItem.key === 'members'"
+              :org-id="orgId"
+              :is-org-admin="isOrgAdmin"
+              :is-member="isMember"
+              @changed="onMembershipChanged"
+            />
 
             <!-- 组织团队 -->
-            <template v-else-if="moduleItem.key === 'teams'">
-              <SearchFilterBar
-                :keyword="teamKeyword"
-                :placeholder="t('orgs.teams.search')"
-                @update:keyword="
-                  (v: string) => {
-                    teamKeyword = v
-                  }
-                "
-                @search="searchTeams"
-                @reset="searchTeams"
-              >
-                <template #actions>
-                  <NButton v-if="isOrgAdmin" size="small" type="primary" @click="openCreateTeam">
-                    <template #icon>
-                      <NIcon :component="CirclePlus" />
-                    </template>
-                    {{ t('orgs.teams.create') }}
-                  </NButton>
-                  <RefreshButton
-                    :loading="teamsLoading"
-                    :aria-label="t('action.refresh')"
-                    @click="loadTeams"
-                  />
-                </template>
-              </SearchFilterBar>
-              <PaginatedDataTable
-                :columns="teamColumns"
-                :data="teams"
-                :loading="teamsLoading"
-                :total="teamTotal"
-                :page="teamPage"
-                :page-size="teamPageSize"
-                :empty-text="t('orgs.teams.empty')"
-                :table-props="{
-                  size: 'small',
-                  rowKey: (row: TeamSummary) => row.id,
-                  rowProps: rowPropsOfTeam,
-                }"
-                @update:page="
-                  (p: number) => {
-                    changeTeamPage(p)
-                    loadTeams()
-                  }
-                "
-              />
-            </template>
+            <OrgTeamsPanel
+              v-else-if="moduleItem.key === 'teams'"
+              :org-id="orgId"
+              :is-org-admin="isOrgAdmin"
+            />
 
             <!-- 组织题库 -->
-            <template v-else-if="moduleItem.key === 'problems'">
-              <SearchFilterBar
-                :keyword="problemKeyword"
-                :placeholder="t('orgs.problems.search')"
-                @update:keyword="
-                  (v: string) => {
-                    problemKeyword = v
-                  }
-                "
-                @search="searchProblems"
-                @reset="searchProblems"
-              >
-                <template #actions>
-                  <NButton v-if="isMember" size="small" secondary @click="openProblemCreate">
-                    <template #icon>
-                      <NIcon :component="Collection" />
-                    </template>
-                    {{ t('orgs.problems.create') }}
-                  </NButton>
-                  <NCheckbox :checked="draftOnly" @update:checked="onToggleDraftBox">
-                    {{ t('orgs.problems.draftBox') }}
-                  </NCheckbox>
-                  <RefreshButton
-                    :loading="problemsLoading"
-                    :aria-label="t('action.refresh')"
-                    @click="loadProblems"
-                  />
-                </template>
-              </SearchFilterBar>
-              <PaginatedDataTable
-                :columns="problemColumns"
-                :data="problems"
-                :loading="problemsLoading"
-                :total="problemTotal"
-                :page="problemPage"
-                :page-size="problemPageSize"
-                :empty-text="t(draftOnly ? 'orgs.problems.draftsEmpty' : 'orgs.problems.empty')"
-                :table-props="{
-                  size: 'small',
-                  rowKey: (row: TeamProblemSummary) => row.id,
-                  rowProps: (row: TeamProblemSummary) => ({
-                    style: 'cursor: pointer;',
-                    onClick: () => openOrgProblem(row),
-                  }),
-                }"
-                @update:page="
-                  (p: number) => {
-                    changeProblemPage(p)
-                    loadProblems()
-                  }
-                "
-              />
-            </template>
+            <OrgProblemsPanel v-else :org-id="orgId" :is-member="isMember" />
           </n-tab-pane>
         </n-tabs>
       </section>
     </div>
-
-    <!-- 成员备注弹窗：本人 / org_admin 共用；空值 = 清除备注 -->
-    <NModal
-      v-model:show="noteVisible"
-      preset="card"
-      style="width: 400px"
-      :title="t('orgs.members.noteTarget', { name: noteTarget?.nickname ?? '' })"
-    >
-      <NInput
-        v-model:value="noteValue"
-        :placeholder="t('orgs.members.notePlaceholder')"
-        :maxlength="64"
-        show-count
-        clearable
-        @keyup.enter="onNoteSave"
-      />
-      <template #footer>
-        <div class="modal-actions">
-          <NButton size="small" quaternary @click="noteVisible = false">
-            {{ t('action.cancel') }}
-          </NButton>
-          <NButton size="small" type="primary" :loading="noteSaving" @click="onNoteSave">
-            {{ t('action.save') }}
-          </NButton>
-        </div>
-      </template>
-    </NModal>
-
-    <!-- 添加成员弹窗（org_admin）：单个 UUID + 批量 textarea，已在册由后端跳过 -->
-    <NModal
-      v-model:show="showAddMember"
-      preset="card"
-      style="width: 480px"
-      :title="t('orgs.members.addTitle')"
-    >
-      <NForm label-placement="top">
-        <NFormItem :label="t('orgs.members.userId')">
-          <NInput
-            v-model:value="addForm.userId"
-            :placeholder="t('orgs.members.userIdPlaceholder')"
-          />
-        </NFormItem>
-        <NFormItem :label="t('orgs.members.batchIds')">
-          <NInput
-            v-model:value="addForm.batch"
-            type="textarea"
-            :rows="4"
-            :placeholder="t('orgs.members.batchPlaceholder')"
-          />
-        </NFormItem>
-      </NForm>
-      <template #footer>
-        <div class="modal-actions">
-          <NButton size="small" quaternary @click="showAddMember = false">
-            {{ t('action.cancel') }}
-          </NButton>
-          <NButton size="small" type="primary" :loading="addingMember" @click="doAddMembers">
-            {{ t('action.confirm') }}
-          </NButton>
-        </div>
-      </template>
-    </NModal>
-
-    <!-- 创建团队弹窗（org_admin）：teams.org_id 固定为本组织 -->
-    <NModal
-      v-model:show="showCreateTeam"
-      preset="card"
-      style="width: 480px"
-      :title="t('orgs.teams.createTitle')"
-    >
-      <NForm label-placement="top">
-        <NFormItem :label="t('teams.create.name')" required>
-          <NInput
-            v-model:value="teamForm.name"
-            maxlength="64"
-            :placeholder="t('teams.create.namePlaceholder')"
-          />
-        </NFormItem>
-        <NFormItem :label="t('teams.create.description')">
-          <NInput
-            v-model:value="teamForm.description"
-            type="textarea"
-            :rows="3"
-            maxlength="2000"
-            :placeholder="t('teams.create.descriptionPlaceholder')"
-          />
-        </NFormItem>
-        <NFormItem :label="t('teams.settings.visibility')">
-          <n-radio-group v-model:value="teamForm.visibility">
-            <n-radio value="private">{{ t('teams.settings.visibilityPrivate') }}</n-radio>
-            <n-radio value="public">{{ t('teams.settings.visibilityPublic') }}</n-radio>
-          </n-radio-group>
-        </NFormItem>
-      </NForm>
-      <template #footer>
-        <div class="modal-actions">
-          <NButton size="small" quaternary @click="showCreateTeam = false">
-            {{ t('action.cancel') }}
-          </NButton>
-          <NButton size="small" type="primary" :loading="creatingTeam" @click="doCreateTeam">
-            {{ t('action.save') }}
-          </NButton>
-        </div>
-      </template>
-    </NModal>
 
     <!-- 编辑信息抽屉（org_admin） -->
     <NDrawer v-model:show="showSettings" :width="440" placement="right">
@@ -1267,27 +528,6 @@ onMounted(load)
 }
 .module-tabs :deep(.n-tab-pane) {
   padding: 16px 32px 20px;
-}
-
-/* 表格单元格：头像 + 文本行内组合 */
-.cell-user {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-.cell-strong {
-  font-weight: 600;
-}
-.cell-you {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 1;
-  padding: 2px 6px;
-  border-radius: 999px;
-  color: var(--app-primary);
-  background: color-mix(in srgb, var(--app-primary) 12%, transparent);
 }
 
 /* 弹窗 / 抽屉底部动作区 */

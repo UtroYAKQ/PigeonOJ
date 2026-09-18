@@ -171,6 +171,10 @@ class NodeDaemon:
     async def run(self) -> None:
         cfg = self.cfg
         self._loop = asyncio.get_running_loop()
+        # outbox 必须随事件循环重建：asyncio.Queue 首次使用即绑定当前 loop，
+        # 而 main() 每次重连用 asyncio.run() 新建 loop，复用旧 Queue 会
+        # 抛 "bound to a different event loop"，节点无法自愈
+        self.outbox = asyncio.Queue()
         was_reconnect = self.reconnect_requested or self._had_connection
         self.reconnect_requested = False
         self.registered = False

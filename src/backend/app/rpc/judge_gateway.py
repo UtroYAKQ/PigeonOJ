@@ -61,6 +61,8 @@ _REQUEUE_RETRY_TTL_SECONDS = 60
 # 回收重派次数上限（断线 / judging 超时）；超过转 system_error（契约「超过阈值转 system_error」）
 _MAX_REQUEUE_ATTEMPTS = 3
 _ATTEMPT_TTL_SECONDS = 3600
+# 巡检单轮扫描上限：积压超大时避免全量载入（每轮处理一批，剩余下一轮消化）
+_MAINTENANCE_SCAN_LIMIT = 200
 # FetchProblemData 单片上限（同一 path 连续多片，节点按序追加）
 _FILE_CHUNK_BYTES = 1024 * 1024
 # 与判题节点 daemon._GRPC_MAX_MESSAGE_BYTES 对齐（测试点 ≤8MB，默认输出 5MB×N）
@@ -453,11 +455,15 @@ async def _reset_to_pending(submission_ids: set[str], *, reason: str) -> None:
     if not submission_ids:
         return
     r = get_redis()
+    # 尝试计数 incr/expire 批量化，避免逐条往返
+    async with r.pipeline(transaction=False) as pipe:
+        for raw in submission_ids:
+            key = f"{JUDGE_ATTEMPTS_KEY_PREFIX}{raw}"
+            pipe.incr(key)
+            pipe.expire(key, _ATTEMPT_TTL_SECONDS)
+        results = await pipe.execute()
     retry_ok: list[uuid.UUID] = []
-    for raw in submission_ids:
-        key = f"{JUDGE_ATTEMPTS_KEY_PREFIX}{raw}"
-        n = int(await r.incr(key))
-        await r.expire(key, _ATTEMPT_TTL_SECONDS)
+    for raw, (n, _) in zip(submission_ids, zip(results[0::2], results[1::2])):
         sid = uuid.UUID(raw)
         if n >= _MAX_REQUEUE_ATTEMPTS:
             await jobs.fail_retry_exhausted(sid)
@@ -496,7 +502,7 @@ async def maintenance_once(scan_interval: int, now: datetime | None = None) -> N
                 select(Submission).where(
                     Submission.status.in_([SubmissionStatus.PENDING, SubmissionStatus.JUDGING]),
                     Submission.updated_at < now - stale_after,
-                )
+                ).limit(_MAINTENANCE_SCAN_LIMIT)
             )
         ).scalars().all()
         for submission in stale:
