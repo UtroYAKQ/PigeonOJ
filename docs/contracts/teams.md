@@ -86,17 +86,18 @@
 | GET | /teams | public / auth | 团队中心列表：仅 public + active 团队（创建时间倒序，匿名可看；在册成员带 my_role，非成员 my_role=null；**成员判定以 `team_members.active` 为唯一口径**，`user_roles` 角色行仅用于细化角色层级——角色残留不得令非成员带 my_role，避免卡片态与详情权限不一致挡住重新申请）；`mine=true`（「我的团队」勾选，须登录，匿名 401）改为本人在册团队（公开 + 私有）；前端非成员点卡片弹申请确认（详情仅成员可见） | 分页/keyword（名称模糊）/mine | team[]（TeamSummary，含 visibility / member_count / my_role） |
 | GET | /teams/mine | auth | 我的团队列表（在册成员；带成员数与我的角色；与 /contests/me 同款资源域内 me 端点） | 分页/keyword（名称模糊） | team[] |
 | GET | /teams/{id} | auth（成员） | 团队详情（非成员 2003；前端详情页对 2003 提供申请加入出口） | - | team |
+| PUT | /teams/{id} | team_creator/team_admin | 编辑团队信息（名称 / 简介 / 头像 / 可见性；缺省不动，可见性切换即时生效） | name?/description?/avatar_url?/visibility? | team |
 | GET | /teams/{id}/members | team 角色 | 成员列表 | 分页/keyword（昵称模糊）/状态 | member[] |
 | POST | /teams/{id}/invites | team_creator/team_admin | 生成邀请链接（写 Redis） | - | {token, expires_at} |
 | GET | /teams/invites/{token} | public | 解析邀请链接（返回团队与有效期） | - | {team_id, team_name, avatar_url, expires_at} |
 | POST | /teams/{id}/applications | auth | 提交加入申请（public 团队可直接申请；private 团队无 invite_token 返回 2003，凭有效邀请链接放行；invite_token 经私有团队申请时记录来源） | invite_token | - |
 | GET | /teams/{id}/applications | team_creator/team_admin | 申请列表 | 分页/状态 | application[] |
 | POST | /teams/{id}/applications/{aid}/review | team_creator/team_admin | 审批（通过写 `user_roles` team_member） | approve, comment? | - |
-| POST | /teams/{id}/members/{uid}/admin | team_creator/team_admin（仅创建者） | 分配 / 取消团队管理员 | is_admin | - |
+| PUT | /teams/{id}/members/{uid}/admin | 仅创建者 或 admin | 分配 / 取消团队管理员（admin 兜底：创建者账号缺失时可代执行） | is_admin | - |
 | PUT | /teams/{id}/members/{uid}/note | 本人 或 team_creator/team_admin | 设置成员备注（≤64 字符；空串 = 清除；`member` 响应带 `note`） | note | - |
 | DELETE | /teams/{id}/members/{uid} | team_creator/team_admin | 踢出成员（清理授权；不可移除创建者，不可移除自己——自退走 exit） | - | - |
 | POST | /teams/{id}/exit | auth（成员） | 主动退出（清理授权） | - | - |
-| DELETE | /teams/{id} | team_creator/team_admin（仅创建者） | 解散团队 | - | - |
+| DELETE | /teams/{id} | 仅创建者 或 admin | 解散团队（admin 兜底：创建者账号缺失时可代解散） | - | - |
 
 ## 错误码
 
@@ -104,9 +105,9 @@
 | --- | --- | --- |
 | 3001 | 404 | 团队不存在 / 邀请链接无效或已过期 / 题目或题单不在该团队 |
 | 2003 | 403 | 非团队创建者 / 管理员执行团队管理操作；非成员访问团队空间；私有团队未经邀请链接直接申请；引用非本人题目 / 复制非本人题单 |
-| 3003 | 409 | 重复申请（已有 pending 申请） |
+| 3003 | 409 | 重复申请（已有 pending 申请）；团队题目被二次引用（同团队同源唯一）；编排重复题目 |
 | 3002 | 409 | 邀请链接已过期 / 团队已解散 / 复制来源题单已下线 |
-| 1001 | 400 | 团队题目被二次引用 / 编排含不可见题目 / 可见性非法 / 团队题单不可作为复制来源 |
+| 1001 | 400 | 编排含不可见题目 / 可见性非法 / 团队题单不可作为复制来源 |
 
 ## 关键流程 / 验收条件
 
@@ -114,10 +115,11 @@
 2. **可见性与加入入口**：`public` 团队出现在团队中心（`GET /teams`，匿名可看），登录用户可直接提交加入申请；`private` 团队不进团队中心，唯一申请入口为邀请链接（无 invite_token 返回 2003）。可见性切换由创建者 / 管理员经编辑动线（`PUT /teams/{id}`）进行，即时生效。
 3. **邀请链接**：`POST /teams/{id}/invites` 生成 token → 写 Redis `team:invite:<token>`（TTL=有效期，默认配置）；链接不可撤销、支持多人使用、无人数 / 一次性限制。用户经链接提交申请时记录 `invite_token` 来源。
 4. **加入审批**：用户提交申请（pending）→ 创建者 / 管理员审批；通过 → 写 `team_members`（active）+ `user_roles`（`team_member`）+ 通知；拒绝 → 记录状态 + 通知（通知随通知模块开放，当前仅记录申请状态与审批人 / 时间）。
-5. **分配管理员**：仅创建者可执行 `POST /teams/{id}/members/{uid}/admin`；分配即写 `team_admin` 授权，取消即删除。
+5. **分配管理员**：仅创建者可执行 `PUT /teams/{id}/members/{uid}/admin`；分配即写 `team_admin` 授权，取消即删除。创建者账号缺失时站点 admin 可代执行（治理逃生门）。
 6. **退出 / 踢出 / 解散**：同步清理成员记录状态与 `user_roles` 团队授权。
    踢出（kicked）与退出（exited）是互斥通道：`DELETE .../members/{uid}` 不可作用于操作者本人
    （2003，主动退出走 `POST /teams/{id}/exit`），也不可作用于创建者（2003，创建者只能解散）。
+   创建者账号缺失时站点 admin 可经 `POST /admin/teams/{id}/disband` 代解散。
 
 ## 团队空间（题库 / 题单 / 比赛，限界上下文）
 
@@ -195,11 +197,14 @@
 > 团队题目与团队**题单**详情 / 交题 / 自测同样必须走上表团队端点
 > （题单统一入口 / 题库裸路径严格拦截，限界上下文隔离）。
 
-### 管理端视图（admin，只读浏览）
+### 管理端视图（admin，只读浏览 + 解散逃生门）
 
 管理后台（`/admin/teams`）对团队做全量只读浏览，免团队角色校验（admin 全局角色门）；
 团队内容的维护（编辑信息 / 邀请 / 审批 / 踢出 / 编排）仍收敛在团队空间端点
-（创建者 / 团队管理员），管理端不提供维护动作。**创建团队入口收敛在管理后台**
+（创建者 / 团队管理员）。管理端唯一维护动作为**代解散**（治理逃生门）：
+创建者不可退出且不可被踢，账号软注销 / 离职后团队将无人能解散、无人能任命管理员，
+故站点 admin 可经 `POST /admin/teams/{id}/disband` 代解散，对齐组织层兜底语义。
+**创建团队入口收敛在管理后台**
 （团队创建入口已收敛到组织端点 `POST /orgs/{org_id}/teams`，org_admin 门；全局 `POST /teams` 已移除）。
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
@@ -210,6 +215,7 @@
 | GET | /admin/teams/{id}/problems | admin | 团队题库列表（全部状态 / 可见性，含草稿与归档） | 分页/keyword/status/visibility | problem[] |
 | GET | /admin/teams/{id}/problem-sets | admin | 团队题单列表（含已下线） | 分页/keyword/status | problem_set[] |
 | GET | /admin/teams/{id}/contests | admin | 团队比赛列表（全部状态） | 分页/keyword/status | contest[] |
+| POST | /admin/teams/{id}/disband | admin | 代解散团队（治理逃生门；软解散，清理授权与成员状态） | - | - |
 
 ### 引用字段（referenced_at / source_problem_id）
 

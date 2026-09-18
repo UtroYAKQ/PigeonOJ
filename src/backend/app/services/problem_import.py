@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import re
@@ -25,12 +26,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import APIError, PARAM_FORMAT_INVALID, RESOURCE_NOT_FOUND
 from app.core.storage import S3Error, get_storage
-from app.enums import CaseStatus, ProblemStatus, ProblemVisibility
+from app.enums import CaseStatus, ImportStatus, ProblemStatus, ProblemVisibility
 from app.models.problem import Problem, ProblemCounter, TestCase
 from app.models.user import User
 
@@ -82,12 +84,46 @@ class FpsError(Exception):
     pass
 
 
+class FpsCase(BaseModel):
+    """FPS 样例 / 测试点配对结果（样例与测试点同构）。"""
+
+    name: str = ""
+    input: str
+    expected_output: str
+
+
+class FpsSolution(BaseModel):
+    """FPS <solution> 标程。"""
+
+    language: str = ""
+    code: str
+
+
+class FpsItem(BaseModel):
+    """parse_item 的解析结果（显式契约替代裸 dict，跨函数取键有类型保障）。"""
+
+    title: str
+    time_limit_ms: int
+    memory_limit_mb: int
+    description: str
+    input_description: str
+    output_description: str
+    hint: str
+    source: str
+    has_spj: bool
+    spj_code: str
+    difficulty: int | None
+    samples: list[FpsCase]
+    tests: list[FpsCase]
+    solutions: list[FpsSolution]
+
+
 @dataclass
 class ImportOutcome:
     """单题导入结果（API 响应与 CLI 汇总共用）。"""
 
     title: str
-    status: str  # published / draft / draft_spj / duplicate / skipped_spj / failed
+    status: ImportStatus
     problem_id: str | None = None
     message: str | None = None
 
@@ -102,7 +138,7 @@ class ImportSummary:
 
     @property
     def imported(self) -> int:
-        return sum(1 for o in self.results if o.status in ("published", "draft", "draft_spj"))
+        return sum(1 for o in self.results if o.status in (ImportStatus.PUBLISHED, ImportStatus.DRAFT, ImportStatus.DRAFT_SPJ))
 
 
 def normalize_entities(data: bytes) -> bytes:
@@ -141,7 +177,7 @@ def _parse_difficulty(node: ET.Element | None) -> int | None:
 
 
 def pair_nodes(inputs: list[ET.Element], outputs: list[ET.Element],
-               read, label: str) -> list[dict]:
+               read, label: str) -> list[FpsCase]:
     """按文档顺序左右配对；双方均带 name 且不一致时警告（仍按顺序配对）。"""
     if len(inputs) != len(outputs):
         print(f"    ! {label}输入/输出数量不一致（{len(inputs)} vs {len(outputs)}），按较少一侧截断",
@@ -160,46 +196,46 @@ def pair_nodes(inputs: list[ET.Element], outputs: list[ET.Element],
         if tin.get("name") and tout.get("name") and tin.get("name") != tout.get("name"):
             print(f"    ! 第 {i + 1} 组{label} name 不一致（{tin.get('name')} / {tout.get('name')}）",
                   file=sys.stderr)
-        pairs.append({"name": name, "input": in_val, "expected_output": out_val})
+        pairs.append(FpsCase(name=name, input=in_val, expected_output=out_val))
     return pairs
 
 
-def parse_item(item: ET.Element) -> dict:
+def parse_item(item: ET.Element) -> FpsItem:
     title = text_of(item.find("title")) or "未命名题目"
     samples = pair_nodes(item.findall("sample_input"), item.findall("sample_output"),
                          lambda e: (text_of(e),), "样例")
     samples = [
         s for s in samples
-        if len(s["input"].encode("utf-8")) <= MAX_SAMPLE_BYTES
-        and len(s["expected_output"].encode("utf-8")) <= MAX_SAMPLE_BYTES
+        if len(s.input.encode("utf-8")) <= MAX_SAMPLE_BYTES
+        and len(s.expected_output.encode("utf-8")) <= MAX_SAMPLE_BYTES
     ][:10]
     tests = pair_nodes(item.findall("test_input"), item.findall("test_output"),
                        lambda e: (text_of(e), e.get("name")), "测试点")
     solutions = [
-        {"language": s.get("language") or "", "code": text_of(s)}
+        FpsSolution(language=s.get("language") or "", code=text_of(s))
         for s in item.findall("solution")
     ]
-    return {
-        "title": title[:255],
-        "time_limit_ms": parse_limits(item.find("time_limit"), "s", to_ms=True),
-        "memory_limit_mb": parse_limits(item.find("memory_limit"), "mb", to_ms=False),
-        "description": text_of(item.find("description")),
-        "input_description": text_of(item.find("input")),
-        "output_description": text_of(item.find("output")),
-        "hint": text_of(item.find("hint")),
-        "source": text_of(item.find("source")),
-        "has_spj": item.find("spj") is not None,
+    return FpsItem(
+        title=title[:255],
+        time_limit_ms=parse_limits(item.find("time_limit"), "s", to_ms=True),
+        memory_limit_mb=parse_limits(item.find("memory_limit"), "mb", to_ms=False),
+        description=text_of(item.find("description")),
+        input_description=text_of(item.find("input")),
+        output_description=text_of(item.find("output")),
+        hint=text_of(item.find("hint")),
+        source=text_of(item.find("source")),
+        has_spj=item.find("spj") is not None,
         # <spj> 元素文本 = 特判程序源码（部分导出器仅作标记，文本为空时无法重建 checker）
-        "spj_code": text_of(item.find("spj")),
-        "difficulty": _parse_difficulty(item.find("difficulty")),
-        "samples": samples,
-        "tests": tests,
-        "solutions": solutions,
-    }
+        spj_code=text_of(item.find("spj")),
+        difficulty=_parse_difficulty(item.find("difficulty")),
+        samples=samples,
+        tests=tests,
+        solutions=solutions,
+    )
 
 
-def parse_fps(data: bytes) -> list[dict]:
-    """解析 fps XML → 题目 dict 列表；GBK 等编码错报时回退重解码。"""
+def parse_fps(data: bytes) -> list[FpsItem]:
+    """解析 fps XML → FpsItem 列表；GBK 等编码错报时回退重解码。"""
     try:
         raw = normalize_entities(data)
     except UnicodeDecodeError:
@@ -216,11 +252,11 @@ def parse_fps(data: bytes) -> list[dict]:
     return [parse_item(node) for node in root.findall("item")]
 
 
-def build_solution(solutions: list[dict]) -> str | None:
+def build_solution(solutions: list[FpsSolution]) -> str | None:
     blocks = []
     for s in solutions:
-        lang = s["language"] or "text"
-        blocks.append(f"标程（{lang}）\n\n```{lang.lower()}\n{s['code']}\n```")
+        lang = s.language or "text"
+        blocks.append(f"标程（{lang}）\n\n```{lang.lower()}\n{s.code}\n```")
     joined = "\n\n".join(blocks)
     if len(joined.encode("utf-8")) > MAX_SOLUTION_BYTES:
         return None
@@ -342,7 +378,7 @@ def extract_zip_xmls(data: bytes, name: str) -> list[tuple[str, bytes]]:
 def read_archive(data: bytes, name: str) -> list[tuple[str, bytes]]:
     """上传内容 → [(名称, xml 字节)]；ZIP（按文件名或 PK 魔数识别）或单个 XML。"""
     if MAX_ARCHIVE_BYTES and len(data) > MAX_ARCHIVE_BYTES:
-        raise FpsError("压缩包超过 64MB 上限")
+        raise FpsError(f"压缩包超过 {MAX_ARCHIVE_BYTES // (1024 * 1024)}MB 上限")
     if name.lower().endswith(".zip") or data[:2] == b"PK":
         try:
             return extract_zip_xmls(data, name)
@@ -353,36 +389,37 @@ def read_archive(data: bytes, name: str) -> list[tuple[str, bytes]]:
     return [(name or "fps.xml", data)]
 
 
-async def import_one(db: AsyncSession, storage, owner_id, parsed: dict) -> tuple[str, uuid_mod.UUID]:
+async def import_one(db: AsyncSession, storage, owner_id,
+                     parsed: FpsItem) -> tuple[ImportStatus, uuid_mod.UUID]:
     """单题入库；返回 (结果状态, 题目 id)。失败时回滚并清理已上传对象。"""
-    tests = parsed["tests"]
-    has_checker = bool(parsed["spj_code"].strip())
+    tests = parsed.tests
+    has_checker = bool(parsed.spj_code.strip())
     # 有测试点且无特判 → published（种子语义）；无测试点 / 带特判 → draft
     status = (
         ProblemStatus.PUBLISHED
-        if tests and not parsed["has_spj"]
+        if tests and not parsed.has_spj
         else ProblemStatus.DRAFT
     )
 
     problem = Problem(
-        title=parsed["title"],
-        background=parsed["source"] or "无",
-        description=parsed["description"] or parsed["title"],
-        input_description=parsed["input_description"] or "无",
-        output_description=parsed["output_description"] or "无",
-        note=parsed["hint"] or None,
-        solution=build_solution(parsed["solutions"]),
-        samples=parsed["samples"],
+        title=parsed.title,
+        background=parsed.source or "无",
+        description=parsed.description or parsed.title,
+        input_description=parsed.input_description or "无",
+        output_description=parsed.output_description or "无",
+        note=parsed.hint or None,
+        solution=build_solution(parsed.solutions),
+        samples=[s.model_dump() for s in parsed.samples],
         active_case_ids=[],
         pending_case_ids=None,
         case_status=CaseStatus.OK if tests else CaseStatus.EMPTY,
-        time_limit_ms=parsed["time_limit_ms"],
-        memory_limit_mb=parsed["memory_limit_mb"],
+        time_limit_ms=parsed.time_limit_ms,
+        memory_limit_mb=parsed.memory_limit_mb,
         owner_id=owner_id,
         visibility=ProblemVisibility.PUBLIC,
         team_id=None,
         status=status,
-        difficulty=parsed["difficulty"],
+        difficulty=parsed.difficulty,
     )
     if status == ProblemStatus.PUBLISHED:
         now = datetime.now(timezone.utc)
@@ -401,14 +438,14 @@ async def import_one(db: AsyncSession, storage, owner_id, parsed: dict) -> tuple
     # 题面 base64 内嵌图 → 站内插图（落在导入人 images 空间，files 公开读白名单内）；
     # 失败的 key 计入 uploaded，rollback 时一并清理
     converted_fields, image_keys = await convert_import_images(storage, owner_id, {
-        "description": parsed["description"],
-        "input_description": parsed["input_description"],
-        "output_description": parsed["output_description"],
-        "hint": parsed["hint"],
-        "source": parsed["source"],
+        "description": parsed.description,
+        "input_description": parsed.input_description,
+        "output_description": parsed.output_description,
+        "hint": parsed.hint,
+        "source": parsed.source,
     })
     uploaded.extend(image_keys)
-    problem.description = converted_fields["description"] or parsed["title"]
+    problem.description = converted_fields["description"] or parsed.title
     problem.input_description = converted_fields["input_description"] or "无"
     problem.output_description = converted_fields["output_description"] or "无"
     problem.note = converted_fields["hint"] or None
@@ -418,22 +455,22 @@ async def import_one(db: AsyncSession, storage, owner_id, parsed: dict) -> tuple
     try:
         if has_checker:
             spj_key = f"problems/{problem.id}/spj/{uuid_mod.uuid4()}/code"
-            await storage.put_bytes(spj_key, parsed["spj_code"].encode("utf-8"),
+            await storage.put_bytes(spj_key, parsed.spj_code.encode("utf-8"),
                                     "text/x-c++src; charset=utf-8")
             uploaded.append(spj_key)
             # 特判程序写暂存集：验题通过后 apply 晋升生效（problems.md「SPJ 特判程序」）
             problem.pending_spj_oss_id = spj_key
         for idx, case in enumerate(tests):
-            name = (case["name"] or "").strip()
+            name = (case.name or "").strip()
             for suffix in (".in", ".out", ".txt"):
                 if name.lower().endswith(suffix):
                     name = name[: -len(suffix)]
             name = (name or f"case{idx + 1:02d}")[:64]
             input_key = f"problems/{problem.id}/cases/{uuid_mod.uuid4()}/input"
             output_key = f"problems/{problem.id}/cases/{uuid_mod.uuid4()}/output"
-            await storage.put_bytes(input_key, case["input"].encode("utf-8"),
+            await storage.put_bytes(input_key, case.input.encode("utf-8"),
                                     "text/plain; charset=utf-8")
-            await storage.put_bytes(output_key, case["expected_output"].encode("utf-8"),
+            await storage.put_bytes(output_key, case.expected_output.encode("utf-8"),
                                     "text/plain; charset=utf-8")
             uploaded += [input_key, output_key]
             row = TestCase(
@@ -457,14 +494,14 @@ async def import_one(db: AsyncSession, storage, owner_id, parsed: dict) -> tuple
                 pass
         raise
     if has_checker:
-        return "draft_spj", problem.id
-    return "published" if tests else "draft", problem.id
+        return ImportStatus.DRAFT_SPJ, problem.id
+    return ImportStatus.PUBLISHED if tests else ImportStatus.DRAFT, problem.id
 
 
 async def import_parsed_problems(
     db: AsyncSession,
     owner: User,
-    items: list[dict],
+    items: list[FpsItem],
     *,
     spj_mode: str = "skip",
     limit: int | None = None,
@@ -486,23 +523,23 @@ async def import_parsed_problems(
             truncated = True
             break
         attempted += 1
-        title = parsed["title"]
+        title = parsed.title
         if title in known:
-            outcomes.append(ImportOutcome(title=title, status="duplicate"))
+            outcomes.append(ImportOutcome(title=title, status=ImportStatus.DUPLICATE))
             continue
-        if parsed["has_spj"]:
+        if parsed.has_spj:
             if spj_mode == "skip":
-                outcomes.append(ImportOutcome(title=title, status="skipped_spj"))
+                outcomes.append(ImportOutcome(title=title, status=ImportStatus.SKIPPED_SPJ))
                 continue
-            if not parsed["spj_code"].strip():
+            if not parsed.spj_code.strip():
                 outcomes.append(ImportOutcome(
-                    title=title, status="skipped_spj",
+                    title=title, status=ImportStatus.SKIPPED_SPJ,
                     message="spj 标记无 checker 源码，无法重建特判程序",
                 ))
                 continue
-            if len(parsed["spj_code"].encode("utf-8")) > MAX_SPJ_BYTES:
+            if len(parsed.spj_code.encode("utf-8")) > MAX_SPJ_BYTES:
                 outcomes.append(ImportOutcome(
-                    title=title, status="skipped_spj", message="checker 源码超过 256KB 上限",
+                    title=title, status=ImportStatus.SKIPPED_SPJ, message="checker 源码超过 256KB 上限",
                 ))
                 continue
         try:
@@ -510,7 +547,7 @@ async def import_parsed_problems(
             known.add(title)
             outcomes.append(ImportOutcome(title=title, status=status, problem_id=str(pid)))
         except Exception as exc:  # noqa: BLE001 —— 单题失败不阻断
-            outcomes.append(ImportOutcome(title=title, status="failed", message=str(exc)[:200]))
+            outcomes.append(ImportOutcome(title=title, status=ImportStatus.FAILED, message=str(exc)[:200]))
     return outcomes, truncated
 
 
@@ -525,8 +562,6 @@ class ProblemImportService:
 
     async def import_archive(self, data: bytes, filename: str, *, owner: User) -> ImportSummary:
         """ZIP / XML 上传 → 解析 → 逐题导入（staged SPJ 模式）。"""
-        from app.core.exceptions import APIError, PARAM_FORMAT_INVALID
-
         try:
             return await self._import(data, filename, owner)
         except FpsError as exc:
@@ -540,7 +575,7 @@ class ProblemImportService:
             try:
                 parsed.extend(parse_fps(xml))
             except FpsError as exc:
-                results.append(ImportOutcome(title=Path(name).name, status="failed", message=str(exc)))
+                results.append(ImportOutcome(title=Path(name).name, status=ImportStatus.FAILED, message=str(exc)))
         if not parsed:
             # 全部解析失败（如上传的单个 XML 非 fps 格式）→ 1001，不返回空成功结果
             if results:
@@ -627,31 +662,49 @@ async def load_export_items(
     case_rows: dict[uuid_mod.UUID, dict[uuid_mod.UUID, TestCase]] = {}
     for row in (await db.execute(select(TestCase).where(TestCase.problem_id.in_(list(problems))))).scalars().all():
         case_rows.setdefault(row.problem_id, {})[row.id] = row
+    # 对象存储并发拉取上限（与提交详情输出拉取同量级：压平延迟、避免瞬时打满 MinIO）
+    semaphore = asyncio.Semaphore(8)
+
+    async def _fetch(oss_id: str) -> bytes:
+        async with semaphore:
+            raw, _ = await storage.get_bytes(oss_id)
+            return raw
+
+    async def _fetch_pair(input_id: str, expected_id: str) -> tuple[bytes, bytes]:
+        async with semaphore:
+            input_bytes, _ = await storage.get_bytes(input_id)
+            expected_bytes, _ = await storage.get_bytes(expected_id)
+            return input_bytes, expected_bytes
+
     for pid in unique_ids:
         problem = problems.get(pid)
         if problem is None:
             missing.append(pid)
             continue
         rows = case_rows.get(pid, {})
-        tests: list[dict] = []
+        # 生效测试点先解析（跳过非法 id / 缺失行），再并发拉取输入与期望输出
+        fetch_rows: list[TestCase] = []
         for raw_id in problem.active_case_ids or []:
             try:
                 row = rows.get(uuid_mod.UUID(str(raw_id)))
             except ValueError:
                 continue
-            if row is None:
-                continue
-            input_bytes, _ = await storage.get_bytes(row.input_oss_id)
-            expected_bytes, _ = await storage.get_bytes(row.expected_output_oss_id)
+            if row is not None:
+                fetch_rows.append(row)
+        fetched: list[tuple[bytes, bytes]] = list(await asyncio.gather(*(
+            _fetch_pair(row.input_oss_id, row.expected_output_oss_id) for row in fetch_rows
+        )))
+        tests: list[dict] = []
+        for idx, (input_bytes, expected_bytes) in enumerate(fetched):
             total_bytes += len(input_bytes) + len(expected_bytes)
             tests.append({
-                "name": (row.name or f"case{len(tests) + 1:02d}")[:64],
+                "name": (fetch_rows[idx].name or f"case{idx + 1:02d}")[:64],
                 "input": input_bytes,
                 "expected_output": expected_bytes,
             })
         spj_code = None
         if problem.spj_oss_id:
-            raw, _ = await storage.get_bytes(problem.spj_oss_id)
+            raw = await _fetch(problem.spj_oss_id)
             spj_code = raw.decode("utf-8", errors="replace")
             total_bytes += len(raw)
         # 站内插图 → base64 data URI（自包含 XML，跨站可迁移）；字节数计入总量护栏

@@ -152,6 +152,18 @@ src/frontend/
   **例外**：退出 / 解散团队后回退团队列表，本人成员关系必然过期——经 `stores/teams` 脏标记
   （`markMembershipChanged`）在列表页 `onActivated` 时重拉，不走手动刷新兜底
 
+### 路由守卫
+
+守卫收敛在 `router/guards.ts`，`beforeEach` 顺序：会话恢复（`stores/user.init()`，仅一次）→
+`meta.public` 放行 → `meta.requiresAuth` 未登录跳 `/login?redirect=<to.fullPath>` →
+`meta.roles` 角色不足回首页并 `message.warning`（`common.noPermission`，仅重定向会静默丢弃动线，
+无 `?denied=` 类查询标记）。约束：
+
+- 登录后回跳必须经 `utils/navigation.ts` 的 `sanitizeRedirect` 校验（仅放行以单个 `/` 开头的站内路径），
+  不得把 `?redirect=` 查询参数直接交给 `router.push`（外链 / 协议相对地址会触发跨域 pushState 异常或开放跳转）；
+- 守卫模块在 main.ts 装配期早于 `app.use(pinia)` 求值，不得顶层导入依赖 pinia 的模块
+  （如 `utils/feedback`），需要时在守卫回调内动态 `import()`。
+
 ### 路由上下文隔离（契约级规范）
 
 > 设计术语对齐：本节即 **限界上下文**（Bounded Context，DDD）在前端路由层的应用——

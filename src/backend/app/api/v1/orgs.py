@@ -10,8 +10,14 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import OrgServiceDep, ProblemServiceDep, SessionDep
-from app.core.dependency import get_current_admin, get_current_user
+from app.api.deps import (
+    OrgServiceDep,
+    ProblemServiceDep,
+    SessionDep,
+    get_current_admin,
+    get_current_user,
+)
+from app.enums import RoleLevel
 from app.models.user import User
 from app.schemas.org import (
     OrgAdminFlag,
@@ -214,7 +220,7 @@ async def list_org_problems(
 ) -> ApiResponse[PaginatedResponse[TeamProblemSummary]]:
     """组织题库列表：缺省仅 published；status='draft' 草稿视图（全组织草稿均可见，
     无个人私稿）；归档任何视图不返回；管理视图回填 needs_reverification。"""
-    await service.require_roles(user, org_id, level="member")
+    await service.require_roles(user, org_id, level=RoleLevel.MEMBER)
     rows, total = await problems.list_org_problems(
         org_id, keyword=keyword, status=status, page=page, page_size=page_size
     )
@@ -238,7 +244,7 @@ async def create_org_problem(
     user: User = Depends(get_current_user),
 ) -> ApiResponse[TeamProblemSummary]:
     """组织题库直建题目（org_member）：visibility 恒 org_visible，owner_id 为创建人署名。"""
-    await service.require_roles(user, org_id, level="member")
+    await service.require_roles(user, org_id, level=RoleLevel.MEMBER)
     problem = await problems.create(user, body, org_id=org_id)
     await db.commit()
     item = TeamProblemSummary.model_validate(problem)
@@ -256,6 +262,6 @@ async def get_org_problem(
     user: User = Depends(get_current_user),
 ) -> ApiResponse[TeamProblemSummary]:
     """组织题目详情（组织上下文统一入口）：归属校验后复用题库详情装配。"""
-    await service.require_roles(user, org_id, level="member")
+    await service.require_roles(user, org_id, level=RoleLevel.MEMBER)
     detail = await problems.get_org_problem_detail(org_id, problem_id, user)
     return ok(TeamProblemSummary.model_validate(detail))

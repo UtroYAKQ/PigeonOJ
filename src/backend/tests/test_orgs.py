@@ -1,6 +1,6 @@
 """组织模块集成测试（docs/contracts/orgs.md）。
 
-覆盖：创建权限与初始管理员任命、成员拉人 / 移出 / 授管理员（最后一名保护）、
+覆盖：创建权限与初始管理员任命、成员拉人 / 移出 / 授管理员（最后一名管理员 3004 / 成员 3005）、
 组织信息编辑、组织内建团、组织题库（直建 / 列表 / 草稿全员可见 / 编辑权全员开放）、
 组织题目对组织名下团队管理者的只读门、解散清理。
 """
@@ -19,6 +19,7 @@ from .conftest import (
     register_user,
 )
 from app.core.database import SessionLocal
+from app.models.org import OrgMember
 from app.models.problem import Problem
 from app.models.user import User, UserRole
 
@@ -201,10 +202,18 @@ async def test_member_lifecycle_and_last_admin_guard(client: httpx.AsyncClient) 
     )
     assert resp.json()["code"] == 0, resp.text  # mentor 仍在，可撤销 b
 
-    # mentor 撤销自己（唯一 org_admin）→ 3004
+    # 自我撤销保护：mentor 撤销自己（唯一 org_admin，且非站点 admin）→ 2003 先拦
     m_uid = (await client.get("/api/v1/users/me", headers=mentor)).json()["data"]["id"]
     resp = await client.put(
         f"/api/v1/orgs/{org_id}/members/{m_uid}/admin", json={"is_admin": False}, headers=mentor
+    )
+    assert resp.json()["code"] == 2003
+
+    # 站点 admin 兜底：仍可撤销最后一名 org_admin（来源授权已清）→ 3004（最后一名保护）
+    site_token = await api_login(client, "admin@pigeonoj.dev", "Admin@123")
+    site_headers = {"Authorization": f"Bearer {site_token}"}
+    resp = await client.put(
+        f"/api/v1/orgs/{org_id}/members/{m_uid}/admin", json={"is_admin": False}, headers=site_headers
     )
     assert resp.json()["code"] == 3004
 
@@ -217,6 +226,61 @@ async def test_member_lifecycle_and_last_admin_guard(client: httpx.AsyncClient) 
         f"/api/v1/orgs/{org_id}/members/{a_uid}/note", json={"note": "x"}, headers=a
     )
     assert resp.json()["code"] == 3001  # a 已被移出
+
+
+async def test_last_member_guard(client: httpx.AsyncClient) -> None:
+    """移出成员：组织至少保留一名在册成员（最后一名成员 3005）。
+
+    场景：仅剩 1 名在册成员（另有一名非在册但持 org_admin 授权的执行者），
+    移出最后一名成员被 3005 拦截；先补入成员后移出恢复可行。
+    """
+    mentor, org_id = await _make_org_admin(client, "lastguard@pigeonoj.dev")
+    executor, executor_uid = await _extra_user_headers(client, "executor@pigeonoj.dev")
+    extra, extra_uid = await _extra_user_headers(client, "extra@pigeonoj.dev")
+    m_uid = await _uid_of(client, mentor)
+
+    # 拉入 executor 并授其 org_admin，再将其成员行置为 REMOVED（非在册但保有授权）
+    resp = await client.post(
+        f"/api/v1/orgs/{org_id}/members", json={"user_ids": [executor_uid]}, headers=mentor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.put(
+        f"/api/v1/orgs/{org_id}/members/{executor_uid}/admin", json={"is_admin": True}, headers=mentor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    async with SessionLocal() as db:
+        row = await db.execute(
+            select(OrgMember).where(
+                OrgMember.org_id == uuid_mod.UUID(org_id),
+                OrgMember.user_id == uuid_mod.UUID(executor_uid),
+            )
+        )
+        member = row.scalar_one()
+        member.status = "removed"
+        # 站点 admin 是组织创建者（自动成为成员行），一并置为非在册，
+        # 使 mentor 成为唯一在册成员
+        site_user = (await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))).scalar_one()
+        site_row = await db.execute(
+            select(OrgMember).where(
+                OrgMember.org_id == uuid_mod.UUID(org_id),
+                OrgMember.user_id == site_user.id,
+            )
+        )
+        site_member = site_row.scalar_one()
+        site_member.status = "removed"
+        await db.commit()
+
+    # 只剩 mentor 一名在册成员：executor 移出他 → 3005
+    resp = await client.delete(f"/api/v1/orgs/{org_id}/members/{m_uid}", headers=executor)
+    assert resp.json()["code"] == 3005
+
+    # 补入 extra 后（≥2 名成员）移出 mentor 恢复可行
+    resp = await client.post(
+        f"/api/v1/orgs/{org_id}/members", json={"user_ids": [extra_uid]}, headers=mentor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.delete(f"/api/v1/orgs/{org_id}/members/{m_uid}", headers=executor)
+    assert resp.json()["code"] == 0, resp.text
 
 
 async def test_org_teams(client: httpx.AsyncClient) -> None:
@@ -333,7 +397,7 @@ async def test_org_problem_library(client: httpx.AsyncClient) -> None:
         headers=mentor,
     )
     assert resp.json()["code"] == 0
-    resp = await client.post(
+    resp = await client.put(
         f"/api/v1/teams/{team_id}/members/{await _uid_of(client, outsider)}/admin",
         json={"is_admin": True},
         headers=mentor,

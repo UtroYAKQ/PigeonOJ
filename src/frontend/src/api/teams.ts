@@ -99,9 +99,9 @@ export function reviewTeamApplication(
   return apiRequest('POST', `/teams/${id}/applications/${applicationId}/review`, { approve })
 }
 
-/** 分配 / 取消团队管理员（仅创建者） */
+/** 分配 / 取消团队管理员（创建者或站点 admin 兜底；PUT 与组织端点对齐） */
 export function setTeamAdmin(id: string, userId: string, isAdmin: boolean): Promise<null> {
-  return apiRequest('POST', `/teams/${id}/members/${userId}/admin`, { is_admin: isAdmin })
+  return apiRequest('PUT', `/teams/${id}/members/${userId}/admin`, { is_admin: isAdmin })
 }
 
 /** 踢出成员（team_creator / team_admin） */

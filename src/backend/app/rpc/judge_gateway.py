@@ -18,14 +18,22 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import grpc
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import SubmissionStatus
+from app.models.judge import Submission
 from app.schemas.admin import SandboxNodeOut
 from app.settings.config import get_settings
 from app.rpc import judge_jobs as jobs
 from app.rpc.gen import judge_pb2, judge_pb2_grpc
 from app.core.database import SessionLocal
-from app.core.redis import SANDBOX_NODE_KEY_PREFIX, get_redis
+from app.core.redis import (
+    JUDGE_ATTEMPTS_KEY_PREFIX,
+    JUDGE_REQUEUE_KEY_PREFIX,
+    SANDBOX_NODE_KEY_PREFIX,
+    get_redis,
+)
 from app.core.storage import get_storage
 
 logger = logging.getLogger(__name__)
@@ -46,14 +54,12 @@ _NODE_TOKEN_METADATA_KEY = "x-node-token"
 _NODE_STATUS_ONLINE = "online"
 _CHANNEL_GATEWAY = "gateway"
 # 维护循环重派互斥锁键前缀（docs/operations.md Redis 约定）
-_REQUEUE_LOCK_PREFIX = "judge:requeue:"
 # 重派锁 TTL：派发成功后在途保护（与 judging 判死阈值一致，防长作业被频繁重置）；
 # 派发失败仅短 TTL 冷却（一个扫描周期量级），不冻结积压
 _REQUEUE_LOCK_TTL_SECONDS = _JUDGING_STALE_SECONDS
 _REQUEUE_RETRY_TTL_SECONDS = 60
 # 回收重派次数上限（断线 / judging 超时）；超过转 system_error（契约「超过阈值转 system_error」）
 _MAX_REQUEUE_ATTEMPTS = 3
-_ATTEMPT_KEY_PREFIX = "judge:attempts:"
 _ATTEMPT_TTL_SECONDS = 3600
 # FetchProblemData 单片上限（同一 path 连续多片，节点按序追加）
 _FILE_CHUNK_BYTES = 1024 * 1024
@@ -220,6 +226,17 @@ REGISTRY = GatewayRegistry()
 
 def _token_ok(token: str) -> bool:
     return bool(get_settings().gateway_tokens) and token in get_settings().gateway_tokens
+
+
+def _to_pb_limits(limits: jobs.ResourceLimits) -> judge_pb2.ResourceLimits:
+    """ResourceLimits（进程内 dataclass）→ judge_pb2.ResourceLimits（字段一一对应）。"""
+    return judge_pb2.ResourceLimits(
+        time_limit_ms=limits.time_limit_ms,
+        memory_limit_mb=limits.memory_limit_mb,
+        output_limit_kb=limits.output_limit_kb,
+        process_limit=limits.process_limit,
+        cpu_cores=limits.cpu_cores,
+    )
 
 
 def _to_outcome(result: judge_pb2.JudgeResult) -> jobs.JudgeOutcome:
@@ -417,13 +434,7 @@ async def send_job(node_id: str, submission_id: uuid.UUID) -> bool:
             submission_id=bundle.submission_id,
             language=bundle.language,
             code=bundle.code,
-            limits=judge_pb2.ResourceLimits(
-                time_limit_ms=bundle.limits.time_limit_ms,
-                memory_limit_mb=bundle.limits.memory_limit_mb,
-                output_limit_kb=bundle.limits.output_limit_kb,
-                process_limit=bundle.limits.process_limit,
-                cpu_cores=bundle.limits.cpu_cores,
-            ),
+            limits=_to_pb_limits(bundle.limits),
             problem_id=bundle.problem_id,
             data_version=bundle.data_version,
             stop_on_failure=bundle.stop_on_failure,
@@ -439,16 +450,12 @@ async def send_job(node_id: str, submission_id: uuid.UUID) -> bool:
 
 
 async def _reset_to_pending(submission_ids: set[str], *, reason: str) -> None:
-    from sqlalchemy import update
-
-    from app.models.judge import Submission
-
     if not submission_ids:
         return
     r = get_redis()
     retry_ok: list[uuid.UUID] = []
     for raw in submission_ids:
-        key = f"{_ATTEMPT_KEY_PREFIX}{raw}"
+        key = f"{JUDGE_ATTEMPTS_KEY_PREFIX}{raw}"
         n = int(await r.incr(key))
         await r.expire(key, _ATTEMPT_TTL_SECONDS)
         sid = uuid.UUID(raw)
@@ -480,10 +487,6 @@ def _send_cancel(submission_id: str) -> None:
 async def maintenance_once(scan_interval: int, now: datetime | None = None) -> None:
     """单轮巡检（maintenance_loop 循环体，独立成函数便于测试注入）：
     重置超时未完成的 judging、重派滞留的 pending / judging 提交。"""
-    from sqlalchemy import select
-
-    from app.models.judge import Submission
-
     stale_after = timedelta(seconds=scan_interval * _STALE_SCAN_MULTIPLIER)
     now = now or datetime.now(timezone.utc)
     r = get_redis()
@@ -497,7 +500,7 @@ async def maintenance_once(scan_interval: int, now: datetime | None = None) -> N
             )
         ).scalars().all()
         for submission in stale:
-            lock_key = f"{_REQUEUE_LOCK_PREFIX}{submission.id}"
+            lock_key = f"{JUDGE_REQUEUE_KEY_PREFIX}{submission.id}"
             # 先以短 TTL 上锁防同轮重复处理；派发成功后再升级为在途保护窗。
             # 失败（无在线节点等）只冷却一个扫描周期量级——不冻结积压，
             # 节点恢复后下一轮即可重派（修复断线期烧锁导致恢复后仍长时间排队）
@@ -509,7 +512,7 @@ async def maintenance_once(scan_interval: int, now: datetime | None = None) -> N
             ):
                 _send_cancel(str(submission.id))
                 await _reset_to_pending({str(submission.id)}, reason="judging stale")
-            await db.commit()
+            # 本会话只做过 select（无写操作），不需要提交；重派走 dispatch_submission 自建会话
             if await dispatch_submission(submission.id):
                 logger.info("巡检重派提交 %s", submission.id)
                 await r.set(lock_key, "1", ex=_REQUEUE_LOCK_TTL_SECONDS)
@@ -554,6 +557,16 @@ async def dispatch_submission(submission_id: uuid.UUID) -> str | None:
     if await send_job(best.node_id, submission_id):
         return best.node_id
     return None
+
+
+async def commit_and_dispatch(db: AsyncSession, submission: Submission) -> None:
+    """交题端点共用收尾：显式提交事务后派发判题作业。
+
+    submission 必须先持久化（commit），dispatch 才能在独立会话中查到它；
+    所有交题入口（题目 / 比赛 / 题单 / 团队）统一走此函数，避免复制遗漏。
+    """
+    await db.commit()
+    await dispatch_submission(submission.id)
 
 
 def _fail_pending_runs(conn: NodeConnection, *, reason: str) -> None:
@@ -602,13 +615,7 @@ async def dispatch_run_code(
             language=language,
             code=code,
             input=stdin_data,
-            limits=judge_pb2.ResourceLimits(
-                time_limit_ms=limits.time_limit_ms,
-                memory_limit_mb=limits.memory_limit_mb,
-                output_limit_kb=limits.output_limit_kb,
-                process_limit=limits.process_limit,
-                cpu_cores=limits.cpu_cores,
-            ),
+            limits=_to_pb_limits(limits),
         )))
         try:
             return await asyncio.wait_for(fut, timeout=_RUN_TIMEOUT_SECONDS)

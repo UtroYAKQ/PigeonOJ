@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependency import get_user_role_codes, is_admin
 from app.core.exceptions import APIError, AUTH_FORBIDDEN, AUTH_NOT_LOGGED_IN, PARAM_FORMAT_INVALID, RESOURCE_DUPLICATE, RESOURCE_NOT_FOUND
-from app.enums import ProblemSetStatus, ProblemSetVisibility
+from app.enums import ProblemSetStatus, ProblemSetVisibility, RoleCode, RoleLevel
 from app.models.problem_set import ProblemSet, ProblemSetItem
 from app.models.user import User
 from app.repositories.problem import ProblemRepository
@@ -22,9 +22,10 @@ from app.schemas.problem_set import (
     ProblemSetUpdate,
 )
 from app.services.problem import ProblemService, to_problem_detail
+from app.services.team import TeamService  # 团队角色校验（无环：team 不反向依赖 problem_set）
 
 # 全站题单管理角色（docs/contracts/problem-sets.md：公开题单由 admin 创建；tutor 已下线）
-SET_MANAGER_ROLES: set[str] = {"admin"}
+SET_MANAGER_ROLES: set[str] = {RoleCode.ADMIN}
 
 
 class ProblemSetService:
@@ -47,10 +48,8 @@ class ProblemSetService:
         if await is_admin(self.db, user):
             return True
         if problem_set is not None and problem_set.team_id is not None:
-            from app.services.team import TeamService
-
             return await TeamService(self.db).has_team_roles(
-                user, problem_set.team_id, level="admin"
+                user, problem_set.team_id, level=RoleLevel.ADMIN
             )
         return problem_set is not None and user.id == problem_set.owner_id
 
@@ -58,10 +57,8 @@ class ProblemSetService:
         """团队题单的成员可见性：任意团队角色（member 及以上）可浏览详情。"""
         if user is None or problem_set.team_id is None:
             return False
-        from app.services.team import TeamService
-
         return await TeamService(self.db).has_team_roles(
-            user, problem_set.team_id, level="member"
+            user, problem_set.team_id, level=RoleLevel.MEMBER
         )
 
     async def _get_visible(self, set_id: uuid.UUID, viewer: User | None) -> ProblemSet:

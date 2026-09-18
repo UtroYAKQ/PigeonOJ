@@ -10,17 +10,18 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import (
+    get_current_user,
+    get_optional_user,
     SelfTestServiceDep,
     SessionDep,
     SubmissionServiceDep,
     TeamServiceDep,
     TeamSpaceServiceDep,
 )
-from app.core.dependency import get_current_user, get_optional_user
-from app.core.exceptions import PARAM_FORMAT_INVALID, APIError
+from app.core.exceptions import AUTH_NOT_LOGGED_IN, APIError
 from app.enums import SubmissionStatus
 from app.models.user import User
-from app.rpc.judge_gateway import dispatch_submission, dispatch_run_code
+from app.rpc.judge_gateway import commit_and_dispatch
 from app.schemas.judge import (
     SelfTestRequest,
     SelfTestResultOut,
@@ -63,8 +64,6 @@ from app.schemas.contest import (
 )
 from app.schemas.problem import TeamProblemSummary
 from app.schemas.problem_set import ProblemSetSummary
-from app.rpc.judge_gateway import GatewayUnavailableError, GatewayBusyError, GatewayTimeoutError
-from app.core.exceptions import RATE_LIMITED, RATE_SEND_TOO_FREQUENT, SYSTEM_UPSTREAM_FAILURE
 from app.utils.pagination import PaginatedResponse
 from app.utils.response import ApiResponse, ok
 
@@ -84,8 +83,6 @@ async def list_teams(
     勾选（须登录，匿名 401），返回本人在册的团队（公开 + 私有）。
     团队创建已收敛到组织端点 POST /orgs/{org_id}/teams（docs/contracts/orgs.md）。"""
     if mine and user is None:
-        from app.core.exceptions import AUTH_NOT_LOGGED_IN
-
         raise APIError(AUTH_NOT_LOGGED_IN, "查看我的团队需要登录", 401)
     items, total = await service.list_public_teams(
         user, page, page_size, keyword, mine=mine
@@ -206,7 +203,7 @@ async def review_application(
     return ok(None)
 
 
-@router.post("/{team_id}/members/{user_id}/admin", response_model=ApiResponse[None])
+@router.put("/{team_id}/members/{user_id}/admin", response_model=ApiResponse[None])
 async def set_member_admin(
     team_id: uuid.UUID,
     user_id: uuid.UUID,
@@ -215,7 +212,10 @@ async def set_member_admin(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
-    """分配 / 取消团队管理员（仅创建者；分配即写授权，取消即删除）。"""
+    """分配 / 取消团队管理员（创建者或站点 admin 兜底；分配即写授权，取消即删除）。
+
+    方法与组织端点 PUT /orgs/{id}/members/{uid}/admin 对齐（幂等置位语义用 PUT）。
+    """
     await service.set_admin(user, team_id, user_id, body)
     await db.commit()
     return ok(None)
@@ -405,8 +405,7 @@ async def create_team_problem_submission(
     submission = await service.create_problem_submission(
         user, team_id, problem_id, language=body.language, code=body.code
     )
-    await db.commit()  # 显式提交：确保 submission 已持久化，dispatch_submission 才能找到它
-    await dispatch_submission(submission.id)
+    await commit_and_dispatch(db, submission)
     return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
 
 
@@ -426,33 +425,7 @@ async def run_team_problem_code(
     await space.require_member(user, team_id)
     await space.get_problem_detail(user, team_id, problem_id)  # 复用详情门控（可见性 + 归属）
     order = await service.create_order(user, problem_id, body, bypass_visibility=True)
-    if not await service.try_claim_cooldown(order, user.id):
-        raise APIError(RATE_SEND_TOO_FREQUENT, "操作过于频繁，请稍后再试", 429)
-    try:
-        outcome = await dispatch_run_code(
-            problem=order.problem,
-            sandbox_config=order.sandbox_config,
-            language=order.language,
-            code=order.code,
-            stdin_data=order.stdin_data,
-            max_concurrent=order.max_concurrent,
-        )
-    except GatewayUnavailableError as exc:
-        await service.release_cooldown(order, user.id)
-        raise APIError(SYSTEM_UPSTREAM_FAILURE, "暂无在线判题节点，请稍后重试", 502) from exc
-    except GatewayBusyError as exc:
-        await service.release_cooldown(order, user.id)
-        raise APIError(RATE_LIMITED, "全局判题并发已达上限，请稍后重试", 429) from exc
-    except GatewayTimeoutError as exc:
-        await service.release_cooldown(order, user.id)
-        raise APIError(SYSTEM_UPSTREAM_FAILURE, "沙箱执行超时，请稍后重试", 502) from exc
-    return ok(SelfTestResultOut(
-        status=outcome.status,
-        output=outcome.output.decode("utf-8", errors="replace"),
-        error_message=outcome.error_message,
-        time_used_ms=outcome.time_used_ms,
-        memory_used_kb=outcome.memory_used_kb,
-    ))
+    return ok(await service.run_once(order, user.id))
 
 
 @router.get(
@@ -566,8 +539,7 @@ async def create_team_set_submission(
     submission = await service.create_set_submission(
         user, team_id, set_id, problem_id, language=body.language, code=body.code
     )
-    await db.commit()  # 显式提交：确保 submission 已持久化，dispatch_submission 才能找到它
-    await dispatch_submission(submission.id)
+    await commit_and_dispatch(db, submission)
     return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
 
 
@@ -588,33 +560,7 @@ async def run_team_set_problem_code(
     await space.require_member(user, team_id)
     await space.get_set_problem_detail(user, team_id, set_id, problem_id)  # 复用详情门控
     order = await service.create_order(user, problem_id, body, bypass_visibility=True)
-    if not await service.try_claim_cooldown(order, user.id):
-        raise APIError(RATE_SEND_TOO_FREQUENT, "操作过于频繁，请稍后再试", 429)
-    try:
-        outcome = await dispatch_run_code(
-            problem=order.problem,
-            sandbox_config=order.sandbox_config,
-            language=order.language,
-            code=order.code,
-            stdin_data=order.stdin_data,
-            max_concurrent=order.max_concurrent,
-        )
-    except GatewayUnavailableError as exc:
-        await service.release_cooldown(order, user.id)
-        raise APIError(SYSTEM_UPSTREAM_FAILURE, "暂无在线判题节点，请稍后重试", 502) from exc
-    except GatewayBusyError as exc:
-        await service.release_cooldown(order, user.id)
-        raise APIError(RATE_LIMITED, "全局判题并发已达上限，请稍后重试", 429) from exc
-    except GatewayTimeoutError as exc:
-        await service.release_cooldown(order, user.id)
-        raise APIError(SYSTEM_UPSTREAM_FAILURE, "沙箱执行超时，请稍后重试", 502) from exc
-    return ok(SelfTestResultOut(
-        status=outcome.status,
-        output=outcome.output.decode("utf-8", errors="replace"),
-        error_message=outcome.error_message,
-        time_used_ms=outcome.time_used_ms,
-        memory_used_kb=outcome.memory_used_kb,
-    ))
+    return ok(await service.run_once(order, user.id))
 
 
 @router.get(
@@ -753,8 +699,7 @@ async def create_team_contest_submission(
     submission, _after = await service.submit_contest_problem(
         user, team_id, contest_id, problem_id, language=body.language, code=body.code
     )
-    await db.commit()
-    await dispatch_submission(submission.id)
+    await commit_and_dispatch(db, submission)
     return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
 
 
@@ -806,7 +751,7 @@ async def list_team_contest_submissions(
     try:
         status_value = SubmissionStatus(status) if status else None
     except ValueError as exc:
-        raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
+        raise APIError.bad_query(exc) from exc
     items, total = await service.list_contest_submissions(
         user, team_id, contest_id, page=page, page_size=page_size,
         keyword=keyword, language=language, status=status_value, problem_id=problem_id,

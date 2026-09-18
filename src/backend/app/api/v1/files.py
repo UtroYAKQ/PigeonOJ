@@ -5,10 +5,9 @@ import hashlib
 
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 
-from app.api.deps import FileServiceDep
+from app.api.deps import FileServiceDep, get_current_admin, get_current_user
 from app.models.user import User
 from app.schemas.file import AvatarUploadResult, ImageUploadResult
-from app.core.dependency import get_current_admin, get_current_user
 from app.core.exceptions import APIError, RESOURCE_NOT_FOUND
 from app.utils.response import ApiResponse, ok
 from app.core.storage import S3Error, get_storage

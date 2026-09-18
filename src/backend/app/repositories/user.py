@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.enums import UserRoleScope
+from app.enums import RoleCode, UserRoleScope
 from app.models.user import Role, User, UserRole, UserSession
 
 
@@ -308,13 +308,15 @@ class RoleRepository:
             .where(
                 UserRole.user_id == user_id,
                 UserRole.scope == UserRoleScope.TEAM,
-                Role.code.in_(["team_creator", "team_admin"]),
+                Role.code.in_([RoleCode.TEAM_CREATOR, RoleCode.TEAM_ADMIN]),
             )
         )
         return int(await self.db.scalar(stmt) or 0) > 0
 
-    async def grant_team_role(self, user_id: uuid.UUID, team_id: uuid.UUID, code: str) -> None:
-        """授予团队角色（幂等：已存在则跳过，唯一约束兜底）。"""
+    async def _grant_scoped_role(
+        self, user_id: uuid.UUID, scope: UserRoleScope, object_id: uuid.UUID, code: str
+    ) -> None:
+        """授予作用域角色（幂等：已存在则跳过，唯一约束兜底）。"""
         role = await self.get_by_code(code)
         if role is None:
             return
@@ -323,24 +325,20 @@ class RoleRepository:
                 select(UserRole.id).where(
                     UserRole.user_id == user_id,
                     UserRole.role_id == role.id,
-                    UserRole.scope == UserRoleScope.TEAM,
-                    UserRole.object_id == team_id,
+                    UserRole.scope == scope,
+                    UserRole.object_id == object_id,
                 )
             )
         ).scalar_one_or_none()
         if exists is not None:
             return
-        self.db.add(
-            UserRole(
-                user_id=user_id, role_id=role.id, scope=UserRoleScope.TEAM, object_id=team_id
-            )
-        )
+        self.db.add(UserRole(user_id=user_id, role_id=role.id, scope=scope, object_id=object_id))
         await self.db.flush()
 
-    async def revoke_team_roles(
-        self, user_id: uuid.UUID, team_id: uuid.UUID, codes: set[str]
+    async def _revoke_scoped_roles(
+        self, user_id: uuid.UUID, scope: UserRoleScope, object_id: uuid.UUID, codes: set[str]
     ) -> None:
-        """撤销用户在指定团队的角色（按角色 code 集合）。"""
+        """撤销用户在指定作用域对象上的角色（按角色 code 集合）。"""
         if not codes:
             return
         role_ids = (
@@ -351,12 +349,22 @@ class RoleRepository:
         await self.db.execute(
             delete(UserRole).where(
                 UserRole.user_id == user_id,
-                UserRole.scope == UserRoleScope.TEAM,
-                UserRole.object_id == team_id,
+                UserRole.scope == scope,
+                UserRole.object_id == object_id,
                 UserRole.role_id.in_(role_ids),
             )
         )
         await self.db.flush()
+
+    async def grant_team_role(self, user_id: uuid.UUID, team_id: uuid.UUID, code: str) -> None:
+        """授予团队角色（幂等：已存在则跳过，唯一约束兜底）。"""
+        await self._grant_scoped_role(user_id, UserRoleScope.TEAM, team_id, code)
+
+    async def revoke_team_roles(
+        self, user_id: uuid.UUID, team_id: uuid.UUID, codes: set[str]
+    ) -> None:
+        """撤销用户在指定团队的角色（按角色 code 集合）。"""
+        await self._revoke_scoped_roles(user_id, UserRoleScope.TEAM, team_id, codes)
 
     async def revoke_all_team_roles(self, team_id: uuid.UUID) -> None:
         """撤销团队全部角色授权（解散时调用）。"""
@@ -428,7 +436,7 @@ class RoleRepository:
             .where(
                 UserRole.scope == UserRoleScope.ORG,
                 UserRole.object_id == org_id,
-                Role.code == "org_admin",
+                Role.code == RoleCode.ORG_ADMIN,
             )
         )
         if exclude_user_id is not None:
@@ -437,27 +445,7 @@ class RoleRepository:
 
     async def grant_org_role(self, user_id: uuid.UUID, org_id: uuid.UUID, code: str) -> None:
         """授予组织角色（幂等：已存在则跳过，唯一约束兜底）。"""
-        role = await self.get_by_code(code)
-        if role is None:
-            return
-        exists = (
-            await self.db.execute(
-                select(UserRole.id).where(
-                    UserRole.user_id == user_id,
-                    UserRole.role_id == role.id,
-                    UserRole.scope == UserRoleScope.ORG,
-                    UserRole.object_id == org_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if exists is not None:
-            return
-        self.db.add(
-            UserRole(
-                user_id=user_id, role_id=role.id, scope=UserRoleScope.ORG, object_id=org_id
-            )
-        )
-        await self.db.flush()
+        await self._grant_scoped_role(user_id, UserRoleScope.ORG, org_id, code)
 
     async def grant_org_roles(
         self, user_ids: list[uuid.UUID], org_id: uuid.UUID, code: str
@@ -492,22 +480,7 @@ class RoleRepository:
         self, user_id: uuid.UUID, org_id: uuid.UUID, codes: set[str]
     ) -> None:
         """撤销用户在指定组织的角色（按角色 code 集合）。"""
-        if not codes:
-            return
-        role_ids = (
-            await self.db.execute(select(Role.id).where(Role.code.in_(codes)))
-        ).scalars().all()
-        if not role_ids:
-            return
-        await self.db.execute(
-            delete(UserRole).where(
-                UserRole.user_id == user_id,
-                UserRole.scope == UserRoleScope.ORG,
-                UserRole.object_id == org_id,
-                UserRole.role_id.in_(role_ids),
-            )
-        )
-        await self.db.flush()
+        await self._revoke_scoped_roles(user_id, UserRoleScope.ORG, org_id, codes)
 
     async def revoke_all_org_roles(self, org_id: uuid.UUID) -> None:
         """撤销组织全部角色授权（解散时调用）。"""

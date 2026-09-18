@@ -9,8 +9,12 @@ import uuid
 
 from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import AuthServiceDep, UserServiceDep
-from app.core.dependency import get_bearer_token, get_current_user
+from app.api.deps import (
+    AuthServiceDep,
+    UserServiceDep,
+    get_bearer_token,
+    get_current_user,
+)
 from app.models.user import User
 from app.schemas.user import (
     ChangeEmailRequest,

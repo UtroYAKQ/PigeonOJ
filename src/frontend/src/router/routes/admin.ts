@@ -1,19 +1,14 @@
 import type { RouteRecordRaw } from 'vue-router'
 
-import { useUserStore } from '@/stores/user'
-
 /**
  * 管理后台路由（hidden：不在前台侧栏显示；入口在头像菜单）。
- * 组织化改造后全局角色仅 admin，全部区块 admin 可见。
+ * 组织化改造后全局角色仅 admin，全部区块 admin 可见；
+ * 非 admin 访问由守卫角色校验拦截（回首页并提示无权限）。
  */
 export const adminRoutes: RouteRecordRaw[] = [
   {
     path: 'admin',
-    redirect: () => {
-      const userStore = useUserStore()
-      // 全局角色收敛为 admin-only（tutor 已下线）：入口仅对管理员可见
-      return userStore.isAdmin ? '/admin/users' : '/admin/problems'
-    },
+    redirect: '/admin/users',
     meta: {
       title: '管理后台',
       titleKey: 'nav.admin',
@@ -386,15 +381,41 @@ export const adminRoutes: RouteRecordRaw[] = [
       },
       {
         path: 'users',
-        name: 'admin-users',
-        component: () => import('@/views/admin/AdminUsersView.vue'),
+        name: 'admin-users-section',
         meta: {
           title: '用户管理',
           titleKey: 'nav.users',
           icon: 'User',
           roles: ['admin'],
-          keepAlive: true,
         },
+        children: [
+          {
+            path: '',
+            name: 'admin-users',
+            component: () => import('@/views/admin/AdminUsersView.vue'),
+            meta: {
+              title: '用户管理',
+              titleKey: 'nav.users',
+              icon: 'User',
+              roles: ['admin'],
+              keepAlive: true,
+            },
+          },
+          {
+            // 在线用户面板：10 分钟窗口内有活跃回写的有效会话（15s 轮询）；
+            // 挂到用户管理 section 下，由用户管理页工具栏按钮进入，不在侧边栏独立展示
+            path: 'online',
+            name: 'admin-online-users',
+            component: () => import('@/views/admin/AdminOnlineUsersView.vue'),
+            meta: {
+              title: '在线用户',
+              titleKey: 'nav.onlineUsers',
+              roles: ['admin'],
+              keepAlive: true,
+              hidden: true,
+            },
+          },
+        ],
       },
       {
         // 首页配置：轮播海报 + 系统公告（独立面板，不经通用配置表格）
@@ -405,19 +426,6 @@ export const adminRoutes: RouteRecordRaw[] = [
           title: '首页配置',
           titleKey: 'nav.homeConfig',
           icon: 'Picture',
-          roles: ['admin'],
-          keepAlive: true,
-        },
-      },
-      {
-        // 在线用户面板：10 分钟窗口内有活跃回写的有效会话（15s 轮询）
-        path: 'online',
-        name: 'admin-online-users',
-        component: () => import('@/views/admin/AdminOnlineUsersView.vue'),
-        meta: {
-          title: '在线用户',
-          titleKey: 'nav.onlineUsers',
-          icon: 'Aim',
           roles: ['admin'],
           keepAlive: true,
         },

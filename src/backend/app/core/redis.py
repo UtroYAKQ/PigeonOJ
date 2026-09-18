@@ -9,6 +9,8 @@ Key 约定见 docs/operations.md「Redis 约定」：
 - `rank:contest:<id>`             榜单读缓存（权威在 contest_rankings，写路径主动失效）
 - `sandbox:node:<id>`             沙箱节点运行时状态
 - `upload:rate:<kind>:<user_id>`  文件上传固定窗口计数（频控）
+- `verify_invite:<token>`         验题邀请链接载荷（problem_id + TTL）
+- `verify_invite_problem:<pid>`   验题邀请反向索引（problem_id → token）
 
 客户端按事件循环隔离：API 进程单循环、Judge Worker 每个任务 asyncio.run 独立循环、
 心跳线程另有循环；aioredis 连接绑定创建时的循环，跨循环复用会报
@@ -18,11 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, TypeVar
 
 import redis.asyncio as aioredis
+from pydantic import BaseModel, ValidationError
 
 from app.settings.config import get_settings
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 _client: aioredis.Redis | None = None
 _client_loop_id: int | None = None
@@ -34,6 +39,14 @@ SESSION_ACTIVE_KEY_PREFIX = "session:active:"
 EMAIL_CODE_KEY_PREFIX = "email:code:"
 EMAIL_RESEND_KEY_PREFIX = "email:resend:"
 RANK_CONTEST_KEY_PREFIX = "rank:contest:"
+LOGIN_FAIL_KEY_PREFIX = "login:fail:"
+UPLOAD_RATE_KEY_PREFIX = "upload:rate:"
+TEAM_INVITE_KEY_PREFIX = "team:invite:"
+JUDGE_SELFTEST_KEY_PREFIX = "judge:selftest:"
+JUDGE_REQUEUE_KEY_PREFIX = "judge:requeue:"
+JUDGE_ATTEMPTS_KEY_PREFIX = "judge:attempts:"
+VERIFY_INVITE_KEY_PREFIX = "verify_invite:"
+VERIFY_INVITE_PROBLEM_PREFIX = "verify_invite_problem:"
 
 
 def get_redis() -> aioredis.Redis:
@@ -85,6 +98,22 @@ async def redis_get_json(key: str) -> Any | None:
 
 async def redis_set_json(key: str, value: Any, ttl_seconds: int | None = None) -> None:
     await redis_set(key, json.dumps(value, ensure_ascii=False), ttl_seconds)
+
+
+async def redis_get_model(key: str, model: type[ModelT]) -> ModelT | None:
+    """类型化读取：JSON 反序列化并校验为指定 model；缺失 / 数据损坏返回 None。"""
+    raw = await redis_get(key)
+    if raw is None:
+        return None
+    try:
+        return model.model_validate_json(raw)
+    except ValidationError:
+        return None
+
+
+async def redis_set_model(key: str, value: BaseModel, ttl_seconds: int | None = None) -> None:
+    """类型化写入：model 序列化为 JSON（与 redis_get_model 键集对称）。"""
+    await redis_set(key, value.model_dump_json(), ttl_seconds)
 
 
 async def redis_incr(key: str, ttl_seconds: int | None = None) -> int:

@@ -34,16 +34,19 @@ from app.core.exceptions import (
     RESOURCE_STATE_CONFLICT,
 )
 from app.enums import (
+    ContestType,
     ProblemSetStatus,
+    ProblemSetVisibility,
     ProblemStatus,
     ProblemVisibility,
+    RoleLevel,
+    SubmissionStatus,
 )
 from app.models.problem import Problem
 from app.models.problem_set import ProblemSet, ProblemSetItem
 from app.models.user import User
 from app.repositories.problem import ProblemRepository
 from app.repositories.problem_set import ProblemSetRepository, to_summary as set_to_summary
-from app.enums import SubmissionStatus
 from app.models.contest import Contest
 from app.schemas.contest import (
     AnnouncementUpdate,
@@ -99,14 +102,14 @@ class TeamSpaceService:
 
     async def require_member(self, user: User, team_id: uuid.UUID) -> None:
         """团队上下文访问门：非团队成员一律 2003（团队资源不对公开上下文泄漏）。"""
-        await self.teams._require_team_roles(user, team_id, level="member")
+        await self.teams._require_team_roles(user, team_id, level=RoleLevel.MEMBER)
 
     async def require_manager(self, user: User, team_id: uuid.UUID) -> None:
         """团队空间管理动作门（引用 / 建题单 / 建比赛 / 编排）：team_creator / team_admin。"""
-        await self.teams._require_team_roles(user, team_id, level="admin")
+        await self.teams._require_team_roles(user, team_id, level=RoleLevel.ADMIN)
 
     async def _is_team_manager(self, user: User, team_id: uuid.UUID) -> bool:
-        return await self.teams.has_team_roles(user, team_id, level="admin")
+        return await self.teams.has_team_roles(user, team_id, level=RoleLevel.ADMIN)
 
     # ---------------- 团队题库 ----------------
 
@@ -320,8 +323,6 @@ class TeamSpaceService:
 
         原复制本人全站题单机制随个人出题取消一并移除（组织化改造：全站题单仅 admin 可建）。
         """
-        from app.enums import ProblemSetVisibility
-
         await self.require_manager(user, team_id)
         problem_set = await self.set_repo.create(
             ProblemSet(
@@ -650,9 +651,6 @@ class TeamSpaceService:
         """批量统计各团队空间资源数（管理端列表 / 详情展示用）：
         题库 / 题单 / 比赛均为全部状态（与详情 tab 分页 total 口径一致）。"""
         from sqlalchemy import func, select
-
-        from app.models.contest import Contest
-        from app.enums import ContestType
 
         if not team_ids:
             return {}

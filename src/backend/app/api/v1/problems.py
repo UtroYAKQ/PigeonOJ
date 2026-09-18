@@ -8,8 +8,15 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import ValidationError
 
-from app.api.deps import ProblemServiceDep, SessionDep, TagServiceDep
+from app.api.deps import (
+    ProblemServiceDep,
+    SessionDep,
+    TagServiceDep,
+    get_current_user,
+    get_optional_user,
+)
 from app.models.user import User
 from app.schemas.problem import (
     ProblemCreate,
@@ -27,8 +34,7 @@ from app.schemas.problem import (
     TestCasesUpdate,
     VerificationInviteOut,
 )
-from app.core.dependency import get_current_user, get_optional_user
-from app.core.exceptions import AUTH_NOT_LOGGED_IN, PARAM_FORMAT_INVALID, APIError
+from app.core.exceptions import AUTH_NOT_LOGGED_IN, APIError
 from app.utils.pagination import PaginatedResponse
 from app.utils.response import ApiResponse, ok
 
@@ -56,8 +62,8 @@ async def list_problems(
             mine=mine, ownership=ownership,
             difficulty_min=difficulty_min, difficulty_max=difficulty_max,
         )
-    except Exception as exc:  # pydantic 校验失败转 1001 信封
-        raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
+    except ValidationError as exc:  # pydantic 校验失败转 1001 信封
+        raise APIError.bad_query(exc) from exc
     if query.scope == "mine" and user is None:
         raise APIError(AUTH_NOT_LOGGED_IN, "查看我的题目需要登录", 401)
     if query.mine and user is None:

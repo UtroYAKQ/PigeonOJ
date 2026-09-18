@@ -346,7 +346,7 @@ async def test_admin_assignment(client: httpx.AsyncClient) -> None:
     target_uid = next(m["user_id"] for m in members if not m["is_creator"])
 
     # 非创建者不可分配管理员
-    resp = await client.post(
+    resp = await client.put(
         f"/api/v1/teams/{team_id}/members/{target_uid}/admin",
         json={"is_admin": True},
         headers=user,
@@ -354,7 +354,7 @@ async def test_admin_assignment(client: httpx.AsyncClient) -> None:
     assert resp.json()["code"] == 2003
 
     # 分配管理员：成员可见 is_admin 标记，可生成邀请 / 查看申请列表
-    resp = await client.post(
+    resp = await client.put(
         f"/api/v1/teams/{team_id}/members/{target_uid}/admin",
         json={"is_admin": True},
         headers=mentor,
@@ -368,7 +368,7 @@ async def test_admin_assignment(client: httpx.AsyncClient) -> None:
     assert next(m["is_admin"] for m in resp.json()["data"]["items"] if m["user_id"] == target_uid)
 
     # 取消管理员：管理权限回收
-    resp = await client.post(
+    resp = await client.put(
         f"/api/v1/teams/{team_id}/members/{target_uid}/admin",
         json={"is_admin": False},
         headers=mentor,
@@ -383,13 +383,13 @@ async def test_admin_assignment(client: httpx.AsyncClient) -> None:
 
     # 目标非在册成员 → 3001；创建者本身不可被分配 → 2003
     creator_id = next(m["user_id"] for m in members if m["is_creator"])
-    resp = await client.post(
+    resp = await client.put(
         f"/api/v1/teams/{team_id}/members/{uuid_mod.uuid4()}/admin",
         json={"is_admin": True},
         headers=mentor,
     )
     assert resp.json()["code"] == 3001
-    resp = await client.post(
+    resp = await client.put(
         f"/api/v1/teams/{team_id}/members/{creator_id}/admin",
         json={"is_admin": True},
         headers=mentor,
@@ -428,7 +428,7 @@ async def test_kick_exit_disband(client: httpx.AsyncClient) -> None:
     resp = await client.get(f"/api/v1/teams/{team_id}/members", headers=mentor)
     members = resp.json()["data"]["items"]
     admin_uid = next(m["user_id"] for m in members if not m["is_creator"])
-    resp = await client.post(
+    resp = await client.put(
         f"/api/v1/teams/{team_id}/members/{admin_uid}/admin",
         json={"is_admin": True},
         headers=mentor,
@@ -477,6 +477,49 @@ async def test_kick_exit_disband(client: httpx.AsyncClient) -> None:
     assert resp.json()["data"]["total"] == 0
     resp = await client.delete(f"/api/v1/teams/{team_id}", headers=mentor)
     assert resp.json()["code"] == 409 or resp.json()["code"] == 2003  # 幂等：再次解散拒绝
+
+
+async def test_admin_disband_escape_hatch(client: httpx.AsyncClient) -> None:
+    """站点 admin 代解散（治理逃生门）：创建者缺失时无人能解散团队，admin 可兜底；
+    解散后授权与在册状态清理。"""
+    from .conftest import admin_api_headers
+
+    mentor, org_id = await _org_admin_headers(client)
+    team = await _create_team(client, mentor, org_id, {"name": "逃生门队"})
+    team_id = team["id"]
+    member = await _extra_user_headers(client, "hatch@pigeonoj.dev")
+    resp = await client.post(f"/api/v1/teams/{team_id}/invites", headers=mentor)
+    token = resp.json()["data"]["token"]
+    resp = await client.post(
+        f"/api/v1/teams/{team_id}/applications", json={"invite_token": token}, headers=member
+    )
+    assert resp.json()["code"] == 0
+    resp = await client.get(f"/api/v1/teams/{team_id}/applications", headers=mentor)
+    application = resp.json()["data"]["items"][0]
+    resp = await client.post(
+        f"/api/v1/teams/{team_id}/applications/{application['id']}/review",
+        json={"approve": True},
+        headers=mentor,
+    )
+    assert resp.json()["code"] == 0
+
+    admin = await admin_api_headers(client)
+    # 非站点 admin 不可代解散
+    resp = await client.post(f"/api/v1/admin/teams/{team_id}/disband", headers=member)
+    assert resp.json()["code"] == 2003
+    resp = await client.delete(f"/api/v1/teams/{team_id}", headers=member)
+    assert resp.json()["code"] == 2003
+
+    # admin 代解散 → 在册成员授权清理、团队不可见
+    resp = await client.post(f"/api/v1/admin/teams/{team_id}/disband", headers=admin)
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get(f"/api/v1/teams/{team_id}", headers=mentor)
+    assert resp.json()["code"] == 2003
+    resp = await client.get("/api/v1/teams/mine", headers=member)
+    assert resp.json()["data"]["total"] == 0
+    # 幂等：再次代解散拒绝
+    resp = await client.post(f"/api/v1/admin/teams/{team_id}/disband", headers=admin)
+    assert resp.json()["code"] in (2003, 409, 3002)
 
 
 async def test_member_note(client: httpx.AsyncClient) -> None:

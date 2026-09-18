@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.enums import ConfigCategory, LogLevel, LoginAction, ReportAction, ReportStatus, ReportTargetType
+from app.utils.request_meta import UAInfo
 
 
 class ConfigUpdateItem(BaseModel):
@@ -68,7 +69,7 @@ class RequestLogOut(BaseModel):
     ip_address: str | None
     location: str | None = None
     user_agent: str | None = None
-    device: dict | None = None
+    device: UAInfo | None = None
     duration_ms: int | None
     created_at: str
 

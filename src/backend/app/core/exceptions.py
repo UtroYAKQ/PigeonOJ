@@ -32,6 +32,7 @@ RESOURCE_NOT_FOUND = 3001  # 资源不存在
 RESOURCE_STATE_CONFLICT = 3002  # 状态冲突
 RESOURCE_DUPLICATE = 3003  # 资源已存在（重复）
 ORG_LAST_ADMIN = 3004  # 组织最后一名管理员不可撤销 / 移出（docs/contracts/orgs.md）
+ORG_LAST_MEMBER = 3005  # 组织最后一名成员不可移出（docs/contracts/orgs.md）
 
 # ---- 40xx 频控 ----
 RATE_SEND_TOO_FREQUENT = 4001  # 发送太频繁
@@ -50,6 +51,11 @@ class APIError(Exception):
         self.message = message
         self.http_status = http_status
         super().__init__(message)
+
+    @classmethod
+    def bad_query(cls, exc: Exception) -> "APIError":
+        """查询参数解析失败（1001 / 400），保留原始异常链。"""
+        return cls(PARAM_FORMAT_INVALID, "查询参数不合法", 400).with_traceback(exc.__traceback__)
 
 
 # Pydantic 常见校验失败类型 → (中文文案, 英文文案；占位 {value} 取自 ctx 对应键)；

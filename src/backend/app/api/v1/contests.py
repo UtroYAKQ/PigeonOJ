@@ -9,12 +9,17 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import ContestServiceDep, SessionDep, SubmissionServiceDep
-from app.core.dependency import get_current_user, get_optional_user
-from app.core.exceptions import APIError, PARAM_FORMAT_INVALID
+from app.api.deps import (
+    ContestServiceDep,
+    SessionDep,
+    SubmissionServiceDep,
+    get_current_user,
+    get_optional_user,
+)
+from app.core.exceptions import APIError
 from app.enums import SubmissionStatus
 from app.models.user import User
-from app.rpc.judge_gateway import dispatch_submission
+from app.rpc.judge_gateway import commit_and_dispatch
 from app.schemas.contest import (
     AnnouncementUpdate,
     BoardOut,
@@ -109,7 +114,7 @@ async def list_contest_submissions(
     try:
         status_value = SubmissionStatus(status) if status else None
     except ValueError as exc:
-        raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
+        raise APIError.bad_query(exc) from exc
     items, total = await service.list_submissions(
         user, contest_id, page=page, page_size=page_size,
         keyword=keyword, language=language, status=status_value, problem_id=problem_id,
@@ -244,8 +249,7 @@ async def create_contest_submission(
         language=body.language,
         code=body.code,
     )
-    await db.commit()  # 显式提交：确保 submission 已持久化，dispatch_submission 才能找到它
-    await dispatch_submission(submission.id)
+    await commit_and_dispatch(db, submission)
     return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
 
 

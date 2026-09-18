@@ -10,6 +10,23 @@ from app.enums import RuleType, SubmissionStatus, SubmitType
 from app.schemas.admin import SandboxNodeOut
 
 
+class CaseResultRow(BaseModel):
+    """逐测试点结果落库行：rpc/judge_jobs 构造 → repositories/judge 批量 upsert。
+
+    字段与 SubmissionTestCaseResult ORM 列一一对应，替代裸 dict 直插，
+    避免 typo 仅能运行时暴露。
+    """
+
+    submission_id: uuid.UUID
+    test_case_id: uuid.UUID
+    status: str
+    time_used_ms: int
+    memory_used_kb: int | None
+    score: int
+    output: str
+    message: str | None
+
+
 class VerifyRequest(BaseModel):
     """POST /problems/{id}/verify 的双模式请求体：
 

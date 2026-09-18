@@ -41,6 +41,18 @@ class VerificationStatus(StrEnum):
     FAILED = "failed"
 
 
+class ImportStatus(StrEnum):
+    """FPS 批量导入单题结果（schemas/problem.py FpsImportItemOut.status，
+    docs/contracts/problems.md「FPS 题库导入」）。"""
+
+    PUBLISHED = "published"
+    DRAFT = "draft"
+    DRAFT_SPJ = "draft_spj"
+    DUPLICATE = "duplicate"
+    SKIPPED_SPJ = "skipped_spj"
+    FAILED = "failed"
+
+
 class CaseStatus(StrEnum):
     """测试点集合状态（problems.case_status 缓存列）。
 

@@ -27,6 +27,7 @@ from app.schemas.admin import (
     SandboxNodeOut,
 )
 from app.utils.pagination import PaginatedResponse
+from app.utils.request_meta import coerce_ua_info
 from app.core.exceptions import (
     RESOURCE_NOT_FOUND,
     RESOURCE_STATE_CONFLICT,
@@ -132,7 +133,7 @@ class LogService:
                     method=r.method, path=r.path, status_code=r.status_code,
                     ip_address=r.ip_address, location=r.location,
                     user_agent=r.user_agent,
-                    device=(r.extra or {}).get("device"),
+                    device=coerce_ua_info((r.extra or {}).get("device")),
                     duration_ms=r.duration_ms,
                     created_at=r.created_at.isoformat(),
                 )

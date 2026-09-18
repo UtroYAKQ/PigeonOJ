@@ -11,7 +11,9 @@ from email.message import EmailMessage
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.enums import LoginAction, Theme, UserStatus, UserRoleScope
+from pydantic import BaseModel
+
+from app.enums import LoginAction, RoleCode, Theme, UserStatus, UserRoleScope
 from app.models.user import User, UserRole
 from app.repositories.user import UserRepository, SessionRepository, RoleRepository
 from app.repositories.audit import write_login_log
@@ -46,13 +48,15 @@ from app.core.exceptions import (
 from app.core.redis import (
     EMAIL_CODE_KEY_PREFIX,
     EMAIL_RESEND_KEY_PREFIX,
+    LOGIN_FAIL_KEY_PREFIX,
     SESSION_ACTIVE_KEY_PREFIX,
     SESSION_KEY_PREFIX,
     redis_delete,
-    redis_get_json,
+    redis_get,
+    redis_get_model,
     redis_incr,
     redis_set,
-    redis_set_json,
+    redis_set_model,
 )
 from app.utils.security import generate_token, hash_password, hash_token, verify_password
 from app.utils.validation import validate_email, validate_nickname, validate_password
@@ -62,7 +66,6 @@ from app.core.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
-VALID_THEMES = {t.value for t in Theme}
 VALID_STATUS = {s.value for s in UserStatus}
 
 SESSION_TTL_DAYS = 30  # 会话有效期（天）
@@ -87,6 +90,10 @@ async def _delete_site_avatar(avatar_url: str) -> None:
         logger.warning("旧头像对象清理失败（忽略）：%s", object_key)
 
 
+# SMTP 连接 / 读超时（秒）——同步发送在线程池执行，超时不宜过长以免拖垮线程池
+_SMTP_TIMEOUT_SECONDS = 10
+
+
 def _smtp_send(cfg: SMTPConfig, message: EmailMessage) -> None:
     """同步 SMTP 发送（在线程池中执行，避免阻塞事件循环）。
 
@@ -96,12 +103,12 @@ def _smtp_send(cfg: SMTPConfig, message: EmailMessage) -> None:
       - "plain": 明文连接，不加密（仅内网可信场景）
     """
     if cfg.smtp_mode == "ssl":
-        with smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=10) as server:
+        with smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=_SMTP_TIMEOUT_SECONDS) as server:
             if cfg.username:
                 server.login(cfg.username, cfg.password)
             server.send_message(message)
     else:
-        with smtplib.SMTP(cfg.host, cfg.port, timeout=10) as server:
+        with smtplib.SMTP(cfg.host, cfg.port, timeout=_SMTP_TIMEOUT_SECONDS) as server:
             if cfg.smtp_mode == "starttls":
                 server.starttls()
             if cfg.username:
@@ -126,6 +133,13 @@ def _build_code_email(
         html_body = html_template.replace("{code}", code).replace("{purpose}", purpose)
         message.add_alternative(html_body, subtype="html")
     return message
+
+
+class EmailCodePayload(BaseModel):
+    """邮箱验证码 Redis 载荷（email:code:<email>:<purpose>）。"""
+
+    code: str
+    attempts: int = 0
 
 
 class UserService:
@@ -215,8 +229,7 @@ class UserService:
             if old_avatar and old_avatar != patch.avatar_url and old_avatar.startswith(site_prefix):
                 await _delete_site_avatar(old_avatar)
         if patch.theme is not None:
-            if patch.theme not in VALID_THEMES:
-                raise APIError(PARAM_FORMAT_INVALID, "主题仅支持 light / dark", 400)
+            # theme 已由 schema 枚举校验（Theme），service 层不重复校验
             user.theme = patch.theme
         await self.db.flush()
         await self.db.refresh(user)  # onupdate 生成 updated_at，需显式刷新（async 不支持隐式懒加载）
@@ -232,7 +245,7 @@ class UserService:
         user.email_verified = False
         # 撤销全部会话并清理 Redis 缓存
         sessions = await self.sessions.list_active_by_user(user.id)
-        await self.sessions.revoke_all_by_user(user.id, datetime.now())
+        await self.sessions.revoke_all_by_user(user.id, datetime.now(timezone.utc))
         for s in sessions:
             await redis_delete(f"{SESSION_KEY_PREFIX}{s.token}")
         await self.db.flush()
@@ -276,7 +289,7 @@ class UserService:
             raise APIError(RESOURCE_NOT_FOUND, "会话不存在", 404)
         if session.token == current_token_hash:
             raise APIError(RESOURCE_STATE_CONFLICT, "不能撤销当前会话", 409)
-        await self.sessions.revoke(session, datetime.now())
+        await self.sessions.revoke(session, datetime.now(timezone.utc))
         await redis_delete(f"{SESSION_KEY_PREFIX}{session.token}")
 
     # ---------------- 用户管理（admin 调用） ----------------
@@ -388,28 +401,27 @@ class AuthService:
         validate_email(req.email)
         policy = await self.config.get_email_code_policy()
         resend_key = f"{EMAIL_RESEND_KEY_PREFIX}{req.email}:{req.purpose}"
-        if await redis_get_json(resend_key) is not None:
+        if await redis_get(resend_key) is not None:
             raise APIError(RATE_SEND_TOO_FREQUENT, "发送过于频繁，请稍后再试", 429)
 
         code = f"{secrets.randbelow(1_000_000):06d}"
         code_key = f"{EMAIL_CODE_KEY_PREFIX}{req.email}:{req.purpose}"
-        await redis_set_json(code_key, {"code": code, "attempts": 0}, policy.expire_seconds)
+        await redis_set_model(code_key, EmailCodePayload(code=code), policy.expire_seconds)
         await redis_set(resend_key, "1", policy.resend_seconds)
         await self._send_email_code(req.email, req.purpose, code)
 
     async def _verify_code(self, email: str, purpose: str, code: str, max_attempts: int) -> None:
         """校验验证码：一次性使用；错误超次删除并触发频控（users.md 安全策略）。"""
         code_key = f"{EMAIL_CODE_KEY_PREFIX}{email}:{purpose}"
-        data = await redis_get_json(code_key)
+        data = await redis_get_model(code_key, EmailCodePayload)
         if data is None:
             raise APIError(AUTH_INVALID_CREDENTIAL, "验证码已过期，请重新获取", 401)
-        attempts = int(data.get("attempts", 0))
-        if attempts >= max_attempts:
+        if data.attempts >= max_attempts:
             await redis_delete(code_key)
             raise APIError(RATE_LIMITED, "验证码错误次数过多，请重新获取", 429)
-        if data.get("code") != code:
-            data["attempts"] = attempts + 1
-            await redis_set_json(code_key, data, None)  # 保持原 TTL
+        if data.code != code:
+            data.attempts += 1
+            await redis_set_model(code_key, data, None)  # 保持原 TTL
             raise APIError(AUTH_INVALID_CREDENTIAL, "验证码错误", 401)
         await redis_delete(code_key)  # 一次性使用
 
@@ -437,7 +449,7 @@ class AuthService:
         password_hash = await asyncio.to_thread(hash_password, req.password)
         user = await self.users.create(req.email, password_hash, req.nickname.strip())
         # 默认角色 user
-        user_role = await self.roles.get_by_code("user")
+        user_role = await self.roles.get_by_code(RoleCode.USER)
         if user_role is not None:
             self.db.add(UserRole(user_id=user.id, role_id=user_role.id, scope=UserRoleScope.GLOBAL, object_id=None))
         await self.db.flush()
@@ -446,9 +458,19 @@ class AuthService:
 
     # ---------------- 登录 / 登出 ----------------
 
+    async def _fail_login(
+        self, *, req: LoginRequest, ip: str | None, user_agent: str | None,
+        reason: str, error: APIError, user_id: uuid.UUID | None = None,
+    ) -> None:
+        """登录失败统一出口：写审计日志并显式提交（随后抛业务错误，get_db 会回滚未提交内容）。"""
+        await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user_id,
+                              email=req.email, ip_address=ip, user_agent=user_agent, reason=reason)
+        await self.db.commit()
+        raise error
+
     async def login(self, req: LoginRequest, ip: str | None, user_agent: str | None) -> LoginResult:
         user = await self.users.get_by_email(req.email)
-        fail_key = f"login:fail:{req.email}"
+        fail_key = f"{LOGIN_FAIL_KEY_PREFIX}{req.email}"
 
         # 短时冻结门（先于密码校验）：登录失败超次 / 管理员冻结的账号在 frozen_until
         # 到期前拒绝一切登录；已到期则自动恢复 active 并放行本次登录（users.md「账号状态语义」）
@@ -456,12 +478,11 @@ class AuthService:
             until = user.frozen_until
             expired = until is not None and until <= datetime.now(timezone.utc)
             if not expired:
-                await write_login_log(self.db, LoginAction.LOGIN, False,
-                                      user_id=user.id, email=req.email,
-                                      ip_address=ip, user_agent=user_agent, reason="账号临时冻结中")
-                # 失败路径显式提交：审计日志必须持久化（随后抛业务错误，get_db 会回滚）
-                await self.db.commit()
-                raise APIError(RESOURCE_STATE_CONFLICT, "账号已临时冻结，请稍后再试或联系管理员", 409)
+                await self._fail_login(
+                    req=req, ip=ip, user_agent=user_agent, reason="账号临时冻结中",
+                    error=APIError(RESOURCE_STATE_CONFLICT, "账号已临时冻结，请稍后再试或联系管理员", 409),
+                    user_id=user.id,
+                )
             user.status = UserStatus.ACTIVE
             user.frozen_until = None
             await self.db.flush()
@@ -476,39 +497,33 @@ class AuthService:
                     user.status = UserStatus.FROZEN
                     user.frozen_until = datetime.now(timezone.utc) + timedelta(seconds=LOGIN_LOCK_SECONDS)
                 await redis_delete(fail_key)
-                await write_login_log(self.db, LoginAction.LOGIN, False,
-                                      user_id=user.id if user else None, email=req.email,
-                                      ip_address=ip, user_agent=user_agent,
-                                      reason="登录失败超次，触发临时冻结")
-                # 失败路径显式提交：冻结状态必须持久化（随后抛业务错误，get_db 会回滚）
-                await self.db.commit()
-                raise APIError(RATE_LIMITED, "登录失败次数过多，请稍后再试", 429)
-            await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id if user else None,
-                                  email=req.email, ip_address=ip, user_agent=user_agent,
-                                  reason="密码错误")
-            # 失败路径显式提交：审计日志必须持久化（随后抛业务错误，get_db 会回滚）
-            await self.db.commit()
-            raise APIError(AUTH_INVALID_CREDENTIAL, "邮箱或密码错误", 401)
+                await self._fail_login(
+                    req=req, ip=ip, user_agent=user_agent, reason="登录失败超次，触发临时冻结",
+                    error=APIError(RATE_LIMITED, "登录失败次数过多，请稍后再试", 429),
+                    user_id=user.id if user else None,
+                )
+            await self._fail_login(
+                req=req, ip=ip, user_agent=user_agent, reason="密码错误",
+                error=APIError(AUTH_INVALID_CREDENTIAL, "邮箱或密码错误", 401),
+                user_id=user.id if user else None,
+            )
 
-        if user.status == UserStatus.FROZEN:
-            await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id, email=req.email,
-                                  ip_address=ip, user_agent=user_agent, reason="账号临时冻结中")
-            raise APIError(RESOURCE_STATE_CONFLICT, "账号已临时冻结，请稍后再试或联系管理员", 409)
         if user.status == UserStatus.BANNED:
-            await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id, email=req.email,
-                                  ip_address=ip, user_agent=user_agent, reason="账号已封禁")
-            raise APIError(RESOURCE_STATE_CONFLICT, "账号已封禁，请联系管理员", 409)
+            await self._fail_login(req=req, ip=ip, user_agent=user_agent, reason="账号已封禁",
+                                   error=APIError(RESOURCE_STATE_CONFLICT, "账号已封禁，请联系管理员", 409),
+                                   user_id=user.id)
         if user.status == UserStatus.DELETED:
-            await write_login_log(self.db, LoginAction.LOGIN, False, user_id=user.id, email=req.email,
-                                  ip_address=ip, user_agent=user_agent, reason="账号已注销")
-            raise APIError(RESOURCE_STATE_CONFLICT, "账号已注销，请联系管理员", 409)
+            await self._fail_login(req=req, ip=ip, user_agent=user_agent, reason="账号已注销",
+                                   error=APIError(RESOURCE_STATE_CONFLICT, "账号已注销，请联系管理员", 409),
+                                   user_id=user.id)
 
         await redis_delete(fail_key)  # 登录成功清零失败计数
 
         # 创建会话：token 哈希入库，原始 token 返回客户端
         raw_token = generate_token()
         token_hash = hash_token(raw_token)
-        now = datetime.now()
+        # 会话时间为 timestamptz：必须用 aware UTC（naive 会被 asyncpg 按本地时间误差编码）
+        now = datetime.now(timezone.utc)
         expires_at = now + timedelta(days=SESSION_TTL_DAYS)
         # 同设备去重（users.md 关键流程 5）：同设备标识的旧有效会话立即失效，
         # 同一浏览器 / 设备恒只保留一个活跃会话；UA 无法识别（device_info=None）不参与去重。
@@ -543,7 +558,7 @@ class AuthService:
     async def logout(self, raw_token: str | None, user: User, ip: str | None, user_agent: str | None) -> None:
         if raw_token:
             token_hash = hash_token(raw_token)
-            session = await self.sessions.get_valid_by_token(token_hash, datetime.now())
+            session = await self.sessions.get_valid_by_token(token_hash, datetime.now(timezone.utc))
             if session is not None and session.user_id == user.id:
                 # 退出登录：物理删除该会话记录，不留存（区别于管理端/注销的软撤销）
                 await self.sessions.delete(session)

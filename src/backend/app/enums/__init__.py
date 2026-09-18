@@ -12,6 +12,7 @@ from app.enums.judge import SubmissionStatus, SubmitType
 from app.enums.org import OrgMemberStatus, OrgStatus
 from app.enums.problem import (
     CaseStatus,
+    ImportStatus,
     ProblemScope,
     ProblemSetStatus,
     ProblemSetVisibility,
@@ -27,13 +28,15 @@ from app.enums.team import (
     TeamStatus,
     TeamVisibility,
 )
-from app.enums.user import Theme, UserRoleScope, UserStatus
+from app.enums.user import RoleCode, RoleLevel, Theme, UserRoleScope, UserStatus
 
 __all__ = [
     # 用户域
     "UserStatus",
     "Theme",
     "UserRoleScope",
+    "RoleCode",
+    "RoleLevel",
     # 题库域
     "ProblemStatus",
     "ProblemVisibility",
@@ -41,6 +44,7 @@ __all__ = [
     "TagStatus",
     "VerificationStatus",
     "CaseStatus",
+    "ImportStatus",
     "ProblemSetStatus",
     "ProblemSetVisibility",
     # 判题域

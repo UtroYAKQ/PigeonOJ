@@ -36,7 +36,6 @@ import {
   listOrgProblems,
   listOrgTeams,
   removeOrgMember,
-  setOrgMemberAdmin,
   setOrgMemberNote,
   updateOrg,
 } from '@/api/orgs'
@@ -129,19 +128,14 @@ function searchMembers() {
   loadMembers()
 }
 
-/** 成员行操作（⋯ 下拉）：备注（本人 / org_admin）、授·撤管理员、移出（org_admin） */
-type MemberAction = 'grant' | 'revoke' | 'kick' | 'note'
+/** 成员行操作（⋯ 下拉）：备注（本人 / org_admin）、移出（org_admin）。
+ * 授·撤组织管理员不放组织空间页（收敛到管理后台组织详情，docs/contracts/orgs.md）。 */
+type MemberAction = 'kick' | 'note'
 
 function memberActions(row: OrgMemberItem): Array<{ key: MemberAction; label: string }> {
   const actions: Array<{ key: MemberAction; label: string }> = []
   if (row.user_id === userStore.user?.id || isOrgAdmin.value) {
     actions.push({ key: 'note', label: t('orgs.members.note') })
-  }
-  if (isOrgAdmin.value) {
-    actions.push({
-      key: row.is_admin ? 'revoke' : 'grant',
-      label: t(row.is_admin ? 'orgs.members.revokeAdmin' : 'orgs.members.grantAdmin'),
-    })
   }
   // 移出不提供给自己一行（无退出组织通道，避免误操作后失去自身管理权）
   if (isOrgAdmin.value && row.user_id !== userStore.user?.id) {
@@ -151,10 +145,6 @@ function memberActions(row: OrgMemberItem): Array<{ key: MemberAction; label: st
 }
 
 function onMemberAction(action: MemberAction, row: OrgMemberItem) {
-  if (action === 'grant' || action === 'revoke') {
-    void onSetAdmin(row, action === 'grant')
-    return
-  }
   if (action === 'note') {
     noteTarget.value = row
     noteValue.value = row.note ?? ''
@@ -182,16 +172,6 @@ async function onNoteSave() {
     message.error(error instanceof Error ? error.message : t('common.operationFailed'))
   } finally {
     noteSaving.value = false
-  }
-}
-
-async function onSetAdmin(row: OrgMemberItem, grant: boolean) {
-  try {
-    await setOrgMemberAdmin(orgId, row.user_id, grant)
-    message.success(t(grant ? 'orgs.members.grantSuccess' : 'orgs.members.revokeSuccess'))
-    await loadMembers()
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
   }
 }
 
@@ -490,11 +470,23 @@ function openProblemCreate() {
   void router.push(`/me/orgs/${orgId}/problems/new`)
 }
 
-/** 行点击进组织题目编辑向导（题面 / 测试点 / 验题复用题库统一端点） */
-function rowPropsOfProblem(row: TeamProblemSummary) {
-  return {
-    style: 'cursor: pointer;',
-    onClick: () => void router.push(`/me/orgs/${orgId}/problems/${row.id}/edit/statement`),
+/** 行点击：已发布题进组织作答页（组织成员可交题 / 自测，docs/contracts/orgs.md）；
+ * 草稿进编辑向导（草稿不可作答）。 */
+function openOrgProblem(row: TeamProblemSummary) {
+  const base = `/me/orgs/${orgId}/problems/${row.id}`
+  void router.push(row.status === 'published' ? base : `${base}/edit/statement`)
+}
+
+/** 题库行内操作（⋯ 下拉）：组织成员均具组织题库写权（org_member），草稿 / 已发布均可编辑 */
+type ProblemRowAction = 'edit'
+
+function problemRowActions(): Array<{ key: ProblemRowAction; label: string }> {
+  return [{ key: 'edit', label: t('action.edit') }]
+}
+
+function onProblemRowAction(key: ProblemRowAction, row: TeamProblemSummary) {
+  if (key === 'edit') {
+    void router.push(`/me/orgs/${orgId}/problems/${row.id}/edit/statement`)
   }
 }
 
@@ -548,6 +540,35 @@ const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
     width: 110,
     align: 'center',
     render: (row) => renderRatio(row),
+  },
+  {
+    title: '',
+    key: 'ops',
+    width: 48,
+    render: (row: TeamProblemSummary) =>
+      h(
+        NDropdown,
+        {
+          trigger: 'click',
+          options: problemRowActions().map((a) => ({ key: a.key, label: a.label })),
+          onSelect: (key: ProblemRowAction) => onProblemRowAction(key, row),
+        },
+        {
+          default: () =>
+            h(
+              NButton,
+              {
+                circle: true,
+                quaternary: true,
+                size: 'tiny',
+                'aria-label': t('orgs.detail.more'),
+                // 阻断冒泡：行 onClick 会把点击吞成「进入题目 / 进编辑向导」
+                onClick: (e: MouseEvent) => e.stopPropagation(),
+              },
+              { icon: () => h(NIcon, { component: MoreFilled }) },
+            ),
+        },
+      ),
   },
 ])
 
@@ -898,7 +919,10 @@ onMounted(load)
                 :table-props="{
                   size: 'small',
                   rowKey: (row: TeamProblemSummary) => row.id,
-                  rowProps: rowPropsOfProblem,
+                  rowProps: (row: TeamProblemSummary) => ({
+                    style: 'cursor: pointer;',
+                    onClick: () => openOrgProblem(row),
+                  }),
                 }"
                 @update:page="
                   (p: number) => {

@@ -61,11 +61,16 @@ api/v1（路由）→ services（业务）→ repositories（仓储）→ models
 - **`app/api/` 是最上层**：任何非 api 层 import `app.api` 即违规
 - **models / schemas / enums 纯净**：不依赖 services / repositories / rpc / api
 - **utils 不 import** api / services / repositories / rpc / models / schemas（允许 core）
-- **路由层服务经 `app/api/deps.py` Provider 注入**：路由只声明 `XxxServiceDep` 等
-  Annotated 依赖，禁止直接 import app.services 构造服务；Provider 是路由层唯一的
-  services 引用点（跨上下文端口，如 ContestService 的 ContestSubmitter，也在此装配）；
+- **路由层依赖一律经 `app/api/deps.py` 获取**：认证身份（get_current_user 等）与
+  `XxxServiceDep` 服务 Provider 均从 deps 导入，禁止直接 import app.services 构造服务、
+  禁止路由直接 import `app.core.dependency`；deps 是路由层唯一的依赖装配点
+  （跨上下文端口，如 ContestService 的 ContestSubmitter，也在此装配）；
   同一请求内多个 Provider 共享同一请求级 db 会话（FastAPI 依赖缓存），需要显式
   commit 的路由另注入 `SessionDep`
+- **服务层依赖在模块顶部自行导入**：service 需要的 repository / model / enum /
+  协作 service 一律 `import` 在模块顶部；函数体内局部导入仅用于**打破真实循环依赖**
+  或生成代码的条件兜底（rpc/gen），且必须注明原因；由 check_import_rules.py 兼日常
+  review 守护
 - **组合根只两处**：`app/__init__.py`（create_app 工厂）、`app/core/init_app.py`（路由注册）
 - **上下文协作用显式端口，不直读对方聚合**：判题终态回写只经
   `ProblemService.on_submission_finalized`（通过率计数 + 验题状态机）与

@@ -9,8 +9,10 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.dependency import is_admin
 from app.core.exceptions import (
     APIError,
     AUTH_FORBIDDEN,
@@ -19,15 +21,22 @@ from app.core.exceptions import (
     RESOURCE_NOT_FOUND,
     RESOURCE_STATE_CONFLICT,
 )
-from app.core.redis import get_redis, redis_get_json, redis_set_json
+from app.core.redis import (
+    TEAM_INVITE_KEY_PREFIX,
+    get_redis,
+    redis_get_model,
+    redis_set_model,
+)
 from app.enums import (
+    RoleCode,
+    RoleLevel,
     TeamApplicationStatus,
     TeamMemberStatus,
     TeamStatus,
     TeamVisibility,
 )
 from app.models.team import Team, TeamMember, TeamMemberApplication
-from app.models.user import User
+from app.models.user import Role, User, UserRole
 from app.repositories.team import TeamRepository
 from app.repositories.user import RoleRepository
 from app.schemas.team import (
@@ -48,15 +57,11 @@ from app.schemas.team import (
 )
 from app.services.system_config import ConfigService
 
-_INVITE_KEY_PREFIX = "team:invite:"
-# 团队角色 code（roles 种子，docs/contracts/teams.md）
-ROLE_CREATOR = "team_creator"
-ROLE_ADMIN = "team_admin"
-ROLE_MEMBER = "team_member"
 
+class TeamInvitePayload(BaseModel):
+    """团队邀请链接 Redis 载荷（team:invite:<token>）。"""
 
-def _aware(dt: datetime) -> datetime:
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    team_id: str
 
 
 def summarize_teams(
@@ -80,11 +85,11 @@ def summarize_teams(
         if user is not None and (member_team_ids is None or team.id in member_team_ids):
             codes = role_map.get(team.id, set())
             if team.creator_id == user.id:
-                my_role = "creator"
-            elif ROLE_ADMIN in codes:
-                my_role = "admin"
-            elif ROLE_MEMBER in codes or default_member:
-                my_role = "member"
+                my_role = RoleLevel.CREATOR
+            elif RoleCode.TEAM_ADMIN in codes:
+                my_role = RoleLevel.ADMIN
+            elif RoleCode.TEAM_MEMBER in codes or default_member:
+                my_role = RoleLevel.MEMBER
         items.append(
             TeamSummary(
                 id=team.id,
@@ -127,14 +132,14 @@ class TeamService:
         """校验团队角色：level='creator' 仅创建者；'admin' 创建者 / 管理员；
         'member' 任意团队角色（creator ⊇ admin ⊇ member）。"""
         codes = set(await self.roles.get_team_role_codes(user.id, team_id))
-        if level == "creator":
-            if ROLE_CREATOR not in codes:
+        if level == RoleLevel.CREATOR:
+            if RoleCode.TEAM_CREATOR not in codes:
                 raise APIError(AUTH_FORBIDDEN, "仅团队创建者可执行该操作", 403)
-        elif level == "admin":
-            if not ({ROLE_CREATOR, ROLE_ADMIN} & codes):
+        elif level == RoleLevel.ADMIN:
+            if not ({RoleCode.TEAM_CREATOR, RoleCode.TEAM_ADMIN} & codes):
                 raise APIError(AUTH_FORBIDDEN, "无权限管理该团队", 403)
         else:
-            if not ({ROLE_CREATOR, ROLE_ADMIN, ROLE_MEMBER} & codes):
+            if not ({RoleCode.TEAM_CREATOR, RoleCode.TEAM_ADMIN, RoleCode.TEAM_MEMBER} & codes):
                 raise APIError(AUTH_FORBIDDEN, "非团队成员", 403)
         return codes
 
@@ -166,9 +171,9 @@ class TeamService:
             raise APIError(AUTH_FORBIDDEN, "非团队成员，无权查看", 403)
         codes = set(await self.roles.get_team_role_codes(user.id, team.id))
         my_role = (
-            "creator"
+            RoleLevel.CREATOR
             if self._is_creator(team, user.id)
-            else "admin" if ROLE_ADMIN in codes else "member"
+            else RoleLevel.ADMIN if RoleCode.TEAM_ADMIN in codes else RoleLevel.MEMBER
         )
         count = await self.teams.count_active_members_by_team([team.id])
         return TeamDetail(
@@ -205,9 +210,13 @@ class TeamService:
     ) -> tuple[list[TeamSummary], int]:
         """我的团队列表（在册成员，创建时间倒序；带成员数与我的角色；keyword 模糊匹配团队名称）。"""
         rows, total = await self.teams.list_teams_of_user(user.id, page, page_size, keyword)
+        return await self._summarize_member_rows(rows, user), total
+
+    async def _summarize_member_rows(self, rows: list[Team], user: User) -> list[TeamSummary]:
+        """在册成员视角的团队卡片汇总（成员数 + 我的角色）。"""
         counts = await self.teams.count_active_members_by_team([t.id for t in rows])
         role_map = await self.roles.get_team_roles_for_teams(user.id, [t.id for t in rows])
-        return summarize_teams(rows, counts, role_map, user=user, default_member=True), total
+        return summarize_teams(rows, counts, role_map, user=user, default_member=True)
 
     async def list_public_teams(
         self,
@@ -229,9 +238,7 @@ class TeamService:
             rows, total = await self.teams.list_teams_of_user(
                 user.id, page, page_size, keyword
             )
-            counts = await self.teams.count_active_members_by_team([t.id for t in rows])
-            role_map = await self.roles.get_team_roles_for_teams(user.id, [t.id for t in rows])
-            return summarize_teams(rows, counts, role_map, user=user, default_member=True), total
+            return await self._summarize_member_rows(rows, user), total
         rows, total = await self.teams.list_public(page, page_size, keyword=keyword)
         counts = await self.teams.count_active_members_by_team([t.id for t in rows])
         # 成员判定以 team_members.active 为唯一口径（与 get_detail 权限校验一致）；
@@ -302,18 +309,22 @@ class TeamService:
         token = secrets.token_hex(32)
         hours = int(await self.config.get_value("team", "invite.expire_hours", 72))
         expires_at = datetime.now(timezone.utc) + timedelta(hours=hours)
-        await redis_set_json(f"{_INVITE_KEY_PREFIX}{token}", {"team_id": str(team.id)}, max(hours * 3600, 1))
+        await redis_set_model(
+            f"{TEAM_INVITE_KEY_PREFIX}{token}",
+            TeamInvitePayload(team_id=str(team.id)),
+            max(hours * 3600, 1),
+        )
         return TeamInviteCreated(token=token, expires_at=expires_at)
 
     async def resolve_invite(self, token: str) -> TeamInviteResolved:
         """解析邀请链接（public）：返回团队与有效期；无效 / 过期 3001，团队解散 3002。"""
-        payload = await redis_get_json(f"{_INVITE_KEY_PREFIX}{token}")
-        if not payload or "team_id" not in payload:
+        payload = await redis_get_model(f"{TEAM_INVITE_KEY_PREFIX}{token}", TeamInvitePayload)
+        if payload is None:
             raise APIError(RESOURCE_NOT_FOUND, "邀请链接无效或已过期", 404)
-        team = await self.teams.get_by_id(uuid.UUID(str(payload["team_id"])))
+        team = await self.teams.get_by_id(uuid.UUID(payload.team_id))
         if team is None or team.status != TeamStatus.ACTIVE:
             raise APIError(RESOURCE_STATE_CONFLICT, "团队已解散", 409)
-        ttl = int(await get_redis().ttl(f"{_INVITE_KEY_PREFIX}{token}"))
+        ttl = int(await get_redis().ttl(f"{TEAM_INVITE_KEY_PREFIX}{token}"))
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=max(ttl, 1))
         return TeamInviteResolved(
             team_id=team.id, team_name=team.name, avatar_url=team.avatar_url, expires_at=expires_at
@@ -333,8 +344,10 @@ class TeamService:
         if TeamVisibility(team.visibility) == TeamVisibility.PRIVATE and not invite_token:
             raise APIError(AUTH_FORBIDDEN, "私有团队仅可通过邀请链接申请加入", 403)
         if invite_token:
-            payload = await redis_get_json(f"{_INVITE_KEY_PREFIX}{invite_token}")
-            if not payload or str(payload.get("team_id")) != str(team.id):
+            payload = await redis_get_model(
+                f"{TEAM_INVITE_KEY_PREFIX}{invite_token}", TeamInvitePayload
+            )
+            if payload is None or payload.team_id != str(team.id):
                 raise APIError(RESOURCE_NOT_FOUND, "邀请链接无效或已过期", 404)
         self.db.add(
             TeamMemberApplication(team_id=team.id, user_id=user.id, invite_token=invite_token)
@@ -384,7 +397,7 @@ class TeamService:
                 self.db.add(
                     TeamMember(team_id=team.id, user_id=application.user_id, status=TeamMemberStatus.ACTIVE)
                 )
-            await self.roles.grant_team_role(application.user_id, team.id, ROLE_MEMBER)
+            await self.roles.grant_team_role(application.user_id, team.id, RoleCode.TEAM_MEMBER)
         await self.db.flush()
 
     # ---------------- 成员管理 ----------------
@@ -439,32 +452,35 @@ class TeamService:
         """拥有 team_admin 授权的用户 id 集合。"""
         from sqlalchemy import select
 
-        from app.models.user import Role, UserRole
-
         stmt = (
             select(UserRole.user_id)
             .join(Role, Role.id == UserRole.role_id)
             .where(
                 UserRole.scope == "team",
                 UserRole.object_id == team_id,
-                Role.code == ROLE_ADMIN,
+                Role.code == RoleCode.TEAM_ADMIN,
             )
         )
         return {row for row in (await self.db.execute(stmt)).scalars()}
 
     async def set_admin(self, user: User, team_id: uuid.UUID, target_uid: uuid.UUID, body: TeamAdminFlag) -> None:
-        """分配 / 取消团队管理员（仅创建者；流程 4：分配即写授权，取消即删除）。"""
+        """分配 / 取消团队管理员（创建者或站点 admin；分配即写授权，取消即删除）。
+
+        站点 admin 兜底（治理逃生门）：创建者不可转移且不可退出，账号缺失时
+        团队将无人能任命管理员——admin 可代执行，避免孤儿团队（docs/contracts/teams.md）。
+        """
         team = await self._team_or_404(team_id)
-        await self._require_team_roles(user, team.id, level="creator")
+        if not await is_admin(self.db, user):
+            await self._require_team_roles(user, team.id, level="creator")
         if target_uid == team.creator_id:
             raise APIError(AUTH_FORBIDDEN, "创建者无需分配管理员", 403)
         member = await self.teams.get_active_member(team.id, target_uid)
         if member is None:
             raise APIError(RESOURCE_NOT_FOUND, "成员不存在", 404)
         if body.is_admin:
-            await self.roles.grant_team_role(target_uid, team.id, ROLE_ADMIN)
+            await self.roles.grant_team_role(target_uid, team.id, RoleCode.TEAM_ADMIN)
         else:
-            await self.roles.revoke_team_roles(target_uid, team.id, {ROLE_ADMIN})
+            await self.roles.revoke_team_roles(target_uid, team.id, {RoleCode.TEAM_ADMIN})
 
     async def set_member_note(
         self, user: User, team_id: uuid.UUID, target_uid: uuid.UUID, body: TeamMemberNote
@@ -498,7 +514,7 @@ class TeamService:
             raise APIError(RESOURCE_NOT_FOUND, "成员不存在", 404)
         member.status = TeamMemberStatus.KICKED
         member.left_at = datetime.now(timezone.utc)
-        await self.roles.revoke_team_roles(target_uid, team.id, {ROLE_ADMIN, ROLE_MEMBER})
+        await self.roles.revoke_team_roles(target_uid, team.id, {RoleCode.TEAM_ADMIN, RoleCode.TEAM_MEMBER})
 
     async def exit(self, user: User, team_id: uuid.UUID) -> None:
         """主动退出（成员本人；创建者不可退出，只能解散）。"""
@@ -510,12 +526,13 @@ class TeamService:
             raise APIError(AUTH_FORBIDDEN, "非团队成员", 403)
         member.status = TeamMemberStatus.EXITED
         member.left_at = datetime.now(timezone.utc)
-        await self.roles.revoke_team_roles(user.id, team.id, {ROLE_ADMIN, ROLE_MEMBER})
+        await self.roles.revoke_team_roles(user.id, team.id, {RoleCode.TEAM_ADMIN, RoleCode.TEAM_MEMBER})
 
     async def disband(self, user: User, team_id: uuid.UUID) -> None:
-        """解散团队（软解散，仅创建者）：清理全部团队授权与成员状态（数据所有权节）。"""
+        """解散团队（软解散，创建者或站点 admin 兜底）：清理全部团队授权与成员状态（数据所有权节）。"""
         team = await self._team_or_404(team_id)
-        await self._require_team_roles(user, team.id, level="creator")
+        if not await is_admin(self.db, user):
+            await self._require_team_roles(user, team.id, level="creator")
         if team.status != TeamStatus.ACTIVE:
             raise APIError(RESOURCE_STATE_CONFLICT, "团队已解散", 409)
         team.status = TeamStatus.DISBANDED

@@ -1,20 +1,20 @@
 <script setup lang="ts">
 /**
- * 组织管理详情（/admin/orgs/:id，admin 只读浏览，docs/contracts/orgs.md 管理端视图）：
- * 组织信息卡 + 模块化 tab（成员 / 名下团队 / 组织题库，按 tab 懒加载）；
- * 不做维护动作（维护收敛在组织空间 / 团队空间）。
+ * 组织管理详情（/admin/orgs/:id，admin 管理视图，docs/contracts/orgs.md 管理端视图）：
+ * 组织信息卡 + 模块化 tab（成员 / 名下团队 / 组织题库，按 tab 懒加载）。
+ * 成员管理（授·撤组织管理员 / 移出）收敛在此（组织空间页不放，见 orgs.md）；
  * 组织题库走组织端点（GET /orgs/{id}/problems）——站点 admin 视同拥有组织管理权（orgs.md）。
  */
 import { computed, h, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NCheckbox, NTag } from 'naive-ui'
+import { NButton, NCheckbox, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import { adminGetOrg, adminListOrgMembers } from '@/api/admin'
-import { listOrgProblems, listOrgTeams } from '@/api/orgs'
+import { listOrgProblems, listOrgTeams, removeOrgMember, setOrgMemberAdmin } from '@/api/orgs'
 import BaseAvatar from '@/components/BaseAvatar.vue'
-import { message } from '@/utils/feedback'
+import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
 import { renderDifficulty, renderRatio } from '@/utils/problemCells'
@@ -44,8 +44,6 @@ function ensureModuleLoaded(mod: OrgModule) {
   else if (mod === 'teams') void loadTeams()
   else void loadProblems()
 }
-
-watch(activeModule, ensureModuleLoaded, { immediate: true })
 
 async function loadOrg() {
   loading.value = true
@@ -131,7 +129,59 @@ const memberColumns = computed<DataTableColumns<OrgMemberItem>>(() => [
     width: 170,
     render: (row) => formatDateTime(row.joined_at),
   },
+  {
+    title: t('action.operations'),
+    key: 'actions',
+    width: 230,
+    fixed: 'right',
+    render(row) {
+      const buttons: ReturnType<typeof h>[] = [
+        h(
+          NButton,
+          {
+            text: true,
+            type: 'primary',
+            onClick: () => onSetAdmin(row, !row.is_admin),
+          },
+          { default: () => t(row.is_admin ? 'orgs.members.revokeAdmin' : 'orgs.members.grantAdmin') },
+        ),
+        h(
+          NButton,
+          {
+            text: true,
+            type: 'error',
+            onClick: () => onKick(row),
+          },
+          { default: () => t('orgs.members.kick') },
+        ),
+      ]
+      return h('div', { class: 'cell-actions' }, buttons)
+    },
+  },
 ])
+
+async function onSetAdmin(row: OrgMemberItem, grant: boolean) {
+  try {
+    await setOrgMemberAdmin(orgId, row.user_id, grant)
+    message.success(t(grant ? 'orgs.members.grantSuccess' : 'orgs.members.revokeSuccess'))
+    await loadMembers()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
+  }
+}
+
+function onKick(row: OrgMemberItem) {
+  confirmAsyncDialog({
+    title: t('orgs.members.kick'),
+    content: t('orgs.members.kickConfirm', { name: row.nickname }),
+    positiveText: t('orgs.members.kick'),
+    action: () => removeOrgMember(orgId, row.user_id),
+    successMessage: t('orgs.members.kickSuccess'),
+    onAfterSuccess: () => {
+      void loadMembers()
+    },
+  })
+}
 
 // ---------------- 名下团队（org 端点对 admin 放行，只读浏览） ----------------
 
@@ -315,6 +365,10 @@ const problemColumns = computed<DataTableColumns<TeamProblemSummary>>(() => [
     render: (row) => formatDateTime(row.created_at),
   },
 ])
+
+// 各模块状态定义完成后才挂载观察（immediate 会在 setup 同步期触发加载，
+// 前置会命中 TDZ：membersLoading 等 ref 尚未初始化）
+watch(activeModule, ensureModuleLoaded, { immediate: true })
 
 onMounted(() => {
   loadOrg()

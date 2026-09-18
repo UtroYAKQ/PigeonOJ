@@ -65,7 +65,7 @@ async def write_request_log(
             user_agent=user_agent,
             location=await lookup_location_async(ip_address),
             duration_ms=duration_ms,
-            extra={"device": parse_user_agent(user_agent)},
+            extra={"device": parse_user_agent(user_agent).model_dump()},
         )
     )
     await db.commit()

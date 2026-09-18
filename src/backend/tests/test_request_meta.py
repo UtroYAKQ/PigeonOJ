@@ -149,6 +149,6 @@ def test_parse_user_agent(
     ua: str | None, browser: str | None, os_name: str | None, device: str | None
 ) -> None:
     parsed = parse_user_agent(ua)
-    assert parsed["browser"] == browser
-    assert parsed["os"] == os_name
-    assert parsed["device"] == device
+    assert parsed.browser == browser
+    assert parsed.os == os_name
+    assert parsed.device == device

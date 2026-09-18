@@ -12,6 +12,8 @@ from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from app.api.deps import (
     AdminConfigServiceDep,
     ContestServiceDep,
+    get_current_admin,
+    get_current_user,
     LogServiceDep,
     OrgServiceDep,
     ProblemImportServiceDep,
@@ -26,7 +28,7 @@ from app.api.deps import (
     UserServiceDep,
 )
 from app.models.user import User
-from app.enums import ContestStatus, ContestType, ProblemSetStatus, TeamStatus
+from app.enums import ContestStatus, ContestType, ProblemSetStatus, SubmissionStatus, SubmitType, TeamStatus
 from app.schemas.contest import ContestSummary
 from app.schemas.judge import AdminSubmissionItem
 from app.schemas.admin import (
@@ -55,7 +57,6 @@ from app.schemas.problem_set import ProblemSetSummary
 from app.schemas.org import OrgAdminDetail, OrgAdminSummary, OrgMemberOut, OrgTeamAssign
 from app.schemas.team import TeamAdminDetail, TeamAdminSummary, TeamMemberOut
 from app.schemas.user import UserPublic
-from app.core.dependency import get_current_admin, get_current_user
 from app.core.exceptions import APIError, PARAM_FORMAT_INVALID
 from app.utils.pagination import PaginatedResponse
 from app.utils.response import ApiResponse, ok
@@ -112,13 +113,11 @@ async def list_all_submissions(
 
     user_id 亦可经「提交人昵称」搜索定位；行内含题目标题，点击行进入题目管理视角评测详情。
     """
-    from app.enums import SubmissionStatus, SubmitType
-
     try:
         status_value = SubmissionStatus(status) if status else None
         submit_type_value = SubmitType(submit_type) if submit_type else None
     except ValueError as exc:
-        raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
+        raise APIError.bad_query(exc) from exc
     items, total = await service.list_admin_summaries(
         submit_type=submit_type_value, user_id=user_id, problem_id=problem_id,
         status=status_value, language=language, keyword=keyword, page=page, page_size=page_size,
@@ -532,6 +531,19 @@ async def admin_list_team_contests(
         team_id, keyword=keyword, status=status, page=page, page_size=page_size
     )
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.post("/teams/{team_id}/disband", response_model=ApiResponse[None])
+async def admin_disband_team(
+    team_id: uuid.UUID,
+    service: TeamServiceDep,
+    db: SessionDep,
+    admin: User = _admin,
+) -> ApiResponse[None]:
+    """站点 admin 代解散团队（治理逃生门；创建者账号缺失时的兜底通道）。"""
+    await service.disband(admin, team_id)
+    await db.commit()
+    return ok(None)
 
 
 # ---- 组织管理视图（docs/contracts/orgs.md 管理端：admin 全量只读浏览，免组织角色） ----

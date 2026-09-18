@@ -271,17 +271,6 @@ class ProblemRepository:
         )
         return rows, int(total)
 
-    async def get_test_cases(self, problem_id: uuid.UUID) -> list[TestCase]:
-        return list(
-            (
-                await self.db.execute(
-                    select(TestCase)
-                    .where(TestCase.problem_id == problem_id)
-                    .order_by(TestCase.sort_order, TestCase.created_at)
-                )
-            ).scalars()
-        )
-
     async def list_team_problems(
         self,
         team_id: uuid.UUID,
@@ -523,7 +512,7 @@ class TagRepository:
         where = [ProblemTag.status == TagStatus.ACTIVE]
         if keyword:
             where.append(ProblemTag.name.ilike(f"%{keyword}%"))
-        total = await self.db.scalar(select(func.count()).where(*where)) or 0
+        total = await self.db.scalar(select(func.count()).select_from(ProblemTag).where(*where)) or 0
         rows = list(
             (
                 await self.db.execute(
@@ -568,6 +557,12 @@ class TagRepository:
 
     async def add_relation(self, problem_id: uuid.UUID, tag_id: uuid.UUID) -> None:
         self.db.add(ProblemTagRelation(problem_id=problem_id, tag_id=tag_id))
+        await self.db.flush()
+
+    async def add_relations(self, problem_id: uuid.UUID, tag_ids: list[uuid.UUID]) -> None:
+        """批量建立题目-标签关系（单次 flush，替代逐标签往返）。"""
+        for tag_id in tag_ids:
+            self.db.add(ProblemTagRelation(problem_id=problem_id, tag_id=tag_id))
         await self.db.flush()
 
 

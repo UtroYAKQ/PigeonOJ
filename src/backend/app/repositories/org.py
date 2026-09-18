@@ -91,6 +91,25 @@ class OrgRepository:
         )
         return {oid: int(count) for oid, count in (await self.db.execute(stmt)).all()}
 
+    async def count_active_members(
+        self, org_id: uuid.UUID, exclude_user_id: uuid.UUID | None = None
+    ) -> int:
+        """组织在册成员数（最后一名成员保护；可排除操作对象本人）。"""
+        conditions = [
+            OrgMember.org_id == org_id,
+            OrgMember.status == OrgMemberStatus.ACTIVE,
+        ]
+        if exclude_user_id is not None:
+            conditions.append(OrgMember.user_id != exclude_user_id)
+        return int(
+            (
+                await self.db.scalar(
+                    select(func.count()).select_from(OrgMember).where(*conditions)
+                )
+            )
+            or 0
+        )
+
     async def count_active_teams_by_org(
         self, org_ids: list[uuid.UUID]
     ) -> dict[uuid.UUID, int]:

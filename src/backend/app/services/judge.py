@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from dataclasses import dataclass
 
@@ -13,18 +14,27 @@ from app.core.exceptions import (
     APIError,
     AUTH_FORBIDDEN,
     PARAM_FORMAT_INVALID,
+    RATE_LIMITED,
+    RATE_SEND_TOO_FREQUENT,
     RESOURCE_NOT_FOUND,
+    SYSTEM_UPSTREAM_FAILURE,
 )
-from app.core.redis import get_redis
+from app.core.redis import get_redis, JUDGE_SELFTEST_KEY_PREFIX
 from app.core.storage import get_storage
 from app.models.judge import SandboxConfig, Submission, SubmissionTestCaseResult
 from app.models.problem import Problem, TestCase
-from app.repositories.judge import JudgeRepository, SubmissionRepository, TestCaseRepository
-from app.repositories.problem import ProblemRepository
+from app.repositories.judge import SubmissionRepository, TestCaseRepository
+from app.rpc.judge_gateway import (
+    GatewayBusyError,
+    GatewayTimeoutError,
+    GatewayUnavailableError,
+    dispatch_run_code,
+)
 from app.schemas.judge import (
     AdminSubmissionItem,
     ProblemSubmissionItem,
     SelfTestRequest,
+    SelfTestResultOut,
     SubmissionCreate,
     SubmissionDetailOut,
     SubmissionQuery,
@@ -32,14 +42,17 @@ from app.schemas.judge import (
     TestCaseResult,
 )
 from app.services.problem import (
+    attach_verification_code,
     can_manage_problem,
+    get_pending_verification,
     get_problem,
     judged_case_ids,
 )
 from app.services.system_config import ConfigService
 
-# 自测冷却 Redis Key 前缀（docs/operations.md Redis 约定；存在即冷却中）
-_SELFTEST_COOLDOWN_KEY_PREFIX = "judge:selftest:"
+logger = logging.getLogger(__name__)
+
+# 自测冷却 Redis Key（docs/operations.md Redis 约定；存在即冷却中）
 
 # 提交详情逐测试点程序输出并发拉取上限（对象存储往返；串行随测试点数线性恶化，
 # 限并发既压平延迟又避免瞬时打满 MinIO 连接）
@@ -69,7 +82,6 @@ class SelfTestService:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
-        self.problems = ProblemRepository(db)
         self.config_service = ConfigService(db)
 
     async def create_order(
@@ -116,12 +128,45 @@ class SelfTestService:
     async def try_claim_cooldown(self, order: SelfTestOrder, user_id: uuid.UUID) -> bool:
         """按 user+problem 认领自测冷却槽（SETNX + TTL）；False 表示冷却中。"""
         r = get_redis()
-        key = f"{_SELFTEST_COOLDOWN_KEY_PREFIX}{user_id}:{order.problem_id}"
+        key = f"{JUDGE_SELFTEST_KEY_PREFIX}{user_id}:{order.problem_id}"
         return bool(await r.set(key, "1", nx=True, ex=max(1, order.cooldown_seconds)))
 
     async def release_cooldown(self, order: SelfTestOrder, user_id: uuid.UUID) -> None:
         """派发失败时释放冷却槽，避免用户为失败的请求买单。"""
-        await get_redis().delete(f"{_SELFTEST_COOLDOWN_KEY_PREFIX}{user_id}:{order.problem_id}")
+        await get_redis().delete(f"{JUDGE_SELFTEST_KEY_PREFIX}{user_id}:{order.problem_id}")
+
+    async def run_once(self, order: SelfTestOrder, user_id: uuid.UUID) -> SelfTestResultOut:
+        """执行一次自测运行：冷却认领 → 网关派发 → 失败释放冷却并转业务错误。
+
+        三个 run-code 端点（题目 / 团队题库 / 团队题单）共用，门控由调用方完成。
+        """
+        if not await self.try_claim_cooldown(order, user_id):
+            raise APIError(RATE_SEND_TOO_FREQUENT, "操作过于频繁，请稍后再试", 429)
+        try:
+            outcome = await dispatch_run_code(
+                problem=order.problem,
+                sandbox_config=order.sandbox_config,
+                language=order.language,
+                code=order.code,
+                stdin_data=order.stdin_data,
+                max_concurrent=order.max_concurrent,
+            )
+        except GatewayUnavailableError as exc:
+            await self.release_cooldown(order, user_id)
+            raise APIError(SYSTEM_UPSTREAM_FAILURE, "暂无在线判题节点，请稍后重试", 502) from exc
+        except GatewayBusyError as exc:
+            await self.release_cooldown(order, user_id)
+            raise APIError(RATE_LIMITED, "全局判题并发已达上限，请稍后重试", 429) from exc
+        except GatewayTimeoutError as exc:
+            await self.release_cooldown(order, user_id)
+            raise APIError(SYSTEM_UPSTREAM_FAILURE, "沙箱执行超时，请稍后重试", 502) from exc
+        return SelfTestResultOut(
+            status=outcome.status,
+            output=outcome.output.decode("utf-8", errors="replace"),
+            error_message=outcome.error_message,
+            time_used_ms=outcome.time_used_ms,
+            memory_used_kb=outcome.memory_used_kb,
+        )
 
 
 class SubmissionService:
@@ -129,7 +174,6 @@ class SubmissionService:
         self.db = db
         self.submissions = SubmissionRepository(db)
         self.test_cases = TestCaseRepository(db)
-        self.judge = JudgeRepository()
 
     async def create(
         self, user: object, body: SubmissionCreate, *, bypass_visibility: bool = False
@@ -314,6 +358,7 @@ class SubmissionService:
                     raw, _ = await storage.get_bytes(key)
                     return raw.decode("utf-8", errors="replace")
                 except Exception:
+                    logger.warning("拉取测试点输出失败，详情中该点输出置空: key=%s", key, exc_info=True)
                     return None
 
         outputs = await asyncio.gather(*(_fetch_output(r.output) for r in results))
@@ -349,14 +394,10 @@ class SubmissionService:
         return {cid: idx for idx, cid in enumerate(ids)}
 
     async def create_verify_submission(self, user: object, problem_id: uuid.UUID, body: object) -> Submission:
-        from app.services.problem import get_pending_verification, attach_verification_code
         verification = await get_pending_verification(self.db, problem_id)
         if verification is None:
             raise APIError(RESOURCE_NOT_FOUND, "无进行中的验题记录", 404)
-        token = getattr(body, "invite_token", None)
-        if token is not None:
-            from app.services.problem import validate_verification_invite
-            await validate_verification_invite(self.db, verification.id, token)
+        # invite_token 仅作来源记录（schemas/judge.py），无鉴权语义；真实邀请校验在链接兑换时完成
         return await attach_verification_code(
             self.db,
             verification.id,

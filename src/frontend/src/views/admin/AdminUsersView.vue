@@ -1,6 +1,8 @@
 ﻿<script setup lang="ts">
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
+import { Aim as AimIcon } from '@element-plus/icons-vue'
 import { NButton, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
@@ -18,6 +20,7 @@ import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
+const router = useRouter()
 const loading = ref(false)
 const list = ref<User[]>([])
 const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
@@ -304,6 +307,12 @@ const columns = computed<DataTableColumns<User>>(() => [
         @update:value="onSearch"
       />
       <template #actions>
+        <n-button secondary type="info" @click="router.push('/admin/users/online')">
+          <template #icon>
+            <n-icon><AimIcon /></n-icon>
+          </template>
+          {{ t('nav.onlineUsers') }}
+        </n-button>
         <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="onSearch" />
       </template>
     </SearchFilterBar>

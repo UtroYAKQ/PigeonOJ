@@ -51,6 +51,8 @@ function back() {
     router.push(`/contests/${String(route.params.cid)}/problems/${String(route.params.problemId)}`)
   } else if (route.params.teamId && route.params.problemId) {
     router.push(`/teams/${String(route.params.teamId)}/problems/${String(route.params.problemId)}`)
+  } else if (route.params.orgId && route.params.problemId) {
+    router.push(`/me/orgs/${String(route.params.orgId)}/problems/${String(route.params.problemId)}`)
   } else if (submission.value?.problem_id) {
     router.push(`/problems/${submission.value.problem_id}`)
   } else {

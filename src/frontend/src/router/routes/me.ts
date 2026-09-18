@@ -140,6 +140,51 @@ export const meRoutes: RouteRecordRaw[] = [
               },
             },
           },
+          {
+            // 组织题目作答页（组织上下文）：复用题库详情组件，读 / 交题 / 自测走题库
+            // 裸路径端点（组织成员经 can_manage 放行，docs/contracts/orgs.md「组织成员
+            // 可对组织题交题/自测」）；评测结果落在 /submissions/:id 保持组织上下文。
+            path: ':orgId/problems/:problemId',
+            name: 'me-org-problem',
+            component: () => import('@/views/problems/ProblemDetailView.vue'),
+            meta: {
+              title: '题目详情',
+              titleKey: 'problems.detail.title',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              keepAlive: true,
+              breadcrumbParent: {
+                titleKey: 'orgs.detail.title',
+                path: (route) => `/me/orgs/${String(route.params.orgId)}`,
+              },
+            },
+          },
+          {
+            // 组织题目评测结果（组织上下文内不跳出）
+            path: ':orgId/problems/:problemId/submissions/:id',
+            name: 'me-org-problem-submission',
+            component: () => import('@/views/problems/SubmissionView.vue'),
+            meta: {
+              title: '评测结果',
+              titleKey: 'problems.submission.title',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              keepAlive: true,
+              breadcrumbParent: [
+                {
+                  titleKey: 'orgs.detail.title',
+                  path: (route) => `/me/orgs/${String(route.params.orgId)}`,
+                },
+                {
+                  titleKey: 'problems.detail.title',
+                  path: (route) =>
+                    `/me/orgs/${String(route.params.orgId)}/problems/${String(route.params.problemId)}`,
+                },
+              ],
+            },
+          },
         ],
       },
     ],

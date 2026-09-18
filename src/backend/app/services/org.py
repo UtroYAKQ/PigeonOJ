@@ -15,6 +15,7 @@ from app.core.exceptions import (
     APIError,
     AUTH_FORBIDDEN,
     ORG_LAST_ADMIN,
+    ORG_LAST_MEMBER,
     RESOURCE_DUPLICATE,
     RESOURCE_NOT_FOUND,
     RESOURCE_STATE_CONFLICT,
@@ -23,7 +24,10 @@ from app.enums import (
     OrgMemberStatus,
     OrgStatus,
     ProblemStatus,
+    RoleCode,
+    RoleLevel,
     TeamMemberStatus,
+    TeamStatus,
     TeamVisibility,
     UserStatus,
 )
@@ -48,11 +52,8 @@ from app.schemas.org import (
     OrgUpdate,
 )
 from app.schemas.team import TeamCreate, TeamSummary
+from app.core.dependency import get_user_role_codes
 from app.services.team import summarize_teams  # 团队列表装配复用，避免同构循环
-
-# 组织角色 code（roles 种子，docs/contracts/orgs.md）
-ROLE_ADMIN = "org_admin"
-ROLE_MEMBER = "org_member"
 
 
 class OrgService:
@@ -65,9 +66,7 @@ class OrgService:
     # ---------------- 权限辅助 ----------------
 
     async def _is_site_admin(self, user: User) -> bool:
-        from app.core.dependency import get_user_role_codes
-
-        return "admin" in await get_user_role_codes(self.db, user.id)
+        return RoleCode.ADMIN in await get_user_role_codes(self.db, user.id)
 
     async def _org_or_404(self, org_id: uuid.UUID) -> Organization:
         org = await self.orgs.get_by_id(org_id)
@@ -89,13 +88,13 @@ class OrgService:
         站点 admin 视同拥有全部组织管理权（docs/contracts/orgs.md）。
         """
         if await self._is_site_admin(user):
-            return {ROLE_ADMIN, ROLE_MEMBER}
+            return {RoleCode.ORG_ADMIN, RoleCode.ORG_MEMBER}
         codes = set(await self.roles.get_org_role_codes(user.id, org_id))
-        if level == "admin":
-            if ROLE_ADMIN not in codes:
+        if level == RoleLevel.ADMIN:
+            if RoleCode.ORG_ADMIN not in codes:
                 raise APIError(AUTH_FORBIDDEN, "仅组织管理员可执行该操作", 403)
         else:
-            if not ({ROLE_ADMIN, ROLE_MEMBER} & codes):
+            if not ({RoleCode.ORG_ADMIN, RoleCode.ORG_MEMBER} & codes):
                 raise APIError(AUTH_FORBIDDEN, "非组织成员", 403)
         return codes
 
@@ -124,7 +123,7 @@ class OrgService:
         if member is None:
             return None
         codes = set(await self.roles.get_org_role_codes(user_id, org.id))
-        return "admin" if ROLE_ADMIN in codes else "member"
+        return RoleLevel.ADMIN if RoleCode.ORG_ADMIN in codes else RoleLevel.MEMBER
 
     @staticmethod
     def _summary(org: Organization, member_count: int, team_count: int, my_role: str | None) -> OrgSummary:
@@ -164,7 +163,7 @@ class OrgService:
         all_admin_ids = list(dict.fromkeys([user.id, *admin_ids]))
         for uid in all_admin_ids:
             await self._upsert_member(org.id, uid, added_by=user.id)
-            await self.roles.grant_org_role(uid, org.id, ROLE_ADMIN)
+            await self.roles.grant_org_role(uid, org.id, RoleCode.ORG_ADMIN)
         return await self.admin_get_detail(org.id)
 
     async def get_detail(self, user: User, org_id: uuid.UUID) -> OrgDetail:
@@ -201,7 +200,7 @@ class OrgService:
         return await self.get_detail(user, org.id)
 
     async def disband(self, user: User, org_id: uuid.UUID) -> None:
-        """解散组织（软解散，仅站点 admin）：清理 org 授权与成员状态，题库题目归档。"""
+        """解散组织（软解散，仅站点 admin）：清理 org 授权与成员状态，题库题目归档，名下团队级联软解散。"""
         org = await self._org_or_404(org_id)
         if not await self._is_site_admin(user):
             raise APIError(AUTH_FORBIDDEN, "仅系统管理员可解散组织", 403)
@@ -226,6 +225,30 @@ class OrgService:
             .values(status=ProblemStatus.ARCHIVED)
             .execution_options(synchronize_session=False)
         )
+        # 名下团队级联软解散（软删除）：对齐团队软解散语义——授权全清、
+        # 在册成员置 exited，避免 teams.org_id 悬挂在已解散组织上无人治理
+        # （docs/contracts/orgs.md 解散流程；团队题目为快照副本，不受源题归档影响）
+        team_rows = list(
+            (
+                await self.db.execute(
+                    select(Team).where(Team.org_id == org.id, Team.status == TeamStatus.ACTIVE)
+                )
+            ).scalars()
+        )
+        for team in team_rows:
+            team.status = TeamStatus.DISBANDED
+            team.disbanded_at = org.disbanded_at
+            await self.roles.revoke_all_team_roles(team.id)
+        if team_rows:
+            await self.db.execute(
+                update(TeamMember)
+                .where(
+                    TeamMember.team_id.in_([t.id for t in team_rows]),
+                    TeamMember.status == TeamMemberStatus.ACTIVE,
+                )
+                .values(status=TeamMemberStatus.EXITED, left_at=org.disbanded_at)
+                .execution_options(synchronize_session=False)
+            )
         await self.db.flush()
 
     async def list_mine(
@@ -239,7 +262,7 @@ class OrgService:
         items = []
         for org in rows:
             codes = role_map.get(org.id, set())
-            my_role = "admin" if ROLE_ADMIN in codes else "member"
+            my_role = RoleLevel.ADMIN if RoleCode.ORG_ADMIN in codes else RoleLevel.MEMBER
             items.append(
                 self._summary(
                     org,
@@ -318,7 +341,7 @@ class OrgService:
             .where(
                 UserRole.scope == "org",
                 UserRole.object_id == org.id,
-                Role.code == ROLE_ADMIN,
+                Role.code == RoleCode.ORG_ADMIN,
             )
         )
         admin_ids = {row for row in admin_rows.scalars()}
@@ -371,10 +394,10 @@ class OrgService:
             else:
                 self.db.add(OrgMember(org_id=org.id, user_id=uid, added_by=user.id))
         await self.db.flush()
-        await self.roles.grant_org_roles(user_ids, org.id, ROLE_MEMBER)
+        await self.roles.grant_org_roles(user_ids, org.id, RoleCode.ORG_MEMBER)
 
     async def remove_member(self, user: User, org_id: uuid.UUID, target_uid: uuid.UUID) -> None:
-        """移出成员（org_admin；清理成员状态与组织授权；最后一名 org_admin 3004）。"""
+        """移出成员（org_admin；清理成员状态与组织授权；最后一名 org_admin 3004 / 成员 3005）。"""
         org = await self._org_or_404(org_id)
         await self._require_org_roles(user, org.id, level="admin")
         if target_uid == user.id:
@@ -383,27 +406,36 @@ class OrgService:
         if member is None:
             raise APIError(RESOURCE_NOT_FOUND, "成员不存在", 404)
         codes = set(await self.roles.get_org_role_codes(target_uid, org.id))
-        if ROLE_ADMIN in codes and await self.roles.count_org_admins(org.id, exclude_user_id=target_uid) == 0:
+        if RoleCode.ORG_ADMIN in codes and await self.roles.count_org_admins(org.id, exclude_user_id=target_uid) == 0:
             raise APIError(ORG_LAST_ADMIN, "组织至少保留一名管理员", 409)
+        if await self.orgs.count_active_members(org.id, exclude_user_id=target_uid) == 0:
+            raise APIError(ORG_LAST_MEMBER, "组织至少保留一名成员", 409)
         member.status = OrgMemberStatus.REMOVED
         member.left_at = datetime.now(timezone.utc)
-        await self.roles.revoke_org_roles(target_uid, org.id, {ROLE_ADMIN, ROLE_MEMBER})
+        await self.roles.revoke_org_roles(target_uid, org.id, {RoleCode.ORG_ADMIN, RoleCode.ORG_MEMBER})
 
     async def set_admin(
         self, user: User, org_id: uuid.UUID, target_uid: uuid.UUID, body: OrgAdminFlag
     ) -> None:
-        """授予 / 撤销组织管理员（org_admin 或站点 admin；最后一名 3004）。"""
+        """授予 / 撤销组织管理员（org_admin 或站点 admin；最后一名 3004）。
+
+        自我撤销保护：org_admin 不得撤销自己的管理员身份（避免误操作后失去管理权，
+        需由其他组织管理员或站点 admin 代执行）；站点 admin 例外，可对任意成员执行
+        （治理逃生门，与 teams 模块 creator 保护同语义，docs/contracts/orgs.md）。
+        """
         org = await self._org_or_404(org_id)
         await self._require_org_roles(user, org.id, level="admin")
         member = await self.orgs.get_active_member(org.id, target_uid)
         if member is None:
             raise APIError(RESOURCE_NOT_FOUND, "成员不存在", 404)
+        if target_uid == user.id and not await self._is_site_admin(user):
+            raise APIError(AUTH_FORBIDDEN, "不能撤销自己的组织管理员身份", 403)
         if body.is_admin:
-            await self.roles.grant_org_role(target_uid, org.id, ROLE_ADMIN)
+            await self.roles.grant_org_role(target_uid, org.id, RoleCode.ORG_ADMIN)
         else:
             if await self.roles.count_org_admins(org.id, exclude_user_id=target_uid) == 0:
                 raise APIError(ORG_LAST_ADMIN, "组织至少保留一名管理员", 409)
-            await self.roles.revoke_org_roles(target_uid, org.id, {ROLE_ADMIN})
+            await self.roles.revoke_org_roles(target_uid, org.id, {RoleCode.ORG_ADMIN})
 
     async def set_member_note(
         self, user: User, org_id: uuid.UUID, target_uid: uuid.UUID, body: OrgMemberNote
@@ -434,7 +466,7 @@ class OrgService:
             )
         )
         self.db.add(TeamMember(team_id=team.id, user_id=user.id, status=TeamMemberStatus.ACTIVE))
-        await self.roles.grant_team_role(user.id, team.id, "team_creator")
+        await self.roles.grant_team_role(user.id, team.id, RoleCode.TEAM_CREATOR)
         return TeamSummary(
             id=team.id,
             name=team.name,

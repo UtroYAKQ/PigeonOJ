@@ -166,5 +166,6 @@ ORDER BY r.created_at DESC, r.id DESC
 | GET | /admin/orgs/{id} | admin | 组织管理详情（免组织成员校验，含已解散；成员只读浏览走 /admin/orgs/{id}/members） | - | org（OrgAdminDetail） |
 | GET | /admin/orgs/{id}/members | admin | 组织成员列表（status 缺省 = 在册，keyword 模糊昵称） | 分页/keyword/status | member[]（OrgMemberOut） |
 | PUT | /admin/teams/{id}/org | admin | 存量团队指派组织（迁移用；组织须 active） | org_id | - |
+| POST | /admin/teams/{id}/disband | admin | 代解散团队（治理逃生门：创建者不可退出 / 被踢，账号缺失时无人能解散团队；软解散，清理授权与成员状态） | - | - |
 
 ## 实现状态
