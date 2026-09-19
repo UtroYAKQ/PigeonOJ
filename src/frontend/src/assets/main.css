@@ -27,6 +27,15 @@
   --app-radius-lg: 8px;
   --app-surface-muted: #f7f7fa;
   --app-text-muted: #8a9099;
+  /* 文本插入光标（caret）颜色：随主题取对比色，避免与输入区背景同色看不清 */
+  --app-caret-color: #1f2328;
+  /* 统一指针体系（一套自定义光标，随 html.dark 不翻转、任何底色清晰可辨）：
+     近黑填充 #1f2328 + 1px 白描边（paint-order 描边在填充下方、只向外溢出半像素）。
+     原因：系统可将文本指针/缩放指针设为白色，白底上不可见。
+     箭头与手型各带系统黑色描边、始终可见，故保留原生；仅文本与缩放指针入体系。 */
+  --app-cursor-text: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='9' height='14' viewBox='0 0 9 14'><g fill='%231f2328' stroke='%23ffffff' stroke-width='1' paint-order='stroke'><rect x='2' y='0.9' width='5' height='1.8' rx='0.55'/><rect x='4' y='2.5' width='1' height='9'/><rect x='2' y='11.3' width='5' height='1.8' rx='0.55'/></g></svg>") 4 7, text;
+  --app-cursor-col-resize: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><g fill='%231f2328' stroke='%23ffffff' stroke-width='1' paint-order='stroke'><path d='M0.5 4.5 L3 6 L0.5 7.5 Z'/><path d='M3 5 H9 V7 H3 Z'/><path d='M9 6 L11.5 4.5 V7.5 Z'/></g></svg>") 6 4, col-resize;
+  --app-cursor-row-resize: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='12' viewBox='0 0 8 12'><g fill='%231f2328' stroke='%23ffffff' stroke-width='1' paint-order='stroke'><path d='M4 0.5 L5.5 3 H2.5 Z'/><path d='M3 3 H5 V9 H3 Z'/><path d='M4 11.5 L2.5 9 H5.5 Z'/></g></svg>") 4 6, row-resize;
 }
 
 html.dark {
@@ -40,6 +49,16 @@ html.dark {
   --app-muted-bg: #202024;
   --app-surface-muted: #202024;
   --app-text-muted: rgba(255, 255, 255, 0.45);
+  --app-caret-color: #f2f2f5;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='color']),
+textarea,
+[contenteditable='true'] {
+  /* 覆盖 Naive UI 输入组件的 caret-color（其默认取主色橙，细线在白底上几乎看不见→反馈“白/看不清”） */
+  caret-color: var(--app-caret-color) !important;
+  /* 统一体系文本指针：全部文本输入面（编辑器/输入框/可编辑区）共用一套自定义 I-Beam */
+  cursor: var(--app-cursor-text);
 }
 
 html,
@@ -159,7 +178,7 @@ body {
 
 /* 分栏拖拽进行中：全局光标 + 禁止选中（题目详情页等可拖拽布局使用） */
 body.is-splitting {
-  cursor: col-resize;
+  cursor: var(--app-cursor-col-resize);
   user-select: none;
 }
 

@@ -315,7 +315,7 @@ function submit() {
   justify-content: center;
   width: 14px;
   margin: 0 -3px;
-  cursor: col-resize;
+  cursor: var(--app-cursor-col-resize);
   touch-action: none;
   z-index: 2;
 }

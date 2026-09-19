@@ -41,6 +41,9 @@ onMounted(() => {
     fontLigatures: true,
     tabSize: 4,
     scrollBeyondLastLine: false,
+    // 不显示横向滚动条（超出部分仍可用 Shift+滚轮横向浏览）：自测控制台拖拽时
+    // Monaco 自动布局随容器高度高频重排，可见的横向滚动条会被误触发出现
+    scrollbar: { horizontal: 'hidden' },
     readOnly: props.readOnly ?? false,
   })
   editor.onDidChangeModelContent(() => emit('update:modelValue', editor?.getValue() ?? ''))
@@ -89,5 +92,15 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border-radius: var(--app-radius);
   border: 1px solid var(--app-border);
+}
+
+/* 文字区应用统一体系文本指针（main.css --app-cursor-text）：
+ * 系统文本指针可能被设为白色，白底上不可见；整套黑色 I-Beam 保证编辑器内始终可辨。
+ * 行号栏与其他控件保持各自光标。
+ */
+:deep(.monaco-editor),
+:deep(.monaco-editor .view-lines),
+:deep(.monaco-editor .view-overlays) {
+  cursor: var(--app-cursor-text);
 }
 </style>

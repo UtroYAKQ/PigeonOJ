@@ -22,7 +22,7 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 1. **侧边栏**：展开 220px / 收起 64px（图标态，tooltip 显示名称），白底右边框；Logo 主色块 + 主色标题（站点名 / Logo 来自 `GET /site-config`，未配置回退默认）；`n-menu accordion`，选中项左侧 4px 主色描边；窄屏 ≤991px 强制收起
 2. **顶栏**：白底 60px 下边框；左侧折叠钮 + 面包屑（<667px 隐藏），右侧语言 / 明暗 / 头像菜单
 3. **内容画布**：浅灰蓝 `--app-content-bg`；页面内容白底无边框 `n-card` 承载，间距 12–16px
-4. **管理后台空间**：进入 `/admin` 后侧栏整体切换为管理菜单，底部「返回前台」；面向 admin（tutor 已随组织化改造下线）；组织管理见 `/admin/orgs`；团队创建入口收敛在组织工作台（组织端点 `POST /orgs/{id}/teams`），前台团队中心仅浏览
+4. **管理后台空间**：进入 `/admin` 后侧栏整体切换为管理菜单，底部「返回前台」；菜单为树形分组（`n-menu accordion`），按「内容管理 / 用户与组织 / 数据查询 / 系统运维」四组展开折叠，选中子项自动展开所属分组，未分组的余项退回顶层；面向 admin（tutor 已随组织化改造下线）；组织管理见 `/admin/orgs`；团队创建入口收敛在组织工作台（组织端点 `POST /orgs/{id}/teams`），前台团队中心仅浏览
 5. **个人面板**：进入 `/me` 后侧栏切换为个人面板菜单（个人资料 / 安全设置 / 会话管理 / 组织中心），底部「返回前台」
 6. **面包屑**：只反映真实层级（`管理后台/用户管理`、`题库/题目管理/编辑`），首页与顶级区块平级不入
 
@@ -52,7 +52,7 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 
 ### 「题面 + 编辑器」双栏工作台
 
-复用 `components/problem/ProblemWorkbench.vue`：占满视口剩余高度，整页无滚动条、各栏独立滚动；比例持久化 localStorage；窄屏 <900px 上下堆叠；分隔条 `role="separator"` + 提示文案。工具行固定为「语言选择 + 我的提交 + 提交代码」，按钮只抛事件，行为由宿主注入。
+复用 `components/problem/ProblemWorkbench.vue`：占满视口剩余高度，整页无滚动条、各栏独立滚动；比例持久化 localStorage；窄屏 <900px 上下堆叠；分隔条 `role="separator"` + 提示文案。工具行固定为「语言选择 + 我的提交 + 提交代码」，按钮只抛事件，行为由宿主注入。自测控制台（运行自测弹窗）高度拖拽有硬边界：压缩下限 140px（低于此值贴编辑器右缘会现滚动条），上限仅留底部安全边距、不限最高高度；收起态单击展开用持久化高度。文本插入光标（caret）统一取 `--app-caret-color`（亮色下近黑 `#1f2328`、暗色下近白，随 `html.dark` 切换），并以 `!important` 覆盖 Naive 输入组件默认取主色橙的写法——细橙色 caret 在白底上几乎不可见。指针体系（main.css `--app-cursor-*` 一套自定义光标，近黑填充 + 1px 白描边，`paint-order: stroke`）：`--app-cursor-text`（I-Beam，全局 `input/textarea/contenteditable` 与 Monaco 文字区、自测输入框）、`--app-cursor-col-resize` / `--app-cursor-row-resize`（分栏分隔条与拖拽态 `body.is-splitting`）——系统可将文本/缩放指针设为白色，白底上不可见，应用内统一保证任何底色可辨；箭头与手型各带系统黑色描边、始终可见，保留原生。
 
 ### 可访问性
 

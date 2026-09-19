@@ -24,6 +24,15 @@ export function useSplitPane() {
   function startResize(event: PointerEvent) {
     if (!isDesktop.value) return
     event.preventDefault()
+    // 指针捕获保证在浏览器窗口外松开也能收到 pointerup/pointercancel，
+    // 不会把 body.is-splitting（全局 col-resize 光标 + user-select）残留到编辑器上
+    if (event.currentTarget instanceof HTMLElement) {
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      } catch {
+        // 个别环境不支持指针捕获，退回 window 级监听清理
+      }
+    }
     resizing = true
     document.body.classList.add('is-splitting')
   }
@@ -39,6 +48,12 @@ export function useSplitPane() {
     resizing = false
     document.body.classList.remove('is-splitting')
     localStorage.setItem(SPLIT_KEY, String(ratio.value))
+  }
+
+  /** 打断拖拽兜底：清理全局拖拽态样式（失焦 / 组件卸载等场景），resizing 状态一并复位 */
+  function releaseSplitResize() {
+    resizing = false
+    document.body.classList.remove('is-splitting')
   }
 
   function resetSplit() {
@@ -85,14 +100,15 @@ export function useSplitPane() {
   // pointermove / pointerup 常驻但由 resizing 标志守卫，等价于原先的动态挂载
   useEventListener(window, 'pointermove', onPointerMove)
   useEventListener(window, 'pointerup', endResize)
+  useEventListener(window, 'pointercancel', endResize)
+  // 拖拽途中窗口失焦（切标签/最小化）：清理全局拖拽态，避免样式残留
+  useEventListener(window, 'blur', releaseSplitResize)
   useEventListener(window, 'resize', updateSplitHeight)
   useEventListener(window, 'pigeonoj:locale-change', updateSplitHeight)
   watch(isDesktop, updateSplitHeight)
 
   // 卸载兜底：拖拽中途离开页面时移除拖拽态样式（正常路径由 endResize 移除）
-  onBeforeUnmount(() => {
-    document.body.classList.remove('is-splitting')
-  })
+  onBeforeUnmount(releaseSplitResize)
 
   return {
     isDesktop,

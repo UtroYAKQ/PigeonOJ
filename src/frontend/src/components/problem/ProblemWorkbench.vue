@@ -5,7 +5,7 @@
  * 验题页传 @submit 走自行验题提交，@self-test 走用户自测（docs/contracts/judge.md）。
  * 分栏比例全局持久化（useSplitPane），窄屏（<900px）自动上下堆叠。
  */
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 
@@ -63,9 +63,11 @@ const activeTab = ref<'result' | 'input'>('result')
 // 控制台与编辑区上下排布（不遮挡代码）；开关钮统一承担「单击展开/收起」与「按住上下拖拽调高」（px 持久化，与分栏 composable 同款交互）
 const CONSOLE_H_KEY = 'pigeonoj.problems.consoleHeight.v2'
 const CONSOLE_H_DEFAULT = 440
+// 控制台可压缩的最小高度：低于此值会贴近代码编辑器右缘触发滚动条，故拖拽与还原都以此为下限
+const MIN_CONSOLE_DRAG_HEIGHT = 140
 function loadConsoleHeight(): number {
   const raw = Number(localStorage.getItem(CONSOLE_H_KEY))
-  return Number.isFinite(raw) && raw >= 120 && raw <= 720 ? raw : CONSOLE_H_DEFAULT
+  return Number.isFinite(raw) && raw >= MIN_CONSOLE_DRAG_HEIGHT && raw <= 720 ? raw : CONSOLE_H_DEFAULT
 }
 const consoleHeight = ref(loadConsoleHeight())
 const editorShellRef = ref<HTMLElement>()
@@ -79,11 +81,25 @@ const TOGGLE_DRAG_THRESHOLD = 3
 // 收起态起拖从收起条高度平滑长出（不跳到持久化高度），展开态起拖顶缘同样跟手
 let dragBaseHeight = 0
 let heightBeforeDrag = CONSOLE_H_DEFAULT
+// 起拖时的面板状态：收起态轻拖上滑应视为主动展开而非取消（见 endConsoleResize）
+let dragStartedCollapsed = false
+// 拖拽高度按 rAF 节流应用：合并每帧多次 pointermove，避免 Monaco 自动布局高频重排
+// （容器被高速缩放时 ResizeObserver loop 抖动，会误现横向滚动条/画布重绘偶发丢光标）
+let resizeFrame: number | undefined
+let pendingClientY = 0
 
-/** 开关钮按下：仅记录起点，是否进入拖拽由后续位移决定（见 onConsolePointerMove） */
+/** 开关钮按下：仅记录起点，是否进入拖拽由后续位移决定（见 onConsolePointerMove）；
+ *  指针捕获保证在浏览器窗口外松开也能收到 pointerup，拖拽态样式不会残留 */
 function onTogglePointerDown(event: PointerEvent) {
   if (event.button !== 0) return
   event.preventDefault()
+  if (event.currentTarget instanceof HTMLElement) {
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // 个别环境不支持指针捕获，退回 window 级监听清理
+    }
+  }
   toggleArmed = true
   toggleStartY = event.clientY
 }
@@ -93,6 +109,7 @@ function onConsolePointerMove(event: PointerEvent) {
     if (Math.abs(event.clientY - toggleStartY) < TOGGLE_DRAG_THRESHOLD) return
     // 越过阈值进入高度拖拽：收起态自动展开
     resizingConsole = true
+    dragStartedCollapsed = collapsed.value
     heightBeforeDrag = consoleHeight.value
     // 基准取此刻面板的真实渲染高度（收起态 = 收起条高度），保证展开瞬间无跳变
     dragBaseHeight = consoleRef.value?.getBoundingClientRect().height ?? consoleHeight.value
@@ -101,10 +118,18 @@ function onConsolePointerMove(event: PointerEvent) {
     document.body.classList.add('is-console-resizing')
   }
   if (!resizingConsole || !editorShellRef.value) return
+  pendingClientY = event.clientY
+  if (resizeFrame !== undefined) return
+  resizeFrame = window.requestAnimationFrame(applyConsoleResize)
+}
+
+function applyConsoleResize() {
+  resizeFrame = undefined
+  if (!resizingConsole || !editorShellRef.value) return
   const rect = editorShellRef.value.getBoundingClientRect()
-  // 拖拽中下限放宽到 40（跟手连续）；上限给编辑器留最小操作空间
-  const height = Math.round(dragBaseHeight + (toggleStartY - event.clientY))
-  consoleHeight.value = Math.min(Math.max(40, height), Math.max(200, Math.floor(rect.height) - 60))
+  // 拖拽下限 MIN_CONSOLE_DRAG_HEIGHT 防止控制台压缩过小；上限只留底部安全边距，不限最高高度
+  const height = Math.round(dragBaseHeight + (toggleStartY - pendingClientY))
+  consoleHeight.value = Math.min(Math.max(MIN_CONSOLE_DRAG_HEIGHT, height), Math.max(200, Math.floor(rect.height) - 60))
 }
 
 function endConsoleResize() {
@@ -112,11 +137,22 @@ function endConsoleResize() {
   toggleArmed = false
   if (resizingConsole) {
     resizingConsole = false
+    if (resizeFrame !== undefined) {
+      window.cancelAnimationFrame(resizeFrame)
+      resizeFrame = undefined
+    }
     document.body.classList.remove('is-console-resizing')
-    if (consoleHeight.value < 140) {
-      // 没拖出可读高度：视为取消——收回面板并还原拖前高度（收起态轻拖、展开态拖到底都走这里）
-      collapsed.value = true
-      consoleHeight.value = heightBeforeDrag
+    if (consoleHeight.value < MIN_CONSOLE_DRAG_HEIGHT) {
+      if (dragStartedCollapsed) {
+        // 收起态起拖即视为主动展开：补足最小可读高度，轻拖上滑不再弹回
+        collapsed.value = false
+        consoleHeight.value = MIN_CONSOLE_DRAG_HEIGHT
+        localStorage.setItem(CONSOLE_H_KEY, String(consoleHeight.value))
+      } else {
+        // 没拖出可读高度：视为取消——收回面板并还原拖前高度（展开态拖到底走这里）
+        collapsed.value = true
+        consoleHeight.value = heightBeforeDrag
+      }
     } else {
       localStorage.setItem(CONSOLE_H_KEY, String(consoleHeight.value))
     }
@@ -124,6 +160,17 @@ function endConsoleResize() {
   }
   // 全程未拖动：按单击开关处理
   collapsed.value = !collapsed.value
+}
+
+/** 打断拖拽时的兜底：清空待执行帧与拖拽态样式（失焦 / 组件卸载等场景） */
+function releaseConsoleResize() {
+  toggleArmed = false
+  resizingConsole = false
+  if (resizeFrame !== undefined) {
+    window.cancelAnimationFrame(resizeFrame)
+    resizeFrame = undefined
+  }
+  document.body.classList.remove('is-console-resizing')
 }
 
 /** 键盘兜底：Enter/Space 触发的 click（detail=0）切换展开/收起；鼠标/触屏点击已由指针路径处理 */
@@ -134,6 +181,9 @@ function onToggleClick(event: MouseEvent) {
 useEventListener(window, 'pointermove', onConsolePointerMove)
 useEventListener(window, 'pointerup', endConsoleResize)
 useEventListener(window, 'pointercancel', endConsoleResize)
+// 拖拽途中窗口失焦（切标签/最小化）：取消拖拽并清理全局拖拽态，避免样式残留
+useEventListener(window, 'blur', releaseConsoleResize)
+onBeforeUnmount(releaseConsoleResize)
 
 const canSelfTest = () => Boolean(code.value.trim()) && !props.selfTesting
 
@@ -387,7 +437,7 @@ watch(
   justify-content: center;
   width: 14px;
   margin: 0 -3px;
-  cursor: col-resize;
+  cursor: var(--app-cursor-col-resize);
   touch-action: none;
   z-index: 2;
 }
@@ -513,6 +563,7 @@ watch(
 .console__stdin :deep(textarea) {
   height: 100%;
   resize: none;
+  cursor: var(--app-cursor-text);
 }
 .console__hint {
   height: 100%;
