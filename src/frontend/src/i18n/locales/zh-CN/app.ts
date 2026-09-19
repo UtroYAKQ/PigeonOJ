@@ -30,6 +30,10 @@
     sandbox: '沙箱状态',
     reports: '举报管理',
     tags: '标签管理',
+    adminGroupContent: '内容管理',
+    adminGroupCommunity: '用户与组织',
+    adminGroupData: '数据查询',
+    adminGroupSystem: '系统运维',
   },
   action: {
     save: '保存',

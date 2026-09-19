@@ -65,7 +65,7 @@ const frontMenus = computed<MenuItem[]>(() =>
     }),
 )
 
-/** 后台空间菜单：管理后台各子页（按角色过滤） */
+/** 后台空间菜单：管理后台各子页（按角色过滤，平铺数据源，供树形分组与激活定位共用） */
 const adminMenus = computed<MenuItem[]>(() => {
   const adminSection = layoutChildren.find((r) => r.path === 'admin')
   return (adminSection?.children ?? [])
@@ -83,6 +83,37 @@ const adminMenus = computed<MenuItem[]>(() => {
       icon: c.meta?.icon,
     }))
 })
+
+/**
+ * 后台树形分组：侧栏 14 个平铺入口按职责收敛为 4 组可展开折叠的树（n-menu accordion）。
+ * paths 对应 admin 子路由 path（`/admin/<path>`）；未分组的余项自动退回顶层，不丢菜单。
+ */
+const ADMIN_GROUPS: Array<{ key: string; titleKey: string; icon: string; paths: string[] }> = [
+  {
+    key: 'admin-group-content',
+    titleKey: 'nav.adminGroupContent',
+    icon: 'Collection',
+    paths: ['problems', 'problem-sets', 'contests', 'tags'],
+  },
+  {
+    key: 'admin-group-community',
+    titleKey: 'nav.adminGroupCommunity',
+    icon: 'UserFilled',
+    paths: ['users', 'teams', 'orgs', 'reports'],
+  },
+  {
+    key: 'admin-group-data',
+    titleKey: 'nav.adminGroupData',
+    icon: 'Document',
+    paths: ['submissions', 'logs'],
+  },
+  {
+    key: 'admin-group-system',
+    titleKey: 'nav.adminGroupSystem',
+    icon: 'Setting',
+    paths: ['home', 'configs', 'sandbox'],
+  },
+]
 
 /** 个人面板菜单：资料 / 安全设置 / 会话管理 / 组织（菜单项指向区块根，前缀匹配覆盖子页） */
 const meMenus = computed<MenuItem[]>(() => {
@@ -107,12 +138,40 @@ function menuIcon(name?: string) {
   return () => h(NIcon, null, { default: () => h(comp) })
 }
 
-const menuOptions = computed<MenuOption[]>(() =>
-  menus.value.map((m) => ({
+function toMenuOption(m: MenuItem): MenuOption {
+  return {
     label: m.titleKey ? t(m.titleKey) : (m.title ?? ''),
     key: m.path,
     icon: menuIcon(m.icon),
-  })),
+  }
+}
+
+/**
+ * 后台树形菜单：按分组包一层（分组节点仅展开/折叠，不导航）。
+ * 选中子项时 naive-ui 自动展开其祖先；分组随角色过滤为空时隐藏。
+ */
+const adminMenuOptions = computed<MenuOption[]>(() => {
+  const used = new Set<string>()
+  const groups = ADMIN_GROUPS.map((g) => {
+    const children = adminMenus.value.filter((m) =>
+      g.paths.includes(m.path.slice('/admin/'.length)),
+    )
+    children.forEach((c) => used.add(c.path))
+    return {
+      label: t(g.titleKey),
+      key: g.key,
+      icon: menuIcon(g.icon),
+      children: children.map(toMenuOption),
+    }
+  }).filter((g) => (g.children?.length ?? 0) > 0)
+  const rest = adminMenus.value.filter((m) => !used.has(m.path)).map(toMenuOption)
+  return [...groups, ...rest]
+})
+
+const menuOptions = computed<MenuOption[]>(() =>
+  isAdminArea.value
+    ? adminMenuOptions.value
+    : menus.value.map((m) => toMenuOption(m)),
 )
 
 /**
@@ -201,6 +260,18 @@ function onSelect(key: string) {
 .side-menu :deep(.n-menu-item-content--selected::before),
 .side-menu :deep(.n-menu-item-content:hover::before) {
   border-left: 4px solid var(--app-primary);
+}
+/* 分组标题（父级）不参与激活：子项选中时分组保持普通态（含悬停）。
+   naive-ui 样式为运行时动态注入，与 scoped 样式同优先级时后插入者胜，
+   故用 !important 确保覆盖（真实类名 __icon / __arrow 为双下划线） */
+.side-menu :deep(.n-menu-item-content--child-active .n-menu-item-content-header),
+.side-menu :deep(.n-menu-item-content--child-active .n-menu-item-content-header a),
+.side-menu :deep(.n-menu-item-content--child-active .n-menu-item-content__icon),
+.side-menu :deep(.n-menu-item-content--child-active .n-menu-item-content__arrow) {
+  color: var(--app-text) !important;
+}
+.side-menu :deep(.n-menu-item-content--child-active::before) {
+  border-left: none !important;
 }
 .side-footer {
   flex-shrink: 0;

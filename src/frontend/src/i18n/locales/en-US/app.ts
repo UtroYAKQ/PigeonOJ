@@ -30,6 +30,10 @@
     sandbox: 'Sandbox status',
     reports: 'Reports',
     tags: 'Tags',
+    adminGroupContent: 'Content',
+    adminGroupCommunity: 'Users & Organizations',
+    adminGroupData: 'Data',
+    adminGroupSystem: 'System',
   },
   action: {
     save: 'Save',
