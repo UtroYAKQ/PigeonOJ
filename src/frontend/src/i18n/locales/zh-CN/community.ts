@@ -1,0 +1,32 @@
+export default {
+  community: {
+    comment: {
+      title: '评论',
+      placeholder: '写下你的评论…',
+      replyPlaceholder: '回复 @{name}…',
+      replyingTo: '回复 @{name}',
+      submit: '发表',
+      empty: '评论内容不能为空',
+      tooLong: '评论不能超过 2000 字符',
+      sent: '评论已发表',
+      loginHint: '登录后即可参与评论',
+      reply: '回复',
+      restore: '恢复',
+      deleteTitle: '删除评论',
+      deleteConfirm: '确定删除这条评论吗？删除后对他人不可见（管理端可恢复）。',
+      deletedAuthor: '已注销',
+      deletedTag: '已删除',
+      deletedContent: '该评论已删除',
+      viewAllReplies: '查看全部 {count} 条回复',
+      emptyText: '还没有评论，来说点什么吧',
+    },
+    report: {
+      title: '举报',
+      short: '举报',
+      submit: '提交举报',
+      reasonRequired: '请填写举报理由',
+      placeholder: '请描述举报理由（如抄袭、人身攻击、垃圾广告等）',
+      success: '举报已提交，感谢你的反馈',
+    },
+  },
+}

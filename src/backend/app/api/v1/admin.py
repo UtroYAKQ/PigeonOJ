@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 
 from app.api.deps import (
     AdminConfigServiceDep,
+    CommunityServiceDep,
     ContestServiceDep,
     get_current_admin,
     get_current_user,
@@ -30,6 +31,14 @@ from app.api.deps import (
 from app.models.user import User
 from app.enums import ContestStatus, ContestType, ProblemSetStatus, SubmissionStatus, SubmitType, TeamStatus
 from app.schemas.contest import ContestSummary
+from app.schemas.community import (
+    AdminCodeShareOut,
+    AdminCodeShareStatusUpdate,
+    AdminCommentStatusUpdate,
+    AdminSolutionOut,
+    AdminSolutionStatusUpdate,
+    CommentAdminOut,
+)
 from app.schemas.judge import AdminSubmissionItem
 from app.schemas.admin import (
     ConfigItemOut,
@@ -255,6 +264,112 @@ async def handle_report(
     admin: User = _admin,
 ) -> ApiResponse[None]:
     await service.handle(report_id, admin, body.action)
+    return ok(None)
+
+
+# ---- 社区内容管理（docs/contracts/admin.md「社区内容管理」） ----
+
+
+@router.get(
+    "/solutions", response_model=ApiResponse[PaginatedResponse[AdminSolutionOut]]
+)
+async def admin_list_solutions(
+    service: CommunityServiceDep,
+    admin: User = _admin,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = None,
+    keyword: str | None = Query(default=None, max_length=128),
+    problem_id: uuid.UUID | None = None,
+) -> ApiResponse[PaginatedResponse[AdminSolutionOut]]:
+    """题解管理列表（全状态；评论治理经行内预览下钻，不设独立评论列表页）。"""
+    return ok(await service.admin_list_solutions(page, page_size, status, keyword, problem_id))
+
+
+@router.get("/solutions/{solution_id}", response_model=ApiResponse[AdminSolutionOut])
+async def admin_get_solution(
+    solution_id: uuid.UUID,
+    service: CommunityServiceDep,
+    admin: User = _admin,
+) -> ApiResponse[AdminSolutionOut]:
+    """题解管理详情（按 id 直接打开预览；community.md）。"""
+    return ok(await service.admin_get_solution(solution_id))
+
+
+@router.put("/solutions/{solution_id}/status", response_model=ApiResponse[None])
+async def admin_set_solution_status(
+    solution_id: uuid.UUID,
+    body: AdminSolutionStatusUpdate,
+    service: CommunityServiceDep,
+    db: SessionDep,
+    admin: User = _admin,
+) -> ApiResponse[None]:
+    await service.admin_set_solution_status(solution_id, body.status)
+    await db.commit()
+    return ok(None)
+
+
+@router.get("/comments/{comment_id}", response_model=ApiResponse[CommentAdminOut])
+async def admin_get_comment(
+    comment_id: uuid.UUID,
+    service: CommunityServiceDep,
+    admin: User = _admin,
+) -> ApiResponse[CommentAdminOut]:
+    """评论管理上下文（举报处理页定位所属题解；community.md）。"""
+    return ok(await service.admin_get_comment(comment_id))
+
+
+@router.put("/comments/{comment_id}/status", response_model=ApiResponse[None])
+async def admin_set_comment_status(
+    comment_id: uuid.UUID,
+    body: AdminCommentStatusUpdate,
+    service: CommunityServiceDep,
+    db: SessionDep,
+    admin: User = _admin,
+) -> ApiResponse[None]:
+    await service.admin_set_comment_status(comment_id, body.is_deleted)
+    await db.commit()
+    return ok(None)
+
+
+# ---- 代码分享管理（docs/contracts/community.md「代码广场」） ----
+
+
+@router.get("/codes", response_model=ApiResponse[PaginatedResponse[AdminCodeShareOut]])
+async def admin_list_code_shares(
+    service: CommunityServiceDep,
+    admin: User = _admin,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = None,
+    keyword: str | None = Query(default=None, max_length=128),
+    language: str | None = Query(default=None, max_length=32),
+) -> ApiResponse[PaginatedResponse[AdminCodeShareOut]]:
+    """代码分享管理列表（全状态；预览复用 GET /codes/{id}）。"""
+    return ok(
+        await service.admin_list_code_shares(page, page_size, status, keyword, language)
+    )
+
+
+@router.get("/codes/{share_id}", response_model=ApiResponse[AdminCodeShareOut])
+async def admin_get_code_share(
+    share_id: uuid.UUID,
+    service: CommunityServiceDep,
+    admin: User = _admin,
+) -> ApiResponse[AdminCodeShareOut]:
+    return ok(await service.admin_get_code_share(share_id))
+
+
+@router.put("/codes/{share_id}/status", response_model=ApiResponse[None])
+async def admin_set_code_share_status(
+    share_id: uuid.UUID,
+    body: AdminCodeShareStatusUpdate,
+    service: CommunityServiceDep,
+    db: SessionDep,
+    admin: User = _admin,
+) -> ApiResponse[None]:
+    await service.admin_set_code_share_status(share_id, body.status)
+    await db.commit()
     return ok(None)
 
 

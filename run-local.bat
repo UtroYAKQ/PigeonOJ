@@ -161,13 +161,12 @@ echo !BE_PORT!| findstr /r "^[0-9][0-9]*$" >nul 2>&1 || set "BE_PORT=8000"
 set "SERVER_PORT=!BE_PORT!"
 echo Backend port: !SERVER_PORT!
 
-netstat -ano | findstr /c:":!SERVER_PORT! " | findstr /c:"LISTENING" >nul 2>&1
-if errorlevel 1 (
-    cd /d "%~dp0src\backend"
-    start "PigeonOJ Backend" cmd /k ""%PY%" run.py"
-) else (
-    echo [WARN] Port !SERVER_PORT! is occupied, backend may already be running; to restart, close the old window first
-)
+rem Self-heal: closing a service window does not always kill the uvicorn reload
+rem worker (the orphaned child keeps holding the port), so clear stale listeners
+rem before starting. Re-running this script therefore restarts services cleanly.
+call :kill_port !SERVER_PORT!
+cd /d "%~dp0src\backend"
+start "PigeonOJ Backend" cmd /k ""%PY%" run.py"
 
 rem Wait for the backend health endpoint (up to 30 tries) so the gRPC gateway is registered
 rem and the judge node can register against it.
@@ -197,13 +196,9 @@ start "PigeonOJ Judge Node" cmd /k "docker compose --env-file %~dp0.env.node --p
 rem ---------- 8. Start frontend ----------
 echo [8/8] Starting frontend...
 
-netstat -ano | findstr /c:":5173 " | findstr /c:"LISTENING" >nul 2>&1
-if errorlevel 1 (
-    cd /d "%~dp0src\frontend"
-    start "PigeonOJ Frontend" cmd /k "npm run dev"
-) else (
-    echo [WARN] Port 5173 is occupied, frontend may already be running
-)
+call :kill_port 5173
+cd /d "%~dp0src\frontend"
+start "PigeonOJ Frontend" cmd /k "npm run dev"
 
 timeout /t 6 /nobreak >nul
 start "" "http://localhost:5173"
@@ -215,6 +210,16 @@ echo   Frontend:  http://localhost:5173
 echo   Backend:   http://127.0.0.1:!SERVER_PORT!  API docs at /docs
 echo   Judge node: running in the "PigeonOJ Judge Node" window, gRPC registration at :50051
 echo   Demo user:  admin@pigeonoj.dev / Admin@123
-echo   Close the corresponding window to stop each service
+echo   Stop services reliably: run stop-local.bat (closing a window may leave
+echo   orphaned reload workers behind; stop-local.bat kills them by port)
 echo ============================================
 pause
+exit /b 0
+
+:kill_port
+rem %1 = port; kill every LISTENING process on it (stale orphan from a closed window)
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /c:":%1 " ^| findstr /c:"LISTENING"') do (
+    echo [CLEANUP] Port %1: killing stale process PID %%a
+    taskkill /F /PID %%a >nul 2>&1
+)
+exit /b 0

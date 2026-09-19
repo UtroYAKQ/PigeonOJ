@@ -7,6 +7,12 @@ from __future__ import annotations
 
 from app.enums.admin import ReportAction, ReportStatus, ReportTargetType
 from app.enums.audit import LogLevel, LoginAction
+from app.enums.community import (
+    CodeShareLanguage,
+    CodeShareStatus,
+    CommentTargetType,
+    SolutionStatus,
+)
 from app.enums.contest import ContestStatus, ContestType, RegistrationStatus, RuleType
 from app.enums.judge import SubmissionStatus, SubmitType
 from app.enums.org import OrgMemberStatus, OrgStatus
@@ -28,11 +34,19 @@ from app.enums.team import (
     TeamStatus,
     TeamVisibility,
 )
-from app.enums.user import RoleCode, RoleLevel, Theme, UserRoleScope, UserStatus
+from app.enums.user import (
+    EditorFontFamily,
+    RoleCode,
+    RoleLevel,
+    Theme,
+    UserRoleScope,
+    UserStatus,
+)
 
 __all__ = [
     # 用户域
     "UserStatus",
+    "EditorFontFamily",
     "Theme",
     "UserRoleScope",
     "RoleCode",
@@ -59,6 +73,11 @@ __all__ = [
     "ReportStatus",
     "ReportAction",
     "ReportTargetType",
+    # 社区域
+    "SolutionStatus",
+    "CommentTargetType",
+    "CodeShareStatus",
+    "CodeShareLanguage",
     # 团队域
     "TeamStatus",
     "TeamVisibility",

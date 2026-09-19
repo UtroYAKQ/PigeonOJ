@@ -13,6 +13,12 @@ from app.enums import ReportStatus
 from app.models.audit import ExceptionLog, LoginLog, RequestLog
 from app.models.user import User
 from app.repositories.admin import ReportRepository
+from app.repositories.community import (
+    CodeShareRepository,
+    CommentRepository,
+    SolutionRepository,
+)
+from app.repositories.problem import ProblemRepository
 from app.repositories.user import UserRepository
 from app.repositories.audit import LogRepository
 from app.repositories.system_config import ConfigRepository
@@ -206,12 +212,13 @@ class ReportService:
         rows, total = await self.repo.list_page(page, page_size, status)
         reporter_ids = {r.reporter_id for r in rows}
         nicknames = await UserRepository(self.db).get_nicknames(list(reporter_ids))
+        summaries = await self._target_summaries(rows)
         items = [
             ReportOut(
                 id=str(r.id),
                 target_type=r.target_type,
                 target_id=str(r.target_id),
-                target_summary=None,  # 内容表（题解/帖子/评论）实现后回填摘要
+                target_summary=summaries.get(r.target_id),
                 reporter_nickname=nicknames.get(r.reporter_id, "未知用户"),
                 reason=r.reason,
                 status=r.status,
@@ -222,6 +229,27 @@ class ReportService:
             for r in rows
         ]
         return PaginatedResponse[ReportOut](items=items, total=total, page=page, page_size=page_size)
+
+    async def _target_summaries(self, rows: list) -> dict[uuid.UUID, str]:
+        """回填被举报内容摘要（题解标题 / 代码分享标题 / 评论正文截断 / 题目标题；community.md）。"""
+        from app.models.community import CodeShare
+
+        solution_ids = [r.target_id for r in rows if r.target_type == "solution"]
+        code_share_ids = [r.target_id for r in rows if r.target_type == "code_share"]
+        comment_ids = [r.target_id for r in rows if r.target_type == "comment"]
+        problem_ids = [r.target_id for r in rows if r.target_type == "problem"]
+        summaries: dict[uuid.UUID, str] = {}
+        for row in await SolutionRepository(self.db).get_by_ids(list(dict.fromkeys(solution_ids))):
+            summaries[row.id] = row.title[:100]
+        for row in await CodeShareRepository(self.db).get_by_ids(
+            list(dict.fromkeys(code_share_ids))
+        ):
+            summaries[row.id] = row.title[:100]
+        for row in await CommentRepository(self.db).get_by_ids(list(dict.fromkeys(comment_ids))):
+            summaries[row.id] = row.content[:100]
+        for pid, title in (await ProblemRepository(self.db).get_titles(list(dict.fromkeys(problem_ids)))).items():
+            summaries[pid] = title[:100]
+        return summaries
 
     async def handle(self, report_id: uuid.UUID, admin: User, action: str) -> None:
         """处理举报：handled（通过）/ ignored（驳回），见 docs/contracts/community.md。"""

@@ -26,6 +26,7 @@ from app.core.dependency import (  # noqa: F401 —— re-export 供路由层导
 )
 from app.schemas.admin import SitePublicConfig
 from app.services.admin import AdminConfigService, LogService, ReportService, SandboxService
+from app.services.community import CommunityService
 from app.services.contest import ContestService
 from app.services.file import FileService
 from app.services.judge import SelfTestService, SubmissionService
@@ -154,6 +155,17 @@ def get_team_space_service(
 
 
 TeamSpaceServiceDep = Annotated[TeamSpaceService, Depends(get_team_space_service)]
+
+
+def get_community_service(
+    db: SessionDep,
+    problems: ProblemServiceDep,
+) -> CommunityService:
+    """社区服务：题目可见性门控复用 ProblemService（community.md「数据所有权」）。"""
+    return CommunityService(db, problems, ConfigService(db))
+
+
+CommunityServiceDep = Annotated[CommunityService, Depends(get_community_service)]
 
 
 # ---- admin 组合层服务（用例门面，非独立上下文）----

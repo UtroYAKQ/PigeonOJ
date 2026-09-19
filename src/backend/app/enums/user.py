@@ -16,6 +16,17 @@ class Theme(StrEnum):
     DARK = "dark"
 
 
+class EditorFontFamily(StrEnum):
+    """代码编辑器字体白名单（前端 @fontsource 打包或系统等宽栈，docs/contracts/users.md）。"""
+
+    JETBRAINS_MONO = "jetbrains-mono"
+    FIRA_CODE = "fira-code"
+    SOURCE_CODE_PRO = "source-code-pro"
+    IBM_PLEX_MONO = "ibm-plex-mono"
+    CASCADIA_CODE = "cascadia-code"
+    SYSTEM = "system"
+
+
 class UserRoleScope(StrEnum):
     GLOBAL = "global"
     TEAM = "team"

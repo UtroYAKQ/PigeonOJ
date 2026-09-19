@@ -312,9 +312,7 @@ async function loadExisting() {
     detail.value = loaded
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
-    router.push(
-      isTeam ? `/teams/${teamId}` : isOrg ? `/me/orgs/${orgId}` : '/admin/problems',
-    )
+    router.push(isTeam ? `/teams/${teamId}` : isOrg ? `/me/orgs/${orgId}` : '/admin/problems')
   } finally {
     loading.value = false
   }
@@ -401,7 +399,6 @@ onMounted(() => void loadExisting())
           :submit-disabled="!code.trim()"
           :self-testing="selfTesting"
           :self-test-result="selfTestResult"
-          :show-solution="false"
           @show-submissions="openSubs"
           @submit="onSubmit"
           @self-test="doSelfTest({ language: language, code: code })"

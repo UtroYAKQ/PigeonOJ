@@ -3,6 +3,7 @@
  */
 import {
   Aim,
+  ChatDotRound,
   Collection,
   Document,
   HomeFilled,
@@ -13,6 +14,7 @@ import {
   Picture,
   PriceTag,
   Setting,
+  Share,
   Trophy,
   User,
   UserFilled,
@@ -36,6 +38,8 @@ export const iconMap: Record<string, Component> = {
   PriceTag,
   Aim,
   Picture,
+  ChatDotRound,
+  Share,
 }
 
 export function resolveIcon(name?: string): Component | null {

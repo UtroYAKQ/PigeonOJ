@@ -61,6 +61,7 @@ def register_routers(app: FastAPI, prefix: str = "/api/v1") -> None:
     """注册业务路由（统一前缀 /api/v1）与系统基础端点。"""
     from app.api.v1 import base
     from app.api.v1 import admin as admin_routes
+    from app.api.v1 import community as community_routes
     from app.api.v1 import contests as contest_routes
     from app.api.v1 import files as files_routes
     from app.api.v1 import judge as judge_routes
@@ -82,4 +83,5 @@ def register_routers(app: FastAPI, prefix: str = "/api/v1") -> None:
     app.include_router(judge_routes.router, prefix=prefix)
     app.include_router(team_routes.router, prefix=prefix)
     app.include_router(org_routes.router, prefix=prefix)
+    app.include_router(community_routes.router, prefix=prefix)
     app.include_router(admin_routes.router, prefix=prefix)

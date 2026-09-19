@@ -27,7 +27,7 @@ users ─┬─< user_sessions
        ├─< problems (owner_id 署名；org_id → organizations / team_id → teams)
        │    · problem_sets (owner_id) · contests (owner_id)
        ├─< submissions
-       └─< notifications · messages · posts · solutions · comments · reports
+       └─< notifications · messages · posts · solutions · code_shares · comments · reports
 
 problems ─┬─< problem_tag_relations >─ problem_tags
           ├─< test_cases
@@ -35,6 +35,7 @@ problems ─┬─< problem_tag_relations >─ problem_tags
           ├─1 problem_counters
           ├─< problem_set_items >─ problem_sets
           ├─< contest_problems >─ contests
+          ├─< solutions（题解分享，community；评论经 comments.target_type='solution' 挂接）
           └─< submissions ─< submission_test_case_results
 
 contests ─┬─< contest_problems · contest_registrations · contest_rankings

@@ -36,6 +36,13 @@ class ProblemRepository:
     async def get_by_id(self, problem_id: uuid.UUID) -> Problem | None:
         return await self.db.get(Problem, problem_id)
 
+    async def get_titles(self, problem_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """批量读取题目标题（社区管理列表定位用；缺失题目不出现在结果中）。"""
+        if not problem_ids:
+            return {}
+        stmt = select(Problem.id, Problem.title).where(Problem.id.in_(problem_ids))
+        return {pid: title for pid, title in (await self.db.execute(stmt)).all()}
+
     async def get_team_source(
         self, team_id: uuid.UUID, source_problem_id: uuid.UUID
     ) -> Problem | None:

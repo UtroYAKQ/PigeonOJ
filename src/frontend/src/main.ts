@@ -6,6 +6,18 @@ import '@/assets/monaco.css'
 import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/500.css'
 import '@fontsource/jetbrains-mono/700.css'
+import '@fontsource/fira-code/400.css'
+import '@fontsource/fira-code/500.css'
+import '@fontsource/source-code-pro/400.css'
+import '@fontsource/source-code-pro/500.css'
+import '@fontsource/ibm-plex-mono/400.css'
+import '@fontsource/ibm-plex-mono/500.css'
+import '@fontsource/cascadia-code/400.css'
+import '@fontsource/cascadia-code/500.css'
+
+import { preloadEditorFonts } from './constants/editorFonts'
+// 提前下载全部编辑器字体，避免切换字体时的光标漂移竞态（不阻塞首屏）
+void preloadEditorFonts()
 
 import App from './App.vue'
 import { i18n } from './i18n'

@@ -5,14 +5,24 @@ import { useI18n } from 'vue-i18n'
 import { uploadAvatar } from '@/api/files'
 import BaseAvatar from '@/components/BaseAvatar.vue'
 import { useUserStore } from '@/stores/user'
+import { EDITOR_FONT_OPTIONS, EDITOR_FONT_SIZES } from '@/constants/editorFonts'
 import { message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
 
 const userStore = useUserStore()
 const { t } = useI18n()
-const form = reactive({ nickname: '', signature: '', avatar_url: '', theme: 'light' })
+const form = reactive({
+  nickname: '',
+  signature: '',
+  avatar_url: '',
+  theme: 'light',
+  editor_font_size: 14,
+  editor_font_family: 'jetbrains-mono',
+})
 const saved = ref(true)
 const saving = ref(false)
+const fontSizeOptions = EDITOR_FONT_SIZES.map((s) => ({ label: String(s), value: s }))
+const fontFamilyOptions = EDITOR_FONT_OPTIONS.map((o) => ({ label: o.label, value: o.value }))
 const uploadingAvatar = ref(false)
 const avatarInput = ref<HTMLInputElement>()
 watch(
@@ -23,6 +33,8 @@ watch(
       form.signature = u.signature ?? ''
       form.avatar_url = u.avatar_url ?? ''
       form.theme = u.theme ?? 'light'
+      form.editor_font_size = u.editor_font_size ?? 14
+      form.editor_font_family = u.editor_font_family ?? 'jetbrains-mono'
     }
   },
   { immediate: true },
@@ -62,6 +74,8 @@ async function onSave() {
       signature: form.signature || null,
       avatar_url: form.avatar_url || null,
       theme: form.theme as 'light' | 'dark',
+      editor_font_size: form.editor_font_size,
+      editor_font_family: form.editor_font_family,
     })
     saved.value = true
     message.success(t('profile.saved'))
@@ -145,6 +159,20 @@ async function onSave() {
               <n-radio-button value="light">{{ t('profile.light') }}</n-radio-button>
               <n-radio-button value="dark">{{ t('profile.dark') }}</n-radio-button>
             </n-radio-group>
+          </n-form-item>
+          <n-form-item :label="t('profile.editorFontSize')">
+            <n-select
+              v-model:value="form.editor_font_size"
+              :options="fontSizeOptions"
+              style="width: 140px"
+            />
+          </n-form-item>
+          <n-form-item :label="t('profile.editorFontFamily')">
+            <n-select
+              v-model:value="form.editor_font_family"
+              :options="fontFamilyOptions"
+              style="width: 240px"
+            />
           </n-form-item>
         </n-form>
       </n-card>

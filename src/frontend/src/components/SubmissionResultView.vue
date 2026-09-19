@@ -9,6 +9,8 @@ import { computed, h, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { DataTableColumns } from 'naive-ui'
 
+import { copyToClipboard } from '@/utils/clipboard'
+import { message } from '@/utils/feedback'
 import RefreshButton from '@/components/RefreshButton.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import type { Submission, SubmissionCaseResult } from '@/types'
@@ -16,6 +18,16 @@ import type { Submission, SubmissionCaseResult } from '@/types'
 const { t } = useI18n()
 const showCode = ref(true)
 const emit = defineEmits<{ back: []; refresh: [] }>()
+
+/** 复制提交代码到剪贴板（结果页代码为只读 pre，复制是主要取用方式） */
+async function copyCode() {
+  if (!props.submission?.code) return
+  if (await copyToClipboard(props.submission.code)) {
+    message.success(t('problems.detail.copied'))
+  } else {
+    message.error(t('common.operationFailed'))
+  }
+}
 
 const props = defineProps<{
   submission: Submission | null
@@ -63,88 +75,104 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => {
 </script>
 
 <template>
-  <div class="page-stack submission-page">
+  <div class="page-fill">
     <n-card :bordered="false">
-      <n-spin :show="loading">
+      <n-spin
+        v-show="loading || submission"
+        :show="loading"
+        class="table-fill"
+        content-style="height: 100%; display: flex; flex-direction: column;"
+      >
         <template v-if="submission">
-          <n-alert v-if="pollingStopped" type="info" class="poll-stopped">
-            {{ t('problems.submission.stillJudging') }}
-          </n-alert>
+          <!-- 固定区：轮询提示 / 状态头 / 统计格 / 编译错误，滚动明细时保持可见 -->
+          <div class="result-fixed">
+            <n-alert v-if="pollingStopped" type="info" class="poll-stopped">
+              {{ t('problems.submission.stillJudging') }}
+            </n-alert>
 
-          <div class="result-head">
-            <span class="result-status" :data-status="submission.status">{{ statusLabel }}</span>
-            <span class="result-lang">{{ submission.language }}</span>
-            <span v-if="submission.submit_type === 'verify'" class="result-verify">{{
-              t('problems.submission.verifyType')
-            }}</span>
-            <RefreshButton
-              :loading="loading"
-              :aria-label="t('action.refresh')"
-              @click="emit('refresh')"
-            />
-            <n-button text type="primary" class="result-back" @click="emit('back')">
-              {{ backLabel }}
-            </n-button>
+            <div class="result-head">
+              <span class="result-status" :data-status="submission.status">{{ statusLabel }}</span>
+              <span class="result-lang">{{ submission.language }}</span>
+              <span v-if="submission.submit_type === 'verify'" class="result-verify">{{
+                t('problems.submission.verifyType')
+              }}</span>
+              <RefreshButton
+                :loading="loading"
+                :aria-label="t('action.refresh')"
+                @click="emit('refresh')"
+              />
+              <n-button text type="primary" class="result-back" @click="emit('back')">
+                {{ backLabel }}
+              </n-button>
+            </div>
+
+            <div
+              class="submission-stats"
+              :class="{ 'submission-stats--two': !showScoreBox || submission.score === null }"
+            >
+              <!-- ACM 二值分（AC=满分否则 0）或暂无得分不展示分数格 -->
+              <div v-if="showScoreBox && submission.score !== null" class="stat-box">
+                <span>{{ t('problems.submission.score') }}</span>
+                <strong>{{ submission.score }}</strong>
+              </div>
+              <div class="stat-box">
+                <span>{{ t('problems.submission.time') }}</span>
+                <strong>{{ submission.time_used_ms ?? 0 }} <small>ms</small></strong>
+              </div>
+              <div class="stat-box">
+                <span>{{ t('problems.submission.memory') }}</span>
+                <strong>{{ submission.memory_used_kb ?? 0 }} <small>KB</small></strong>
+              </div>
+            </div>
+
+            <n-alert v-if="submission.error_message" type="error" class="compile-error">
+              {{ t('problems.submission.errorMessage') }}
+              <pre class="error-box">{{ submission.error_message }}</pre>
+            </n-alert>
           </div>
 
-          <div
-            class="submission-stats"
-            :class="{ 'submission-stats--two': !showScoreBox || submission.score === null }"
-          >
-            <!-- ACM 二值分（AC=满分否则 0）或暂无得分不展示分数格 -->
-            <div v-if="showScoreBox && submission.score !== null" class="stat-box">
-              <span>{{ t('problems.submission.score') }}</span>
-              <strong>{{ submission.score }}</strong>
+          <!-- 滚动明细区：代码 / 逐测试点结果 -->
+          <div class="result-scroll">
+            <div class="code-toggle">
+              <n-button text type="primary" @click="showCode = !showCode">{{
+                showCode ? t('problems.submission.hideCode') : t('problems.submission.showCode')
+              }}</n-button>
+              <n-button v-if="showCode" text type="primary" @click="copyCode">
+                {{ t('action.copy') }}
+              </n-button>
             </div>
-            <div class="stat-box">
-              <span>{{ t('problems.submission.time') }}</span>
-              <strong>{{ submission.time_used_ms ?? 0 }} <small>ms</small></strong>
-            </div>
-            <div class="stat-box">
-              <span>{{ t('problems.submission.memory') }}</span>
-              <strong>{{ submission.memory_used_kb ?? 0 }} <small>KB</small></strong>
-            </div>
+            <pre v-if="showCode" class="result-box code-box">{{ submission.code }}</pre>
+
+            <template v-if="submission.cases && submission.cases.length">
+              <h3 class="section-title cases-title">{{ t('problems.submission.caseResults') }}</h3>
+              <n-data-table size="small" :columns="caseColumns" :data="submission.cases" />
+            </template>
           </div>
-
-          <n-alert v-if="submission.error_message" type="error" class="compile-error">
-            {{ t('problems.submission.errorMessage') }}
-            <pre class="error-box">{{ submission.error_message }}</pre>
-          </n-alert>
-
-          <div class="code-toggle">
-            <n-button text type="primary" @click="showCode = !showCode">{{
-              showCode ? t('problems.submission.hideCode') : t('problems.submission.showCode')
-            }}</n-button>
-          </div>
-          <pre v-if="showCode" class="result-box code-box">{{ submission.code }}</pre>
-
-          <template v-if="submission.cases && submission.cases.length">
-            <h3 class="section-title cases-title">{{ t('problems.submission.caseResults') }}</h3>
-            <n-data-table size="small" :columns="caseColumns" :data="submission.cases" />
-          </template>
         </template>
-        <n-empty
-          v-else-if="!loading"
-          :description="t('common.noData')"
-          class="empty-state"
-          size="large"
-        >
+      </n-spin>
+      <div v-show="!loading && !submission" class="table-fill-empty">
+        <n-empty :description="t('common.noData')" size="large">
           <template #extra>
             <n-button size="small" @click="emit('back')">
               {{ backLabel }}
             </n-button>
           </template>
         </n-empty>
-      </n-spin>
+      </div>
     </n-card>
   </div>
 </template>
 
 <style scoped>
-/* 详情/结果型页面：卡片水平居中（docs/frontend.md 纵向分区） */
-.submission-page {
-  max-width: 900px;
-  margin: 0 auto;
+/* 全屏 page-fill：卡片吃满视口剩余高度；头部固定、明细区内部滚动
+   （.page-fill 高度链规则见 assets/main.css） */
+.result-fixed {
+  flex-shrink: 0;
+}
+.result-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 .result-head {
   display: flex;
@@ -229,6 +257,9 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => {
 }
 .code-toggle {
   margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 .code-box {
   margin-top: 8px;
@@ -237,9 +268,6 @@ const caseColumns = computed<DataTableColumns<SubmissionCaseResult>>(() => {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--app-border);
-}
-.empty-state {
-  padding: 40px 0;
 }
 @media (max-width: 600px) {
   .submission-stats {

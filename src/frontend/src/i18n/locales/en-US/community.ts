@@ -1,0 +1,32 @@
+export default {
+  community: {
+    comment: {
+      title: 'Comments',
+      placeholder: 'Write a comment…',
+      replyPlaceholder: 'Reply to @{name}…',
+      replyingTo: 'Replying to @{name}',
+      submit: 'Post',
+      empty: 'Comment cannot be empty',
+      tooLong: 'Comment cannot exceed 2000 characters',
+      sent: 'Comment posted',
+      loginHint: 'Log in to join the discussion',
+      reply: 'Reply',
+      restore: 'Restore',
+      deleteTitle: 'Delete comment',
+      deleteConfirm: 'Delete this comment? It will be hidden from others (admins can restore it).',
+      deletedAuthor: 'Deleted user',
+      deletedTag: 'Deleted',
+      deletedContent: 'This comment has been deleted',
+      viewAllReplies: 'View all {count} replies',
+      emptyText: 'No comments yet — say something',
+    },
+    report: {
+      title: 'Report',
+      short: 'Report',
+      submit: 'Submit report',
+      reasonRequired: 'Please provide a reason',
+      placeholder: 'Describe the reason (e.g. plagiarism, harassment, spam)',
+      success: 'Report submitted — thank you',
+    },
+  },
+}

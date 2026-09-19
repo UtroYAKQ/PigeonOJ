@@ -15,6 +15,8 @@ export default {
     signature: '个性签名',
     signatureHint: '一句话介绍自己',
     theme: '主题',
+    editorFontSize: '编辑器字号',
+    editorFontFamily: '编辑器字体',
     light: '浅色',
     dark: '深色',
     email: '登录邮箱',

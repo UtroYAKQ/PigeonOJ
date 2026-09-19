@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * 题面正文：题目背景 / 描述 / 输入输出说明 / 展示样例 / 题面说明（可选） / 官方题解（可选）。
+ * 题面正文：题目背景 / 描述 / 输入输出说明 / 展示样例 / 题面说明（可选）。
+ * 官方题解展示已收口到题解页（community.md「官方题解」），不再内联渲染于题面。
  * 题目详情页、管理预览页、验题面板三处共用；样例统一走 ProblemSamples，
  * 保证「复制输入」等交互全站一致。
  */
@@ -10,23 +11,12 @@ import MarkdownView from '@/components/MarkdownView.vue'
 import ProblemSamples from '@/components/ProblemSamples.vue'
 import type { ProblemDetail } from '@/types'
 
-withDefaults(
-  defineProps<{
-    problem: Pick<
-      ProblemDetail,
-      | 'background'
-      | 'description'
-      | 'input_description'
-      | 'output_description'
-      | 'samples'
-      | 'note'
-      | 'solution'
-    >
-    /** 是否渲染官方题解分区（solution 为空时始终不渲染） */
-    showSolution?: boolean
-  }>(),
-  { showSolution: true },
-)
+defineProps<{
+  problem: Pick<
+    ProblemDetail,
+    'background' | 'description' | 'input_description' | 'output_description' | 'samples' | 'note'
+  >
+}>()
 
 const { t } = useI18n()
 </script>
@@ -63,11 +53,6 @@ const { t } = useI18n()
     <template v-if="problem.note">
       <h3 class="problem-statement__subtitle">{{ t('problems.detail.note') }}</h3>
       <MarkdownView :source="problem.note" />
-    </template>
-
-    <template v-if="showSolution && problem.solution">
-      <h3 class="problem-statement__subtitle">{{ t('problems.detail.solution') }}</h3>
-      <MarkdownView :source="problem.solution" />
     </template>
   </div>
 </template>

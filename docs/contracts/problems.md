@@ -156,7 +156,9 @@ C++17 特判程序源码（判定协议与沙箱执行见 `judge.md`「SPJ 特�
   `GET /problems/{id}/test-cases`，仅题目管理者可读（普通用户 2003 / 匿名 2001）
 - 题目按 `status + visibility` 双重控制访问（见下方可见性）；所有查询必须带可见性过滤
 - 题目草稿（`status='draft'`）仅创建者本人可见
-- 官方题解 `solution` 仅题目的管理者（admin 或创建者，按单一所有权模型）可见
+- 官方题解 `solution` 编辑读写仅题目的管理者（admin 或创建者，按单一所有权模型）；
+  **浏览**经社区端点 `GET /problems/{id}/editorial` 放开为题目可见者（community.md「官方题解」；
+  比赛进行中门禁见 community.md）；题目详情响应中的 `solution` 字段仍仅管理者可读（编辑回显）
 - 测试点文件仅题目的管理者可读写；管理者经独立端点 `GET /problems/{id}/test-cases` 回读测试点内容用于编辑（详情不携带）；判题读取走服务端内部链路，不向前端暴露下载 / 预签名 URL
 - SPJ 特判程序源码同测试点口径：仅题目管理者经 `GET /problems/{id}/spj` 读写；判题下发走服务端内部链路；特判程序编译错误 / stderr 不回传给提交者（防泄露源码片段，`judge.md`「SPJ 特判」）
 - 提交结果不返回测试点期望输出（`expected_output`）
@@ -188,6 +190,7 @@ C++17 特判程序源码（判定协议与沙箱执行见 `judge.md`「SPJ 特�
 | PUT | /admin/tags/{id} | admin | 修改标签名称 / 颜色 | name?/color? | tag |
 | POST | /admin/tags/{id}/archive | admin | 归档标签（关联保留、不再可选） | - | tag |
 | GET | /problems/{id} | public/owner | 题目详情（按可见性过滤；**不含测试点**，测试点走独立端点）；带 `difficulty` 与 `submission_count` / `accepted_count` | - | problem |
+| GET | /problems/{id}/editorial | 题目可见者 | 官方题解内容（Markdown；community.md 展示端点，路由注册在 community 模块） | - | { solution?, can_manage } |
 | GET | /problems/{id}/test-cases | admin/owner（题目管理者） | **测试点列表（独立管理端点）**：目标状态合并视图（暂存优先）+ `updated_at`；普通用户 2003、匿名 2001 | - | { cases[], updated_at } |
 | POST | /problems | admin | 创建**全站**题目（public/private；tutor 已下线，公开内容收归 admin）。团队直建已移除——团队题目只来自引用快照（teams.md）；组织题目经 `POST /orgs/{org_id}/problems`（orgs.md） | title/.../tags?/visibility/limits/difficulty? | problem |
 | PUT | /problems/{id} | 题目管理者（admin / 组织成员 / 创建者，见数据所有权） | 编辑题目 | ...（`tags` 全量替换标签关联；`difficulty` 非负整数，缺省不改动） | problem |
@@ -273,7 +276,7 @@ nginx `/api/` 读写超时放宽至 300s 承载单请求数十秒的导入耗时
 
 ## 当前基础前端页面
 
-前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面题面 / 题目背景 / 输入输出说明 / 题面说明（可选，折叠展开） / 官方题解使用 Markdown 编辑器（md-editor-v3，编辑 + 按需分屏预览；存储仍为 Markdown 文本），题目背景为必填、渲染于题面之前，题面说明渲染于题面最后（未填写不渲染）。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端高度锁定为一屏、左右两栏独立滚动（题面过长时左栏内部滚动）、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题目背景 / 题面 / 输入输出说明 / 题面说明 / 官方题解按 Markdown 渲染（markdown-it + DOMPurify，支持 KaTeX 公式 `$...$` / `$$...$$`），样例仍为等宽文本块并提供复制，每组样例下的样例解释（Markdown，选填）仅在有内容时渲染。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
+前端已提供 `/problems` 题库列表（常驻分页：总数 + 页容量切换；搜索防抖兼容中文输入法）、`/problems/{id}` 题目详情、提交与轮询查看 `/submissions/{id}` 评测状态，以及 `/problems/new` 写题页面。写题页面题面 / 题目背景 / 输入输出说明 / 题面说明（可选，折叠展开） / 官方题解使用 Markdown 编辑器（md-editor-v3，编辑 + 按需分屏预览；存储仍为 Markdown 文本），题目背景为必填、渲染于题面之前，题面说明渲染于题面最后（未填写不渲染）。详情页为「题面 + 编辑器」可拖拽双栏布局：桌面端高度锁定为一屏、左右两栏独立滚动（题面过长时左栏内部滚动）、分隔条可拖拽调宽（比例持久化，双击复位），窄屏（<900px）自动上下堆叠；题目背景 / 题面 / 输入输出说明 / 题面说明按 Markdown 渲染（markdown-it + DOMPurify，支持 KaTeX 公式 `$...$` / `$$...$$`），样例仍为等宽文本块并提供复制，每组样例下的样例解释（Markdown，选填）仅在有内容时渲染。**官方题解不再内联渲染于题面**：详情页编辑器工具栏提供「题解」按钮，跳转当前上下文内的题解页（官方题解 / 题解分享双 tab，见 community.md「官方题解」与 frontend.md 路由上下文）；写题向导的官方题解编辑块保留。编辑器语言切换不覆盖已写代码；提交判题前需经确认框二次确认。评测结果页轮询 2s 一次、上限约 5 分钟后停止自动刷新并提示手动刷新。写题页面支持手工输入测试点或导入 `1.in` / `1.out` 格式 ZIP；ZIP 仅在浏览器内解压并转为可编辑内容，不向前端暴露 MinIO 对象引用。
 
 写题向导「测试点」步骤内置 SPJ 特判程序编辑块（`docs/contracts/judge.md`「SPJ 特判」）：C++17 源码编辑器 + 保存 / 移除按钮，直接对接 `PUT` / `DELETE` / `GET /problems/{id}/spj`（团队上下文写题页同样可用）；区块展示「待验证」（暂存集）与「未保存」（本地改动）标记，移除经确认弹窗二次确认。题目详情 / 管理预览 / 验题面板的元信息条在 `has_spj` 时展示「SPJ 特判」徽标。
 

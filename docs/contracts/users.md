@@ -16,6 +16,8 @@
 | avatar_url | VARCHAR(512) | NULL | 头像：站内完整文件 URL（`/api/v1/files/users/{uid}/avatar/{uuid}`，即 `POST /files/upload/avatar` 返回的 `url`）或可信外链 `http(s)://…`；前端直接渲染，无需再拼接前缀 |
 | signature | VARCHAR(255) | NULL | 个性签名 |
 | theme | VARCHAR(32) | NOT NULL DEFAULT 'light' | 页面主题样式偏好 |
+| editor_font_size | INT | NOT NULL DEFAULT 14 | 编辑器字号偏好（11–24，前端 Monaco 消费） |
+| editor_font_family | VARCHAR(32) | NOT NULL DEFAULT 'jetbrains-mono' | 编辑器字体偏好（白名单见前端 constants/editorFonts） |
 | status | VARCHAR(16) | NOT NULL DEFAULT 'active' | `active` 正常 / `frozen` 冻结（短时封禁）/ `banned` 封禁 / `deleted` 已注销 |
 | frozen_until | TIMESTAMPTZ | NULL | 冻结到期时刻：非空 = 短时冻结（登录失败超次自动置入 / 管理员限时冻结），到期自动恢复 `active`；NULL = 人工冻结（无限期，仅人工解冻，迁移 0033 存量语义不变） |
 | last_login_at | TIMESTAMPTZ | NULL | 最近登录时间 |
@@ -85,7 +87,7 @@
 | POST | /auth/change-password | auth | 修改密码 | old_password, new_password | - |
 | POST | /auth/change-email | auth | 换绑邮箱 | new_email, code | - |
 | GET | /users/me | auth | 当前用户 | - | user |
-| PUT | /users/me | auth | 更新资料 | nickname/signature/theme/avatar_url（头像存站内完整文件 URL `/api/v1/files/users/{uid}/avatar/…`——前端直接使用 `POST /files/upload/avatar` 返回的 `url`——或可信外链 `http(s)://…`；不接受裸 `oss_id`；替换时 best-effort 删除被替换的站内旧头像对象） | user |
+| PUT | /users/me | auth | 更新资料 | nickname/signature/theme/editor_font_size（11–24）/editor_font_family（枚举：jetbrains-mono / fira-code / source-code-pro / ibm-plex-mono / cascadia-code / system）/avatar_url（头像存站内完整文件 URL `/api/v1/files/users/{uid}/avatar/…`——前端直接使用 `POST /files/upload/avatar` 返回的 `url`——或可信外链 `http(s)://…`；不接受裸 `oss_id`；替换时 best-effort 删除被替换的站内旧头像对象） | user |
 | POST | /files/upload/avatar | auth | 上传头像（频控 ≤10 次/小时/用户，超次 4002） | multipart file，≤2MB，JPG/PNG/WEBP/GIF | url（站内文件 URL） |
 | DELETE | /users/me | auth | 注销账号（软注销） | password | - |
 | GET | /users/me/sessions | auth | 会话列表（仅有效会话；`current` 当前会话、`online` 在线中——服务端按 5 分钟活跃窗口判定） | - | session[] |

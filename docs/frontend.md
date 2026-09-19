@@ -86,6 +86,7 @@ Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布
 | `components/StatusTag.vue` | 状态 → 标签颜色/文案 | 提交历史 / 结果页 |
 | `components/EmailCodeInput.vue` | 验证码输入 + 60s 倒计时 | 注册 / 安全设置 |
 | `components/PaginatedDataTable.vue` + `composables/usePagination.ts` | 分页列表 | 所有管理列表 |
+| `components/community/CommentSection.vue` | 多态评论区（target_type/target_id）：一级评论分页 + 前 2 条回复预览 +「查看全部回复」、回复框、owner/admin 软删、登录后举报入口；按目标可见性由后端门控 | 题解列表展开卡片 / 题解详情 / 管理端题解预览 |
 | `components/SearchFilterBar.vue` | 统一搜索筛选工具栏：关键词输入 + 自定义筛选控件（默认插槽）+ 「查询」按钮 + 右侧动作区（actions 插槽，功能按钮 → 刷新图标）；搜索手动触发语义见「表格工作台」 | 所有列表 / 详情页 tab 工具栏（含团队详情前后台） |
 | `components/WorkbenchShell.vue` | 视口锁定工作台外壳（page-fill 卡片 + 头部插槽） | 所有管理列表 |
 | `components/RefreshButton.vue` | 刷新按钮（icon-only 圆形幽灵按钮，加载中图标自旋） | 列表 / 状态页 |
@@ -144,8 +145,8 @@ src/frontend/
 
 `AppLayout.vue` 对 `router-view` 采用插槽分流：声明 `meta.keepAlive: true` 的页面进入 `<KeepAlive>`（实例 key 为 `route.fullPath`，参数页按 URL 区分、互不串数据），从深层页面（如评测结果）沿面包屑逐级返回（题目详情 → 列表）时沿途页面实例全部命中缓存——筛选、页码、题面、滚动位置等状态保留，不重新拉取；`:max=8` LRU 兜底，最久未用的实例自动释放。缓存 key 绑定当前登录用户 id（`router-view :key="cacheScope"`）：登出 / 换号后缓存整体作废。
 
-- 缓存范围（`meta.keepAlive: true`）：题库 / 题单 / 比赛 / 团队列表，题库 / 题单 / 比赛 / 团队详情与上下文写题页，各类提交列表与评测结果页，管理后台题目 / 题单 / 比赛 / 用户 / 标签 / 团队管理、题单详情、团队管理详情，会话管理；赛时工具与比赛编辑向导不缓存（带表单）
-- 不缓存：写题向导各步（create / statement / cases / verify）、题目预览、团队邀请、个人资料 / 安全设置——带表单或与编辑强耦合的页面进出都重新挂载，保证数据新鲜
+- 缓存范围（`meta.keepAlive: true`）：题库 / 题单 / 比赛 / 团队列表，题库 / 题单 / 比赛 / 团队详情与上下文写题页，各类提交列表与评测结果页，管理后台题目 / 题单 / 比赛 / 用户 / 标签 / 团队管理、题单详情、团队管理详情，会话管理，题解列表与题解详情（各上下文），代码广场列表与分享详情
+- 不缓存：写题向导各步（create / statement / cases / verify）、题目预览、团队邀请、个人资料 / 安全设置、题解新建 / 编辑页——带表单或与编辑强耦合的页面进出都重新挂载，保证数据新鲜
 - 轮询 / 计时页面（评测结果 ×3、比赛详情）必须实现 `onDeactivated` 暂停 + `onActivated` 恢复，禁止缓存页后台空转
 - 面包屑层级解析收敛于 `router/crumbs.ts` 的 `buildCrumbs`（`TheBreadcrumb` 展示与缓存共用同一来源）；新增上下文页接入链式缓存：路由声明 `meta.keepAlive: true` 即可，带表单页面禁止声明
 - 数据时效由各列表页刷新按钮兜底（如新建题目后返回列表需手动刷新）；
@@ -177,7 +178,10 @@ src/frontend/
 `/problem-sets/:setId/problems/:problemId`、比赛 `/contests/:cid/problems/:problemId`、
 团队 `/teams/:teamId/problems/:problemId`、团队题单 `/teams/:teamId/sets/:setId/problems/:pid`、
   团队比赛 `/teams/:teamId/contests/:cid`（详情 / 编辑向导 / 赛时工具 / 内题目 / 内评测结果）、
-管理后台 `/admin/problem-sets/:id/problems/:pid/preview`。
+管理后台 `/admin/problem-sets/:id/problems/:pid/preview`、题解（`/problems/:id/solutions`、
+`/problem-sets/:setId/problems/:problemId/solutions`、`/contests/:cid/problems/:problemId/solutions`
+及其 `solutions/new` / `solutions/:solutionId` / `solutions/:solutionId/edit` 子页；
+写题页「题解」按钮按当前上下文解析目标，见 community.md）。
 
 规则：
 

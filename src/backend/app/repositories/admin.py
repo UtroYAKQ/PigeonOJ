@@ -29,3 +29,20 @@ class ReportRepository:
 
     async def get_by_id(self, report_id: uuid.UUID) -> Report | None:
         return await self.db.get(Report, report_id)
+
+    async def get_pending_duplicate(
+        self, reporter_id: uuid.UUID, target_type: str, target_id: uuid.UUID
+    ) -> Report | None:
+        """同举报人同目标的 pending 举报（重复举报防重，community.md 3003）。"""
+        stmt = select(Report).where(
+            Report.reporter_id == reporter_id,
+            Report.target_type == target_type,
+            Report.target_id == target_id,
+            Report.status == "pending",
+        )
+        return (await self.db.execute(stmt)).scalar_one_or_none()
+
+    async def create(self, report: Report) -> Report:
+        self.db.add(report)
+        await self.db.flush()
+        return report

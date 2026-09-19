@@ -1414,3 +1414,12 @@ class ContestService:
         # 封榜改变 board_frozen 快照标记，commit 后失效对应榜单缓存（并发读不可见未提交数据）
         if freezing:
             await self._invalidate_board_caches([c.id for c in freezing])
+
+
+async def is_problem_locked_by_running_contest(db: AsyncSession, problem_id: uuid.UUID) -> bool:
+    """题目是否被进行中的比赛引用（community 模块比赛门禁端口，community.md「比赛防作弊门禁」）。
+
+    跨上下文只经本公开函数查询（architecture.md：跨模块只 import 对方
+    service / repository 的公开类与函数），不读取 contest 聚合模型。
+    """
+    return await ContestRepository(db).is_problem_in_running_contest(problem_id)

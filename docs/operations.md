@@ -6,6 +6,10 @@
 
 双击 `run-local.bat`：自动启动 PostgreSQL / MinIO / Redis 容器，检测并安装缺失的前后端依赖（`pip install -r requirements.txt` / `npm install`），判题节点镜像缺失时才构建（已有则直接复用），并在独立窗口启动 1 个本地节点（`compose up`，日志可见，无需人工补 `--env-file`），执行数据库迁移与演示账号引导，随后弹出后端与前端（5173）窗口。后端端口取配置链（进程环境变量 > `.env` 的 `SERVER_PORT` > `backend.toml` `[server] port`，默认 8000），脚本据此导出 `SERVER_PORT` 供前端 vite 代理联动。
 
+**启动前自清理**：后端 `run.py` 以 uvicorn `--reload` 运行，直接关闭服务窗口时 worker 子进程可能成为孤儿继续占用端口（`cmd` 外壳被杀、子进程存活），导致再次启动绑定失败。`run-local.bat` 在启动后端 / 前端前先按端口（`SERVER_PORT` / 5173）清理 LISTENING 残留进程，**重复运行脚本即等价于重启**。
+
+**停止服务**：双击 `stop-local.bat`——按端口结束后端与前端进程、`docker compose down` 判题节点容器（镜像保留）。关闭窗口的方式可能留下孤儿 reload worker，不是可靠的停止手段；判题节点容器也可手动 `docker compose --env-file .env.node -f docker/docker-compose-node.yml down` 停止。
+
 ## 本地运行（不用 Docker）
 
 依赖：Python 3.12+、Node 20+、本地 PostgreSQL / Redis / MinIO。

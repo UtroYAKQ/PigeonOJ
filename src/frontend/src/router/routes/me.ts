@@ -1,5 +1,7 @@
 import type { RouteRecordRaw } from 'vue-router'
 
+import { buildSolutionRoutes } from './solutions'
+
 /**
  * 个人面板路由（第三区块）：前台/后台之外的个人空间。
  * 收纳账号设置（个人资料 / 安全设置 / 会话管理）与组织中心（/me/orgs/*）。
@@ -185,6 +187,13 @@ export const meRoutes: RouteRecordRaw[] = [
               ],
             },
           },
+          // 题解页（组织上下文；组织成员经题目可见性门控读写）
+          ...buildSolutionRoutes({
+            problemPath: ':orgId/problems/:problemId',
+            namePrefix: 'me-org',
+            problemRoutePath: (route) =>
+              `/me/orgs/${String(route.params.orgId)}/problems/${String(route.params.problemId)}`,
+          }),
         ],
       },
     ],

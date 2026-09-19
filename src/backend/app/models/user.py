@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Integer,
     Boolean,
     DateTime,
     ForeignKey,
@@ -23,7 +24,7 @@ from sqlalchemy.dialects.postgresql import INET, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.enums import UserStatus, Theme, UserRoleScope
+from app.enums import EditorFontFamily, UserStatus, Theme, UserRoleScope
 
 
 class User(Base):
@@ -39,6 +40,11 @@ class User(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(512))
     signature: Mapped[str | None] = mapped_column(String(255))
     theme: Mapped[str] = mapped_column(String(32), nullable=False, default=Theme.LIGHT)
+    # 编辑器偏好（docs/contracts/users.md；前端 Monaco 字号 / 字体消费）
+    editor_font_size: Mapped[int] = mapped_column(Integer, nullable=False, default=14)
+    editor_font_family: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=EditorFontFamily.JETBRAINS_MONO
+    )
     # active / frozen / banned / deleted（语义见 docs/contracts/users.md「账号状态语义」）
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=UserStatus.ACTIVE, server_default=UserStatus.ACTIVE)
     # 冻结到期时刻：非空 = 短时冻结（登录失败超次自动置入），到期自动恢复 active；

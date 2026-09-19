@@ -108,8 +108,12 @@ async def _load_user(request: Request, db: AsyncSession, raw_token: str) -> User
         if session is None:
             raise APIError(AUTH_SESSION_EXPIRED, "会话已过期或失效，请重新登录", 401)
         user_id = session.user_id
-        # 写入热点缓存（TTL 与会话剩余有效期对齐）
-        ttl = int((session.expires_at - datetime.now()).total_seconds()) + _SESSION_CACHE_TTL_BUFFER
+        # 写入热点缓存（TTL 与会话剩余有效期对齐）；expires_at 读回为 aware（TIMESTAMPTZ），
+        # 历史行 / 驱动差异可能出现 naive，统一按 UTC 归一后再作差（naive - aware 直接 TypeError）
+        expires_at = session.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        ttl = int((expires_at - _utcnow()).total_seconds()) + _SESSION_CACHE_TTL_BUFFER
         await redis_set(cache_key, str(user_id), max(ttl, 1))
 
     # 会话活跃节流回写（失败不影响认证；get_db 统一 commit）

@@ -15,6 +15,8 @@ export default {
     signature: 'Signature',
     signatureHint: 'A short introduction',
     theme: 'Theme',
+    editorFontSize: 'Editor font size',
+    editorFontFamily: 'Editor font family',
     light: 'Light',
     dark: 'Dark',
     email: 'Email',

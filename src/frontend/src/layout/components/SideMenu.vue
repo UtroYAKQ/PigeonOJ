@@ -99,7 +99,7 @@ const ADMIN_GROUPS: Array<{ key: string; titleKey: string; icon: string; paths: 
     key: 'admin-group-community',
     titleKey: 'nav.adminGroupCommunity',
     icon: 'UserFilled',
-    paths: ['users', 'teams', 'orgs', 'reports'],
+    paths: ['users', 'teams', 'orgs', 'reports', 'solutions', 'codes'],
   },
   {
     key: 'admin-group-data',
@@ -169,9 +169,7 @@ const adminMenuOptions = computed<MenuOption[]>(() => {
 })
 
 const menuOptions = computed<MenuOption[]>(() =>
-  isAdminArea.value
-    ? adminMenuOptions.value
-    : menus.value.map((m) => toMenuOption(m)),
+  isAdminArea.value ? adminMenuOptions.value : menus.value.map((m) => toMenuOption(m)),
 )
 
 /**
@@ -225,7 +223,11 @@ function onSelect(key: string) {
       @update:value="onSelect"
     />
     <!-- 后台 / 个人面板底部：返回前台 -->
-    <div v-if="isAdminArea || isMeArea" class="side-footer" :class="{ collapsed: appStore.collapsed }">
+    <div
+      v-if="isAdminArea || isMeArea"
+      class="side-footer"
+      :class="{ collapsed: appStore.collapsed }"
+    >
       <n-tooltip trigger="hover" placement="right">
         <template #trigger>
           <button

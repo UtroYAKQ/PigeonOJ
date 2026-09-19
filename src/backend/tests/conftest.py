@@ -24,6 +24,7 @@ import pytest_asyncio
 from sqlalchemy import select
 
 import app.models.admin  # noqa: F401  (注册到 Base.metadata)
+import app.models.community  # noqa: F401  (社区域表：题解 / 评论)
 import app.models.contest  # noqa: F401
 import app.models.judge  # noqa: F401
 import app.models.problem  # noqa: F401
@@ -86,7 +87,7 @@ CONFIG_SEEDS = [
     ("sandbox", "sandbox.cooldown_seconds", 2, "提交冷却时长（秒）"),
     ("log", "log.retention_days", 30, "日志保留天数"),
     ("log", "log.record_get_logs", True, "是否记录 GET 请求日志（关闭后仅记录写操作）"),
-    ("community", "community.feature_switches", {"solution": True, "post": True, "comment": True}, "社区功能开关"),
+    ("community", "community.feature_switches", {"solutions": True, "comments": True, "codes": True}, "社区功能开关"),
 ]
 
 

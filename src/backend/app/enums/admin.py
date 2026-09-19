@@ -18,6 +18,7 @@ class ReportAction(StrEnum):
 class ReportTargetType(StrEnum):
     PROBLEM = "problem"
     SOLUTION = "solution"
+    CODE_SHARE = "code_share"
     POST = "post"
     COMMENT = "comment"
     USER = "user"

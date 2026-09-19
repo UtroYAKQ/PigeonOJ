@@ -366,6 +366,19 @@ class ContestRepository:
             .values(status=ContestStatus.FINISHED)
         )
 
+    async def is_problem_in_running_contest(self, problem_id: uuid.UUID) -> bool:
+        """题目是否被进行中的比赛引用（community 比赛防作弊门禁，community.md）。"""
+        stmt = (
+            select(ContestProblem.id)
+            .join(Contest, Contest.id == ContestProblem.contest_id)
+            .where(
+                ContestProblem.problem_id == problem_id,
+                Contest.status == ContestStatus.RUNNING,
+            )
+            .limit(1)
+        )
+        return (await self.db.execute(stmt)).first() is not None
+
 
 class ContestRankingRepository:
     def __init__(self, db: AsyncSession) -> None:

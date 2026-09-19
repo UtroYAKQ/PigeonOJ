@@ -8,13 +8,17 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
+import { Setting as SettingIcon } from '@element-plus/icons-vue'
 
 import { useSplitPane } from '@/composables/useSplitPane'
+import { EDITOR_FONT_OPTIONS, EDITOR_FONT_SIZES } from '@/constants/editorFonts'
 import { languageOptions } from '@/constants/languages'
 import CodeEditor from '@/components/CodeEditor.vue'
 import ProblemMetaBar from '@/components/problem/ProblemMetaBar.vue'
 import ProblemStatement from '@/components/problem/ProblemStatement.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import { useUserStore } from '@/stores/user'
+import { message } from '@/utils/feedback'
 import type { ProblemDetail, ProblemLanguage, SelfTestResult } from '@/types'
 
 const props = withDefaults(
@@ -25,8 +29,8 @@ const props = withDefaults(
     submitting?: boolean
     /** 主按钮禁用（如验题代码为空） */
     submitDisabled?: boolean
-    /** 是否渲染官方题解分区 */
-    showSolution?: boolean
+    /** 是否渲染「题解」入口（团队上下文 / 验题面板不展示；community.md） */
+    showSolutionsEntry?: boolean
     /** 已发布时隐藏状态标签（前台消费页口径） */
     hidePublishedStatus?: boolean
     /** 自测请求进行中 */
@@ -34,7 +38,7 @@ const props = withDefaults(
     /** 最近一次自测结果（null = 尚未运行） */
     selfTestResult?: SelfTestResult | null
   }>(),
-  { showSolution: true, selfTestResult: null },
+  { showSolutionsEntry: false, selfTestResult: null },
 )
 
 const emit = defineEmits<{
@@ -42,9 +46,34 @@ const emit = defineEmits<{
   submit: []
   /** 打开本人该题的提交记录 */
   'show-submissions': []
+  /** 跳转当前上下文的题解页（官方题解 / 题解分享） */
+  'show-solutions': []
   /** 用户自测：载荷由宿主从模型组装（code/language/selfTestInput） */
   'self-test': []
 }>()
+
+const userStore = useUserStore()
+
+// 编辑器字号 / 字体弹层：改动即时持久化到用户偏好（PUT /users/me），
+// CodeEditor watch 偏好变化自动应用；未登录（公共面板）时改动不落库
+const fontSizeOptions = EDITOR_FONT_SIZES.map((s) => ({ label: String(s), value: s }))
+const fontFamilyOptions = EDITOR_FONT_OPTIONS.map((o) => ({ label: o.label, value: o.value }))
+
+async function onFontSizeChange(size: number) {
+  try {
+    await userStore.updateProfile({ editor_font_size: size })
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('common.operationFailed'))
+  }
+}
+
+async function onFontFamilyChange(family: string) {
+  try {
+    await userStore.updateProfile({ editor_font_family: family })
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('common.operationFailed'))
+  }
+}
 
 const code = defineModel<string>('code', { required: true })
 const language = defineModel<ProblemLanguage>('language', { required: true })
@@ -67,7 +96,9 @@ const CONSOLE_H_DEFAULT = 440
 const MIN_CONSOLE_DRAG_HEIGHT = 140
 function loadConsoleHeight(): number {
   const raw = Number(localStorage.getItem(CONSOLE_H_KEY))
-  return Number.isFinite(raw) && raw >= MIN_CONSOLE_DRAG_HEIGHT && raw <= 720 ? raw : CONSOLE_H_DEFAULT
+  return Number.isFinite(raw) && raw >= MIN_CONSOLE_DRAG_HEIGHT && raw <= 720
+    ? raw
+    : CONSOLE_H_DEFAULT
 }
 const consoleHeight = ref(loadConsoleHeight())
 const editorShellRef = ref<HTMLElement>()
@@ -129,7 +160,10 @@ function applyConsoleResize() {
   const rect = editorShellRef.value.getBoundingClientRect()
   // 拖拽下限 MIN_CONSOLE_DRAG_HEIGHT 防止控制台压缩过小；上限只留底部安全边距，不限最高高度
   const height = Math.round(dragBaseHeight + (toggleStartY - pendingClientY))
-  consoleHeight.value = Math.min(Math.max(MIN_CONSOLE_DRAG_HEIGHT, height), Math.max(200, Math.floor(rect.height) - 60))
+  consoleHeight.value = Math.min(
+    Math.max(MIN_CONSOLE_DRAG_HEIGHT, height),
+    Math.max(200, Math.floor(rect.height) - 60),
+  )
 }
 
 function endConsoleResize() {
@@ -246,7 +280,7 @@ watch(
           />
         </template>
 
-        <ProblemStatement :problem="problem" :show-solution="showSolution" />
+        <ProblemStatement :problem="problem" />
       </n-card>
     </section>
 
@@ -270,7 +304,41 @@ watch(
             class="editor-toolbar__language"
             :options="languageOptions"
           />
+          <n-popover trigger="click" placement="bottom">
+            <template #trigger>
+              <n-button quaternary circle :aria-label="t('problems.detail.editorSettings')">
+                <template #icon>
+                  <n-icon><SettingIcon /></n-icon>
+                </template>
+              </n-button>
+            </template>
+            <div class="editor-prefs">
+              <div class="editor-prefs__row">
+                <span>{{ t('profile.editorFontSize') }}</span>
+                <n-select
+                  size="tiny"
+                  style="width: 84px"
+                  :value="userStore.user?.editor_font_size ?? 14"
+                  :options="fontSizeOptions"
+                  @update:value="onFontSizeChange"
+                />
+              </div>
+              <div class="editor-prefs__row">
+                <span>{{ t('profile.editorFontFamily') }}</span>
+                <n-select
+                  size="tiny"
+                  style="width: 156px"
+                  :value="userStore.user?.editor_font_family ?? 'jetbrains-mono'"
+                  :options="fontFamilyOptions"
+                  @update:value="onFontFamilyChange"
+                />
+              </div>
+            </div>
+          </n-popover>
           <div class="editor-toolbar__actions">
+            <n-button v-if="showSolutionsEntry" secondary @click="emit('show-solutions')">
+              {{ t('problems.solutions.title') }}
+            </n-button>
             <n-button secondary @click="emit('show-submissions')">{{
               t('problems.detail.mySubmissions')
             }}</n-button>
@@ -394,10 +462,10 @@ watch(
                       !selfTestResult.error_message && !selfTestResult.output,
                   }"
                   >{{
-                  selfTestResult.error_message ||
-                  selfTestResult.output ||
-                  t('problems.detail.noOutput')
-                }}</pre>
+                    selfTestResult.error_message ||
+                    selfTestResult.output ||
+                    t('problems.detail.noOutput')
+                  }}</pre>
               </div>
             </template>
           </div>
@@ -627,5 +695,19 @@ watch(
   .editor-shell {
     min-height: 480px;
   }
+}
+
+.editor-prefs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.editor-prefs__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
 }
 </style>

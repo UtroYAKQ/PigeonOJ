@@ -192,6 +192,8 @@ class UserService:
             avatar_url=user.avatar_url,
             signature=user.signature,
             theme=user.theme,
+            editor_font_size=user.editor_font_size,
+            editor_font_family=user.editor_font_family,
             status=user.status,
             frozen_until=user.frozen_until,
             last_login_at=user.last_login_at,
@@ -231,6 +233,11 @@ class UserService:
         if patch.theme is not None:
             # theme 已由 schema 枚举校验（Theme），service 层不重复校验
             user.theme = patch.theme
+        if patch.editor_font_size is not None:
+            user.editor_font_size = patch.editor_font_size
+        if patch.editor_font_family is not None:
+            # font_family 已由 schema 枚举校验（EditorFontFamily）
+            user.editor_font_family = patch.editor_font_family
         await self.db.flush()
         await self.db.refresh(user)  # onupdate 生成 updated_at，需显式刷新（async 不支持隐式懒加载）
         return await self.to_public(user)
@@ -305,7 +312,9 @@ class UserService:
         for u in items:
             public = UserPublic(
                 id=u.id, email=u.email, email_verified=u.email_verified, nickname=u.nickname,
-                avatar_url=u.avatar_url, signature=u.signature, theme=u.theme, status=u.status,
+                avatar_url=u.avatar_url, signature=u.signature, theme=u.theme,
+                editor_font_size=u.editor_font_size, editor_font_family=u.editor_font_family,
+                status=u.status,
                 frozen_until=u.frozen_until,
                 last_login_at=u.last_login_at, created_at=u.created_at, updated_at=u.updated_at,
                 roles=roles_map.get(u.id, []),

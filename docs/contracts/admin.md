@@ -35,7 +35,7 @@ KV + 分域，承载站点 / 认证 / 团队 / 比赛 / 沙箱 / 日志 / 社区
 | contest | `contest.freeze_default_seconds` / `contest.penalty_factor_minutes` | 封榜 / 罚时系数默认 |
 | sandbox | `sandbox.judge_concurrency` / `sandbox.cooldown_seconds` | 全局并发上限 / 提交冷却 |
 | log | `log.retention_days` / `log.record_get_logs` | 日志保留时间；是否记录 GET 请求日志（默认 true，关闭后中间件跳过 GET 只记写操作；10s 进程内缓存） |
-| community | `community.feature_switches` | 社区功能开关 |
+| community | `community.feature_switches` | 社区功能开关（JSONB：`{"solutions": true, "comments": true, "codes": true}`；缺省键视为开启，语义见 community.md「社区功能开关」） |
 
 ### `request_logs` — 请求日志表
 
@@ -131,10 +131,27 @@ ORDER BY r.created_at DESC, r.id DESC
 | DELETE | /admin/logs/{type} | admin | 一键清空指定类型日志（全表删除，危险操作；type ∈ request / login / exception，非法值 3001） | - | - |
 | GET | /admin/sandbox/status | admin | 沙箱状态展示（读 Redis `sandbox:node:<id>`；指标由网关心跳写入） | - | nodes[{id, name, status, channel, load, cpu_usage, memory_usage, running_tasks, capacity, version, last_heartbeat_at}] |
 | GET | /admin/reports | admin | 举报列表 / 处理 | 分页/状态 | report[] |
+| POST | /reports/{report_id}/handle | admin | 处理举报（action ∈ `handled`（通过）/ `ignored`（驳回）；重复处理 3002；community.md 举报节） | action | - |
 
 > **实现状态**：上表端点均已实现。
 
 > **账号状态语义**：`frozen`（冻结 = **短时封禁**：带 `frozen_until` 到期自动恢复，登录失败超次与管理员限时冻结共用；`frozen_until` 为空的历史数据仍为人工解冻）与 `banned`（封禁：管理员主动封禁，仅可人工解封）均拦截登录。区分见 `users.md`「账号状态语义」。
+
+## 社区内容管理（docs/contracts/community.md）
+
+| 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
+| --- | --- | --- | --- | --- | --- |
+| GET | /admin/solutions | admin | 题解管理列表（全状态，updated_at 倒序）：状态 / 标题+内容关键词 / 题目过滤；行内含题目、作者、评论数 | 分页/status/keyword/problem_id | adminSolution[] |
+| GET | /admin/solutions/{solution_id} | admin | 题解管理详情（举报处理页按 id 直接打开预览） | - | adminSolution |
+| PUT | /admin/solutions/{id}/status | admin | 下架 / 恢复（`removed` ⇄ `published`；草稿不可经此设置） | status | - |
+| GET | /admin/comments/{comment_id} | admin | 评论管理上下文（举报定位：评论 → 所属题解 target_id） | - | comment（CommentAdminOut） |
+| PUT | /admin/comments/{id}/status | admin | 评论软删 / 恢复 | is_deleted | - |
+| GET | /admin/codes | admin | 代码分享管理列表（全状态；community.md「代码广场」） | 分页/status/keyword/language | adminCodeShare[] |
+| PUT | /admin/codes/{id}/status | admin | 下架 / 恢复（`removed` ⇄ `published`） | status | - |
+
+> 题解详情预览复用 `GET /solutions/{id}`（admin 天然可读）；被删评论经
+> `GET /comments?...&include_deleted=true` 读取。管理后台不设独立评论列表页：
+> 评论治理从题解管理行的预览弹窗下钻，举报处理页跳转预览并锚定被举报评论。
 
 ## 错误码
 

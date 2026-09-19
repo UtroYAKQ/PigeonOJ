@@ -65,6 +65,13 @@ class UserRepository:
         stmt = select(User.id, User.nickname).where(User.id.in_(user_ids))
         return {uid: nickname for uid, nickname in (await self.db.execute(stmt)).all()}
 
+    async def get_briefs(self, user_ids: list[uuid.UUID]) -> list[User]:
+        """批量读取用户行（社区作者信息展示用：id / 昵称 / 头像）。"""
+        if not user_ids:
+            return []
+        stmt = select(User).where(User.id.in_(user_ids))
+        return list((await self.db.execute(stmt)).scalars().all())
+
 
 class SessionRepository:
     def __init__(self, db: AsyncSession) -> None:

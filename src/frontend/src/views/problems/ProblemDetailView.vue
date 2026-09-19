@@ -44,13 +44,7 @@ const problemId = computed(() => String(route.params.problemId ?? route.params.i
  * 团队题单（teamId + setId）、团队比赛（teamId + cid）、组织题（orgId）为独立上下文，
  * 读 / 交题 / 自测按上下文分派端点（组织题复用题库裸路径端点，组织成员经 can_manage 放行） */
 const context = computed<
-  | 'problems'
-  | 'problem-sets'
-  | 'contests'
-  | 'teams'
-  | 'team-sets'
-  | 'team-contests'
-  | 'orgs'
+  'problems' | 'problem-sets' | 'contests' | 'teams' | 'team-sets' | 'team-contests' | 'orgs'
 >(() =>
   route.params.teamId && route.params.cid
     ? 'team-contests'
@@ -108,6 +102,18 @@ const submissionsBase = computed(() => {
 
 const code = ref('')
 
+/** 题解页路径（community.md「官方题解」）：题解路由挂在题目详情路径的 /solutions 前缀下
+ * （router/routes/solutions.ts）；团队上下文不接入（快照题裸路径拦截），空串 = 不渲染入口 */
+const solutionsBase = computed(() =>
+  context.value === 'teams' || context.value === 'team-sets' || context.value === 'team-contests'
+    ? ''
+    : `${submissionsBase.value}/solutions`,
+)
+
+function openSolutions() {
+  if (solutionsBase.value) void router.push(solutionsBase.value)
+}
+
 // 代码本地草稿：进入恢复、编辑防抖保存、切换语言分语言存档（提交/切页返回不丢）
 const { restore: restoreDraft } = useCodeDraft({
   problemId: () => problemId.value,
@@ -153,9 +159,9 @@ async function load() {
             ? await getTeamSetProblem(teamContextId.value, contextId.value, problemId.value)
             : context.value === 'problem-sets'
               ? await getProblemSetProblem(contextId.value, problemId.value)
-            : context.value === 'teams'
-              ? await getTeamProblem(contextId.value, problemId.value)
-              : await getProblem(problemId.value)
+              : context.value === 'teams'
+                ? await getTeamProblem(contextId.value, problemId.value)
+                : await getProblem(problemId.value)
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
   }
@@ -320,7 +326,9 @@ const submissionColumns = computed<DataTableColumns<Submission>>(() => [
       :self-testing="selfTesting"
       :self-test-result="selfTestResult"
       hide-published-status
+      :show-solutions-entry="Boolean(solutionsBase)"
       @show-submissions="openSubs"
+      @show-solutions="openSolutions"
       @submit="submit"
       @self-test="runSelfTest"
     />

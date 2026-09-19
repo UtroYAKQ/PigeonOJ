@@ -5,6 +5,7 @@
 
 export * from './common'
 export * from './contest'
+export * from './community'
 export * from './org'
 export * from './files'
 export * from './judge'

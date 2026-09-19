@@ -509,6 +509,32 @@ export const adminRoutes: RouteRecordRaw[] = [
         meta: { title: '举报管理', titleKey: 'nav.reports', icon: 'Warning', roles: ['admin'] },
       },
       {
+        // 题解管理（社区内容治理：预览弹窗内下钻评论处置，docs/contracts/admin.md）
+        path: 'solutions',
+        name: 'admin-solutions',
+        component: () => import('@/views/admin/AdminSolutionsView.vue'),
+        meta: {
+          title: '题解管理',
+          titleKey: 'nav.solutionsManage',
+          icon: 'ChatDotRound',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        // 代码分享管理（community.md「代码广场」）
+        path: 'codes',
+        name: 'admin-codes',
+        component: () => import('@/views/admin/AdminCodeSharesView.vue'),
+        meta: {
+          title: '代码分享管理',
+          titleKey: 'nav.codeSharesManage',
+          icon: 'Share',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
         path: 'tags',
         name: 'admin-tags',
         component: () => import('@/views/admin/AdminTagsView.vue'),

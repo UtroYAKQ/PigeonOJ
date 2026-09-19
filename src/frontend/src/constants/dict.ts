@@ -65,6 +65,7 @@ export const SANDBOX_STATUS = statusProxy(
 export const REPORT_TYPE = labels('dictionary.reportType', [
   'problem',
   'solution',
+  'code_share',
   'post',
   'comment',
   'user',

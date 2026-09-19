@@ -134,7 +134,7 @@ export interface AdminUserQuery {
 // ---------------- 举报 ----------------
 
 export type ReportStatus = 'pending' | 'handled' | 'ignored'
-export type ReportType = 'problem' | 'solution' | 'post' | 'comment' | 'user'
+export type ReportType = 'problem' | 'solution' | 'code_share' | 'post' | 'comment' | 'user'
 
 export interface Report {
   id: string
