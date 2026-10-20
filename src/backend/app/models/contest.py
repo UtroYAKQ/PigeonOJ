@@ -20,7 +20,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -50,7 +50,7 @@ class Contest(Base):
     # 封榜时间（绝对时刻；NULL = 不封榜；须晚于 start_time 且不晚于 end_time）
     freeze_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     board_frozen: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    # 进入封榜时刻（滚榜揭晓序列的数据源边界：封榜期提交 = created_at >= frozen_at）
+    # 周期任务进入封榜的实际执行时刻；统计边界使用 freeze_time，兼容旧数据时回退本列。
     frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # 比赛公告（Markdown，赛时可改；详情页主页 tab 公告条展示）
     announcement: Mapped[str | None] = mapped_column(Text)
@@ -118,8 +118,8 @@ class ContestRegistration(Base):
 class ContestRanking(Base):
     """比赛榜单记录行：(contest, user, problem) 唯一；is_frozen 为封榜快照标记。
 
-    更新全部带 WHERE is_frozen = false 的条件写入（docs/contracts/contests.md 第 4 条）；
-    解冻由 admin/tutor 手动触发，解冻时从 submissions 权威重算回填封榜期间结果。
+    回调在比赛行锁下从正式 submissions 重算对应题格；封榜前的晚到结果仍可补入。
+    本表为兼容的物化投影，展示与解冻使用同一提交聚合规则。
     """
 
     __tablename__ = "contest_rankings"
@@ -140,4 +140,26 @@ class ContestRanking(Base):
     __table_args__ = (
         UniqueConstraint("contest_id", "user_id", "problem_id", name="uq_contest_rankings_row"),
         Index("ix_contest_rankings_contest_frozen", "contest_id", "is_frozen"),
+    )
+
+
+class ScoreboardSession(Base):
+    """One immutable resolver snapshot and a shared playback clock per contest."""
+
+    __tablename__ = "scoreboard_sessions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    contest_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("contests.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    cursor: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    playing: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    speed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    anchor_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_command_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    __table_args__ = (
+        CheckConstraint("revision >= 0 AND cursor >= 0", name="ck_scoreboard_session_progress"),
+        CheckConstraint("speed IN (1,2,4)", name="ck_scoreboard_session_speed"),
     )

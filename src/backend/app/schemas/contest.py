@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -165,6 +166,7 @@ class BoardCell(BaseModel):
     score: int = 0
     is_frozen: bool = False
     accepted_at: datetime | None = None
+    pending: int = 0
 
 
 class BoardRow(BaseModel):
@@ -179,6 +181,15 @@ class BoardRow(BaseModel):
     cells: list[BoardCell] = Field(default_factory=list)
 
 
+class BoardProblemOut(BaseModel):
+    """Public column metadata; private problem titles are never part of a board."""
+
+    problem_id: uuid.UUID
+    letter: str | None = None
+    score: int
+    sort_order: int
+
+
 class BoardOut(BaseModel):
     """榜单（封榜时按冻结快照展示；board_frozen=true 时前端提示等待解冻）。"""
 
@@ -186,6 +197,8 @@ class BoardOut(BaseModel):
     rule_type: RuleType
     board_frozen: bool
     rows: list[BoardRow] = Field(default_factory=list)
+    problems: list[BoardProblemOut] = Field(default_factory=list)
+    generated_at: datetime | None = None
 
 
 class ContestSubmissionItem(BaseModel):
@@ -233,13 +246,14 @@ class RevealStep(BaseModel):
     penalty: int = 0
     # 该步后该格尝试次数（ACM 展示 WA 药丸用）
     attempts: int = 0
+    cell: BoardCell | None = None
 
 
 class ScoreboardShowOut(BaseModel):
     """滚榜数据包：冻结快照榜（起点）+ 最终榜（终点）+ 揭晓序列（动画步骤）。
 
-    队伍揭晓顺序由服务端按「最终名次从差到好」生成，保证动画中
-    每支队伍结算后不再移动（domjudge 式滚榜，docs/contracts/contests.md）。
+    按当前榜单中仍有待揭晓提交的最末选手推进，每次揭晓后重新排序。
+    不按最终名次预排队伍；完整数据仅供比赛管理者本机预览。
     """
 
     contest_id: uuid.UUID
@@ -251,3 +265,32 @@ class ScoreboardShowOut(BaseModel):
     base_rows: list[BoardRow] = Field(default_factory=list)
     final_rows: list[BoardRow] = Field(default_factory=list)
     steps: list[RevealStep] = Field(default_factory=list)
+
+
+class ScoreboardCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=0)
+    command_id: uuid.UUID
+    action: Literal["play", "pause", "next", "previous", "restart", "speed", "prepare"]
+    speed: Literal[1, 2, 4] = 1
+
+
+class ScoreboardSessionOut(BaseModel):
+    """Public projection: never serialize the snapshot or future steps."""
+
+    id: uuid.UUID
+    contest_id: uuid.UUID
+    title: str
+    rule_type: RuleType
+    board_frozen: bool
+    revision: int
+    cursor: int
+    total_steps: int
+    playing: bool
+    speed: int
+    server_time: datetime
+    can_control: bool
+    problems: list[BoardProblemOut]
+    rows: list[BoardRow]
+    current_step: RevealStep | None = None

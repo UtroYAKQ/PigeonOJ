@@ -126,13 +126,15 @@ const subsLocked = computed(
   () =>
     !!detail.value &&
     !detail.value.can_manage &&
-    Date.now() < new Date(detail.value.end_time).getTime(),
+    (Date.now() < new Date(detail.value.end_time).getTime() || detail.value.board_frozen),
 )
 /** 赛后向所有登录用户开放（含未报名者）；管理角色随时可见 */
 const subsAllowed = computed(() => {
   const d = detail.value
   return (
-    !!d && (d.can_manage || (userStore.isLoggedIn && Date.now() >= new Date(d.end_time).getTime()))
+    !!d &&
+    (d.can_manage ||
+      (userStore.isLoggedIn && Date.now() >= new Date(d.end_time).getTime() && !d.board_frozen))
   )
 })
 
@@ -241,6 +243,12 @@ async function loadBoard(silent = false) {
   }
 }
 
+function openLiveBoard() {
+  const query = new URLSearchParams({ contest_id: contestId.value, mode: 'live' })
+  if (teamId.value) query.set('team_id', teamId.value)
+  window.open(`/scrollboard.html?${query}`, '_blank', 'noopener')
+}
+
 watch(activeTab, (tab) => {
   if (tab === 'board' && !board.value) void loadBoard()
   if (
@@ -281,12 +289,9 @@ function startTimers() {
   // 进行中榜单 15s 轮询；须 < 后端 BOARD_CACHE_TTL_RUNNING（contest.py，当前 20s），
   // 使轮询命中读缓存而非每次回源重算（改此值需同步后端 TTL）
   pollTimer = window.setInterval(() => {
-    if (
-      activeTab.value === 'board' &&
-      detail.value?.status === 'running' &&
-      !detail.value.board_frozen
-    ) {
+    if (activeTab.value === 'board' && detail.value?.status !== 'scheduled') {
       void loadBoard(true)
+      void load(true)
     }
   }, 15000)
 }
@@ -464,7 +469,7 @@ const firstAcceptedAt = computed<Record<string, number>>(() => {
   if (!board.value) return map
   for (const row of board.value.rows) {
     for (const cell of row.cells) {
-      if (!cell.accepted || !cell.accepted_at || cell.is_frozen) continue
+      if (!cell.accepted || !cell.accepted_at) continue
       const ts = Date.parse(cell.accepted_at)
       if (Number.isNaN(ts)) continue
       const cur = map[cell.problem_id]
@@ -475,7 +480,7 @@ const firstAcceptedAt = computed<Record<string, number>>(() => {
 })
 
 function isFirstSolve(cell: BoardCell): boolean {
-  if (!cell.accepted || !cell.accepted_at || cell.is_frozen) return false
+  if (!cell.accepted || !cell.accepted_at) return false
   const ts = Date.parse(cell.accepted_at)
   if (Number.isNaN(ts)) return false
   const first = firstAcceptedAt.value[cell.problem_id]
@@ -567,7 +572,15 @@ function cellRowProps(row: ContestSubmissionItem) {
 
 const boardColumns = computed<DataTableColumns<Row>>(() => {
   if (!board.value) return []
-  const letterColumns = (board.value.rows[0]?.cells ?? []).map((cell, index) => ({
+  const letterColumns = (
+    board.value.problems?.map((p) => ({
+      problem_id: p.problem_id,
+      letter: p.letter,
+      problem_score: p.score,
+    })) ??
+    board.value.rows[0]?.cells ??
+    []
+  ).map((cell, index) => ({
     title: () =>
       h('div', { class: 'cell-head' }, [
         h('span', { class: 'cell-head__letter' }, cell.letter ?? String(index + 1)),
@@ -585,7 +598,7 @@ const boardColumns = computed<DataTableColumns<Row>>(() => {
         return h(
           'span',
           { class: 'cell-pill cell-pill--frozen', title: t('contests.board.frozenCellHint') },
-          '?',
+          `${isAcM.value ? (c.attempts ? `−${c.attempts} ` : '') : `${c.score} `}?${c.pending ?? ''}`,
         )
       }
       const pill = (cls: string, label: string, onClick?: () => void) =>
@@ -944,6 +957,9 @@ const submissionColumns = computed<DataTableColumns<ContestSubmissionItem>>(() =
                 @reset="onBoardSearch"
               >
                 <template #actions>
+                  <n-button secondary @click="openLiveBoard">
+                    {{ t('contests.tools.liveBoard') }}
+                  </n-button>
                   <RefreshButton
                     :loading="boardLoading"
                     :aria-label="t('action.refresh')"

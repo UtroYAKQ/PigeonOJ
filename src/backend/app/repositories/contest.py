@@ -1,7 +1,7 @@
 """比赛仓储：Contest / ContestProblem / ContestRegistration / ContestRanking 数据访问。
 
-榜单更新全部为条件写入（WHERE is_frozen = false，docs/contracts/contests.md 第 4 条），
-行不存在时经 INSERT ON CONFLICT DO NOTHING 原子补建，避免判题并发下的重复行。
+计分事实源为正式 submissions；回调按比赛行锁重算后 upsert 物化题格。
+保留的增量写入方法用于兼容既有调用，实时展示与解冻使用统一聚合引擎。
 """
 from __future__ import annotations
 
@@ -33,6 +33,16 @@ class ContestRepository:
 
     async def get_by_id(self, contest_id: uuid.UUID) -> Contest | None:
         return await self.db.get(Contest, contest_id)
+
+    async def lock_contest(self, contest_id: uuid.UUID) -> None:
+        await self.db.execute(select(Contest).where(Contest.id == contest_id).with_for_update().execution_options(populate_existing=True))
+
+    async def list_participant_names(self, contest_id: uuid.UUID) -> dict[uuid.UUID, str]:
+        rows = await self.db.execute(
+            select(User.id, User.nickname).join(ContestRegistration, ContestRegistration.user_id == User.id)
+            .where(ContestRegistration.contest_id == contest_id, ContestRegistration.status == RegistrationStatus.REGISTERED)
+        )
+        return {uid: name for uid, name in rows}
 
     async def create(self, contest: Contest) -> Contest:
         self.db.add(contest)
@@ -379,6 +389,15 @@ class ContestRepository:
 class ContestRankingRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def replace_cell(self, contest_id, user_id, problem_id, state: dict, *, frozen: bool) -> None:
+        values = dict(accepted=False, accepted_at=None, attempts=0, penalty=0, score=0)
+        values.update(state)
+        values["is_frozen"] = frozen
+        await self.db.execute(
+            pg_insert(ContestRanking).values(contest_id=contest_id, user_id=user_id, problem_id=problem_id, **values)
+            .on_conflict_do_update(constraint="uq_contest_rankings_row", set_={**values, "updated_at": func.now()})
+        )
 
     async def get_row(
         self, contest_id: uuid.UUID, user_id: uuid.UUID, problem_id: uuid.UUID

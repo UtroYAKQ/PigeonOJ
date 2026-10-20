@@ -99,6 +99,7 @@ export interface BoardCell {
   score: number
   is_frozen: boolean
   accepted_at?: string | null
+  pending?: number
 }
 
 export interface BoardRow {
@@ -116,6 +117,8 @@ export interface Board {
   rule_type: ContestRuleType
   board_frozen: boolean
   rows: BoardRow[]
+  problems?: Pick<ContestProblemItem, 'problem_id' | 'letter' | 'score' | 'sort_order'>[]
+  generated_at?: string | null
 }
 
 /** 滚榜单步：揭晓一条封榜期提交（队伍行随之重排动画） */
@@ -132,6 +135,25 @@ export interface RevealStep {
   /** ACM：该步后该格罚时（分钟） */
   penalty: number
   attempts: number
+  cell?: BoardCell | null
+}
+
+export interface ScoreboardSession {
+  id: string
+  contest_id: string
+  title: string
+  rule_type: ContestRuleType
+  board_frozen: boolean
+  revision: number
+  cursor: number
+  total_steps: number
+  playing: boolean
+  speed: number
+  server_time: string
+  can_control: boolean
+  problems: Pick<ContestProblemItem, 'problem_id' | 'letter' | 'score' | 'sort_order'>[]
+  rows: BoardRow[]
+  current_step?: RevealStep | null
 }
 
 /** 滚榜数据包（赛后大屏工具，管理角色专用；只读不解冻） */

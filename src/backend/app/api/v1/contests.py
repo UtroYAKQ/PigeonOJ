@@ -9,7 +9,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import ContestServiceDep, SessionDep, SubmissionServiceDep
+from app.api.deps import ContestServiceDep, ScoreboardSessionServiceDep, SessionDep, SubmissionServiceDep
 from app.core.dependency import get_current_user, get_optional_user
 from app.core.exceptions import APIError, PARAM_FORMAT_INVALID
 from app.enums import SubmissionStatus
@@ -27,6 +27,8 @@ from app.schemas.contest import (
     FreezeTimeUpdate,
     MyContestItem,
     ScoreboardShowOut,
+    ScoreboardCommand,
+    ScoreboardSessionOut,
 )
 from app.schemas.judge import SubmissionCreatedResponse, SubmissionDetailOut
 from app.schemas.problem import ProblemDetail
@@ -325,3 +327,31 @@ async def get_scoreboard_show(
 ) -> ApiResponse[ScoreboardShowOut]:
     """滚榜数据（管理角色专用，只读不解冻）：快照榜 + 最终榜 + 封榜期揭晓序列。"""
     return ok(await service.scoreboard_show(user, contest_id))
+
+
+@router.post("/{contest_id}/scoreboard-session", response_model=ApiResponse[ScoreboardSessionOut])
+async def create_scoreboard_session(
+    contest_id: uuid.UUID,
+    service: ScoreboardSessionServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ScoreboardSessionOut]:
+    return ok(await service.create(user, contest_id))
+
+
+@router.get("/{contest_id}/scoreboard-session", response_model=ApiResponse[ScoreboardSessionOut])
+async def get_scoreboard_session(
+    contest_id: uuid.UUID,
+    service: ScoreboardSessionServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ScoreboardSessionOut]:
+    return ok(await service.get(user, contest_id))
+
+
+@router.post("/{contest_id}/scoreboard-session/commands", response_model=ApiResponse[ScoreboardSessionOut])
+async def control_scoreboard_session(
+    contest_id: uuid.UUID,
+    body: ScoreboardCommand,
+    service: ScoreboardSessionServiceDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[ScoreboardSessionOut]:
+    return ok(await service.command(user, contest_id, body))

@@ -128,7 +128,7 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 | `session:active:<token>` | 会话活跃节流标记（到期回写 `last_active_at`；会话列表「在线中」判定依据） | 5 分钟 |
 | `email:code:<email>:<purpose>` | 邮箱验证码 + 错误计数 | 验证码有效期 |
 | `email:resend:<email>:<purpose>` | 验证码重发间隔计数 | 重发间隔 |
-| `rank:contest:<id>` | 榜单读缓存（权威在 `contest_rankings`） | 进行中 20s / 封榜 60s / 完赛已解冻 永久 |
+| `rank:contest:<id>` | 榜单读缓存（正式 submissions 为事实源，contest_rankings 为物化投影） | 进行中 20s / 封榜 60s / 完赛已解冻 永久 |
 | `rank:contest:<id>:lock` | 榜单缓存重建互斥锁（防击穿，未抢到方等待重读后兜底回源） | 10s |
 | `login:fail:<email>` | 登录失败计数（窗口内超次落库短时冻结 `frozen`） | 15 分钟 |
 | `sandbox:node:<id>` | 判题节点运行时状态 | 心跳周期（过期视为离线） |
@@ -244,3 +244,9 @@ python -m scripts.crawl_loj --begin 100 --end 199        # LibreOJ 题目爬取
 - 不把 `.env` 打包进镜像
 - 生产环境不暴露 `debug` 级别日志
 - 测试点对象不向前端暴露预签名 URL
+
+## 榜单与滚榜
+
+新增迁移 0039：部署前执行 `alembic upgrade head`；新增表 scoreboard_sessions。其时钟由服务端时间推导，无需额外 worker 或推送服务，进程重启后恢复。同步页短轮询 0.225–0.75 秒，普通实时榜维持 15 秒。正式比赛时间与状态以服务端为准。
+
+前端验证新增 `npm run test:scoreboard`：自动使用根目录 .venv 调用后端夹具生成器，并在 jsdom 执行真实大屏脚本，无数据库依赖；可传 `-- --fixture=<JSON>`。后端相关集成测试为 tests/test_scoreboard_sessions.py，纯函数测试为 tests/test_scoreboard_engine.py。所有集成测试仍须隔离测试数据库和 Redis。详细入口和语义见 [scoreboard.md](scoreboard.md)。

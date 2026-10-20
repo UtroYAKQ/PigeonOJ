@@ -188,10 +188,10 @@ async function doUnfreeze() {
   }
 }
 
-function openScrollboard() {
-  const qs = new URLSearchParams({ contest_id: contestId.value })
+function openScrollboard(mode: 'local' | 'live' | 'control' = 'local') {
+  const qs = new URLSearchParams({ contest_id: contestId.value, mode })
   if (teamId.value) qs.set('team_id', teamId.value)
-  window.open(`/scrollboard.html?${qs.toString()}`, '_blank')
+  window.open(`/scrollboard.html?${qs.toString()}`, '_blank', 'noopener')
 }
 
 function openContest() {
@@ -482,9 +482,15 @@ onBeforeUnmount(stopClock)
                 type="primary"
                 secondary
                 :disabled="!canScrollboard"
-                @click="openScrollboard"
+                @click="openScrollboard('local')"
               >
                 {{ t('contests.tools.scrollboardOpen') }}
+              </n-button>
+              <n-button secondary :disabled="!canScrollboard" @click="openScrollboard('control')">
+                {{ t('contests.tools.scrollboardControl') }}
+              </n-button>
+              <n-button secondary @click="openScrollboard('live')">
+                {{ t('contests.tools.liveBoard') }}
               </n-button>
               <p v-if="!canScrollboard" class="tools-card__meta">
                 {{ t('contests.tools.scrollboardDisabled') }}

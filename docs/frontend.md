@@ -202,3 +202,7 @@ src/frontend/
 4. 涉及界面时，中英文 + 亮暗主题 + 窄屏 + loading/error/empty 双语言检查
 5. 涉及路由时，验证侧栏激活、子跳转、标题、权限过滤
 6. 涉及 i18n 时，扫描新增文案确认无硬编码
+
+## 独立榜单大屏
+
+`public/scrollboard.html` 配合 scoreboard.js、scoreboard-core.js 与 scoreboard.css，提供 live/local/control/watch 四种模式；布局独立于应用壳。静态大屏文案集中在双语字典，提供明暗主题、全屏与减少动效偏好。实时榜 15 秒轮询，共享页短轮询公开投影并处理过期响应；document 隐藏时停请求，本机播放暂停，pagehide 清理计时与请求。共享页面不能请求完整 scoreboard-show；普通观众只读，服务端仍校验所有控制操作。比赛榜单中的公开 AC 不因封榜而整体隐藏，未解冻时提交记录 UI 与服务端窗口一致。用 `npm run test:scoreboard` 验证真实后端形状驱动的 DOM 与回放。详见 [scoreboard.md](scoreboard.md)。

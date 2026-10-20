@@ -631,7 +631,7 @@ async def test_acm_ranking_and_manual_unfreeze(client: httpx.AsyncClient, user_h
     async with SessionLocal() as db:
         row = await db.get(Contest, cid)
         row.end_time = datetime.now(timezone.utc) + timedelta(seconds=300)
-        row.freeze_time = datetime.now(timezone.utc)  # 封榜时间同步（约束 + 立即入封榜窗口）
+        row.freeze_time = datetime.now(timezone.utc) + timedelta(seconds=60)
         await db.commit()
 
     service_headers = user_headers
@@ -668,6 +668,9 @@ async def test_acm_ranking_and_manual_unfreeze(client: httpx.AsyncClient, user_h
     async with SessionLocal() as db:
         from app.services.contest import ContestService
 
+        row = await db.get(Contest, cid)
+        row.freeze_time = datetime.now(timezone.utc)
+        await db.commit()
         async with SessionLocal() as db2:
             await ContestService(db2).transition()
     resp = await client.get(f"/api/v1/contests/{cid}", headers=user_headers)
@@ -820,7 +823,7 @@ async def test_board_cache_and_invalidation(client: httpx.AsyncClient, user_head
 
     # 绕过服务直改数据库（无失效）→ 缓存命中返回旧值
     async with SessionLocal() as db:
-        row = (await db.execute(select(ContestRanking).where(ContestRanking.contest_id == cid))).scalar_one()
+        row = (await db.execute(select(Submission).where(Submission.contest_id == cid))).scalar_one()
         row.score = 100
         await db.commit()
     resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
@@ -914,7 +917,7 @@ async def test_contest_rule_type_snapshot_and_after_contest(
             await ContestService(db2).update_ranking_on_result(sub, "accepted")
             await db2.commit()
     resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
-    assert resp.json()["data"]["rows"] == []
+    assert all(row["solved"] == 0 and row["total_penalty"] == 0 for row in resp.json()["data"]["rows"])
 
 
 async def _seed_case_data(storage, problem_id, *, count: int = 2) -> list[str]:
@@ -1250,8 +1253,8 @@ async def test_freeze_time_adjust_and_immediate_freeze(
     assert resp.json()["code"] == 2003
 
 
-async def test_scoreboard_show_reveal_order(client: httpx.AsyncClient, user_headers) -> None:
-    """滚榜：揭晓序列按「最终名次从差到好」生成，快照榜为起点、最终榜为终点。"""
+async def test_scoreboard_show_reveal_order(client: httpx.AsyncClient, user_headers, monkeypatch) -> None:
+    """滚榜：按当前最末待揭晓选手推进，快照榜为起点、最终榜为终点。"""
     p1 = await _seed_problem("滚榜题 A")
     p2 = await _seed_problem("滚榜题 B")
     tutor = await _tutor_headers(client)
@@ -1283,7 +1286,7 @@ async def test_scoreboard_show_reveal_order(client: httpx.AsyncClient, user_head
     # 将封榜时间拉到当下以进入封榜窗口，触发 transition 记录 frozen_at
     async with SessionLocal() as db:
         row = await db.get(Contest, cid)
-        row.freeze_time = datetime.now(timezone.utc) - timedelta(seconds=1)
+        row.freeze_time = datetime.now(timezone.utc)
         await db.commit()
     async with SessionLocal() as db:
         from app.services.contest import ContestService
@@ -1306,6 +1309,7 @@ async def test_scoreboard_show_reveal_order(client: httpx.AsyncClient, user_head
         ))
         await db.commit()
 
+    monkeypatch.setattr("app.services.contest._now", lambda: now2 + timedelta(minutes=15))
     resp = await client.get(f"/api/v1/contests/{cid}/scoreboard-show", headers=tutor)
     body = resp.json()
     assert body["code"] == 0, body

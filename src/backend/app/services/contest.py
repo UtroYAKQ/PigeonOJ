@@ -42,6 +42,7 @@ from app.schemas.contest import (
     AnnouncementUpdate,
     BoardCell,
     BoardOut,
+    BoardProblemOut,
     BoardRow,
     ContestCreate,
     ContestDetail,
@@ -99,176 +100,14 @@ def _letter(index: int) -> str:
     return chr(ord("A") + index % 26) + (str(index // 26) if index >= 26 else "")
 
 
-# ---------------- 滚榜纯函数（可单测；不触库） ----------------
-
-
-def _row_key(rule_type: str, row: BoardRow) -> tuple:
-    """榜单排序键（与 board() 口径一致）：ACM 通过数↓罚时↑；IOI 总分↓通过数↑。"""
-    if rule_type == RuleType.ACM:
-        return (-row.solved, row.total_penalty, row.nickname)
-    return (-row.total_score, -row.solved, row.nickname)
-
-
-def _aggregate_final_rows(
-    contest: Contest,
-    subs: list[Submission],
-    contest_problems: list,
-    factor: int,
-    nickname_of: dict[uuid.UUID, str],
-) -> tuple[list[BoardRow], dict]:
-    """以 submissions 现算最终榜（与 _recompute_rankings 同口径，纯函数不落库）。
-
-    返回 (rows, cell_state)：cell_state[(user_id, problem_id)] 为每格终局真值
-    {accepted, attempts, penalty, score}，供揭晓序列逐步演化。
-    """
-    start = _aware(contest.start_time)
-    grouped: dict[tuple[uuid.UUID, uuid.UUID], list[Submission]] = {}
-    for s in subs:
-        if s.status in (
-            SubmissionStatus.PENDING,
-            SubmissionStatus.JUDGING,
-            SubmissionStatus.SYSTEM_ERROR,
-        ):
-            continue
-        grouped.setdefault((s.user_id, s.problem_id), []).append(s)
-
-    cell_state: dict[tuple[uuid.UUID, uuid.UUID], dict] = {}
-    for (user_id, problem_id), group in grouped.items():
-        group.sort(key=lambda s: s.created_at)
-        accepted_subs = [s for s in group if s.status == SubmissionStatus.ACCEPTED]
-        accepted = bool(accepted_subs)
-        first_accepted = accepted_subs[0] if accepted else None
-        if first_accepted is not None:
-            attempts = sum(
-                1 for s in group
-                if s.status != SubmissionStatus.ACCEPTED and s.created_at < first_accepted.created_at
-            )
-            penalty = (
-                int((_aware(first_accepted.created_at) - start).total_seconds() // 60) + attempts * factor
-                if contest.rule_type == RuleType.ACM
-                else 0
-            )
-        else:
-            attempts = len(group)
-            penalty = 0
-        score = max((int(s.score or 0) for s in group), default=0)
-        cell_state[(user_id, problem_id)] = {
-            "accepted": accepted,
-            "attempts": attempts,
-            "penalty": penalty,
-            "score": score,
-        }
-
-    user_ids = {uid for uid, _pid in grouped}
-    rows: list[BoardRow] = []
-    for user_id in user_ids:
-        cells = [
-            BoardCell(
-                problem_id=cp.problem_id,
-                letter=cp.letter,
-                problem_score=cp.score,
-                accepted=cell_state.get((user_id, cp.problem_id), {}).get("accepted", False),
-                attempts=cell_state.get((user_id, cp.problem_id), {}).get("attempts", 0),
-                penalty=cell_state.get((user_id, cp.problem_id), {}).get("penalty", 0),
-                score=cell_state.get((user_id, cp.problem_id), {}).get("score", 0),
-                is_frozen=False,
-            )
-            for cp, _problem in contest_problems
-        ]
-        rows.append(
-            BoardRow(
-                rank=0,
-                user_id=user_id,
-                nickname=nickname_of.get(user_id, ""),
-                solved=sum(1 for c in cells if c.accepted),
-                total_penalty=sum(c.penalty for c in cells),
-                total_score=sum(c.score for c in cells),
-                cells=cells,
-            )
-        )
-    rows.sort(key=lambda r: _row_key(contest.rule_type, r))
-    for index, row in enumerate(rows):
-        row.rank = index + 1
-    return rows, cell_state
-
-
-def build_reveal_steps(
-    rule_type: str,
-    pending: list[Submission],
-    final_rows: list[BoardRow],
-    base_rows: list[BoardRow],
-    nickname_of: dict[uuid.UUID, str],
-) -> list[RevealStep]:
-    """domjudge 式揭晓序列（纯函数，可单测）。
-
-    队伍按「最终名次从差到好」依次结算（同队内按提交时间序）。每一步只把该队
-    向其终局状态演化一格：partial 演化 ⊆ 终局 ⇒ 部分名次恒不劣于终局名次，
-    已结算的更差队伍永远在其下方——动画中队伍名次单调（ICPC 滚榜不变式）。
-    """
-    if not pending:
-        return []
-    letters: dict[uuid.UUID, str | None] = {}
-    for row in final_rows:
-        for cell in row.cells:
-            letters.setdefault(cell.problem_id, cell.letter)
-
-    # 演化起点 = 冻结快照（base_rows）；终点真值 = final_rows
-    state: dict[tuple[uuid.UUID, uuid.UUID], dict] = {}
-    for row in base_rows:
-        for cell in row.cells:
-            state[(row.user_id, cell.problem_id)] = {
-                "accepted": cell.accepted,
-                "attempts": cell.attempts,
-                "penalty": cell.penalty,
-                "score": cell.score,
-            }
-    final_state: dict[tuple[uuid.UUID, uuid.UUID], dict] = {
-        (row.user_id, cell.problem_id): {
-            "accepted": cell.accepted,
-            "attempts": cell.attempts,
-            "penalty": cell.penalty,
-            "score": cell.score,
-        }
-        for row in final_rows
-        for cell in row.cells
-    }
-
-    queue: dict[uuid.UUID, list[Submission]] = {}
-    for s in sorted(pending, key=lambda s: s.created_at):
-        queue.setdefault(s.user_id, []).append(s)
-
-    # 最差终局名次先滚（rank 越大越差）
-    final_rank_of = {row.user_id: row.rank for row in final_rows}
-    reveal_order = sorted(queue, key=lambda uid: -final_rank_of.get(uid, 0))
-
-    steps: list[RevealStep] = []
-    for uid in reveal_order:
-        for s in queue[uid]:
-            key = (uid, s.problem_id)
-            st = state.get(key, {"accepted": False, "attempts": 0, "penalty": 0, "score": 0})
-            fin = final_state.get(key, {"accepted": False, "attempts": 0, "penalty": 0, "score": 0})
-            if s.status == SubmissionStatus.ACCEPTED:
-                st["accepted"] = True
-                st["penalty"] = fin["penalty"]
-            else:
-                st["attempts"] += 1
-            st["score"] = max(st["score"], int(s.score or 0))
-            state[key] = st
-            steps.append(
-                RevealStep(
-                    user_id=uid,
-                    nickname=nickname_of.get(uid, ""),
-                    problem_id=s.problem_id,
-                    letter=letters.get(s.problem_id),
-                    submission_id=s.id,
-                    created_at=s.created_at,
-                    accepted=s.status == SubmissionStatus.ACCEPTED,
-                    score=st["score"] if rule_type == RuleType.IOI else 0,
-                    penalty=st["penalty"] if rule_type == RuleType.ACM else 0,
-                    attempts=st["attempts"],
-                )
-            )
-    return steps
+# Shared deterministic arithmetic, also imported by existing fixture scripts.
+from app.services.scoreboard import (
+    aggregate_rows as _aggregate_final_rows,
+    build_reveal_steps,
+    mark_pending,
+    row_key as _row_key,
+    UNSETTLED,
+)
 
 
 class ContestSubmitter(Protocol):
@@ -373,8 +212,8 @@ class ContestService:
         if await self._can_manage(user, contest):
             return
         await self._ensure_team_view(contest, user)
-        if _now() < _aware(contest.end_time):
-            raise APIError(AUTH_FORBIDDEN, "比赛期间提交记录不可见，结束后开放查看", 403)
+        if _now() < _aware(contest.end_time) or self._board_is_frozen(contest):
+            raise APIError(AUTH_FORBIDDEN, "比赛期间或榜单尚未正式解冻，提交记录暂不可见", 403)
 
     async def _ensure_problems_visible(self, contest: Contest, user: User) -> None:
         """看题窗口（docs/contracts/contests.md 第 2 条）：比赛管理者随时可看
@@ -722,10 +561,12 @@ class ContestService:
     ) -> Submission:
         """比赛提交详情访问校验（窗口与归属），返回提交实体；装配由路由层复用判题服务。"""
         contest = await self._get_contest(contest_id)
-        await self._ensure_submissions_visible(contest, user)
         submission = await self.submissions.get_contest_submission(contest.id, submission_id)
         if submission is None:
             raise APIError(RESOURCE_NOT_FOUND, "提交不存在", 404)
+        await self._ensure_team_view(contest, user)
+        if submission.user_id != user.id or _now() < _aware(contest.end_time):
+            await self._ensure_submissions_visible(contest, user)
         return submission
 
     async def cell_submissions(
@@ -976,15 +817,19 @@ class ContestService:
         """榜单：Redis 读缓存（rank:contest:<id>，docs/operations.md「Redis 约定」）优先。
 
         团队比赛限团队成员 / admin（封闭空间，非成员 2003）。
-        缓存未命中才全量计算（contest_rankings 为权威）并回填，TTL 按场景分级：
-        进行中 3s / 封榜 60s / 已结束 24h；写路径（判题回写、封榜、解冻）主动失效。
+        缓存未命中从正式 submissions 重算并回填，TTL 按场景分级：
+        进行中 20s / 封榜 60s / 已结束 24h；写路径（判题回写、封榜、解冻）主动失效。
         并发未命中以 Redis SETNX 重建锁防击穿，Redis 异常一律降级直查数据库。
         """
         contest = await self._get_contest(contest_id)
         await self._ensure_team_view(contest, viewer)
+        if _now() < _aware(contest.start_time) and not await self._can_manage(viewer, contest):
+            # Preserve the existing read endpoint while concealing the problem set.
+            return BoardOut(contest_id=contest.id, rule_type=contest.rule_type,
+                board_frozen=False, generated_at=_now())
         cache_key = _board_cache_key(contest_id)
         cached = await self._load_board_cache(cache_key)
-        if cached is not None:
+        if cached is not None and cached.board_frozen == self._board_is_frozen(contest):
             return cached
 
         lock_key = f"{cache_key}:lock"
@@ -1003,7 +848,7 @@ class ContestService:
                 while asyncio.get_running_loop().time() < deadline:
                     await asyncio.sleep(0.1)
                     cached = await self._load_board_cache(cache_key)
-                    if cached is not None:
+                    if cached is not None and cached.board_frozen == self._board_is_frozen(contest):
                         return cached
                 return await self._compute_board(contest)
 
@@ -1025,7 +870,9 @@ class ContestService:
         if raw is None:
             return None
         try:
-            return BoardOut.model_validate_json(raw)
+            result = BoardOut.model_validate_json(raw)
+            # Legacy permanent caches used different scoring and freeze semantics.
+            return result if result.generated_at is not None else None
         except ValidationError:
             logger.warning("榜单缓存载荷损坏，回源重算 key=%s", cache_key)
             return None
@@ -1053,63 +900,42 @@ class ContestService:
         except Exception:
             logger.warning("榜单缓存失效失败 contest_id=%s（等待 TTL 兜底）", contest_id, exc_info=True)
 
-    async def _compute_board(self, contest: Contest) -> BoardOut:
-        """全量计算榜单：按赛制排序（ACM 通过数↓罚时↑；IOI 总分↓通过数↑），封榜展示冻结快照。"""
-        contest_problems = await self.repo.list_contest_problems(contest.id)
-        rows = await self.rankings.list_rows_with_users(contest.id)
-
-        # 预建索引：(user, problem) → 榜单行、user → 昵称、user 出现顺序
-        # 避免逐格 next() 线性扫描（旧实现 O(users × rows) 嵌套，随规模二次增长）
-        cell_by_key: dict[tuple[uuid.UUID, uuid.UUID], ContestRanking] = {}
-        nickname_by_user: dict[uuid.UUID, str] = {}
-        user_order: list[uuid.UUID] = []
-        for row, user in rows:
-            cell_by_key[(row.user_id, row.problem_id)] = row
-            if row.user_id not in nickname_by_user:
-                nickname_by_user[row.user_id] = user.nickname
-                user_order.append(row.user_id)
-
-        board_rows: list[BoardRow] = []
-        for user_id in user_order:
-            cells: list[BoardCell] = []
-            for cp, _problem in contest_problems:
-                rank_row = cell_by_key.get((user_id, cp.problem_id))
-                cells.append(
-                    BoardCell(
-                        problem_id=cp.problem_id,
-                        letter=cp.letter,
-                        problem_score=cp.score,
-                        accepted=rank_row.accepted if rank_row else False,
-                        attempts=rank_row.attempts if rank_row else 0,
-                        penalty=rank_row.penalty if rank_row else 0,
-                        score=rank_row.score if rank_row else 0,
-                        is_frozen=rank_row.is_frozen if rank_row else contest.board_frozen,
-                        accepted_at=rank_row.accepted_at if rank_row else None,
-                    )
-                )
-            board_rows.append(
-                BoardRow(
-                    rank=0,
-                    user_id=user_id,
-                    nickname=nickname_by_user[user_id],
-                    solved=sum(1 for c in cells if c.accepted),
-                    total_penalty=sum(c.penalty for c in cells),
-                    total_score=sum(c.score for c in cells),
-                    cells=cells,
-                )
-            )
-        if contest.rule_type == RuleType.ACM:
-            board_rows.sort(key=lambda r: (-r.solved, r.total_penalty, r.nickname))
-        else:
-            board_rows.sort(key=lambda r: (-r.total_score, -r.solved, r.nickname))
-        for index, row in enumerate(board_rows):
-            row.rank = index + 1
-        return BoardOut(
-            contest_id=contest.id,
-            rule_type=contest.rule_type,
-            board_frozen=contest.board_frozen,
-            rows=board_rows,
+    def _board_is_frozen(self, contest: Contest) -> bool:
+        return contest.board_frozen or bool(
+            contest.freeze_time and _now() >= _aware(contest.freeze_time)
+            and contest.status != ContestStatus.FINISHED
         )
+
+    async def _scoreboard_data(self, contest: Contest, *, require_settled: bool = False) -> ScoreboardShowOut:
+        problems = await self.repo.list_contest_problems(contest.id)
+        submissions = await self.submissions.list_contest_submissions(contest.id)
+        if require_settled and any(s.status in UNSETTLED for s in submissions):
+            raise APIError(RESOURCE_STATE_CONFLICT, "正式提交仍在判题中，请结算后再准备滚榜", 409)
+        names = await self.submissions.list_team_nicknames(contest.id)
+        names.update(await self.repo.list_participant_names(contest.id))
+        factor = int(await self.config.get_value("contest", "contest.penalty_factor_minutes", DEFAULT_PENALTY_FACTOR_MINUTES))
+        final_rows, _ = _aggregate_final_rows(contest, submissions, problems, factor, names)
+        frozen = self._board_is_frozen(contest)
+        # The configured boundary is authoritative; scheduler execution time is diagnostic only.
+        cutoff = _aware(contest.freeze_time or contest.frozen_at) if frozen and (contest.freeze_time or contest.frozen_at) else None
+        hidden = [s for s in submissions if cutoff is not None and _aware(s.created_at) >= cutoff]
+        visible = [s for s in submissions if cutoff is None or _aware(s.created_at) < cutoff]
+        base_rows, _ = _aggregate_final_rows(contest, visible, problems, factor, names)
+        mark_pending(base_rows, hidden, contest.rule_type)
+        return ScoreboardShowOut(
+            contest_id=contest.id, title=contest.title, rule_type=contest.rule_type,
+            board_frozen=frozen, frozen_at=cutoff,
+            problems=[ContestProblemItemOut(problem_id=cp.problem_id, letter=cp.letter,
+                score=cp.score, sort_order=cp.sort_order, title=problem.title) for cp, problem in problems],
+            base_rows=base_rows, final_rows=final_rows,
+            steps=build_reveal_steps(contest.rule_type, hidden, final_rows, base_rows, names) if require_settled else [],
+        )
+
+    async def _compute_board(self, contest: Contest) -> BoardOut:
+        data = await self._scoreboard_data(contest)
+        return BoardOut(contest_id=contest.id, rule_type=contest.rule_type,
+            board_frozen=data.board_frozen, rows=data.base_rows,
+            problems=[BoardProblemOut.model_validate(p, from_attributes=True) for p in data.problems], generated_at=_now())
 
     # ---------------- 判题挂钩（judge_jobs 终态调用） ----------------
 
@@ -1132,51 +958,23 @@ class ContestService:
         await self.update_ranking_on_result(submission, status)
 
     async def update_ranking_on_result(self, submission: Submission, status: str) -> None:
-        """判题终态回写榜单（条件更新，docs/contracts/contests.md 第 4 条）。
-
-        仅统计比赛内正式提交：赛后补题与 system_error（平台故障）不计；
-        封榜期间（board_frozen=true）不更新榜单行。
-        """
-        if submission.submit_type != SubmitType.CONTEST or submission.contest_id is None:
+        """Recompute one cell from persisted submissions; replayed callbacks are idempotent."""
+        if submission.submit_type != SubmitType.CONTEST or submission.contest_id is None or submission.is_after_contest:
             return
-        if submission.is_after_contest or status == SubmissionStatus.SYSTEM_ERROR:
-            return
+        await self.repo.lock_contest(submission.contest_id)
+        await self.db.flush()
         contest = await self.repo.get_by_id(submission.contest_id)
-        if contest is None or contest.board_frozen:
+        if contest is None:
             return
-
-        user_id = submission.user_id
-        problem_id = submission.problem_id
-        await self.rankings.ensure_row(contest.id, user_id, problem_id, frozen=False)
-
-        if contest.rule_type == RuleType.ACM:
-            if status == SubmissionStatus.ACCEPTED:
-                row = await self.rankings.get_row(contest.id, user_id, problem_id)
-                if row is None or row.accepted:
-                    return  # 幂等：已通过的重复结果不再计罚时
-                factor = int(
-                    await self.config.get_value(
-                        "contest", "contest.penalty_factor_minutes", DEFAULT_PENALTY_FACTOR_MINUTES
-                    )
-                )
-                elapsed = int(
-                    (_now() - _aware(contest.start_time)).total_seconds() // 60
-                )
-                await self.rankings.mark_accepted(
-                    contest.id,
-                    user_id,
-                    problem_id,
-                    accepted_at=_now(),
-                    penalty=elapsed + row.attempts * factor,
-                )
-            else:
-                await self.rankings.increment_attempts(contest.id, user_id, problem_id)
-        else:  # IOI
-            await self.rankings.bump_score(
-                contest.id, user_id, problem_id, int(submission.score or 0)
-            )
-            if status != SubmissionStatus.ACCEPTED:
-                await self.rankings.increment_attempts(contest.id, user_id, problem_id)
+        problems = await self.repo.list_contest_problems(contest.id)
+        subs = await self.submissions.list_contest_submissions(contest.id)
+        cutoff = _aware(contest.freeze_time or contest.frozen_at) if self._board_is_frozen(contest) and (contest.freeze_time or contest.frozen_at) else None
+        selected = [s for s in subs if s.user_id == submission.user_id and s.problem_id == submission.problem_id
+            and (cutoff is None or _aware(s.created_at) < cutoff)]
+        factor = int(await self.config.get_value("contest", "contest.penalty_factor_minutes", DEFAULT_PENALTY_FACTOR_MINUTES))
+        _, state = _aggregate_final_rows(contest, selected, problems, factor, {submission.user_id: ""})
+        await self.rankings.replace_cell(contest.id, submission.user_id, submission.problem_id,
+            state.get((submission.user_id, submission.problem_id), {}), frozen=self._board_is_frozen(contest))
         await self._invalidate_board_cache(contest.id)
 
     # ---------------- 封榜 / 解冻 / 状态推进 ----------------
@@ -1188,10 +986,13 @@ class ContestService:
         赛中解冻会提前泄露封榜期提交结果；比赛结束前榜单保持冻结快照。
         """
         contest = await self.require_manage(contest_id, user)
-        if contest.status == ContestStatus.RUNNING:
-            raise APIError(RESOURCE_STATE_CONFLICT, "比赛进行中不可解冻榜单", 409)
+        if contest.status != ContestStatus.FINISHED or _now() < _aware(contest.end_time):
+            raise APIError(RESOURCE_STATE_CONFLICT, "比赛结束后才可解冻榜单", 409)
         if not contest.board_frozen:
             raise APIError(RESOURCE_STATE_CONFLICT, "榜单未处于冻结中", 409)
+        await self.repo.lock_contest(contest.id)
+        if any(s.status in UNSETTLED for s in await self.submissions.list_contest_submissions(contest.id)):
+            raise APIError(RESOURCE_STATE_CONFLICT, "正式提交仍在判题中，请结算后再解冻", 409)
         await self._recompute_rankings(contest)
         contest.board_frozen = False
         await self.db.flush()
@@ -1271,128 +1072,20 @@ class ContestService:
         return await self._to_summary(self.repo, contest)
 
     async def _recompute_rankings(self, contest: Contest) -> None:
-        """重算榜单：以 submissions 为唯一事实源重建 (user, problem) 行。
-
-        ACM：attempts = 首次通过前的错误提交数（非 system_error），penalty = 分钟差 + attempts × 系数；
-        IOI：score = 各题历史最高分。
-        """
+        problems = await self.repo.list_contest_problems(contest.id)
         subs = await self.submissions.list_contest_submissions(contest.id)
-        terminal = [
-            s
-            for s in subs
-            if s.status
-            not in (SubmissionStatus.PENDING, SubmissionStatus.JUDGING, SubmissionStatus.SYSTEM_ERROR)
-        ]
-        factor = int(
-            await self.config.get_value(
-                "contest", "contest.penalty_factor_minutes", DEFAULT_PENALTY_FACTOR_MINUTES
-            )
-        )
-        start = _aware(contest.start_time)
-        grouped: dict[tuple[uuid.UUID, uuid.UUID], list[Submission]] = {}
-        for s in terminal:
-            grouped.setdefault((s.user_id, s.problem_id), []).append(s)
-
-        fresh: list[ContestRanking] = []
-        for (user_id, problem_id), group in grouped.items():
-            group.sort(key=lambda s: s.created_at)
-            accepted_subs = [s for s in group if s.status == SubmissionStatus.ACCEPTED]
-            accepted = bool(accepted_subs)
-            first_accepted = accepted_subs[0] if accepted else None
-            if first_accepted is not None:
-                attempts = sum(1 for s in group if s.status != SubmissionStatus.ACCEPTED and s.created_at < first_accepted.created_at)
-                penalty = (
-                    int((_aware(first_accepted.created_at) - start).total_seconds() // 60)
-                    + attempts * factor
-                    if contest.rule_type == RuleType.ACM
-                    else 0
-                )
-            else:
-                attempts = len(group)
-                penalty = 0
-            # 提交分数按赛制原生派生（ACM 二值 / IOI 部分计分），取组内最高即为该题得分
-            score = max((int(s.score or 0) for s in group), default=0)
-            fresh.append(
-                ContestRanking(
-                    contest_id=contest.id,
-                    user_id=user_id,
-                    problem_id=problem_id,
-                    accepted=accepted,
-                    accepted_at=first_accepted.created_at if first_accepted else None,
-                    attempts=attempts,
-                    penalty=penalty,
-                    score=score,
-                    is_frozen=False,
-                )
-            )
+        factor = int(await self.config.get_value("contest", "contest.penalty_factor_minutes", DEFAULT_PENALTY_FACTOR_MINUTES))
+        _, states = _aggregate_final_rows(contest, subs, problems, factor, {})
         await self.rankings.delete_rows(contest.id)
-        await self.rankings.add_rows(fresh)
-
-    # ---------------- 滚榜（赛后大屏工具；只读，不改变榜单状态） ----------------
+        await self.rankings.add_rows([ContestRanking(contest_id=contest.id, user_id=uid,
+            problem_id=pid, **state, is_frozen=False) for (uid, pid), state in states.items()])
 
     async def scoreboard_show(self, user: User, contest_id: uuid.UUID) -> ScoreboardShowOut:
-        """滚榜数据包：冻结快照榜（起点）+ 最终榜（终点）+ 封榜期提交揭晓序列。
-
-        管理角色专用（require_manage）；不落库、不解冻——final_rows 由 submissions
-        现算，base_rows 为榜单表当前快照。封榜期提交以 frozen_at 为界；
-        frozen_at 缺失（历史比赛未记录）回退为封榜配置时间 freeze_time 推导。
-        """
+        """Manager-only immutable replay input. Preparing a replay never unfreezes."""
         contest = await self.require_manage(contest_id, user)
-        contest_problems = await self.repo.list_contest_problems(contest.id)
-        items = sorted(
-            (
-                ContestProblemItemOut(
-                    problem_id=cp.problem_id, letter=cp.letter, score=cp.score,
-                    sort_order=cp.sort_order, title=problem.title,
-                )
-                for cp, problem in contest_problems
-            ),
-            key=lambda i: i.sort_order,
-        )
-
-        # 起点：榜单表现状（封榜快照；未封榜则与 final 一致，滚榜退化为纯展示）
-        base_rows = (await self.board(contest.id, user)).rows
-
-        # 终点：以 submissions 为唯一事实源现算最终榜（不落库）
-        subs = await self.submissions.list_contest_submissions(contest.id)
-        nickname_of = await self.submissions.list_team_nicknames(contest.id)
-        factor = int(
-            await self.config.get_value(
-                "contest", "contest.penalty_factor_minutes", DEFAULT_PENALTY_FACTOR_MINUTES
-            )
-        )
-        final_rows, _cell_state = _aggregate_final_rows(
-            contest, subs, contest_problems, factor, nickname_of
-        )
-
-        # 揭晓序列：封榜期终态提交（frozen_at 为界，缺省按封榜窗口推导）
-        if contest.frozen_at is not None:
-            freeze_moment = _aware(contest.frozen_at)
-        else:
-            # frozen_at 缺失（历史数据）回退：封榜配置时刻；仍缺失（未封榜）回退比赛开始
-            freeze_moment = (
-                _aware(contest.freeze_time) if contest.freeze_time else _aware(contest.start_time)
-            )
-        pending = [
-            s
-            for s in subs
-            if s.status
-            not in (SubmissionStatus.PENDING, SubmissionStatus.JUDGING, SubmissionStatus.SYSTEM_ERROR)
-            and _aware(s.created_at) >= freeze_moment
-        ]
-        steps = build_reveal_steps(contest.rule_type, pending, final_rows, base_rows, nickname_of)
-
-        return ScoreboardShowOut(
-            contest_id=contest.id,
-            title=contest.title,
-            rule_type=contest.rule_type,
-            board_frozen=contest.board_frozen,
-            frozen_at=contest.frozen_at,
-            problems=items,
-            base_rows=base_rows,
-            final_rows=final_rows,
-            steps=steps,
-        )
+        if _now() < _aware(contest.end_time):
+            raise APIError(RESOURCE_STATE_CONFLICT, "比赛结束后才可准备滚榜", 409)
+        return await self._scoreboard_data(contest, require_settled=True)
 
     async def transition(self) -> None:
         """周期状态推进：开赛 → running；封榜（自动）；结束 → finished（不自动解冻）。

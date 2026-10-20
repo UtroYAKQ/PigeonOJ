@@ -5,7 +5,7 @@ alembic autogenerate 与测试建表都依赖本聚合；
 """
 from app.models.admin import Report  # noqa: F401
 from app.models.audit import ExceptionLog, LoginLog, RequestLog  # noqa: F401
-from app.models.contest import Contest, ContestProblem, ContestRanking, ContestRegistration  # noqa: F401
+from app.models.contest import Contest, ContestProblem, ContestRanking, ContestRegistration, ScoreboardSession  # noqa: F401
 from app.models.judge import SandboxConfig, Submission, SubmissionTestCaseResult  # noqa: F401
 from app.models.problem import (  # noqa: F401
     Problem,
@@ -43,6 +43,7 @@ __all__ = [
     "ContestProblem",
     "ContestRegistration",
     "ContestRanking",
+    "ScoreboardSession",
     "SystemConfig",
     "Role",
     "User",

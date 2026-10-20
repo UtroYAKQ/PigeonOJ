@@ -19,6 +19,7 @@ from app.core.database import get_db
 from app.schemas.admin import SitePublicConfig
 from app.services.admin import AdminConfigService, LogService, ReportService, SandboxService
 from app.services.contest import ContestService
+from app.services.scoreboard_session import ScoreboardSessionService
 from app.services.file import FileService
 from app.services.judge import SelfTestService, SubmissionService
 from app.services.problem import ProblemService
@@ -120,6 +121,13 @@ def get_contest_service(
 
 
 ContestServiceDep = Annotated[ContestService, Depends(get_contest_service)]
+
+
+def get_scoreboard_session_service(db: SessionDep, contests: ContestServiceDep) -> ScoreboardSessionService:
+    return ScoreboardSessionService(db, contests)
+
+
+ScoreboardSessionServiceDep = Annotated[ScoreboardSessionService, Depends(get_scoreboard_session_service)]
 
 
 def get_team_service(db: SessionDep) -> TeamService:

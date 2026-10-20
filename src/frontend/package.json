@@ -10,7 +10,8 @@
     "lint": "eslint . --fix",
     "lint:check": "eslint .",
     "format": "prettier --write src/ *.ts *.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:scoreboard": "node scripts/check-scrollboard.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

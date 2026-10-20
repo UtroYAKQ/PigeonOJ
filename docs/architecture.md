@@ -23,7 +23,7 @@
 
 | 技术 | 原因 |
 | --- | --- |
-| WebSocket / SSE 实时推送 | 榜单前端轮询刷新，不做实时推送 |
+| WebSocket / SSE 实时推送 | 实时榜与多屏滚榜使用轮询刷新；共享播放时钟持久化于 PostgreSQL，不做实时推送 |
 | Celery / 外部消息队列 | 判题采用进程内 asyncio gRPC 推送网关 |
 | 子任务 / 分组加权计分 | 测试点分值一致，总分 = 通过测试点分值之和 |
 | per-problem 语言级限制覆盖 | 题目限制以 C++ 为基准，按 sandbox_configs 全局比例换算 |
@@ -144,3 +144,5 @@ src/backend/
 - 表结构变更必须创建 Alembic 迁移（up/down）；迁移 SQL 是表结构唯一来源
 - 查询显式列出所需列，不用 `SELECT *`
 - 所有用户数据查询必须带 `WHERE user_id = ?`（详见 `docs/security.md` 越权规则）
+
+比赛榜单的计分事实源为正式 submissions；services/scoreboard.py 统一聚合与揭晓投影。scoreboard_sessions 保存不可变版本的快照与共享播放时钟，业务与端点见 [scoreboard.md](scoreboard.md)。

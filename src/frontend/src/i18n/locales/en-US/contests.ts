@@ -96,6 +96,8 @@
       announcementUpdatedAt: 'Updated at',
     },
     tools: {
+      scrollboardControl: 'Shared controls and audience display',
+      liveBoard: 'Live rotating scoreboard',
       title: 'Contest tools',
       titleOf: 'Contest tools · {title}',
       preview: 'Preview',
@@ -113,7 +115,7 @@
       unfreezeDisabledNotFrozen: 'The board is not frozen; nothing to unfreeze',
       scrollboard: 'Scoreboard reveal',
       scrollboardHint:
-        'Big-screen replay for the award ceremony: reveals frozen-period submissions from the worst final rank upward, opens in a new window',
+        'Resolve from the current bottom of the board. Preview locally or synchronize audience displays with server-backed controls. Playback does not unfreeze the official board.',
       scrollboardOpen: 'Open reveal screen',
       scrollboardDisabled: 'Reveal is available after the contest ends',
       shortcuts: 'Shortcuts',
@@ -168,7 +170,7 @@
       totalCount: '{count} submission(s) in total',
       empty: 'No submissions yet',
       hiddenDuringContest:
-        'Submissions are hidden during the contest and become available after it ends',
+        'Submissions are hidden during the contest and until the official scoreboard is unfrozen',
       loginRequired: 'Log in to view submissions after the contest',
       backToContest: 'Back to contest',
       search: 'Search by submitter nickname',
