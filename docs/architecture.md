@@ -18,6 +18,11 @@
 | 部署 | Docker Compose | - | |
 
 > gRPC 取代早期 Celery 方案；前端采用 Naive UI Nova 风格。
+>
+> **前端重构（进行中）**：`src/frontend-astro/` 已初始化 Astro 7 + React 19 +
+> shadcn/ui + Tailwind CSS v4 骨架，作为 Vue 前端的并行迁移目标，**尚未切换生产**。
+> 方案与页面清单见 [frontend-astro-migration.md](frontend-astro-migration.md)；
+> 切换完成后更新本表与 [frontend.md](frontend.md)。
 
 ## 明确不使用的技术
 

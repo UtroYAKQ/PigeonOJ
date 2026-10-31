@@ -1,0 +1,89 @@
+---
+import "@/styles/global.css"
+
+import { Badge } from "@/components/ui/badge"
+import { ThemeToggle } from "@/components/theme-toggle"
+
+interface Props {
+  /** 页面标题；会与站点名拼接为 `<title>` */
+  title?: string
+  description?: string
+}
+
+const {
+  title = "前端骨架",
+  description = "PigeonOJ 前端重构骨架：Astro + React + shadcn/ui + Tailwind CSS。",
+} = Astro.props
+
+const siteName = "PigeonOJ"
+const pageTitle = title === siteName ? siteName : `${title} · ${siteName}`
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="generator" content={Astro.generator} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{pageTitle}</title>
+    <script is:inline>
+      // 首屏前应用主题，避免深色模式闪白；与 src/lib/theme.ts 的存储键保持一致
+      ;(() => {
+        try {
+          const stored = localStorage.getItem("pigeonoj.theme") || "system"
+          const dark =
+            stored === "dark" ||
+            (stored === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches)
+          document.documentElement.classList.toggle("dark", dark)
+          document.documentElement.style.colorScheme = dark ? "dark" : "light"
+        } catch {
+          /* localStorage 不可用时按浅色渲染 */
+        }
+      })()
+    </script>
+  </head>
+  <body class="min-h-svh">
+    <header class="sticky top-0 z-40 border-b border-border/80 bg-background/80 backdrop-blur">
+      <div class="mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4">
+        <a
+          href="/"
+          class="flex items-center gap-2.5"
+          aria-label={`${siteName} 首页`}
+        >
+          <span
+            class="grid size-8 place-items-center rounded-lg bg-primary text-sm font-bold text-primary-foreground shadow-sm"
+            aria-hidden="true"
+          >
+            P
+          </span>
+          <span class="font-heading text-sm font-semibold tracking-tight">
+            {siteName}
+          </span>
+          <span class="hidden text-xs text-muted-foreground sm:inline">
+            Online Judge
+          </span>
+        </a>
+        <div class="ml-auto flex items-center gap-2">
+          <Badge variant="secondary" className="hidden sm:inline-flex">
+            Astro 骨架
+          </Badge>
+          <ThemeToggle client:load />
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto w-full max-w-6xl px-4 py-6 sm:py-8">
+      <slot />
+    </main>
+
+    <footer class="mx-auto w-full max-w-6xl px-4 pb-8">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-t pt-4 text-xs text-muted-foreground">
+        <span>PigeonOJ · 前端重构分支 refactor/astro-shadcn-frontend</span>
+        <span>Astro + React + shadcn/ui + Tailwind CSS</span>
+      </div>
+    </footer>
+  </body>
+</html>

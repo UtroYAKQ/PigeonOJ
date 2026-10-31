@@ -1,5 +1,10 @@
 # 前端设计规范
 
+> **重构中**：前端正从 Vue 3 迁移到 Astro + React 岛屿 + shadcn/ui。新工作区为
+> `src/frontend-astro/`，迁移方案、页面清单与阶段计划见
+> [frontend-astro-migration.md](frontend-astro-migration.md)。
+> 在切换完成前，本文件的 Vue 约定仍对 `src/frontend/` 生效；切换后并入本文。
+
 > 前端设计系统、布局、组件、i18n 与质量门禁约定。修改 `src/frontend/` 前必读；API、数据模型、权限仍须遵循 `docs/architecture.md` 与 `docs/contracts/`。
 
 ## 技术栈

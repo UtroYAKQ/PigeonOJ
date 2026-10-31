@@ -1,0 +1,47 @@
+---
+import Layout from "@/layouts/main.astro"
+import { Showcase } from "@/components/showcase"
+import { Badge } from "@/components/ui/badge"
+
+const facts = [
+  { label: "基础组件", value: "24", hint: "shadcn/ui · radix-nova" },
+  { label: "判题语言", value: "3", hint: "C++17 / Python 3.12 / Java 21" },
+  { label: "响应契约", value: "1", hint: "{ code, message, data } 信封" },
+]
+---
+
+<Layout>
+  <section class="mb-6 grid gap-5">
+    <div class="max-w-2xl space-y-3">
+      <Badge
+        variant="outline"
+        className="border-primary/25 bg-primary/5 text-primary"
+      >
+        前端重构 · 第一阶段
+      </Badge>
+      <h1 class="font-heading text-2xl font-semibold tracking-tight sm:text-3xl">
+        PigeonOJ 的 Astro 前端骨架已就绪
+      </h1>
+      <p class="text-sm leading-relaxed text-muted-foreground">
+        Astro 负责路由与静态外壳，交互区域以 React 岛屿挂载 shadcn/ui
+        组件，样式统一走 Tailwind CSS v4 语义令牌。下方示例用于验证 React
+        水合、明暗主题、弹窗 / Toast 与表格样式，
+        <strong class="text-foreground">不含业务实现</strong>。
+      </p>
+    </div>
+
+    <div class="grid gap-3 sm:grid-cols-3">
+      {facts.map((fact) => (
+        <div class="rounded-xl border bg-card p-4 ring-1 ring-foreground/5">
+          <p class="text-xs text-muted-foreground">{fact.label}</p>
+          <p class="mt-1 font-heading text-xl font-semibold tabular-nums">
+            {fact.value}
+          </p>
+          <p class="mt-0.5 text-xs text-muted-foreground">{fact.hint}</p>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <Showcase client:load />
+</Layout>

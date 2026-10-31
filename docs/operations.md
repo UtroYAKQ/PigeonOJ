@@ -29,12 +29,16 @@ source .venv/Scripts/activate
 .venv/Scripts/python -m pip install -r src/backend/requirements.txt   # 首次或依赖变更后
 cd src/backend && ../../.venv/Scripts/python -m alembic upgrade head && ../../.venv/Scripts/python run.py
 
-# 前端
+# 前端（Vue，当前线上实现）
 cd src/frontend && npm install && npm run dev
+
+# 前端（Astro 重构工作区，并行迁移，尚未接入 run-local.bat / compose）
+cd src/frontend-astro && npm install && npm run dev   # http://localhost:4321，/api 代理到后端
 ```
 
 - 后端 `http://localhost:8000`（API `/api/v1`；端口可经 `.env` 的 `SERVER_PORT` 覆盖）；前端 `http://localhost:5173`（vite 代理 `/api` 到后端，代理目标读 `SERVER_PORT`，默认 8000）
 - `vite.config.ts` 是唯一生效的 vite 配置，`vue-tsc -b` 产物已重定向到 `node_modules/.vite-config/`
+- Astro 工作区的代理目标链：`API_PROXY_TARGET` > `SERVER_PORT` > `8000`；方案见 [frontend-astro-migration.md](frontend-astro-migration.md)
 
 ## Docker 运行
 

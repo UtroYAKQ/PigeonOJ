@@ -70,6 +70,8 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 | [docs/contracts/](docs/contracts/index.md) | 数据模型、API 契约、错误码（按模块拆分） | 改表结构 / API / 错误码时 |
 | [docs/operations.md](docs/operations.md) | 运行、测试、部署、Redis/调度/存储约定 | 改配置 / 环境 / 测试时 |
 | [docs/frontend.md](docs/frontend.md) | 前端设计系统、布局、i18n 与质量门禁 | 改前端时必读 |
+| [docs/frontend-astro-migration.md](docs/frontend-astro-migration.md) | Astro + shadcn/ui 重构方案、页面清单与阶段计划 | 参与前端重构时 |
+
 ## 仓库结构
 
 | 位置 | 内容 |
@@ -80,11 +82,14 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 | `docs/contracts/` | 数据模型、API 契约、错误码（按模块拆分） |
 | `docs/operations.md` | 运行、测试、部署、Redis/调度/存储约定 |
 | `docs/frontend.md` | 前端设计系统、布局、i18n 与质量门禁 |
+| `docs/frontend-astro-migration.md` | Astro + shadcn/ui 重构方案、页面清单与阶段计划 |
 | `docs/workflow.md` | AI 协作工作流与文档同步映射 |
 | `docker/` | Docker Compose 编排（生产 `docker-compose.yml` 与判题节点 `docker-compose-node.yml`） |
 | `src/backend` / `src/frontend` / `src/judge` | 后端 / 前端 / 判题节点（含 nsjail 沙箱镜像与节点守护进程） |
+| `src/frontend-astro` | 前端重构工作区（Astro + React + shadcn/ui，并行迁移，尚未接入一键启动） |
 
 ## 说明
 
-- 当前阶段：文档契约已完成。**后端已实现 users（认证 / 用户中心 / 用户管理）/ files / problems（题库 · 测试点 · 验题记录）/ judge（提交判题调度 · 沙箱配置 · gRPC 节点网关）/ admin 模块**（含 Alembic 迁移与集成测试；模块间经 `api.py` 门面通信，规则由 `src/backend/scripts/check_import_rules.py` 检查）；**前端已实现整体布局**（左侧固定图标栏 + 顶栏面包屑/用户菜单 + 区块二级菜单）与**用户 / 管理 / 题库**页面，直连真实后端 API（题库含列表分页筛选、写题/编辑、提交判题与测试点明细；样例支持复制输入，在线试运行规划中），已建立 ESLint / Prettier / Vitest 质量门禁。判题链路为「后端 gRPC 网关 + 判题节点双向流注册/心跳负载 + 维护循环兜底重调度」架构——后端进程不执行任何用户代码，本地由 `run-local.bat` 一键拉起。其余业务功能（比赛 / 团队 / 题单 / AI / 社区等）按 `docs/contracts/` 各模块契约逐步实现（AI 模块及其模型配置 / Token 用量暂缓；团队题目可见性与验题邀请的团队侧随 teams 模块接入）。
+- 当前阶段：文档契约已完成。**后端已实现 users（认证 / 用户中心 / 用户管理）/ files / problems（题库 · 测试点 · 验题记录）/ judge（提交判题调度 · 沙箱配置 · gRPC 节点网关）/ problem-sets / contests / teams（含团队空间）/ admin 模块**（含 Alembic 迁移与集成测试；模块间经 `api.py` 门面通信，规则由 `src/backend/scripts/check_import_rules.py` 检查）；**前端已实现整体布局**（左侧固定图标栏 + 顶栏面包屑/用户菜单 + 区块二级菜单）与**用户 / 管理 / 题库**页面，直连真实后端 API（题库含列表分页筛选、写题/编辑、提交判题与测试点明细；样例支持复制输入，在线试运行规划中），已建立 ESLint / Prettier / Vitest 质量门禁。判题链路为「后端 gRPC 网关 + 判题节点双向流注册/心跳负载 + 维护循环兜底重调度」架构——后端进程不执行任何用户代码，本地由 `run-local.bat` 一键拉起。其余业务功能（AI / 社区等）按 `docs/contracts/` 各模块契约逐步实现（AI 模块及其模型配置 / Token 用量暂缓）。
+- 前端重构（分支 `refactor/astro-shadcn-frontend`）：已新增 `src/frontend-astro/`（Astro + React 岛屿 + shadcn/ui + Tailwind CSS v4）脚手架与验证页，方案、页面清单与阶段计划见 [docs/frontend-astro-migration.md](docs/frontend-astro-migration.md)；旧 `src/frontend/` 仍是线上实现，切换前不影响现有功能。
 - 沙箱执行环境首批支持 Python 3.12、C++17、Java 21。
