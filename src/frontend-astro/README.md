@@ -3,7 +3,8 @@
 PigeonOJ 前端重构工作区：**Astro + React 19 + shadcn/ui + Tailwind CSS v4**。
 旧 Vue 前端仍在 `src/frontend/` 运行，本目录是并行迁移目标，尚未接入
 `docker/docker-compose.yml` 与 `run-local.bat`。迁移方案与页面清单见
-[`docs/frontend-astro-migration.md`](../../docs/frontend-astro-migration.md)。
+[`docs/frontend-astro-migration.md`](../../docs/frontend-astro-migration.md)；
+日常开发、API 约定、分支与 PR 流程见 [`DEVELOPING.md`](DEVELOPING.md)。
 
 ## 技术栈
 
