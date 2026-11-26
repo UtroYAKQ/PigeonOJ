@@ -409,7 +409,12 @@ async def import_one(db: AsyncSession, storage, owner_id,
         output_description=parsed.output_description or "无",
         note=parsed.hint or None,
         solution=build_solution(parsed.solutions),
-        samples=[s.model_dump() for s in parsed.samples],
+        # FPS 的 sample_input/sample_output 是「展示样例」，落库必须用 SampleItem 契约
+        # （input/output）；直接 model_dump 测试点结构会写成 expected_output，前端读不到 output
+        samples=[
+            {"input": s.input, "output": s.expected_output}
+            for s in parsed.samples
+        ],
         active_case_ids=[],
         pending_case_ids=None,
         case_status=CaseStatus.OK if tests else CaseStatus.EMPTY,

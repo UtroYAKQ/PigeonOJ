@@ -222,6 +222,8 @@ C++17 特判程序源码（判定协议与沙箱执行见 `judge.md`「SPJ 特�
 
 - **有测试点且无特判** → `published`（回填 `verified_at` / `published_at`，种子语义，直接可做）
 - **无测试点** → `draft`（FPS 允许仅含样例；待人工补点验题）
+- **`<sample_input>` / `<sample_output>`** → 写入 `problems.samples` 的 `input` / `output`
+  （展示样例契约，前端按 `output` 渲染；不要写成测试点的 `expected_output`，否则详情页输出样例为空）
 - **`<spj>` 携带源码** → 恒为 `draft` 且特判程序写暂存集（`status=draft_spj`）：
   走「验题 → apply 晋升」流程后生效，不按标准比对发布
 - **`<spj>` 仅有标记无源码** → 跳过（`skipped_spj`，无法重建 checker，按标准比对会误判）

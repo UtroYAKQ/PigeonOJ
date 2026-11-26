@@ -96,6 +96,28 @@ async def test_import_zip_creates_published_and_draft(client, admin_headers, fak
 
 
 @pytest.mark.asyncio
+async def test_import_samples_use_output_field(client, admin_headers, fake_storage):
+    """FPS 展示样例落库为 SampleItem 契约（input/output），前端才能展示样例输出。"""
+    xml = _fps_xml([
+        "<item><title>FPS 样例题</title>"
+        "<description><![CDATA[求 A+B]]></description>"
+        "<sample_input><![CDATA[1 2]]></sample_input>"
+        "<sample_output><![CDATA[3]]></sample_output>"
+        "<test_input><![CDATA[1 2]]></test_input>"
+        "<test_output><![CDATA[3]]></test_output></item>",
+    ])
+    resp = await client.post(
+        "/api/v1/admin/problems/import",
+        files={"file": ("fps.zip", _zip_bytes(xml), "application/zip")},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    row = await _problem_by_title("FPS 样例题")
+    assert row is not None
+    assert row.samples == [{"input": "1 2", "output": "3"}]
+
+
+@pytest.mark.asyncio
 async def test_import_requires_admin(client, user_headers):
     resp = await client.post(
         "/api/v1/admin/problems/import",
