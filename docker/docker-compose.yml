@@ -87,7 +87,7 @@ services:
 
   frontend:
     build:
-      context: ../src/frontend
+      context: ../src/frontend-next
       dockerfile: Dockerfile
     restart: unless-stopped
     mem_limit: 64m
