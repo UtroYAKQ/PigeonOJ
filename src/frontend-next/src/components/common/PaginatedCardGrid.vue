@@ -3,6 +3,8 @@ import { useI18n } from 'vue-i18n'
 
 import EmptyState from '@/components/common/EmptyState.vue'
 import Pager from '@/components/common/Pager.vue'
+import { Card } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 
 /**
  * 卡片列表壳：与 PaginatedTable 对位的前台浏览布局。
@@ -39,27 +41,27 @@ const { t } = useI18n()
         v-if="loading"
         class="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
       >
-        <div
+        <Card
           v-for="index in skeletonCount"
           :key="`skeleton-${index}`"
-          class="flex min-h-[172px] flex-col rounded-xl border border-border bg-card p-4"
+          class="flex min-h-[172px] flex-col p-4"
         >
           <div class="flex items-center gap-3">
-            <div class="size-10 shrink-0 animate-pulse rounded-lg bg-muted" />
+            <Skeleton class="size-10 shrink-0 rounded-lg" />
             <div class="min-w-0 flex-1 space-y-2">
-              <div class="h-3.5 w-1/2 animate-pulse rounded bg-muted" />
-              <div class="h-3 w-1/3 animate-pulse rounded bg-muted" />
+              <Skeleton class="h-3.5 w-1/2" />
+              <Skeleton class="h-3 w-1/3" />
             </div>
           </div>
           <div class="mt-4 space-y-2">
-            <div class="h-3 w-full animate-pulse rounded bg-muted" />
-            <div class="h-3 w-2/3 animate-pulse rounded bg-muted" />
+            <Skeleton class="h-3 w-full" />
+            <Skeleton class="h-3 w-2/3" />
           </div>
           <div class="mt-auto flex gap-3 pt-4">
-            <div class="h-3 w-16 animate-pulse rounded bg-muted" />
-            <div class="h-3 w-24 animate-pulse rounded bg-muted" />
+            <Skeleton class="h-3 w-16" />
+            <Skeleton class="h-3 w-24" />
           </div>
-        </div>
+        </Card>
       </div>
 
       <div
@@ -76,7 +78,7 @@ const { t } = useI18n()
       </div>
     </div>
 
-    <div class="shrink-0 rounded-lg border border-border bg-card px-3 py-2.5">
+    <div class="shrink-0 px-1">
       <Pager
         :page="page"
         :page-size="pageSize"

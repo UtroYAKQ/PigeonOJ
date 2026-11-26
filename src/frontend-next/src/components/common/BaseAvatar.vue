@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 
 import defaultContestAvatar from '@/assets/avatars/default-contest.svg'
 import defaultTeamAvatar from '@/assets/avatars/default-team.svg'
 import defaultUserAvatar from '@/assets/avatars/default-user.svg'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 type AvatarKind = 'user' | 'team' | 'contest'
 
@@ -41,34 +42,25 @@ const DEFAULT_AVATARS: Record<AvatarKind, string> = {
   contest: defaultContestAvatar,
 }
 
-// 外链头像失效 / 加载失败时降级默认头像，避免碎图；src 变化后复位重试
-const loadFailed = ref(false)
-watch(
-  () => props.src,
-  () => {
-    loadFailed.value = false
-  },
-)
-
-const effectiveSrc = computed(() =>
-  !props.src || loadFailed.value ? DEFAULT_AVATARS[props.kind] : props.src,
-)
-const radiusStyle = computed(() => (props.round ? '50%' : `${props.radius}px`))
+const radiusStyle = computed(() => (props.round ? undefined : `${props.radius}px`))
 </script>
 
 <template>
-  <span
-    class="inline-block shrink-0 overflow-hidden bg-surface align-middle"
+  <Avatar
+    :shape="round ? 'circle' : 'square'"
+    class="align-middle"
     :class="{ 'border border-border': bordered }"
     :style="{ width: `${size}px`, height: `${size}px`, borderRadius: radiusStyle }"
     :aria-hidden="name ? undefined : 'true'"
   >
-    <img
-      :src="effectiveSrc"
+    <AvatarImage
+      v-if="src"
+      :src="src"
       :alt="name ?? ''"
-      class="block size-full object-cover"
-      decoding="async"
-      @error="loadFailed = true"
+      class="size-full object-cover"
     />
-  </span>
+    <AvatarFallback class="size-full">
+      <img :src="DEFAULT_AVATARS[kind]" alt="" class="size-full object-cover" />
+    </AvatarFallback>
+  </Avatar>
 </template>

@@ -5,13 +5,20 @@
 
 ## 技术栈
 
-Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwind CSS v4 · vue-i18n · Monaco Editor · vue-sonner（Toast）· lucide 图标（`@lucide/vue`）。未经决策记录不得替换或新增同类框架。
+Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwind CSS v4 · vue-i18n · Monaco Editor · vue-sonner（Toast）· lucide 图标（`@lucide/vue`）。未经决策记录不得替换或新增同类框架。shadcn-vue 通过 `components.json`（style `new-york`）管理，`components/ui/` 原子组件统一从 `@/lib/utils` 引入 `cn`，新增组件用 `npx shadcn-vue add <name>` 增量添加。
 
 ## 设计系统
 
+### shadcn-vue 组件化（2026-11 改造）
+
+- 项目通过 `components.json`（style `new-york`）接入 shadcn-vue，`components/ui/` 原子组件统一从 `@/lib/utils` 的 `cn` 取值；新增组件用 `npx shadcn-vue add <name>`
+- 已补齐并按 shadcn 默认外观落地的组件：`Card`（卡片，含默认 `shadow`）、`Skeleton`（骨架）、`Checkbox`（勾选）、`Avatar`（头像）、`Pagination`（分页）、`Breadcrumb`（面包屑）、`Command`（命令面板）、`Sidebar` / `ScrollArea` / `Separator` / `RadioGroup` / `Collapsible` / `Sonner` 等
+- 共享组件已切换底层实现（对外 props / emits 不变）：`BaseAvatar`→`Avatar`、`FilterCheckbox` / `ColumnLineList`→`Checkbox`、`LineList` / `PaginatedCardGrid` 骨架→`Skeleton`、`EntityCard`→`Card`、`Pager`→`Pagination`、`CrumbsBar`→`Breadcrumb`、`CommandPalette`→`Command`
+- 外观以 shadcn 默认为准：卡片 `rounded-xl border bg-card shadow`，浮层 / 分页 / 面包屑采用组件库默认样式。下文「去卡片化 / 无投影 / 无框」等历史约定，在本次改造覆盖的组件范围内不再适用；列表仍沿用 `LineList` 无框横线结构，但骨架、勾选、分页已换成 shadcn 原子组件
+
 ### 色板与令牌
 
-- 中性 shadcn 基调：浅色 `#ffffff / #0d0d0d`，深色 `#212121 / #ececec`；1px `--border` 描边、无投影
+- 中性 shadcn 基调：浅色 `#ffffff / #0d0d0d`，深色 `#212121 / #ececec`；1px `--border` 描边；卡片与浮层采用 shadcn 默认阴影（`shadow`）
 - 品牌橙 `--brand`（浅色 `#d9480f` / 深色 `#f08a5d`）只用于强调：链接 hover、选中态点缀、Markdown 链接；主按钮为近黑中性色；Logo 保持透明底、原色显示，不加品牌色块或描边遮盖
 - 语义色：success 绿 / warning 琥珀 / info 蓝 / destructive 红，经 `components/common/tone.ts` 统一映射，由 `StatusTag`、`ToneBadge` 消费；禁止页面各自硬编码
 - 令牌唯一来源：`src/frontend-next/src/assets/main.css` 的 `:root` 与 `.dark`（含 shadcn token）；组件只允许引用 token，禁止硬编码色值，也不再保留 `--app-*` 旧别名

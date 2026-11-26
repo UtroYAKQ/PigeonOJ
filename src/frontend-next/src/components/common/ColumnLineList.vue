@@ -5,6 +5,8 @@ import { useI18n } from 'vue-i18n'
 import LineList from '@/components/common/LineList.vue'
 import VNodeContent from '@/components/common/VNodeContent'
 import type { AppTableColumn } from '@/components/common/table-types'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Skeleton } from '@/components/ui/skeleton'
 
 /**
  * 列驱动的横线列表：由 AppTableColumn 生成表头与逐行单元格，统一交给 LineList。
@@ -81,8 +83,8 @@ function toggleRow(row: any, index: number): void {
   emit('update:selectedKeys', [...next])
 }
 
-function onToggleAll(event: Event): void {
-  toggleAll((event.target as HTMLInputElement).checked)
+function onToggleAll(value: boolean | 'indeterminate'): void {
+  toggleAll(value === true)
 }
 
 function onRowKeydown(event: KeyboardEvent, row: any): void {
@@ -121,13 +123,10 @@ function alignClass(column: AppTableColumn<any>): string {
         :style="{ gridTemplateColumns }"
       >
         <div v-if="selectable" class="flex items-center">
-          <input
-            type="checkbox"
-            class="size-3.5 accent-foreground"
+          <Checkbox
             :aria-label="t('action.selectAll')"
-            :checked="allSelected"
-            :indeterminate="someSelected"
-            @change="onToggleAll"
+            :model-value="someSelected ? 'indeterminate' : allSelected"
+            @update:model-value="onToggleAll"
           />
         </div>
         <span
@@ -148,11 +147,11 @@ function alignClass(column: AppTableColumn<any>): string {
         class="grid items-center gap-3 px-3 py-4"
         :style="{ gridTemplateColumns }"
       >
-        <div v-if="selectable" class="size-3.5 animate-pulse rounded bg-muted" />
-        <div
+        <Skeleton v-if="selectable" class="size-3.5" />
+        <Skeleton
           v-for="column in columns"
           :key="column.key"
-          class="h-3.5 w-full max-w-[160px] animate-pulse rounded bg-muted"
+          class="h-3.5 w-full max-w-[160px]"
         />
       </div>
     </template>
@@ -168,12 +167,10 @@ function alignClass(column: AppTableColumn<any>): string {
         @keydown="onRowKeydown($event, item)"
       >
         <div v-if="selectable" class="flex items-center" @click.stop>
-          <input
-            type="checkbox"
-            class="size-3.5 accent-foreground"
+          <Checkbox
             :aria-label="t('action.selectRow')"
-            :checked="selectedSet.has(keyOf(item, index))"
-            @change="toggleRow(item, index)"
+            :model-value="selectedSet.has(keyOf(item, index))"
+            @update:model-value="toggleRow(item, index)"
           />
         </div>
         <div

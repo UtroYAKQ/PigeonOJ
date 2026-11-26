@@ -3,7 +3,14 @@ import { computed } from 'vue'
 import { ChevronLeft, ChevronRight } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
-import { Button } from '@/components/ui/button'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 import {
   Select,
   SelectContent,
@@ -30,27 +37,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const pageCount = computed(() => Math.max(1, Math.ceil(props.total / props.pageSize)))
-
-type PageToken = number | '…'
-
-/** 页码窗口：1 … 当前±1 … 末页，避免页码项无限增长 */
-const tokens = computed<PageToken[]>(() => {
-  const count = pageCount.value
-  const current = props.page
-  if (count <= 7) return Array.from({ length: count }, (_, index) => index + 1)
-  const pages = new Set<number>([1, count, current - 1, current, current + 1])
-  if (current <= 3) [2, 3, 4].forEach((page) => pages.add(page))
-  if (current >= count - 2) [count - 3, count - 2, count - 1].forEach((page) => pages.add(page))
-  const sorted = [...pages].filter((page) => page >= 1 && page <= count).sort((a, b) => a - b)
-  const result: PageToken[] = []
-  sorted.forEach((page, index) => {
-    if (index > 0 && page - sorted[index - 1]! > 1) result.push('…')
-    result.push(page)
-  })
-  return result
-})
-
 const sizeValue = computed({
   get: () => String(props.pageSize),
   set: (value: string) => {
@@ -58,10 +44,12 @@ const sizeValue = computed({
   },
 })
 
-function go(page: number): void {
-  if (page < 1 || page > pageCount.value || page === props.page) return
-  emit('update:page', page)
-}
+const pageValue = computed({
+  get: () => props.page,
+  set: (value: number) => {
+    if (value !== props.page) emit('update:page', value)
+  },
+})
 </script>
 
 <template>
@@ -87,47 +75,28 @@ function go(page: number): void {
         </Select>
       </div>
 
-      <div class="flex items-center gap-1">
-        <Button
-          variant="outline"
-          size="icon-sm"
-          class="size-8"
-          :disabled="page <= 1"
-          :aria-label="t('action.prevPage')"
-          @click="go(page - 1)"
-        >
-          <ChevronLeft class="size-4" />
-        </Button>
-        <template v-for="(token, index) in tokens" :key="`${token}-${index}`">
-          <span
-            v-if="token === '…'"
-            class="grid size-8 place-items-center text-xs text-muted-foreground"
-          >
-            …
-          </span>
-          <Button
-            v-else
-            :variant="token === page ? 'default' : 'ghost'"
-            size="icon-sm"
-            class="size-8 text-xs tabular-nums"
-            :class="token === page ? '' : 'text-muted-foreground'"
-            :aria-current="token === page ? 'page' : undefined"
-            @click="go(token)"
-          >
-            {{ token }}
-          </Button>
-        </template>
-        <Button
-          variant="outline"
-          size="icon-sm"
-          class="size-8"
-          :disabled="page >= pageCount"
-          :aria-label="t('action.nextPage')"
-          @click="go(page + 1)"
-        >
-          <ChevronRight class="size-4" />
-        </Button>
-      </div>
+      <Pagination
+        v-model:page="pageValue"
+        :total="total"
+        :items-per-page="pageSize"
+        :sibling-count="1"
+        show-edges
+      >
+        <PaginationContent v-slot="{ items }">
+          <PaginationPrevious :aria-label="t('action.prevPage')">
+            <ChevronLeft class="size-4" />
+          </PaginationPrevious>
+          <template v-for="(item, index) in items" :key="`${item.type}-${index}`">
+            <PaginationEllipsis v-if="item.type === 'ellipsis'" />
+            <PaginationItem v-else :value="item.value" :is-active="item.value === page">
+              {{ item.value }}
+            </PaginationItem>
+          </template>
+          <PaginationNext :aria-label="t('action.nextPage')">
+            <ChevronRight class="size-4" />
+          </PaginationNext>
+        </PaginationContent>
+      </Pagination>
     </div>
   </div>
 </template>

@@ -3,6 +3,14 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb'
 import { buildCrumbs } from '@/router/crumbs'
 
 const route = useRoute()
@@ -13,24 +21,23 @@ const crumbs = computed(() => buildCrumbs(route, (key) => t(key)))
 </script>
 
 <template>
-  <nav
-    v-if="crumbs.length"
-    class="flex min-w-0 items-center gap-1.5 text-[13px]"
-    aria-label="Breadcrumb"
-  >
-    <template v-for="(crumb, index) in crumbs" :key="`${index}-${crumb.label}`">
-      <span v-if="index > 0" class="text-muted-foreground/50" aria-hidden="true">/</span>
-      <button
-        v-if="crumb.to"
-        type="button"
-        class="truncate rounded-sm px-0.5 text-muted-foreground transition-colors hover:text-foreground"
-        @click="router.push(crumb.to)"
-      >
-        {{ crumb.label }}
-      </button>
-      <span v-else class="truncate font-medium text-foreground" aria-current="page">
-        {{ crumb.label }}
-      </span>
-    </template>
-  </nav>
+  <Breadcrumb v-if="crumbs.length" class="min-w-0 text-[13px]">
+    <BreadcrumbList class="flex-nowrap">
+      <template v-for="(crumb, index) in crumbs" :key="`${index}-${crumb.label}`">
+        <BreadcrumbItem>
+          <BreadcrumbLink v-if="crumb.to" as-child>
+            <button
+              type="button"
+              class="truncate text-muted-foreground"
+              @click="router.push(crumb.to)"
+            >
+              {{ crumb.label }}
+            </button>
+          </BreadcrumbLink>
+          <BreadcrumbPage v-else class="truncate font-medium">{{ crumb.label }}</BreadcrumbPage>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator v-if="index < crumbs.length - 1" />
+      </template>
+    </BreadcrumbList>
+  </Breadcrumb>
 </template>

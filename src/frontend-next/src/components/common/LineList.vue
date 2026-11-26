@@ -3,6 +3,7 @@ import { useI18n } from 'vue-i18n'
 
 import EmptyState from '@/components/common/EmptyState.vue'
 import Pager from '@/components/common/Pager.vue'
+import { Skeleton } from '@/components/ui/skeleton'
 
 /**
  * 无框横线列表壳（Naive UI n-list 风格）：表头 + 逐行分隔线，无卡片外框。
@@ -54,8 +55,8 @@ const { t } = useI18n()
                 :key="`skeleton-${index}`"
                 class="flex items-center gap-4 px-3 py-4"
               >
-                <div class="h-3.5 w-1/3 animate-pulse rounded bg-muted" />
-                <div class="h-3.5 w-1/4 animate-pulse rounded bg-muted/70" />
+                <Skeleton class="h-3.5 w-1/3" />
+                <Skeleton class="h-3.5 w-1/4" />
               </div>
             </slot>
           </div>
