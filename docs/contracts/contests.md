@@ -75,7 +75,7 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
 | attempts | INT | NOT NULL DEFAULT 0 | 首次 AC 前的错误提交数（ACM 罚时依据） |
 | penalty | INT | NOT NULL DEFAULT 0 | 罚时（分钟，ACM 用） |
 | score | INT | NOT NULL DEFAULT 0 | IOI 分值（每题取历史最高分） |
-| is_frozen | BOOLEAN | NOT NULL DEFAULT false | 封榜快照标记，冻结后不再更新 |
+| is_frozen | BOOLEAN | NOT NULL DEFAULT false | 历史兼容标记；封榜不再整行冻结，快照按封榜时刻重算并正常展示 |
 | updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
 索引：UNIQUE(`contest_id`, `user_id`, `problem_id`)、INDEX(`contest_id`, `is_frozen`)
@@ -166,12 +166,14 @@ CHECK (register_end_time <= end_time)   -- 报名截止不晚于比赛结束
    - 首次通过：`UPDATE ... SET accepted = true, accepted_at = ..., penalty = ... WHERE accepted = false`（幂等，仅首次生效）
    - IOI：`UPDATE ... SET score = GREATEST(score, :new_score) WHERE is_frozen = false`
 5. **封榜 / 解冻 / 结束**（修订：解冻必须人工、仅赛后）：封榜由周期任务 `contest_transition` 按时间
-   自动触发（结束前 `freeze_offset_seconds` 秒置 `board_frozen=true`、榜单行冻结 `is_frozen`、
-   记录 `frozen_at`）；
+   自动触发（结束前 `freeze_offset_seconds` 秒置 `board_frozen=true` 并记录 `frozen_at`），
+   同时**按 submissions 重算截至 `frozen_at` 的榜单快照**——封榜 = 只统计封榜时刻前的榜单，
+   快照照常展示（AC / 罚时 / 错误次数），不是隐藏整张榜；封榜前提交、封榜后才出终态的提交
+   仍按提交时刻计入快照（边界以 `Submission.created_at` 判定）；
    **解冻只能由管理角色（admin / 团队创建者 / 管理员）调 `POST /contests/{id}/unfreeze` 手动执行且仅比赛结束后可用**——
    从 submissions 权威重算榜单并回填封榜期间结果；比赛结束（`status='finished'`）**不自动解冻**，
-   榜单保持冻结快照直到人工解冻。封榜期间新提交只落 `submissions` 与 `submission_test_case_results`，
-   不更新榜单行。
+   榜单保持封榜时刻快照直到人工解冻。封榜后新提交只落 `submissions` 与 `submission_test_case_results`，
+   不更新榜单行（`is_frozen` 保留为历史兼容标记，封榜流程不再整行冻结）。
 6. **赛后补题**：比赛结束后所有登录用户（含未报名者）可交题，自动标记 `submissions.is_after_contest=true`，不计入榜单；补题计入个人「本场作答状态 solved」。
 7. **提交记录可见性**（比赛上下文统一入口端点）：
    - **管理角色（admin / 团队创建者 / 管理员）随时可见**（含比赛期间与封榜期间，便于监考 / 巡查）

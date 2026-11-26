@@ -154,7 +154,7 @@ class ContestDetail(ContestSummary):
 
 
 class BoardCell(BaseModel):
-    """榜单单题格子（is_frozen=true 表示封榜快照，非实时数据）。"""
+    """榜单单题格子（封榜快照照常展示封榜时刻前的成绩）。"""
 
     problem_id: uuid.UUID
     letter: str | None = None

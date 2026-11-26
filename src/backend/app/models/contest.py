@@ -116,10 +116,11 @@ class ContestRegistration(Base):
 
 
 class ContestRanking(Base):
-    """比赛榜单记录行：(contest, user, problem) 唯一；is_frozen 为封榜快照标记。
+    """比赛榜单记录行：(contest, user, problem) 唯一；is_frozen 为历史兼容标记。
 
-    更新全部带 WHERE is_frozen = false 的条件写入（docs/contracts/contests.md 第 4 条）；
-    解冻由 admin 手动触发，解冻时从 submissions 权威重算回填封榜期间结果。
+    封榜不再整行冻结：封榜时按 submissions 重算至封榜时刻（只统计封榜前提交），
+    快照照常展示；封榜后提交只在解冻后全量重算回填。更新带 WHERE is_frozen = false
+    的条件写入（docs/contracts/contests.md 第 4 条）。
     """
 
     __tablename__ = "contest_rankings"

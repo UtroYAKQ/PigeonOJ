@@ -1301,10 +1301,11 @@ async def test_scoreboard_show_reveal_order(client: httpx.AsyncClient, user_head
     assert data["board_frozen"] is True
     assert data["frozen_at"] is not None
 
-    # 快照榜：A 格冻结、未 AC、封榜前 1 次错误；最终榜：A 通过（attempts=2，1 冻结期错误）
+    # 快照榜：A 格展示封榜时刻前成绩（未 AC、封榜前 1 次错误，正常可见）；
+    # 最终榜：A 通过（attempts=2，1 冻结期错误）
     base_cell = data["base_rows"][0]["cells"][0]
     final_cell = data["final_rows"][0]["cells"][0]
-    assert base_cell["accepted"] is False and base_cell["is_frozen"] is True
+    assert base_cell["accepted"] is False and base_cell["is_frozen"] is False
     assert base_cell["attempts"] == 1
     assert final_cell["accepted"] is True
 
@@ -1319,3 +1320,67 @@ async def test_scoreboard_show_reveal_order(client: httpx.AsyncClient, user_head
     # 非管理角色 → 2003
     resp = await client.get(f"/api/v1/contests/{cid}/scoreboard-show", headers=user_headers)
     assert resp.json()["code"] == 2003
+
+async def test_frozen_snapshot_counts_pre_freeze_late_result(
+    client: httpx.AsyncClient, user_headers
+) -> None:
+    """封榜只统计封榜时刻前的榜单：封榜前提交的迟到终态计入，封榜后提交不计。"""
+    from app.services.contest import ContestService
+
+    p1 = await _seed_problem("封榜时刻边界题")
+    manager = await _manager_headers(client)
+    payload = _contest_payload(
+        problems=[{"problem_id": p1}],
+        start_offset=-7200, end_offset=3600, reg_start_offset=-10800, reg_end_offset=-5400,
+        rule="ACM",
+    )
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
+    cid = uuid_mod.UUID(resp.json()["data"]["id"])
+    async with SessionLocal() as db:
+        uid = (await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))).scalar_one().id
+        db.add(ContestRegistration(contest_id=cid, user_id=uid))
+        await db.commit()
+
+    # 拨快封榜时间并驱动 transition，记录 frozen_at
+    async with SessionLocal() as db:
+        row = await db.get(Contest, cid)
+        row.freeze_time = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await db.commit()
+    async with SessionLocal() as db:
+        await ContestService(db).transition()
+        await db.commit()
+    async with SessionLocal() as db:
+        frozen_at = (await db.get(Contest, cid)).frozen_at
+        assert frozen_at is not None
+
+    # 封榜前提交、封榜后才出终态：按 Submission.created_at 判定，计入封榜快照
+    async with SessionLocal() as db:
+        late = Submission(
+            user_id=uid, problem_id=uuid_mod.UUID(p1), language="cpp17", code="AC",
+            submit_type="contest", contest_id=cid, status="accepted", score=100,
+            created_at=frozen_at - timedelta(seconds=5),
+        )
+        db.add(late)
+        await db.commit()
+        await ContestService(db).update_ranking_on_result(late, "accepted")
+        await db.commit()
+    resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
+    cell = resp.json()["data"]["rows"][0]["cells"][0]
+    assert cell["accepted"] is True and cell["is_frozen"] is False
+    assert cell["attempts"] == 0
+    frozen_penalty = cell["penalty"]
+
+    # 封榜后提交：提交时刻晚于 frozen_at，不入榜（快照保持不变）
+    async with SessionLocal() as db:
+        after = Submission(
+            user_id=uid, problem_id=uuid_mod.UUID(p1), language="cpp17", code="AC",
+            submit_type="contest", contest_id=cid, status="accepted", score=100,
+            created_at=frozen_at + timedelta(seconds=5),
+        )
+        db.add(after)
+        await db.commit()
+        await ContestService(db).update_ranking_on_result(after, "accepted")
+        await db.commit()
+    resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
+    cell = resp.json()["data"]["rows"][0]["cells"][0]
+    assert cell["penalty"] == frozen_penalty and cell["attempts"] == 0

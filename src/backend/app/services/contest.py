@@ -1107,7 +1107,8 @@ class ContestService:
                         attempts=rank_row.attempts if rank_row else 0,
                         penalty=rank_row.penalty if rank_row else 0,
                         score=rank_row.score if rank_row else 0,
-                        is_frozen=rank_row.is_frozen if rank_row else contest.board_frozen,
+                        # 封榜快照 = 封榜时刻前的完整成绩，照常展示（不是隐藏整张榜）
+                        is_frozen=False,
                         accepted_at=rank_row.accepted_at if rank_row else None,
                     )
                 )
@@ -1159,15 +1160,22 @@ class ContestService:
         """判题终态回写榜单（条件更新，docs/contracts/contests.md 第 4 条）。
 
         仅统计比赛内正式提交：赛后补题与 system_error（平台故障）不计；
-        封榜期间（board_frozen=true）不更新榜单行。
+        封榜按「提交时刻」判定边界——封榜后提交才不入榜，封榜前提交的迟到终态
+        仍计入封榜快照（封榜 = 只统计封榜时刻前的榜单，不是不统计榜单）。
         """
         if submission.submit_type != SubmitType.CONTEST or submission.contest_id is None:
             return
         if submission.is_after_contest or status == SubmissionStatus.SYSTEM_ERROR:
             return
         contest = await self.repo.get_by_id(submission.contest_id)
-        if contest is None or contest.board_frozen:
+        if contest is None:
             return
+        if contest.board_frozen:
+            freeze_moment = _aware(contest.frozen_at) if contest.frozen_at else (
+                _aware(contest.freeze_time) if contest.freeze_time else None
+            )
+            if freeze_moment is None or _aware(submission.created_at) >= freeze_moment:
+                return
 
         user_id = submission.user_id
         problem_id = submission.problem_id
@@ -1183,14 +1191,17 @@ class ContestService:
                         "contest", "contest.penalty_factor_minutes", DEFAULT_PENALTY_FACTOR_MINUTES
                     )
                 )
+                submitted_at = _aware(submission.created_at)
                 elapsed = int(
-                    (_now() - _aware(contest.start_time)).total_seconds() // 60
+                    (submitted_at - _aware(contest.start_time)).total_seconds() // 60
                 )
+                if elapsed < 0:
+                    elapsed = 0
                 await self.rankings.mark_accepted(
                     contest.id,
                     user_id,
                     problem_id,
-                    accepted_at=_now(),
+                    accepted_at=submitted_at,
                     penalty=elapsed + row.attempts * factor,
                 )
             else:
@@ -1287,21 +1298,25 @@ class ContestService:
         ):
             contest.board_frozen = True
             contest.frozen_at = now
-            await self.rankings.freeze_rows([contest.id])
+            await self._recompute_rankings(contest, before=now)
             await self.db.flush()
             await self._invalidate_board_cache(contest.id)
         else:
             await self.db.flush()
         return await self._to_summary(self.repo, contest)
 
-    async def _recompute_rankings(self, contest: Contest) -> None:
+    async def _recompute_rankings(self, contest: Contest, *, before: datetime | None = None) -> None:
         """重算榜单：以 submissions 为唯一事实源重建 (user, problem) 行。
 
-        聚合口径统一走 _aggregate_cells（与 _aggregate_final_rows 同源）；
-        ACM：attempts = 首次通过前的错误提交数（非 system_error），
-        penalty = 分钟差 + attempts × 系数；IOI：score = 各题历史最高分。
+        before 非空 = 封榜快照：只统计该时刻「之前提交」的终态提交（封榜后的提交
+        不入榜，直到解冻后全量重算回填）。聚合口径统一走 _aggregate_cells（与
+        _aggregate_final_rows 同源）；ACM：attempts = 首次通过前的错误提交数
+        （非 system_error），penalty = 分钟差 + attempts × 系数；IOI：score = 各题历史最高分。
         """
         subs = await self.submissions.list_contest_submissions(contest.id)
+        if before is not None:
+            moment = _aware(before)
+            subs = [s for s in subs if _aware(s.created_at) < moment]
         factor = int(
             await self.config.get_value(
                 "contest", "contest.penalty_factor_minutes", DEFAULT_PENALTY_FACTOR_MINUTES
@@ -1403,11 +1418,13 @@ class ContestService:
         now = _now()
         # 开赛
         await self.repo.start_due_contests(now)
-        # 封榜：到达封榜时间（freeze_time <= now，repo 直接筛出候选）
+        # 封榜：到达封榜时间（freeze_time <= now，repo 直接筛出候选）。
+        # 快照按 submissions 重算至封榜时刻（只统计封榜前提交），封榜后提交不入榜。
         freezing = await self.repo.list_freeze_candidates(now)
         if freezing:
             await self.repo.freeze_contests([c.id for c in freezing], now)
-            await self.rankings.freeze_rows([c.id for c in freezing])
+            for contest in freezing:
+                await self._recompute_rankings(contest, before=now)
         # 结束（不自动解冻：真实榜单回填由人工解冻触发）
         await self.repo.finish_due_contests(now)
         await self.db.commit()
