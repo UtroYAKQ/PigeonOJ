@@ -13,6 +13,7 @@ import * as usersApi from '@/api/users'
 import PasswordField from '@/components/auth/PasswordField.vue'
 import EmailCodeInput from '@/components/common/EmailCodeInput.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -129,7 +130,7 @@ async function confirmDeactivate(): Promise<void> {
   <UserSettingsShell>
     <div class="space-y-4">
       <div class="grid gap-4 md:grid-cols-2 md:items-start">
-        <section class="rounded-xl border border-border bg-card">
+        <Card>
           <header class="border-b border-border px-5 py-3.5">
             <h2 class="text-[14px] font-semibold">{{ t('security.changePassword') }}</h2>
           </header>
@@ -151,9 +152,9 @@ async function confirmDeactivate(): Promise<void> {
               {{ t('security.changePassword') }}
             </Button>
           </form>
-        </section>
+        </Card>
 
-        <section class="rounded-xl border border-border bg-card">
+        <Card>
           <header class="border-b border-border px-5 py-3.5">
             <h2 class="text-[14px] font-semibold">{{ t('security.changeEmail') }}</h2>
           </header>
@@ -185,7 +186,7 @@ async function confirmDeactivate(): Promise<void> {
               {{ t('security.confirmEmailChange') }}
             </Button>
           </form>
-        </section>
+        </Card>
       </div>
 
       <section class="rounded-xl border border-destructive/35 bg-destructive/[0.04]">

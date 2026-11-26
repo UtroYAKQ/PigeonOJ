@@ -1,20 +1,19 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Copy, Loader2, MailPlus } from '@lucide/vue'
+import { UserPlus, Loader2 } from '@lucide/vue'
 
-import { createTeamInvite, listTeamApplications, reviewTeamApplication } from '@/api/teams'
+import { listTeamApplications, reviewTeamApplication } from '@/api/teams'
 import BaseAvatar from '@/components/common/BaseAvatar.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { usePagination } from '@/composables/usePagination'
-import { copyToClipboard } from '@/utils/clipboard'
 import { message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
 import type { TeamApplicationItem } from '@/types'
+import InviteLinkDialog from './InviteLinkDialog.vue'
 
 const props = defineProps<{ teamId: string }>()
 
@@ -22,33 +21,7 @@ const emit = defineEmits<{ 'members-changed': [] }>()
 
 const { t } = useI18n()
 
-// ---- 邀请链接（多人可用、有效期内在邀请落地页可提交申请） ----
-const invite = reactive({ token: '', expiresAt: '' })
-const inviting = ref(false)
-
-const inviteLink = computed(() =>
-  invite.token ? `${window.location.origin}/teams/invites/${invite.token}` : '',
-)
-
-async function createInvite(): Promise<void> {
-  if (inviting.value) return
-  inviting.value = true
-  try {
-    const result = await createTeamInvite(props.teamId)
-    invite.token = result.token
-    invite.expiresAt = formatDateTime(result.expires_at)
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
-  } finally {
-    inviting.value = false
-  }
-}
-
-async function copyInviteLink(): Promise<void> {
-  const ok = await copyToClipboard(inviteLink.value)
-  if (ok) message.success(t('common.copied'))
-  else message.error(t('common.copyFailed'))
-}
+const inviteOpen = ref(false)
 
 // ---- 待审申请 ----
 const applications = ref<TeamApplicationItem[]>([])
@@ -164,42 +137,16 @@ onMounted(loadApplications)
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-3">
-    <section class="shrink-0 rounded-xl border border-border bg-card px-4 py-3.5">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div class="min-w-0">
-          <h2 class="text-[13.5px] font-semibold">{{ t('teams.settings.inviteTitle') }}</h2>
-          <p class="mt-1 max-w-[78ch] text-[12px] leading-5 text-muted-foreground">
-            {{ t('teams.settings.inviteHint') }}
-          </p>
-        </div>
-        <Button size="sm" :disabled="inviting" @click="createInvite">
-          <Loader2 v-if="inviting" class="size-4 animate-spin" />
-          <MailPlus v-else class="size-4" />
-          {{ invite.token ? t('teams.settings.regenerate') : t('teams.settings.generateInvite') }}
-        </Button>
-      </div>
-
-      <div v-if="invite.token" class="mt-3 flex flex-wrap items-center gap-2">
-        <Input
-          :model-value="inviteLink"
-          readonly
-          class="h-9 min-w-[260px] flex-1 font-mono text-[12px]"
-          @focus="($event.target as HTMLInputElement).select()"
-        />
-        <Button variant="outline" size="toolbar" @click="copyInviteLink">
-          <Copy class="size-3.5" />
-          {{ t('action.copyLink') }}
-        </Button>
-        <span class="text-[11.5px] tabular-nums text-muted-foreground">
-          {{ t('teams.settings.inviteExpiry', { time: invite.expiresAt }) }}
-        </span>
-      </div>
-    </section>
-
     <section class="flex min-h-0 flex-1 flex-col gap-2">
-      <h2 class="shrink-0 text-[13.5px] font-semibold">
-        {{ t('teams.detail.tabApplications') }}
-      </h2>
+      <div class="flex shrink-0 items-center justify-between gap-2">
+        <h2 class="text-[13.5px] font-semibold">
+          {{ t('teams.detail.tabApplications') }}
+        </h2>
+        <Button size="sm" @click="inviteOpen = true">
+          <UserPlus class="size-4" />
+          {{ t('teams.detail.inviteMembers') }}
+        </Button>
+      </div>
       <PaginatedTable
         :columns="columns"
         :data="applications"
@@ -215,5 +162,7 @@ onMounted(loadApplications)
         </template>
       </PaginatedTable>
     </section>
+
+    <InviteLinkDialog v-model:open="inviteOpen" :team-id="teamId" />
   </div>
 </template>

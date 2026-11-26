@@ -204,7 +204,7 @@ function cancelWizard(): void {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-[960px] px-4 pb-12 pt-4 sm:px-6">
+  <div class="mx-auto w-full max-w-[1200px] px-4 pb-12 pt-4 sm:px-6">
     <header class="flex flex-wrap items-center gap-2">
       <h1 class="text-xl font-semibold leading-tight tracking-tight">
         {{ editingId ? t('contests.list.editTitle') : t('contests.list.createTitle') }}

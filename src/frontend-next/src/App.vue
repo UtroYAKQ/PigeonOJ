@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onMounted, watch } from 'vue'
-import { Toaster } from 'vue-sonner'
 
 import ConfirmDialogHost from '@/components/feedback/ConfirmDialogHost.vue'
+import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { refreshDocumentTitle } from '@/router'
 import { useAppStore } from '@/stores/app'
@@ -25,21 +25,6 @@ watch(
       <router-view />
     </div>
   </TooltipProvider>
-  <Toaster
-    position="top-center"
-    :duration="3200"
-    :theme="appStore.isDark ? 'dark' : 'light'"
-    :toast-options="{
-      style: {
-        background: 'var(--popover)',
-        color: 'var(--popover-foreground)',
-        border: '1px solid var(--border)',
-        boxShadow: 'none',
-        fontFamily: 'var(--font-sans)',
-        fontSize: '13.5px',
-        borderRadius: '10px',
-      },
-    }"
-  />
+  <Toaster position="top-center" :duration="3200" :theme="appStore.isDark ? 'dark' : 'light'" />
   <ConfirmDialogHost />
 </template>

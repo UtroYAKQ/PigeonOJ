@@ -25,6 +25,7 @@ import ProblemPicker from '@/components/problemsets/ProblemPicker.vue'
 import ProblemSetArrangeTable from '@/components/problemsets/ProblemSetArrangeTable.vue'
 import ProblemSetVisibilityBadge from '@/components/problemsets/ProblemSetVisibilityBadge.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import type { PageResult, ProblemSetDetail, ProblemSetItem, ProblemSummary } from '@/types'
 
@@ -205,8 +206,8 @@ const canArrange = computed(() => detail.value?.status === 'active' && !arrangin
       class="grid min-h-0 flex-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)] lg:overflow-hidden"
     >
       <!-- 左框：题单介绍（内部滚动） -->
-      <section
-        class="flex min-h-[280px] flex-col overflow-hidden rounded-xl border border-border bg-card lg:min-h-0"
+      <Card
+        class="flex min-h-[280px] flex-col overflow-hidden lg:min-h-0"
       >
         <header class="shrink-0 border-b border-border/70 px-4 py-2.5 text-[13px] font-semibold">
           {{ t('problemSets.list.descLabel') }}
@@ -217,11 +218,11 @@ const canArrange = computed(() => detail.value?.status === 'active' && !arrangin
             <EmptyState :text="t('problemSets.detail.noDescription')" />
           </div>
         </div>
-      </section>
+      </Card>
 
       <!-- 右框：题目列表（点进来即编排，表体内部滚动） -->
-      <section
-        class="flex min-h-[340px] flex-col overflow-hidden rounded-xl border border-border bg-card lg:min-h-0"
+      <Card
+        class="flex min-h-[340px] flex-col overflow-hidden lg:min-h-0"
       >
         <header
           class="flex shrink-0 items-center justify-between gap-2 border-b border-border/70 px-4 py-2"
@@ -245,7 +246,7 @@ const canArrange = computed(() => detail.value?.status === 'active' && !arrangin
             @reorder="reorderItems"
           />
         </div>
-      </section>
+      </Card>
     </div>
 
     <ProblemPicker

@@ -36,7 +36,11 @@ function clear(): void {
 
 <template>
   <div class="flex flex-wrap items-center gap-2">
-    <div v-if="showSearch" class="relative" :style="{ width: searchWidth }">
+    <div
+      v-if="showSearch"
+      class="relative w-full shrink-0 sm:w-[var(--sf-search-w)]"
+      :style="{ '--sf-search-w': searchWidth }"
+    >
       <SearchIcon
         class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
       />

@@ -16,6 +16,7 @@ import InlineNotice from '@/components/common/InlineNotice.vue'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { useUserStore } from '@/stores/user'
 import { message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
@@ -77,9 +78,9 @@ onMounted(load)
         {{ t('common.loading') }}
       </div>
 
-      <div
+      <Card
         v-else-if="!invite"
-        class="flex w-full max-w-[520px] flex-col items-center gap-3 rounded-xl border border-border bg-card px-6 py-12 text-center"
+        class="flex w-full max-w-[520px] flex-col items-center gap-3 px-6 py-12 text-center"
       >
         <EmptyState :icon="Users" :text="t('teams.invite.invalid')">
           <Button variant="outline" size="sm" @click="load">
@@ -87,11 +88,11 @@ onMounted(load)
             {{ t('action.refresh') }}
           </Button>
         </EmptyState>
-      </div>
+      </Card>
 
-      <article
+      <Card
         v-else
-        class="w-full max-w-[520px] rounded-xl border border-border bg-card px-6 py-8 text-center sm:px-8"
+        class="w-full max-w-[520px] px-6 py-8 text-center sm:px-8"
       >
         <Badge variant="outline" class="h-6 border px-2.5 text-[11.5px] font-medium">
           {{ t('teams.invite.badge') }}
@@ -146,7 +147,7 @@ onMounted(load)
             </Button>
           </div>
         </template>
-      </article>
+      </Card>
     </div>
   </WorkbenchShell>
 </template>

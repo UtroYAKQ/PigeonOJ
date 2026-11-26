@@ -11,6 +11,7 @@ import { uploadAvatar } from '@/api/files'
 import BaseAvatar from '@/components/common/BaseAvatar.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -136,7 +137,7 @@ async function onSave(): Promise<void> {
 <template>
   <UserSettingsShell>
     <div class="grid gap-4 md:grid-cols-[minmax(0,280px)_minmax(0,1fr)] md:items-start">
-      <section class="rounded-xl border border-border bg-card p-5">
+      <Card class="p-5">
         <div class="flex flex-col items-center text-center">
           <BaseAvatar :src="form.avatar_url || null" :name="form.nickname" :size="96" />
           <Button
@@ -183,9 +184,9 @@ async function onSave(): Promise<void> {
             </dd>
           </div>
         </dl>
-      </section>
+      </Card>
 
-      <section class="rounded-xl border border-border bg-card">
+      <Card>
         <header
           class="flex flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-3.5"
         >
@@ -280,7 +281,7 @@ async function onSave(): Promise<void> {
             </p>
           </div>
         </form>
-      </section>
+      </Card>
     </div>
   </UserSettingsShell>
 </template>

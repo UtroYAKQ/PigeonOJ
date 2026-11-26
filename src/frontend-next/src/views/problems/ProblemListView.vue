@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { listActiveTags, listProblems } from '@/api/problems'
 import FilterCheckbox from '@/components/common/FilterCheckbox.vue'
-import LineList from '@/components/common/LineList.vue'
+import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import RefreshButton from '@/components/common/RefreshButton.vue'
 import SearchFilterBar from '@/components/common/SearchFilterBar.vue'
-import ToneBadge from '@/components/common/ToneBadge.vue'
-import VNodeContent from '@/components/common/VNodeContent'
+
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
+import type { AppTableColumn } from '@/components/common/table-types'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -22,7 +22,7 @@ import {
 import { usePagination } from '@/composables/usePagination'
 import { useUserStore } from '@/stores/user'
 import { message } from '@/utils/feedback'
-import { renderSolveMark } from '@/utils/solveMark'
+
 import type { ProblemSummary, ProblemTagItem } from '@/types'
 
 const router = useRouter()
@@ -124,29 +124,54 @@ onMounted(() => {
   void loadTags()
 })
 
-function renderTag(item: ProblemTagItem) {
-  return h(
-    'span',
+const columns = computed<AppTableColumn<ProblemSummary>[]>(() => {
+  const list: AppTableColumn<ProblemSummary>[] = [
     {
-      class:
-        'inline-flex h-4.5 items-center rounded border border-border px-1.5 text-[11px] text-muted-foreground',
-      style: item.color ? { color: item.color, borderColor: `${item.color}55` } : undefined,
-      title: item.name,
+      key: 'title',
+      title: t('problems.list.name'),
+      cell: (row) => row.title,
+      cellClass: 'font-medium text-[13.5px]',
     },
-    item.name,
+  ]
+
+  if (showTags.value) {
+    list.push({
+      key: 'tags',
+      title: t('problems.list.tags'),
+      width: '220px',
+      cell: (row) => (row.tags ?? []).map((tagItem) => tagItem.name).join(' / ') || '--',
+      cellClass: 'text-[12.5px] text-muted-foreground',
+    })
+  }
+
+  list.push(
+    {
+      key: 'limits',
+      title: t('problems.list.limits'),
+      width: '170px',
+      cell: (row) => `${row.time_limit_ms} ms / ${row.memory_limit_mb} MB`,
+      cellClass: 'tabular-nums text-[12.5px] text-muted-foreground',
+    },
+    {
+      key: 'difficulty',
+      title: t('problems.list.difficulty'),
+      width: '90px',
+      align: 'center',
+      cell: (row) => row.difficulty ?? '--',
+      cellClass: 'tabular-nums text-[12.5px] text-muted-foreground',
+    },
+    {
+      key: 'passRate',
+      title: t('problems.list.passRate'),
+      width: '100px',
+      align: 'right',
+      cell: (row) => passRate(row),
+      cellClass: 'tabular-nums text-[12.5px] text-muted-foreground',
+    },
   )
-}
 
-const gridClass = computed(() =>
-  showTags.value
-    ? 'grid-cols-[56px_minmax(0,1fr)_220px_170px_90px_100px]'
-    : 'grid-cols-[56px_minmax(0,1fr)_170px_90px_100px]',
-)
-
-function visibleTags(row: ProblemSummary) {
-  const tags = row.tags ?? []
-  return { visible: tags.slice(0, 4), rest: tags.slice(4) }
-}
+  return list
+})
 </script>
 
 <template>
@@ -207,16 +232,16 @@ function visibleTags(row: ProblemSummary) {
       </SearchFilterBar>
     </template>
 
-    <LineList
-      :items="problems"
+    <PaginatedTable
+      :columns="columns"
+      :data="problems"
       :loading="loading"
       :total="total"
       :page="page"
       :page-size="pageSize"
-      :show-pager="true"
+      :page-sizes="[20, 50, 100]"
       :empty-text="t('problems.list.empty')"
-      min-width="900px"
-      :get-key="(row: ProblemSummary) => row.id"
+      :row-click="(row: ProblemSummary) => router.push(`/problems/${row.id}`)"
       @update:page="
         (value: number) => {
           changePage(value)
@@ -230,90 +255,9 @@ function visibleTags(row: ProblemSummary) {
         }
       "
     >
-      <template #header>
-        <div
-          class="grid items-center gap-4 px-3 pb-2 text-xs font-medium text-muted-foreground"
-          :class="gridClass"
-        >
-          <span class="sr-only">{{ t('problems.list.solveNever') }}</span>
-          <span>{{ t('problems.list.name') }}</span>
-          <span v-if="showTags">{{ t('problems.list.tags') }}</span>
-          <span>{{ t('problems.list.limits') }}</span>
-          <span class="text-center">{{ t('problems.list.difficulty') }}</span>
-          <span class="text-right">{{ t('problems.list.passRate') }}</span>
-        </div>
-      </template>
-
-      <template #skeleton>
-        <div
-          v-for="row in 6"
-          :key="row"
-          class="grid items-center gap-4 px-3 py-4"
-          :class="gridClass"
-        >
-          <span class="size-4 rounded bg-muted" />
-          <span class="h-4 w-2/5 rounded bg-muted" />
-          <span v-if="showTags" class="h-3.5 w-3/4 rounded bg-muted/70" />
-          <span class="h-3.5 w-4/5 rounded bg-muted/70" />
-          <span class="h-3.5 w-8 justify-self-center rounded bg-muted/70" />
-          <span class="h-3.5 w-10 justify-self-end rounded bg-muted/70" />
-        </div>
-      </template>
-
-      <template #item="{ item }">
-        <button
-          type="button"
-          class="grid w-full items-center gap-4 px-3 py-3.5 text-left transition-colors focus-visible:bg-muted/40 focus-visible:outline-none"
-          :class="gridClass"
-          @click="router.push(`/problems/${item.id}`)"
-        >
-          <span class="grid place-items-center">
-            <VNodeContent :node="renderSolveMark(t, item.solved)" />
-          </span>
-
-          <span class="flex min-w-0 flex-wrap items-center gap-2">
-            <span class="truncate text-sm font-semibold text-foreground">{{ item.title }}</span>
-            <ToneBadge
-              v-if="item.visibility === 'private'"
-              tone="danger"
-              :label="t('problems.list.privateTag')"
-            />
-          </span>
-
-          <span v-if="showTags" class="flex min-w-0 flex-wrap items-center gap-1">
-            <VNodeContent
-              v-for="tagItem in visibleTags(item).visible"
-              :key="tagItem.id"
-              :node="renderTag(tagItem)"
-            />
-            <span
-              v-if="visibleTags(item).rest.length"
-              class="text-xs text-muted-foreground"
-              :title="
-                visibleTags(item)
-                  .rest.map((tagItem) => tagItem.name)
-                  .join(', ')
-              "
-            >
-              +{{ visibleTags(item).rest.length }}
-            </span>
-          </span>
-
-          <span class="text-sm text-muted-foreground tabular-nums">
-            {{ item.time_limit_ms }} ms / {{ item.memory_limit_mb }} MB
-          </span>
-          <span class="text-center text-sm text-muted-foreground tabular-nums">
-            {{ item.difficulty ?? '--' }}
-          </span>
-          <span class="text-right text-sm text-muted-foreground tabular-nums">
-            {{ passRate(item) }}
-          </span>
-        </button>
-      </template>
-
       <template #pager-left>
         <span class="tabular-nums">{{ t('problems.list.totalCount', { count: total }) }}</span>
       </template>
-    </LineList>
+    </PaginatedTable>
   </WorkbenchShell>
 </template>

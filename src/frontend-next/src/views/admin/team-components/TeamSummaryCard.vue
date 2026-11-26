@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 
 import BaseAvatar from '@/components/common/BaseAvatar.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
+import { Card } from '@/components/ui/card'
 import { formatDateTime } from '@/utils/format'
 import type { TeamAdminDetail } from '@/types'
 
@@ -15,8 +16,8 @@ const isActive = computed(() => props.detail.status === 'active')
 </script>
 
 <template>
-  <section
-    class="flex shrink-0 flex-col gap-4 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-start md:p-5"
+  <Card
+    class="flex shrink-0 flex-col gap-4 p-4 sm:flex-row sm:items-start md:p-5"
   >
     <BaseAvatar
       kind="team"
@@ -100,5 +101,5 @@ const isActive = computed(() => props.detail.status === 'active')
         </span>
       </div>
     </div>
-  </section>
+  </Card>
 </template>

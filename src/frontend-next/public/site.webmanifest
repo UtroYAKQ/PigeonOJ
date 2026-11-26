@@ -1,0 +1,29 @@
+{
+  "name": "PigeonOJ · 在线编程与竞赛平台",
+  "short_name": "PigeonOJ",
+  "description": "融合传统 OJ 与 AI 辅助的在线编程学习、训练与竞赛平台。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#d9480f",
+  "icons": [
+    {
+      "src": "/brand/favicon.png",
+      "sizes": "128x128",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/pigeon-mark.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/pigeon-mark.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

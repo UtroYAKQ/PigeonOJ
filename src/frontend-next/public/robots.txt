@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api
+Disallow: /user
+Disallow: /verify
+Disallow: /teams/invites
+
+Sitemap: https://www.youtro.top/sitemap.xml

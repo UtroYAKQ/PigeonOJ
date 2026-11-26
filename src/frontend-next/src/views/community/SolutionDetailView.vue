@@ -9,6 +9,7 @@ import CommentThread from '@/components/community/CommentThread.vue'
 import ReportDialog from '@/components/community/ReportDialog.vue'
 import InlineNotice from '@/components/common/InlineNotice.vue'
 import MarkdownView from '@/components/common/MarkdownView.vue'
+import { Card } from '@/components/ui/card'
 import PageShell from '@/components/common/PageShell.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
 import { Button } from '@/components/ui/button'
@@ -83,7 +84,7 @@ onMounted(load)
     </div>
 
     <template v-else-if="solution">
-      <article class="overflow-hidden rounded-xl border border-border bg-card">
+      <Card class="overflow-hidden">
         <header class="border-b border-border px-5 py-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
@@ -122,7 +123,7 @@ onMounted(load)
           </InlineNotice>
           <MarkdownView :source="solution.content" />
         </div>
-      </article>
+      </Card>
 
       <div class="mt-4">
         <CommentThread
@@ -135,8 +136,8 @@ onMounted(load)
       <ReportDialog v-model:open="reportOpen" target-type="solution" :target-id="solution.id" />
     </template>
 
-    <div v-else class="grid min-h-[320px] place-items-center rounded-xl border border-border bg-card">
+    <Card v-else class="grid min-h-[320px] place-items-center">
       <p class="text-[13px] text-muted-foreground">{{ t('admin.solutions.previewNotFound') }}</p>
-    </div>
+    </Card>
   </PageShell>
 </template>

@@ -22,6 +22,7 @@ import { getTeam, submitTeamApplication } from '@/api/teams'
 import { ApiError } from '@/api/http'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { useTeamsStore } from '@/stores/teams'
 import { useUserStore } from '@/stores/user'
 import { message } from '@/utils/feedback'
@@ -146,9 +147,9 @@ onMounted(loadTeam)
   <WorkbenchShell>
     <div class="flex min-h-0 flex-1 flex-col gap-3">
       <!-- 加载骨架 -->
-      <div
+      <Card
         v-if="!team && loading"
-        class="grid flex-1 place-items-center rounded-xl border border-border bg-card"
+        class="grid flex-1 place-items-center"
       >
         <div class="w-full max-w-xl space-y-4 p-8">
           <div class="flex items-center gap-4">
@@ -160,12 +161,12 @@ onMounted(loadTeam)
             </div>
           </div>
         </div>
-      </div>
+      </Card>
 
       <!-- 失败 / 非成员 -->
-      <div
+      <Card
         v-else-if="!team"
-        class="grid flex-1 place-items-center rounded-xl border border-border bg-card"
+        class="grid flex-1 place-items-center"
       >
         <div class="flex max-w-[520px] flex-col items-center gap-3 px-6 py-16 text-center">
           <ShieldAlert class="size-7 text-muted-foreground" :stroke-width="1.6" />
@@ -187,7 +188,7 @@ onMounted(loadTeam)
             </Button>
           </div>
         </div>
-      </div>
+      </Card>
 
       <template v-else>
         <TeamHeader
@@ -199,11 +200,11 @@ onMounted(loadTeam)
         />
 
         <!-- 下半区：左侧功能按钮 + 右侧内容，窄屏按钮横排置顶 -->
-        <section
-          class="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card lg:flex-row"
+        <Card
+          class="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row"
         >
           <nav
-            class="flex shrink-0 gap-1 overflow-x-auto border-b border-border p-2 lg:w-[220px] lg:flex-col lg:overflow-x-hidden lg:border-b-0 lg:border-r lg:p-3"
+            class="scrollbar-none flex shrink-0 gap-1 overflow-x-auto border-b border-border p-2 lg:w-[220px] lg:flex-col lg:overflow-x-hidden lg:border-b-0 lg:border-r lg:p-3"
             :aria-label="t('teams.detail.workspace')"
           >
             <p
@@ -216,7 +217,7 @@ onMounted(loadTeam)
               :key="tab.key"
               variant="ghost"
               size="sm"
-              class="h-9 shrink-0 justify-start gap-2.5 px-2.5 text-[13px] font-medium lg:w-full"
+              class="h-10 shrink-0 justify-start gap-2.5 px-2.5 text-[13px] font-medium lg:h-9 lg:w-full"
               :class="
                 activeTab === tab.key
                   ? 'bg-accent text-foreground'
@@ -286,7 +287,7 @@ onMounted(loadTeam)
               />
             </div>
           </div>
-        </section>
+        </Card>
       </template>
     </div>
   </WorkbenchShell>

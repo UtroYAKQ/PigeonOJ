@@ -4,7 +4,7 @@
     statusRunning: '进行中',
     statusFinished: '已结束',
     boardFrozenTag: '已封榜',
-    frozenHint: '榜单处于封榜状态，等待管理员解冻后展示最终结果',
+    frozenHint: '榜单已冻结在封榜时刻的成绩，封榜后的提交将在解冻后展示',
     list: {
       search: '搜索比赛',
       empty: '暂无比赛',
@@ -76,6 +76,8 @@
       tabSubmissions: '提交记录',
       about: '比赛说明',
       schedule: '时间安排',
+      startTime: '开始时间',
+      endTime: '结束时间',
       noDescription: '暂无比赛说明',
       letter: '题号',
       difficulty: '难度',

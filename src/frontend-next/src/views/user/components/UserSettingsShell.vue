@@ -29,7 +29,7 @@ const active = computed(() => {
 <template>
   <PageShell :title="title">
     <Tabs :model-value="active" class="mb-4">
-      <TabsList class="w-fit">
+      <TabsList class="w-fit max-w-full overflow-x-auto">
         <TabsTrigger value="profile" as-child class="px-3 text-[12.5px]">
           <RouterLink to="/user/profile">{{ t('user.profile') }}</RouterLink>
         </TabsTrigger>

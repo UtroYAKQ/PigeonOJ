@@ -7,6 +7,7 @@ import ToneBadge from '@/components/common/ToneBadge.vue'
 import ContestCountdown from '@/components/contests/ContestCountdown.vue'
 import ContestStatusBadge from '@/components/contests/ContestStatusBadge.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +33,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <header class="shrink-0 rounded-xl border border-border bg-card px-4 py-4 md:px-5">
+  <Card class="shrink-0 px-4 py-4 md:px-5">
     <div class="flex flex-wrap items-start gap-4">
       <BaseAvatar
         kind="contest"
@@ -113,5 +114,5 @@ const { t } = useI18n()
         </DropdownMenu>
       </div>
     </div>
-  </header>
+  </Card>
 </template>

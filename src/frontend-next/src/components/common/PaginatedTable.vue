@@ -18,6 +18,8 @@ withDefaults(
     selectable?: boolean
     rowKey?: (row: any) => string | number
     selectedKeys?: Array<string | number>
+    /** 表格最小宽度：窄容器下横向滚动，避免压缩列导致文案截断 */
+    minWidth?: string
   }>(),
   { selectedKeys: () => [] },
 )

@@ -175,22 +175,23 @@ const columns = computed<AppTableColumn<TeamAdminSummary>[]>(() => [
       }),
   },
   {
+    key: 'created_at',
+    title: t('admin.teams.createdAt'),
+    width: '160px',
+    cell: (row) => formatDateTime(row.created_at),
+    cellClass: 'text-[12.5px] text-muted-foreground',
+  },
+  {
     key: 'ops',
     width: '56px',
     align: 'right',
+    cellClass: 'overflow-visible text-clip px-1',
     cell: (row) =>
       h(RowActions, {
         actions: [{ key: 'assignOrg', label: t('admin.teams.assignOrg') }],
         label: t('action.more'),
         onSelect: () => openAssign(row),
       }),
-  },
-  {
-    key: 'created_at',
-    title: t('admin.teams.createdAt'),
-    width: '160px',
-    cell: (row) => formatDateTime(row.created_at),
-    cellClass: 'text-[12.5px] text-muted-foreground',
   },
 ])
 

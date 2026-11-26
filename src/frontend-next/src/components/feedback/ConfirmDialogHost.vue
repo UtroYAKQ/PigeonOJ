@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import { Button } from '@/components/ui/button'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import { closeConfirm, confirmState } from '@/utils/feedback'
 
 const options = computed(() => confirmState.options)
@@ -20,22 +20,22 @@ function onOpenChange(open: boolean): void {
 </script>
 
 <template>
-  <Dialog :open="confirmState.open" @update:open="onOpenChange">
-    <DialogContent class="sm:max-w-[420px]">
-      <DialogHeader>
-        <DialogTitle>{{ options?.title }}</DialogTitle>
-        <DialogDescription v-if="options?.content" class="whitespace-pre-line">
+  <AlertDialog :open="confirmState.open" @update:open="onOpenChange">
+    <AlertDialogContent size="sm">
+      <AlertDialogHeader>
+        <AlertDialogTitle>{{ options?.title }}</AlertDialogTitle>
+        <AlertDialogDescription v-if="options?.content" class="whitespace-pre-line">
           {{ options.content }}
-        </DialogDescription>
-      </DialogHeader>
-      <DialogFooter class="gap-2">
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter class="gap-2">
         <Button variant="outline" @click="closeConfirm(false)">
           {{ options?.negativeText ?? 'Cancel' }}
         </Button>
         <Button :variant="options?.danger ? 'destructive' : 'default'" @click="closeConfirm(true)">
           {{ options?.positiveText ?? 'Confirm' }}
         </Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
 </template>

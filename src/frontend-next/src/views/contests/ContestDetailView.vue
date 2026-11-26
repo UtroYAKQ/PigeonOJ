@@ -14,6 +14,7 @@ import { getContest, registerContest } from '@/api/contests'
 import { getTeamContest, registerTeamContest } from '@/api/teams'
 import ErrorState from '@/components/common/ErrorState.vue'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
+import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { message } from '@/utils/feedback'
 import ContestHeader from './components/ContestHeader.vue'
@@ -190,9 +191,9 @@ onBeforeUnmount(stopClock)
 <template>
   <WorkbenchShell>
     <div class="flex min-h-0 flex-1 flex-col gap-3">
-      <div
+      <Card
         v-if="!detail"
-        class="grid flex-1 place-items-center rounded-xl border border-border bg-card"
+        class="grid flex-1 place-items-center"
       >
         <div v-if="loading" class="w-full max-w-xl space-y-4 p-8">
           <div class="flex items-center gap-4">
@@ -207,7 +208,7 @@ onBeforeUnmount(stopClock)
         <div v-else class="flex flex-col items-center gap-3 py-16">
           <ErrorState :message="t('common.loadFailed')" @retry="load" />
         </div>
-      </div>
+      </Card>
 
       <template v-else>
         <ContestHeader

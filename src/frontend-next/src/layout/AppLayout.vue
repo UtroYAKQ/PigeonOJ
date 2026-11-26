@@ -232,7 +232,7 @@ watch(
         </div>
       </header>
 
-      <main ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
+      <main ref="scroller" class="min-h-0 flex-1 overscroll-contain overflow-y-auto">
         <router-view v-slot="{ Component, route: current }" :key="cacheScope">
           <keep-alive :max="8">
             <component :is="Component" v-if="current.meta.keepAlive" :key="current.fullPath" />

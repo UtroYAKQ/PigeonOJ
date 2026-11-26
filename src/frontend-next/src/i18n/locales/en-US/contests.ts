@@ -4,7 +4,7 @@
     statusRunning: 'Running',
     statusFinished: 'Finished',
     boardFrozenTag: 'Frozen',
-    frozenHint: 'The scoreboard is frozen. Final results will be shown after manual unfreeze.',
+    frozenHint: 'The scoreboard shows results up to the freeze moment; later submissions are revealed after unfreeze.',
     list: {
       search: 'Search contests',
       empty: 'No contests yet',
@@ -80,6 +80,8 @@
       tabSubmissions: 'Submissions',
       about: 'About',
       schedule: 'Schedule',
+      startTime: 'Start time',
+      endTime: 'End time',
       noDescription: 'No description yet',
       letter: '#',
       difficulty: 'Difficulty',

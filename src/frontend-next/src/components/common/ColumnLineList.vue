@@ -2,14 +2,23 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import LineList from '@/components/common/LineList.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import Pager from '@/components/common/Pager.vue'
 import VNodeContent from '@/components/common/VNodeContent'
 import type { AppTableColumn } from '@/components/common/table-types'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
 /**
- * 列驱动的横线列表：由 AppTableColumn 生成表头与逐行单元格，统一交给 LineList。
+ * 列驱动的数据表格：由 AppTableColumn 生成 shadcn Table 的表头与单元格。
  * 不分页的列表直接使用；分页列表用 PaginatedTable（本组件 + 分页开关）。
  */
 const props = withDefaults(
@@ -45,11 +54,8 @@ const emit = defineEmits<ColumnLineListEmits>()
 
 const { t } = useI18n()
 
-const gridTemplateColumns = computed(() => {
-  const columns = props.columns.map((column) => column.width ?? 'minmax(0, 1fr)')
-  if (props.selectable) columns.unshift('40px')
-  return columns.join(' ')
-})
+
+const effectiveMinWidth = computed(() => props.minWidth ?? '640px')
 
 const selectedSet = computed(() => new Set(props.selectedKeys))
 
@@ -99,93 +105,121 @@ function alignClass(column: AppTableColumn<any>): string {
   if (column.align === 'center') return 'text-center'
   return ''
 }
+
+/** 固定像素 / 百分比宽度落到 colgroup；弹性宽度（1fr / minmax）交给 table-fixed 均分 */
+function colWidth(column: AppTableColumn<any>): string | undefined {
+  const width = column.width
+  if (!width || /fr\b/.test(width) || width.includes('minmax')) return undefined
+  return width
+}
 </script>
 
 <template>
-  <LineList
-    :items="items"
-    :loading="loading"
-    :total="total ?? items.length"
-    :page="page ?? 1"
-    :page-size="pageSize ?? items.length"
-    :page-sizes="pageSizes"
-    :show-size-picker="showSizePicker"
-    :show-pager="showPager"
-    :empty-text="emptyText"
-    :skeleton-count="skeletonCount"
-    :min-width="minWidth"
-    @update:page="emit('update:page', $event)"
-    @update:page-size="emit('update:pageSize', $event)"
-  >
-    <template #header>
-      <div
-        class="grid items-center gap-3 px-3 pb-2 text-xs font-medium text-muted-foreground"
-        :style="{ gridTemplateColumns }"
+  <div class="flex min-h-0 flex-1 flex-col">
+    <div
+      class="flex min-h-0 flex-1 flex-col overflow-auto [&_[data-slot=table-container]]:overflow-visible"
+    >
+      <Table
+        class="table-fixed"
+        :style="{ minWidth: effectiveMinWidth }"
       >
-        <div v-if="selectable" class="flex items-center">
-          <Checkbox
-            :aria-label="t('action.selectAll')"
-            :model-value="someSelected ? 'indeterminate' : allSelected"
-            @update:model-value="onToggleAll"
-          />
-        </div>
-        <span
-          v-for="column in columns"
-          :key="column.key"
-          class="min-w-0 truncate"
-          :class="[column.headerClass, alignClass(column)]"
-        >
-          {{ column.title }}
-        </span>
-      </div>
-    </template>
+        <colgroup>
+          <col v-if="selectable" style="width: 40px" />
+          <col v-for="column in columns" :key="column.key" :style="{ width: colWidth(column) }" />
+        </colgroup>
 
-    <template #skeleton>
+        <TableHeader class="sticky top-0 z-10 bg-background">
+          <TableRow class="hover:bg-transparent">
+            <TableHead v-if="selectable" class="w-10">
+              <Checkbox
+                :aria-label="t('action.selectAll')"
+                :model-value="someSelected ? 'indeterminate' : allSelected"
+                @update:model-value="onToggleAll"
+              />
+            </TableHead>
+            <TableHead
+              v-for="column in columns"
+              :key="column.key"
+              :class="[column.headerClass, alignClass(column), 'px-3 text-xs']"
+            >
+              {{ column.title }}
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+
+        <TableBody>
+          <template v-if="loading">
+            <TableRow
+              v-for="index in skeletonCount ?? 6"
+              :key="`skeleton-${index}`"
+              class="hover:bg-transparent"
+            >
+              <TableCell v-if="selectable">
+                <Skeleton class="size-3.5" />
+              </TableCell>
+              <TableCell v-for="column in columns" :key="column.key" class="px-3 py-4">
+                <Skeleton class="h-3.5 w-full max-w-[160px]" />
+              </TableCell>
+            </TableRow>
+          </template>
+
+          <template v-else-if="items.length">
+            <TableRow
+              v-for="(item, index) in items"
+              :key="keyOf(item, index)"
+              :class="[rowClick ? 'cursor-pointer' : '', rowClass?.(item)]"
+              :role="rowClick ? 'button' : undefined"
+              :tabindex="rowClick ? 0 : undefined"
+              @click="rowClick?.(item)"
+              @keydown="onRowKeydown($event, item)"
+            >
+              <TableCell v-if="selectable" class="w-10" @click.stop>
+                <Checkbox
+                  :aria-label="t('action.selectRow')"
+                  :model-value="selectedSet.has(keyOf(item, index))"
+                  @update:model-value="toggleRow(item, index)"
+                />
+              </TableCell>
+              <TableCell
+                v-for="column in columns"
+                :key="column.key"
+                :class="[column.cellClass, alignClass(column), 'overflow-hidden text-[13.5px] text-ellipsis px-3']"
+              >
+                <VNodeContent v-if="column.cell" :node="column.cell(item, index)" />
+                <template v-else>{{ item[column.key] }}</template>
+              </TableCell>
+            </TableRow>
+          </template>
+
+          </TableBody>
+      </Table>
+
       <div
-        v-for="index in skeletonCount ?? 6"
-        :key="`skeleton-${index}`"
-        class="grid items-center gap-3 px-3 py-4"
-        :style="{ gridTemplateColumns }"
+        v-if="!loading && !items.length"
+        class="grid min-h-[240px] flex-1 place-items-center px-4"
       >
-        <Skeleton v-if="selectable" class="size-3.5" />
-        <Skeleton
-          v-for="column in columns"
-          :key="column.key"
-          class="h-3.5 w-full max-w-[160px]"
-        />
+        <slot name="empty">
+          <EmptyState :text="emptyText ?? t('common.noData')" />
+        </slot>
       </div>
-    </template>
+    </div>
 
-    <template #item="{ item, index }">
-      <div
-        class="grid w-full items-center gap-3 px-3 py-3 text-left transition-colors"
-        :class="[rowClick ? 'cursor-pointer' : '', rowClass?.(item)]"
-        :style="{ gridTemplateColumns }"
-        :role="rowClick ? 'button' : undefined"
-        :tabindex="rowClick ? 0 : undefined"
-        @click="rowClick?.(item)"
-        @keydown="onRowKeydown($event, item)"
+    <div v-if="showPager" class="shrink-0 border-t border-border pt-3">
+      <Pager
+        :page="page ?? 1"
+        :page-size="pageSize ?? items.length"
+        :total="total ?? items.length"
+        :page-sizes="pageSizes"
+        :show-size-picker="showSizePicker"
+        @update:page="emit('update:page', $event)"
+        @update:page-size="emit('update:pageSize', $event)"
       >
-        <div v-if="selectable" class="flex items-center" @click.stop>
-          <Checkbox
-            :aria-label="t('action.selectRow')"
-            :model-value="selectedSet.has(keyOf(item, index))"
-            @update:model-value="toggleRow(item, index)"
-          />
-        </div>
-        <div
-          v-for="column in columns"
-          :key="column.key"
-          class="min-w-0 text-[13.5px]"
-          :class="[column.cellClass, alignClass(column)]"
-        >
-          <VNodeContent v-if="column.cell" :node="column.cell(item, index)" />
-          <template v-else>{{ item[column.key] }}</template>
-        </div>
-      </div>
-    </template>
-
-    <template v-if="$slots.empty" #empty><slot name="empty" /></template>
-    <template v-if="$slots['pager-left']" #pager-left><slot name="pager-left" /></template>
-  </LineList>
+        <template #left>
+          <slot name="pager-left">
+            <span class="tabular-nums">{{ t('app.totalItems', { count: total ?? items.length }) }}</span>
+          </slot>
+        </template>
+      </Pager>
+    </div>
+  </div>
 </template>

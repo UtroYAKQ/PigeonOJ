@@ -19,6 +19,7 @@ import {
 
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { uploadImage } from '@/api/files'
 import { message } from '@/utils/feedback'
 
@@ -133,7 +134,7 @@ function withSelectionLink(): void {
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-lg border border-border bg-card">
+  <Card class="overflow-hidden">
     <div class="flex flex-wrap items-center gap-0.5 border-b border-border bg-muted/40 p-1">
       <Button
         type="button"
@@ -273,5 +274,5 @@ function withSelectionLink(): void {
       class="hidden"
       @change="onFileChange"
     />
-  </div>
+  </Card>
 </template>

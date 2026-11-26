@@ -13,6 +13,7 @@ import RefreshButton from '@/components/common/RefreshButton.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
 import { TONE_SOLID_CLASSES } from '@/components/common/tone'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
+import { Card } from '@/components/ui/card'
 import { SANDBOX_STATUS } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
 import { message } from '@/utils/feedback'
@@ -70,10 +71,10 @@ function loadBarClass(load: number): string {
       </div>
 
       <div v-else-if="nodes.length" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <article
+        <Card
           v-for="node in nodes"
           :key="node.id"
-          class="rounded-lg border border-border bg-card p-4"
+          class="p-4"
         >
           <header class="flex items-center justify-between gap-2">
             <div class="flex min-w-0 items-center gap-2">
@@ -102,7 +103,7 @@ function loadBarClass(load: number): string {
             </div>
           </div>
 
-          <dl class="mt-3 grid grid-cols-3 gap-2">
+          <dl class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div class="rounded-md border border-border px-2 py-1.5">
               <dt class="flex items-center gap-1 text-[11px] text-muted-foreground">
                 <Cpu class="size-3" :stroke-width="1.8" />
@@ -134,7 +135,7 @@ function loadBarClass(load: number): string {
             </span>
             <span class="tabular-nums">{{ formatDateTime(node.last_heartbeat_at) }}</span>
           </footer>
-        </article>
+        </Card>
       </div>
 
       <div v-else class="grid h-full min-h-[240px] place-items-center">

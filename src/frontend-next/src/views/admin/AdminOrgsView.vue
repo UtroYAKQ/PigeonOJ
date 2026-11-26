@@ -184,6 +184,7 @@ const columns = computed<AppTableColumn<OrgDetail>[]>(() => [
     key: 'ops',
     width: '56px',
     align: 'right',
+    cellClass: 'overflow-visible text-clip px-1',
     cell: (row) =>
       h(RowActions, {
         actions: actionsFor(row),

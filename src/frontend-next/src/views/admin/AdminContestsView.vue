@@ -14,7 +14,13 @@ import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
 import RowActions from '@/components/teams/RowActions.vue'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
 import { message } from '@/utils/feedback'
@@ -99,7 +105,7 @@ const columns = computed<AppTableColumn<ContestSummary>[]>(() => [
           bordered: true,
         }),
         h('div', { class: 'flex min-w-0 items-center gap-2' }, [
-          h('span', { class: 'truncate text-[13.5px] font-medium' }, row.title),
+          h('span', { class: 'truncate text-[13.5px] font-medium', title: row.title }, row.title),
           row.board_frozen
             ? h(ToneBadge, { tone: 'warning', label: t('contests.boardFrozenTag') })
             : null,
@@ -154,8 +160,9 @@ const columns = computed<AppTableColumn<ContestSummary>[]>(() => [
   },
   {
     key: 'ops',
-    width: '48px',
+    width: '56px',
     align: 'right',
+    cellClass: 'overflow-visible text-clip px-1',
     cell: (row) =>
       h(RowActions, {
         actions: [
@@ -198,20 +205,20 @@ const typeTabs = computed(() => [
             </Button>
             <RefreshButton :loading="loading" :label="t('action.refresh')" @click="load" />
           </template>
+        <Select
+            :model-value="typeFilter"
+            @update:model-value="(value) => changeType(String(value))"
+          >
+            <SelectTrigger class="h-9 w-[130px] text-[13px]">
+              <SelectValue :placeholder="t('contests.list.tabAll')" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="tab in typeTabs" :key="tab.value" :value="tab.value">
+                {{ tab.label }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </SearchFilterBar>
-
-        <Tabs :model-value="typeFilter" @update:model-value="(value) => changeType(String(value))">
-          <TabsList>
-            <TabsTrigger
-              v-for="tab in typeTabs"
-              :key="tab.value"
-              :value="tab.value"
-              class="px-3 text-[12px]"
-            >
-              {{ tab.label }}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
       </div>
     </template>
 

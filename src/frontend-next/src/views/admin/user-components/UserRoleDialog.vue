@@ -13,6 +13,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { ROLE_NAME } from '@/constants/dict'
 import { message } from '@/utils/feedback'
 import type { GlobalRoleCode, User } from '@/types'
@@ -34,6 +36,13 @@ const saving = ref(false)
 const roleOptions = computed(() =>
   (Object.keys(ROLE_NAME) as GlobalRoleCode[]).map((code) => ({ code, label: ROLE_NAME[code] })),
 )
+
+const roleModel = computed({
+  get: () => roleId.value,
+  set: (value: string) => {
+    roleId.value = value as GlobalRoleCode | ''
+  },
+})
 
 watch(
   () => props.open,
@@ -77,33 +86,21 @@ async function save(): Promise<void> {
         <DialogDescription class="sr-only">{{ t('admin.users.role') }}</DialogDescription>
       </DialogHeader>
 
-      <div class="grid gap-2" role="radiogroup" :aria-label="t('admin.users.role')">
-        <label
+      <RadioGroup v-model="roleModel" class="grid gap-2" :aria-label="t('admin.users.role')">
+        <Label
           v-for="option in roleOptions"
           :key="option.code"
-          class="flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-[13px] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring/50"
+          class="flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-[13px] transition-colors"
           :class="
             roleId === option.code
               ? 'border-foreground/25 bg-muted'
               : 'border-border hover:bg-muted/50'
           "
         >
-          <input
-            v-model="roleId"
-            type="radio"
-            name="admin-user-role"
-            :value="option.code"
-            class="sr-only"
-          />
-          <span
-            class="grid size-3.5 shrink-0 place-items-center rounded-full border"
-            :class="roleId === option.code ? 'border-foreground' : 'border-muted-foreground/50'"
-          >
-            <span v-if="roleId === option.code" class="size-1.5 rounded-full bg-foreground" />
-          </span>
+          <RadioGroupItem :value="option.code" />
           <span>{{ option.label }}</span>
-        </label>
-      </div>
+        </Label>
+      </RadioGroup>
 
       <DialogFooter>
         <Button variant="outline" size="sm" :disabled="saving" @click="close">

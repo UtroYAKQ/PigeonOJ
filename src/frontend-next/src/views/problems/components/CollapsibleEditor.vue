@@ -4,6 +4,11 @@ import { Minus, Plus } from '@lucide/vue'
 
 import MarkdownEditor from '@/components/common/MarkdownEditor.vue'
 import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 
 /**
  * 可折叠的 Markdown 编辑区（题面说明 / 官方题解）：
@@ -27,6 +32,10 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const open = ref(props.defaultOpen)
 const mounted = ref(props.defaultOpen)
 
+watch(open, (value) => {
+  if (value) mounted.value = true
+})
+
 watch(
   () => props.defaultOpen,
   (value) => {
@@ -35,31 +44,30 @@ watch(
     mounted.value = true
   },
 )
-
-function toggle(): void {
-  open.value = !open.value
-  if (open.value) mounted.value = true
-}
 </script>
 
 <template>
-  <div>
+  <Collapsible v-model:open="open">
     <div class="flex items-center justify-between border-b border-dashed border-border pb-2">
       <h3 class="text-[13.5px] font-semibold">{{ props.title }}</h3>
-      <Button variant="ghost" size="xs" class="text-[12px] text-muted-foreground" @click="toggle">
-        <Minus v-if="open" class="size-3.5" />
-        <Plus v-else class="size-3.5" />
-        {{ open ? props.hideLabel : props.addLabel }}
-      </Button>
+      <CollapsibleTrigger as-child>
+        <Button variant="ghost" size="xs" class="text-[12px] text-muted-foreground">
+          <Minus v-if="open" class="size-3.5" />
+          <Plus v-else class="size-3.5" />
+          {{ open ? props.hideLabel : props.addLabel }}
+        </Button>
+      </CollapsibleTrigger>
     </div>
-    <div v-if="open" class="pt-2.5">
-      <MarkdownEditor
-        v-if="mounted"
-        :model-value="props.modelValue"
-        :min-height="props.minHeight"
-        :compact="props.compact"
-        @update:model-value="emit('update:modelValue', $event)"
-      />
-    </div>
-  </div>
+    <CollapsibleContent>
+      <div class="pt-2.5">
+        <MarkdownEditor
+          v-if="mounted"
+          :model-value="props.modelValue"
+          :min-height="props.minHeight"
+          :compact="props.compact"
+          @update:model-value="emit('update:modelValue', $event)"
+        />
+      </div>
+    </CollapsibleContent>
+  </Collapsible>
 </template>

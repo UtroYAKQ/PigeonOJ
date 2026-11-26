@@ -122,6 +122,8 @@ export default {
     copyFailed: '复制失败，请手动复制',
     yes: '是',
     no: '否',
+    createdAtValue: '创建于 {time}',
+    updatedAtValue: '更新于 {time}',
   },
   sidebar: { collapse: '收起侧栏', expand: '展开侧栏' },
 }

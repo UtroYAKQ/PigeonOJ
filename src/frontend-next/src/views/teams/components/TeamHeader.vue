@@ -6,6 +6,7 @@ import BaseAvatar from '@/components/common/BaseAvatar.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
 import TeamRoleBadge from '@/components/teams/TeamRoleBadge.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { copyToClipboard } from '@/utils/clipboard'
 import { message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
@@ -32,7 +33,7 @@ async function copyTeamId(): Promise<void> {
 </script>
 
 <template>
-  <header class="shrink-0 rounded-xl border border-border bg-card px-4 py-4 md:px-5">
+  <Card class="shrink-0 px-4 py-4 md:px-5">
     <div class="flex flex-wrap items-start gap-4">
       <BaseAvatar
         kind="team"
@@ -44,7 +45,7 @@ async function copyTeamId(): Promise<void> {
         bordered
       />
 
-      <div class="min-w-0 flex-1 space-y-2">
+      <div class="min-w-[200px] flex-1 space-y-2">
         <div class="flex flex-wrap items-center gap-2">
           <h1 class="min-w-0 truncate text-[20px] font-semibold leading-tight tracking-tight">
             {{ team.name }}
@@ -91,7 +92,10 @@ async function copyTeamId(): Promise<void> {
         </div>
       </div>
 
-      <div v-if="isAdmin || isCreator" class="flex shrink-0 flex-wrap items-center gap-2">
+      <div
+        v-if="isAdmin || isCreator"
+        class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0"
+      >
         <Button v-if="isAdmin" size="sm" @click="emit('invite')">
           <Link2 class="size-4" />
           {{ t('teams.detail.inviteMembers') }}
@@ -102,5 +106,5 @@ async function copyTeamId(): Promise<void> {
         </Button>
       </div>
     </div>
-  </header>
+  </Card>
 </template>

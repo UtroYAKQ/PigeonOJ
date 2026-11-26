@@ -15,6 +15,7 @@ import ErrorState from '@/components/common/ErrorState.vue'
 import RefreshButton from '@/components/common/RefreshButton.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
+import { Card } from '@/components/ui/card'
 import ProblemSetOverview from '@/components/problemsets/ProblemSetOverview.vue'
 import ProblemSetProblemsTable from '@/components/problemsets/ProblemSetProblemsTable.vue'
 import ProblemSetVisibilityBadge from '@/components/problemsets/ProblemSetVisibilityBadge.vue'
@@ -108,12 +109,12 @@ function openProblem(item: ProblemSetItem): void {
       <Loader2 class="size-6 animate-spin text-muted-foreground" />
     </div>
 
-    <div
+    <Card
       v-else-if="!detail"
-      class="grid min-h-0 flex-1 place-items-center rounded-xl border border-border bg-card"
+      class="grid min-h-0 flex-1 place-items-center"
     >
       <ErrorState :message="t('common.loadFailed')" @retry="load" />
-    </div>
+    </Card>
 
     <Tabs
       v-else-if="detail"

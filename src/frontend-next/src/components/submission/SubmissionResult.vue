@@ -3,6 +3,7 @@ import { computed, h, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import ColumnLineList from '@/components/common/ColumnLineList.vue'
+import CodeBlockView from '@/components/common/CodeBlockView.vue'
 import InlineNotice from '@/components/common/InlineNotice.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
@@ -134,10 +135,12 @@ const caseColumns = computed<AppTableColumn<any>[]>(() => [
         </Button>
       </div>
       <div class="my-5 h-px bg-border" role="separator" />
-      <pre
+      <CodeBlockView
         v-if="showCode"
-        class="max-h-[420px] overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-code px-3.5 py-3 font-mono text-[12.5px] leading-6 text-code-foreground"
-        >{{ submission.code }}</pre>
+        :code="submission.code ?? ''"
+        :language="submission.language ?? ''"
+        max-height="max-h-[420px]"
+      />
     </section>
 
     <section v-if="submission.cases?.length">

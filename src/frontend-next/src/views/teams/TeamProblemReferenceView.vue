@@ -17,6 +17,7 @@ import ToneBadge from '@/components/common/ToneBadge.vue'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { usePagination } from '@/composables/usePagination'
 import { message } from '@/utils/feedback'
 import type { TeamProblemSummary } from '@/types'
@@ -171,9 +172,9 @@ watch(
       <Loader2 class="size-6 animate-spin text-muted-foreground" />
     </div>
 
-    <div
+    <Card
       v-else-if="denied || failed"
-      class="grid min-h-0 flex-1 place-items-center rounded-xl border border-border bg-card"
+      class="grid min-h-0 flex-1 place-items-center"
     >
       <ErrorState
         :message="
@@ -194,7 +195,7 @@ watch(
           </Button>
         </template>
       </ErrorState>
-    </div>
+    </Card>
 
     <div v-else class="flex min-h-0 flex-1 flex-col gap-2.5">
       <p class="shrink-0 text-[12px] leading-5 text-muted-foreground">

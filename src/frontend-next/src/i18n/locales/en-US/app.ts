@@ -122,6 +122,8 @@ export default {
     copyFailed: 'Copy failed. Please copy manually.',
     yes: 'Yes',
     no: 'No',
+    createdAtValue: 'Created {time}',
+    updatedAtValue: 'Updated {time}',
   },
   sidebar: { collapse: 'Collapse sidebar', expand: 'Expand sidebar' },
 }

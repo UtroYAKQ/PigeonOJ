@@ -12,6 +12,7 @@ import RefreshButton from '@/components/common/RefreshButton.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { useUserStore } from '@/stores/user'
 import { copyToClipboard } from '@/utils/clipboard'
 import { message } from '@/utils/feedback'
@@ -113,28 +114,28 @@ onMounted(load)
       <Loader2 class="size-6 animate-spin text-muted-foreground" />
     </div>
 
-    <div
+    <Card
       v-else-if="forbidden"
-      class="grid min-h-0 flex-1 place-items-center rounded-xl border border-border bg-card"
+      class="grid min-h-0 flex-1 place-items-center"
     >
       <ErrorState :message="t('orgs.detail.forbidden')">
         <template #actions>
           <Button variant="outline" size="sm" @click="load">{{ t('action.refresh') }}</Button>
         </template>
       </ErrorState>
-    </div>
+    </Card>
 
-    <div
+    <Card
       v-else-if="failed || !org"
-      class="grid min-h-0 flex-1 place-items-center rounded-xl border border-border bg-card"
+      class="grid min-h-0 flex-1 place-items-center"
     >
       <ErrorState :message="t('orgs.detail.loadFailed')" @retry="load" />
-    </div>
+    </Card>
 
     <template v-else>
       <!-- 上半区：组织摘要卡 -->
-      <header
-        class="flex shrink-0 items-start gap-4 rounded-xl border border-border bg-card px-4 py-4 md:px-5"
+      <Card
+        class="flex shrink-0 items-start gap-4 px-4 py-4 md:px-5"
       >
         <BaseAvatar
           :src="org.avatar_url"
@@ -190,11 +191,11 @@ onMounted(load)
           </Button>
         </div>
         <RefreshButton :loading="loading" :label="t('action.refresh')" @click="load" />
-      </header>
+      </Card>
 
       <!-- 下半区：左侧功能按钮 + 右侧内容，窄屏按钮横排置顶 -->
-      <section
-        class="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card lg:flex-row"
+      <Card
+        class="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row"
       >
         <nav
           class="flex shrink-0 gap-1 overflow-x-auto border-b border-border p-2 lg:w-[220px] lg:flex-col lg:overflow-x-hidden lg:border-b-0 lg:border-r lg:p-3"
@@ -264,7 +265,7 @@ onMounted(load)
             />
           </div>
         </div>
-      </section>
+      </Card>
     </template>
   </WorkbenchShell>
 </template>

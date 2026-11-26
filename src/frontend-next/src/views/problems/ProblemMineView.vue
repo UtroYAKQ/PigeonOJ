@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+
 import { TooltipHint } from '@/components/ui/tooltip'
 import { problemStatusLabelKey } from '@/constants/problemStatus'
 import { usePagination } from '@/composables/usePagination'
@@ -163,7 +163,7 @@ const columns = computed<AppTableColumn<ProblemSummary>[]>(() => [
   {
     key: 'status',
     title: t('problems.list.type'),
-    width: '96px',
+    width: '88px',
     cell: (row) =>
       h(ToneBadge, {
         tone: statusTone[row.status] ?? 'info',
@@ -173,7 +173,7 @@ const columns = computed<AppTableColumn<ProblemSummary>[]>(() => [
   {
     key: 'visibility',
     title: t('problems.list.visibility'),
-    width: '100px',
+    width: '88px',
     cell: (row) =>
       h(ToneBadge, {
         tone: row.visibility === 'private' ? 'danger' : 'info',
@@ -183,7 +183,7 @@ const columns = computed<AppTableColumn<ProblemSummary>[]>(() => [
   {
     key: 'source',
     title: t('problems.list.source'),
-    width: '96px',
+    width: '88px',
     cell: (row) => {
       // 团队题（引用快照 / 团队直建）与全站题来源区分
       const isTeam = row.visibility === 'team_visible' || row.visibility === 'admin_visible'
@@ -203,7 +203,7 @@ const columns = computed<AppTableColumn<ProblemSummary>[]>(() => [
   {
     key: 'is_verified',
     title: t('problems.manage.shareTitle'),
-    width: '110px',
+    width: '116px',
     cell: (row) => {
       if (row.needs_reverification) {
         return h(ToneBadge, { tone: 'warning', label: t('problems.manage.reverifyTag') })
@@ -221,14 +221,14 @@ const columns = computed<AppTableColumn<ProblemSummary>[]>(() => [
   {
     key: 'limits',
     title: t('problems.list.limits'),
-    width: '170px',
+    width: '150px',
     cell: (row) => `${row.time_limit_ms} ms / ${row.memory_limit_mb} MB`,
     cellClass: 'text-[12.5px] text-muted-foreground tabular-nums',
   },
   {
     key: 'actions',
     title: t('action.edit'),
-    width: '140px',
+    width: '100px',
     align: 'right',
     cell: (row) => {
       const buttons = [
@@ -283,23 +283,20 @@ onMounted(load)
               {{ t('problems.list.create') }}
             </Button>
           </template>
+        <Select
+            :model-value="query.status || 'all'"
+            @update:model-value="(value) => switchStatus(String(value))"
+          >
+            <SelectTrigger class="h-9 w-[120px] text-[13px]">
+              <SelectValue :placeholder="t('problems.mine.all')" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="tab in statusTabs" :key="tab.value" :value="tab.value">
+                {{ t(tab.labelKey) }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </SearchFilterBar>
-
-        <Tabs
-          :model-value="query.status || 'all'"
-          @update:model-value="switchStatus(String($event))"
-        >
-          <TabsList>
-            <TabsTrigger
-              v-for="tab in statusTabs"
-              :key="tab.value"
-              :value="tab.value"
-              class="px-3 text-[12px]"
-            >
-              {{ t(tab.labelKey) }}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
       </div>
     </template>
 
@@ -311,6 +308,7 @@ onMounted(load)
       :page="page"
       :page-size="pageSize"
       :page-sizes="[20, 50, 100]"
+      min-width="976px"
       show-size-picker
       selectable
       :row-key="(row: ProblemSummary) => row.id"

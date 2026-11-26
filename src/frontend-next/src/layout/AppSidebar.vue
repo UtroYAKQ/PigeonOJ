@@ -14,6 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { useAppStore } from '@/stores/app'
 import { useUserStore } from '@/stores/user'
 
@@ -100,7 +101,8 @@ async function logout(): Promise<void> {
       </button>
     </div>
 
-    <nav class="scrollbar-none min-h-0 flex-1 overflow-y-auto px-2.5 pb-4">
+    <ScrollArea class="min-h-0 flex-1">
+      <nav class="px-2.5 pb-4">
       <template v-for="group in groups" :key="group.label">
         <p class="px-2.5 pb-1 pt-3 text-[11.5px] font-medium text-muted-foreground">
           {{ group.label }}
@@ -133,6 +135,7 @@ async function logout(): Promise<void> {
         </div>
       </template>
     </nav>
+    </ScrollArea>
 
     <div class="border-t border-sidebar-border/80 p-2.5">
       <button

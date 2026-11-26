@@ -117,11 +117,11 @@
   --secondary-foreground: #ececec;
   --muted: #2a2a2a;
   --muted-foreground: #9f9fab;
-  --accent: #303030;
+  --accent: #3a3a3a;
   --accent-foreground: #f2f2f2;
   --destructive: #f08c85;
-  --border: rgba(255, 255, 255, 0.1);
-  --input: rgba(255, 255, 255, 0.13);
+  --border: rgba(255, 255, 255, 0.16);
+  --input: rgba(255, 255, 255, 0.24);
   --ring: rgba(255, 255, 255, 0.28);
 
   --surface: #2f2f2f;
@@ -424,6 +424,14 @@ body.is-console-resizing {
   white-space: pre;
 }
 
+.markdown pre code .shiki-token {
+  color: var(--shiki-light, inherit);
+}
+
+.dark .markdown pre code .shiki-token {
+  color: var(--shiki-dark, inherit);
+}
+
 .markdown table {
   width: 100%;
   margin: 1.1em 0;
@@ -456,6 +464,19 @@ body.is-console-resizing {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 4px 0;
+}
+
+/* 代码区统一系统鼠标指针：避免 箭头 ⇄ I 型 来回切换，快速滑入时浏览器会丢掉指针 */
+.code-surface,
+.code-surface .monaco-editor,
+.code-surface .monaco-editor .margin,
+.code-surface .monaco-editor .margin-view-overlays,
+.code-surface .monaco-editor .view-lines,
+.code-surface .monaco-editor .view-overlays,
+.code-surface .monaco-editor .decorations-overlays,
+.code-surface .monaco-editor .scrollbar,
+.code-surface .monaco-editor .scrollbar .slider {
+  cursor: default;
 }
 
 @media (prefers-reduced-motion: reduce) {

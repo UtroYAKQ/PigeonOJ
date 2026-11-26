@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ChevronLeft, ChevronRight } from '@lucide/vue'
+import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 
 import {
@@ -36,6 +37,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+/** 窄屏收缩页码窗口，避免 11 个控件撑破 320~375px 视口 */
+const isNarrow = useMediaQuery('(max-width: 640px)')
 
 const sizeValue = computed({
   get: () => String(props.pageSize),
@@ -60,7 +63,7 @@ const pageValue = computed({
       </slot>
     </div>
 
-    <div class="flex flex-wrap items-center gap-3">
+    <div class="flex min-w-0 max-w-full flex-wrap items-center gap-3">
       <div v-if="showSizePicker" class="flex items-center gap-1.5 text-xs text-muted-foreground">
         <span>{{ t('app.perPage') }}</span>
         <Select v-model="sizeValue">
@@ -79,8 +82,9 @@ const pageValue = computed({
         v-model:page="pageValue"
         :total="total"
         :items-per-page="pageSize"
-        :sibling-count="1"
+        :sibling-count="isNarrow ? 0 : 1"
         show-edges
+        class="w-auto justify-end"
       >
         <PaginationContent v-slot="{ items }">
           <PaginationPrevious :aria-label="t('action.prevPage')">

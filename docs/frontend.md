@@ -12,19 +12,20 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 ### shadcn-vue 组件化（2026-11 改造）
 
 - 项目通过 `components.json`（style `new-york`）接入 shadcn-vue，`components/ui/` 原子组件统一从 `@/lib/utils` 的 `cn` 取值；新增组件用 `npx shadcn-vue add <name>`
-- 已补齐并按 shadcn 默认外观落地的组件：`Card`（卡片，含默认 `shadow`）、`Skeleton`（骨架）、`Checkbox`（勾选）、`Avatar`（头像）、`Pagination`（分页）、`Breadcrumb`（面包屑）、`Command`（命令面板）、`Sidebar` / `ScrollArea` / `Separator` / `RadioGroup` / `Collapsible` / `Sonner` 等
-- 共享组件已切换底层实现（对外 props / emits 不变）：`BaseAvatar`→`Avatar`、`FilterCheckbox` / `ColumnLineList`→`Checkbox`、`LineList` / `PaginatedCardGrid` 骨架→`Skeleton`、`EntityCard`→`Card`、`Pager`→`Pagination`、`CrumbsBar`→`Breadcrumb`、`CommandPalette`→`Command`
-- 外观以 shadcn 默认为准：卡片 `rounded-xl border bg-card shadow`，浮层 / 分页 / 面包屑采用组件库默认样式。下文「去卡片化 / 无投影 / 无框」等历史约定，在本次改造覆盖的组件范围内不再适用；列表仍沿用 `LineList` 无框横线结构，但骨架、勾选、分页已换成 shadcn 原子组件
+- 已补齐并按 shadcn 默认外观落地的组件：`Card`（卡片）、`Table`（表格）、`Skeleton`（骨架）、`Checkbox` / `RadioGroup`（勾选 / 单选）、`Avatar`（头像）、`Pagination`（分页）、`Breadcrumb`（面包屑）、`Command`（命令面板）、`AlertDialog`、`Collapsible`、`ScrollArea`、`Popover`、`Sonner` 等
+- 共享组件已切换底层实现（对外 props / emits 不变）：`BaseAvatar`→`Avatar`、`FilterCheckbox`→`Checkbox`、`ColumnLineList` / `PaginatedTable`→`Table`、`LineList` / `PaginatedCardGrid` 骨架→`Skeleton`、`EntityCard`→`Card`、`Pager`→`Pagination`、`CrumbsBar`→`Breadcrumb`、`CommandPalette`→`Command`、`ConfirmDialogHost`→`AlertDialog`、`App.vue` Toaster→`Sonner`、`CollapsibleEditor`→`Collapsible`、角色 / 举报处理单选→`RadioGroup`、`ContestCountdown` 时间详情→`Popover`、侧栏导航滚动→`ScrollArea`
+- 外观以 shadcn 默认为准：卡片统一 `rounded-md border bg-card`、**无阴影**（对齐旧 UI 的简约观感，`Card.vue` 已去掉 `shadow`），表格表头 / 行分隔线 / hover 采用 `ui/table` 默认样式，浮层 / 分页 / 面包屑采用组件库默认样式。浮层（Dialog / Popover / Dropdown）保留阴影以示层级；仅自由插槽的 `LineList` 行列表保留无框横线结构
 
 ### 色板与令牌
 
-- 中性 shadcn 基调：浅色 `#ffffff / #0d0d0d`，深色 `#212121 / #ececec`；1px `--border` 描边；卡片与浮层采用 shadcn 默认阴影（`shadow`）
+- 中性 shadcn 基调：浅色 `#ffffff / #0d0d0d`，深色 `#212121 / #ececec`；1px `--border` 描边；卡片保持无阴影的平面感，浮层（Dialog / Popover / Dropdown）保留 shadcn 默认阴影
 - 品牌橙 `--brand`（浅色 `#d9480f` / 深色 `#f08a5d`）只用于强调：链接 hover、选中态点缀、Markdown 链接；主按钮为近黑中性色；Logo 保持透明底、原色显示，不加品牌色块或描边遮盖
 - 语义色：success 绿 / warning 琥珀 / info 蓝 / destructive 红，经 `components/common/tone.ts` 统一映射，由 `StatusTag`、`ToneBadge` 消费；禁止页面各自硬编码
 - 令牌唯一来源：`src/frontend-next/src/assets/main.css` 的 `:root` 与 `.dark`（含 shadcn token）；组件只允许引用 token，禁止硬编码色值，也不再保留 `--app-*` 旧别名
 - 字体：Geist + Noto Sans SC（正文/标题）、Geist Mono + JetBrains Mono（代码）；字号以 13–15px 为主，表格与工具条使用 12–13.5px
-- 圆角统一取 `main.css` 的 `--radius-*`：sm 4 / md 6 / lg 8 / xl 10 / 2xl 12 / 3xl 16 / 4xl 20px（整体偏平），卡片用 `rounded-xl`、按钮/输入框用 `rounded-md`；除头像 / 徽标等 pill 外不要写死 `rounded-full` 或任意圆角值
+- 圆角统一取 `main.css` 的 `--radius-*`：sm 4 / md 6 / lg 8 / xl 10 / 2xl 12 / 3xl 16 / 4xl 20px（整体偏平），卡片用 `rounded-md`（6px、无阴影，对齐旧 UI）、按钮/输入框用 `rounded-md`；除头像 / 徽标等 pill 外不要写死 `rounded-full` 或任意圆角值
 - 暗色模式：`html.dark` class 驱动（Tailwind `dark:` 变体、Monaco 主题同步），首屏由 `index.html` 内联脚本读取 localStorage 提前置 class，避免闪烁；登录后跟随用户偏好
+- 深色控件可见性：分页保持 shadcn 原生变体（`PaginationItem` 非激活 `ghost`、激活 `outline`；`PaginationPrevious/Next` 用 `ghost`），不修改组件变体；通过深色令牌解决可见性——`--border` 0.16 / `--input` 0.24 / `--accent` #3a3a3a，保证分页下拉边框与 hover 底色可辨
 
 ### 应用壳
 
@@ -35,10 +36,22 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 5. **面包屑**：只反映真实层级（`管理后台/用户管理`、`题库/题目管理/编辑`）；`router/crumbs.ts` 为唯一解析来源
 6. **命令面板**：可搜索全部前台/后台菜单与账户页；`↑↓` 选择、`Enter` 打开、`Esc` 关闭
 
+### 响应式与移动端
+
+- 断点统一按 Tailwind：`sm 640` / `md 768` / `lg 1024` / `xl 1280` / `2xl 1536`；`SplitPane` 内部用 `900px` 判断上下堆叠。新增布局优先复用这些断点，不另造值
+- <1024：常驻侧栏隐藏，导航改 `ui/sheet` 左侧抽屉（284px / max 86vw）；<640：顶栏面包屑隐藏，搜索入口收为图标按钮
+- 表格窄屏策略：`ColumnLineList` 未显式传 `minWidth` 时默认 `min-width: 640px`，窄屏**横向滚动展示全部列**，不再把列压到几像素；`Pager` 在 ≤640px 收起页码窗口（`sibling-count=0`），避免页码条溢出
+- 列表工具条：`SearchFilterBar` 搜索框窄屏 `w-full`，≥640 才使用传入的 `searchWidth`；工具条整体允许换行
+- 团队 / 组织详情：摘要卡文本列至少 200px 宽，操作按钮组窄屏独占一行；功能导航窄屏横排、可横向滚动（`scrollbar-none`），按钮高 40px
+- 代码编辑器：窄屏 `SplitPane` 上下堆叠，右栏最小 360px；控制台控制条允许换行，必须保证「提交代码」始终可见；Monaco 在 ≤640px 自动 `wordWrap: 'on'`。Monaco 字体偏好变更必须按「显式 `document.fonts.load` 等字体 → `remeasureFonts()` 清度量缓存 → `updateOptions`」顺序应用，否则字符宽度误差会累积成光标/文本偏移；容器不设 `padding`、隐藏横向滚动条；keep-alive 返回与容器尺寸变化都要 `layout()`
+- 主区滚动容器使用 `overscroll-contain`，避免移动端滚到底触发页面回弹；触控目标不低于 32px，导航 / 主操作按钮优先 40px
+
 ### 交互习惯
 
-- 危险操作（删除、封禁、注销、退出团队、提交）先确认再执行；统一走 `utils/feedback.ts` 的 `confirmDialog`（Promise）或 `confirmAsyncDialog`
-- 命令式提示统一 `utils/feedback.ts`（sonner）：`message.success/error/warning/info/loading`；组件内不重复挂 Provider
+- 只读代码展示统一用 `ui/code-block`：`components/common/CodeBlockView.vue` 封装（语言标签 + Shiki 高亮 + 行号 + 复制），提交详情与代码广场详情直接使用；Markdown（题面 / 题解 / 公告）中的 fenced code 由 `MarkdownView` 渲染后用 Shiki 补高亮。语言映射 `cpp17 → cpp`、`python3.12 → python`、`java21 → java`，新增语言需在 `ui/code-block/highlighter.ts` 注册
+
+- 危险操作（删除、封禁、注销、退出团队、提交）先确认再执行；统一走 `utils/feedback.ts` 的 `confirmDialog`（Promise，底层 `ui/alert-dialog`）或 `confirmAsyncDialog`
+- 命令式提示统一 `utils/feedback.ts`（由 `ui/sonner` 的 Toaster 承载）：`message.success/error/warning/info/loading`；组件内不重复挂 Provider
 - 图标按钮必须有 `aria-label` 或 `TooltipHint`；不单靠颜色传递状态
 - 列表工具条的筛选开关统一用 `FilterCheckbox`（整行 label 可点击的勾选框），不再使用 `Switch`；配置编辑等非列表场景的布尔开关仍可用 `Switch`
 - 刷新按钮统一复用 `components/common/RefreshButton.vue`（icon-only 幽灵按钮，loading 时图标自旋）；组件显式声明并转发 `click`，调用方直接用 `@click="load"` 即可，不要依赖 attrs 穿过 Tooltip 链
@@ -49,21 +62,22 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 - 团队创建比赛页（`views/teams/TeamContestCreateView.vue`）沿用同一无框表单：分区标题 + 分隔线，基本信息 / 比赛说明分段，底部左对齐保存与取消
 - 管理后台比赛创建向导两页（`views/admin/AdminContestBasicView.vue`、`views/admin/AdminContestArrangeView.vue`）都不再使用 `WizardShell` 卡片外壳，直接写成无卡片页面（标题 + 步骤标识 + 细分隔线分区，底部左对齐操作按钮）
 - 出题向导三页（`views/problems/ProblemStatementView.vue`、`ProblemCasesView.vue`、`ProblemVerifyView.vue`）同样去掉 `WizardShell`：页面直接写标题 + `WizardSteps` 步骤条 + 细分隔线，题面 / 样例测试点 / 验题分区保留各自说明，操作按钮统一放到页面底部左对齐
-- 题单新建 / 编辑（`views/admin/AdminProblemSetFormView.vue`）与团队题单创建（`views/teams/TeamSetCreateView.vue`）改为同一无框表单：基础信息 / 题单说明分段，字段下方提示，底部左对齐保存与取消；`components/common/WizardShell.vue` 已无引用并移除
+- 题单新建 / 编辑（`views/admin/AdminProblemSetFormView.vue`）与团队题单创建（`views/teams/TeamSetCreateView.vue`）改为同一无框表单：基础信息 / 题单说明分段，字段下方提示，底部左对齐保存与取消；页面结构与新建题目页（`ProblemStatementView`）一致——`max-w-1200` 全宽平铺，不用 WorkbenchShell 固定块、不做 960px 收窄；`components/common/WizardShell.vue` 已无引用并移除
 - 系统配置（`views/admin/AdminConfigsView.vue`）与首页配置（`views/admin/AdminHomeView.vue`）同为 shadcn 设置页风格：分类导航无卡片外框，配置行只保留分隔线，海报行去卡片化，页面底部左对齐保存按钮；编辑弹窗沿用 `ui/dialog`，标题与控件尺寸与表单统一
-- 空态、加载、错误三态必须覆盖；「一行一条」的列表统一由 `LineList` 承载骨架 / 空态 / 分页，`PaginatedTable` 也按列定义渲染成横线行（不再是 `<table>`）；独立面板使用 `EmptyState` / `ErrorState`
+- 空态、加载、错误三态必须覆盖；列驱动列表由 `ColumnLineList` 基于 `ui/table` 渲染骨架 / 空态 / 分页，`LineList` 继续为自由插槽行列表提供骨架 / 空态 / 分页；独立面板使用 `EmptyState` / `ErrorState`
+- 前台实体卡片（团队 / 组织 / 比赛 / 代码广场）沿用旧 UI 的简约范式：单行头部（头像 + 名称 + 角色 / 状态点标）、描述最多两行截断、底部两行（元信息行：成员数 / 题数 / 语言；`border-t` 细分隔线；时间行：创建 / 更新时间，11px `tabular-nums`）；不放「查看 / 申请加入」行动文案、右箭头或重复徽标，整卡点击即交互；卡片 `rounded-md border bg-card`、无阴影
 - 编辑器字号 / 字体偏好来自用户资料（`editor_font_size` / `editor_font_family`），`CodeEditor` 统一消费，个人资料页保存后即时生效
 - `CodeEditor` 自身不设最小高度（`min-h-0`），由父容器给定高度；需要最小高度时在父级 `min-h-*` 声明，避免嵌套最小高度叠加导致相邻面板溢出
 
 ### 列表工作台
 
-- 页面结构：`WorkbenchShell` → `#toolbar` 放 `SearchFilterBar`（+ 共享 Tabs 状态筛选）→ `LineList`（表格列表经 `PaginatedTable`）或 `PaginatedCardGrid`；前台题库列表（`views/problems/ProblemListView.vue`）用 `LineList` 的表头 / 行分隔线，保留筛选、标签显隐、分页与空 / 加载态
-- 列表列定义：`AppTableColumn<T>`（`key/title/width/align/cell`）；`ColumnLineList` 由列定义生成表头 / 横线行（含勾选、行点击、骨架）并交给 `LineList`，`PaginatedTable` = `ColumnLineList` + 分页开关；无分页的列驱动列表直接用 `ColumnLineList`，其余列表直接用 `LineList` 的 `#item` 插槽；旧的 `DataTable.vue` 已移除，禁止各页手写 `<Table>` 或 `divide-y` 列表壳
+- 页面结构：`WorkbenchShell` → `#toolbar` 放 `SearchFilterBar`，列表筛选条件（状态 / 类型等）统一用 `ui/select` 下拉并与搜索框同行，**不再用 Tabs 做筛选**（Tabs 仅用于详情页内容分区）→ `LineList`（表格列表经 `PaginatedTable`）或 `PaginatedCardGrid`；前台题库列表（`views/problems/ProblemListView.vue`）同样走 `PaginatedTable`，保留筛选、标签显隐、分页与空 / 加载态
+- 列表列定义：`AppTableColumn<T>`（`key/title/width/align/cell`）；`ColumnLineList` 基于 shadcn `ui/table` 由列定义生成表头 / 行（含勾选、行点击、骨架），`PaginatedTable` = `ColumnLineList` + 分页开关；无分页的列驱动列表直接用 `ColumnLineList`，自由插槽列表用 `LineList` 的 `#item` 插槽；旧的 `DataTable.vue` 已移除，禁止各页手写原生 `<table>` 或 `divide-y` 列表壳，统一经 `ColumnLineList` / `PaginatedTable` / `LineList`
 - 卡片列表：`PaginatedCardGrid` 负责响应式网格（1 / 2 / 3 / 4 列）、骨架、空态与分页；领域卡片用 `EntityCard` 作为整卡可点击外壳（支持 Enter / Space 与可见焦点环），卡片内展示头像、标题、状态徽标、简介与 1–2 行元信息
 - 比赛卡片与代码分享卡片保持极简：头像 / 图标 + 标题 + 两行简介 + 纯文本元信息；比赛的起止时间单独一行，赛制 / 题数 / 报名人数另起一行，代码卡片是语言 / 作者 / 更新时间一行；只在确有必要时保留一个状态徽标，不用信息栏、箭头、多个彩色徽标或图标行堆砌，hover 只轻微描边
-- 首页沿用旧版的全屏气势：内容铺满主区宽度，上半部为主视觉（桌面 `clamp(340px,52dvh,580px)`，海报轮播 / 品牌横幅 2fr + 公告 1fr，最小 260px），下半部入口磁贴与小贴士吃满剩余空间；窄屏退回自然高度滚动，不收窄成中间栏
+- 首页沿用旧版的全屏气势：内容铺满主区宽度，上半部为主视觉（桌面高 `52dvh`，`min 340px` / `max 580px`，海报轮播 / 品牌横幅 2fr + 公告 1fr，最小 260px），下半部入口磁贴与小贴士按内容自然高度排布；内容超出视口时由主区滚动，不用 flex 拉伸压缩卡片，避免卡片重叠；窄屏同样自然高度滚动，不收窄成中间栏
 - `views/home/HomeCarousel.vue`：自动播放间隔 5s，海报异步加载后自动启动；不渲染左右箭头，只保留底部圆点切图；鼠标悬停不暂停；手动点圆点后重置计时；切换用 420ms 交叉淡入淡出，加载过的图片保持挂载避免空窗
-- 列表形态选择：所有「一行一条」的列表统一无框横线（`LineList`，分页列表经 `PaginatedTable`，列驱动列表经 `ColumnLineList`）；提交、日志、测试点 / 比赛单元格明细等也用列定义渲染成横线行；网格浏览型实体（团队 / 组织 / 比赛 / 代码广场）继续用 `PaginatedCardGrid`，不改成横线列表
+- 列表形态选择：列驱动列表（管理后台列表、提交、日志、测试点 / 比赛单元格明细等）统一由 `ColumnLineList` / `PaginatedTable` 基于 `ui/table` 渲染 shadcn 表格；自由插槽的「一行一条」列表继续用 `LineList` 无框横线壳；网格浏览型实体（团队 / 组织 / 比赛 / 代码广场）继续用 `PaginatedCardGrid`
 - 搜索统一手动触发：输入只同步关键词，点击「查询」或回车才发起；清空（X）立即按空关键词重查
 - 题库列表的标签列可在工具条勾选显示 / 隐藏，偏好写入 localStorage（`pigeonoj.problems.showTags`），切换不重新请求
 - 分页：`LineList`（`showPager` 开启，分页列表经 `PaginatedTable`）与 `PaginatedCardGrid` 统一内置 `Pager`（页码窗口、总数、可选每页条数）；无分页列表不要开 `showPager`；页面只维护 `usePagination()` 的 page / pageSize / total，慢响应用 `beginLoad/isCurrent` 守卫
@@ -81,9 +95,9 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 ### 「题面 + 编辑器」双栏工作台
 
 - `components/common/SplitPane.vue`：桌面端左右独立滚动、分隔条可拖拽且比例持久化（双击复位）；<900px 自动上下堆叠
-- `components/problem/ProblemWorkbench.vue`：左题面（`ProblemMetaBar` + `ProblemStatement`），右编辑器 + 自测控制台；上方工具行只放「语言 / 我的提交」（题解按需），「自测运行 / 提交」放进下方控制台标题行，避免顶部拥挤
-- 自测控制台常驻编辑器下方，标题行同时承载自测与提交按钮；可折叠到只剩标题行，展开态最低 180px（保证输出文字不被裁切），上方分隔条支持上下拖拽自由调整高度（双击复位、方向键微调），上限按工具栏实测高度 + 编辑器最小高度动态计算，容器尺寸变化时自动重新约束，高度按 px 持久化到 `pigeonoj.problems.consoleHeight`；Tabs 切换「运行结果 / 自定义输入」，结果含状态、耗时、内存与输出/报错
-- 提交历史经 `components/problem/MySubmissionsDialog.vue` 懒加载分页，行点击进入上下文内评测结果页
+- `components/problem/ProblemWorkbench.vue`：左题面（`ProblemMetaBar` + `ProblemStatement`），右编辑器 + 自测控制台；上方工具行「语言」靠左、「我的提交 / 题解」靠右，「自测运行 / 提交」放进下方控制台标题行，避免顶部拥挤
+- 自测控制台常驻编辑器下方，形态对齐旧 UI（naive-ui 版）：面板顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 仍视为单击；方向键 / Home 微调与复位），默认展开 440px、下限 140px，收起态只留约 47px 控制条；点击当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」，运行后自动切到结果并展开；展开态拖得过小视为取消并还原高度；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`（兼容旧键 `pigeonoj.problems.consoleHeight`）；结果含状态、耗时、内存与输出/报错
+- 提交历史经 `components/problem/MySubmissionsDialog.vue` 懒加载分页（弹窗 `sm:max-w-[1040px]`、高 80vh，保留完整列），行点击进入上下文内评测结果页
 
 ### 可访问性
 
@@ -94,7 +108,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 
 - **组织中心**：`/orgs/mine` 列表 + `/orgs/:orgId` 详情（成员 / 组织团队 / 组织题库 / 设置）；组织管理员可拉人、授管理员、建团队、维护组织题库；组织题目路由固定为 `/orgs/:orgId/problems/...`，读题 / 交题 / 自测全部留在组织上下文
 - **团队创建**：唯一入口为组织详情「创建团队」（`POST /orgs/{orgId}/teams`）；团队题目只来自组织题库 / 全站公开的引用快照，团队中心仅浏览与申请
-- **社区**：题解页随题目上下文挂载（题库 / 题单 / 比赛 / 组织各自 `/solutions/*` 路由），官方题解收口题解页 Tab；代码广场 `/codes` 列表 / 分享 / 详情；评论与举报统一 `components/community/CommentThread.vue` / `ReportDialog.vue`
+- **社区**：题解页随题目上下文挂载（题库 / 题单 / 比赛 / 组织各自 `/solutions/*` 路由），官方题解收口题解页 Tab；题解分享列表采用 shadcn `ui/item` 论坛式列表（作者头像 + 标题 + 摘要 + 作者/日期 + 评论数，条目间 `ItemSeparator`，非表格）；代码广场 `/codes` 列表 / 分享 / 详情；评论与举报统一 `components/community/CommentThread.vue` / `ReportDialog.vue`
 - **管理治理**：`/admin/orgs`、`/admin/solutions`、`/admin/codes` 分别负责组织、题解、代码分享；题解预览弹窗内可直接治理评论
 
 ## Markdown 渲染
@@ -115,8 +129,8 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 | 组件 | 用途 |
 | --- | --- |
 | `components/common/BaseAvatar.vue` | 头像 / Logo：空值或加载失败回退默认图（user/team/contest） |
-| `components/common/LineList.vue` | 唯一无框横线列表壳：表头 / 逐行分隔线 / 骨架 / 空态 / 可选分页，支持 `#item` 行插槽 |
-| `components/common/ColumnLineList.vue` + `table-types.ts` | 列驱动的横线列表：由 `AppTableColumn` 生成表头 / 行 / 勾选，接入 `LineList` |
+| `components/common/LineList.vue` | 自由插槽的无框横线列表壳：表头 / 逐行分隔线 / 骨架 / 空态 / 可选分页，支持 `#item` 行插槽 |
+| `components/common/ColumnLineList.vue` + `table-types.ts` | 列驱动的 shadcn 表格：由 `AppTableColumn` 生成 `ui/table` 表头 / 行 / 勾选 |
 | `components/common/PaginatedTable.vue` | `ColumnLineList` + 分页开关，供所有分页列表使用 |
 | `components/common/PaginatedCardGrid.vue` + `EntityCard.vue` | 统一卡片列表壳（响应式网格 / 骨架 / 空态 / 分页）与整卡可点击外壳 |
 | `components/common/Pager.vue` | 独立分页条（页码窗口 + 总数 + 可选每页条数） |

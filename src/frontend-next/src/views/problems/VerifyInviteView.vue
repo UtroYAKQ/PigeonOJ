@@ -14,6 +14,7 @@ import SplitPane from '@/components/common/SplitPane.vue'
 import BrandMark from '@/layout/BrandMark.vue'
 import ProblemSamples from '@/components/problem/ProblemSamples.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { confirmDialog, message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
 import { useAppStore } from '@/stores/app'
@@ -107,21 +108,19 @@ async function submit(): Promise<void> {
     </div>
 
     <div v-else-if="failed" class="grid place-items-center py-16">
-      <div
-        class="w-full max-w-[520px] rounded-xl border border-border bg-card px-6 py-10 text-center"
-      >
+      <Card class="w-full max-w-[520px] px-6 py-10 text-center">
         <p class="text-[15px] font-semibold">{{ t('problems.verify.invalid') }}</p>
         <p class="mt-1.5 text-[13px] text-muted-foreground">{{ failed }}</p>
         <Button variant="outline" size="sm" class="mt-5" @click="router.push('/')">
           {{ t('problems.verify.backHome') }}
         </Button>
-      </div>
+      </Card>
     </div>
 
     <div v-else-if="invite" class="min-[900px]:h-[calc(100dvh-7rem)]">
       <SplitPane storage-key="pigeonoj.verify.split">
         <template #left>
-          <article class="rounded-xl border border-border bg-card">
+          <Card>
             <header class="space-y-2 border-b border-border px-5 py-4">
               <p class="text-[12px] font-medium text-brand">{{ t('problems.verify.title') }}</p>
               <h1 class="text-[19px] font-semibold leading-snug">{{ invite.problem_title }}</h1>
@@ -184,7 +183,7 @@ async function submit(): Promise<void> {
                 <MarkdownView :source="invite.note" />
               </template>
             </div>
-          </article>
+          </Card>
         </template>
 
         <template #right>

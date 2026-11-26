@@ -39,34 +39,32 @@ const { t } = useI18n()
     <div class="flex min-h-0 flex-1 flex-col overflow-auto pr-0.5">
       <div
         v-if="loading"
-        class="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+        class="grid shrink-0 grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(270px,1fr))]"
       >
         <Card
           v-for="index in skeletonCount"
           :key="`skeleton-${index}`"
-          class="flex min-h-[172px] flex-col p-4"
+          class="flex min-h-[136px] flex-col p-4"
         >
-          <div class="flex items-center gap-3">
-            <Skeleton class="size-10 shrink-0 rounded-lg" />
+          <div class="flex items-start gap-3">
+            <Skeleton class="size-9 shrink-0 rounded-lg" />
             <div class="min-w-0 flex-1 space-y-2">
               <Skeleton class="h-3.5 w-1/2" />
-              <Skeleton class="h-3 w-1/3" />
+              <Skeleton class="h-3 w-full" />
             </div>
           </div>
-          <div class="mt-4 space-y-2">
-            <Skeleton class="h-3 w-full" />
-            <Skeleton class="h-3 w-2/3" />
-          </div>
-          <div class="mt-auto flex gap-3 pt-4">
-            <Skeleton class="h-3 w-16" />
+          <div class="mt-3">
             <Skeleton class="h-3 w-24" />
+          </div>
+          <div class="mt-auto border-t border-border pt-2.5">
+            <Skeleton class="h-3 w-28" />
           </div>
         </Card>
       </div>
 
       <div
         v-else-if="items.length"
-        class="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+        class="grid shrink-0 grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(270px,1fr))]"
       >
         <slot v-for="(item, index) in items" :key="index" :item="item" :index="index" />
       </div>

@@ -10,7 +10,13 @@ import ToneBadge from '@/components/common/ToneBadge.vue'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { REPORT_STATUS, REPORT_TYPE } from '@/constants/dict'
 import { usePagination } from '@/composables/usePagination'
 import { message } from '@/utils/feedback'
@@ -154,18 +160,19 @@ onMounted(load)
   <WorkbenchShell :title="t('nav.reports')">
     <template #toolbar>
       <SearchFilterBar :show-search="false">
-        <Tabs :model-value="query.status" @update:model-value="onStatusChange">
-          <TabsList>
-            <TabsTrigger
-              v-for="tab in statusTabs"
-              :key="tab.value"
-              :value="tab.value"
-              class="px-3 text-[12px]"
-            >
+        <Select
+          :model-value="query.status"
+          @update:model-value="(value) => (typeof value === 'string' ? onStatusChange(value) : undefined)"
+        >
+          <SelectTrigger class="h-9 w-[140px] text-[13px]">
+            <SelectValue :placeholder="t('common.allStatus')" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="tab in statusTabs" :key="tab.value" :value="tab.value">
               {{ tab.label }}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+            </SelectItem>
+          </SelectContent>
+        </Select>
         <template #actions>
           <RefreshButton :loading="loading" :label="t('action.refresh')" @click="load()" />
         </template>

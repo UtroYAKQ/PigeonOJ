@@ -17,6 +17,7 @@ import {
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import { TONE_SURFACE_CLASSES } from '@/components/common/tone'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import BrandMark from '@/layout/BrandMark.vue'
 import HomeCarousel from '@/views/home/HomeCarousel.vue'
 import { useAppStore } from '@/stores/app'
@@ -76,7 +77,7 @@ function openBanner(banner: SiteBanner): void {
 
 <template>
   <div
-    class="mx-auto flex w-full max-w-[1920px] flex-col px-4 pb-6 pt-4 sm:px-6 lg:h-full lg:min-h-[700px]"
+    class="mx-auto flex w-full max-w-[1920px] flex-col px-4 pb-6 pt-4 sm:px-6 lg:min-h-full"
   >
     <header
       v-if="!userStore.isLoggedIn"
@@ -93,7 +94,7 @@ function openBanner(banner: SiteBanner): void {
 
     <!-- 主视觉：沿用旧版约半屏的尺度（上限收住），海报为主、公告收窄 -->
     <div
-      class="grid gap-4 lg:h-[clamp(340px,52dvh,580px)] lg:shrink-0 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]"
+      class="grid gap-4 lg:h-[460px] lg:shrink-0 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)] xl:h-[520px]"
     >
       <div class="h-[clamp(280px,42vh,420px)] lg:h-full">
         <HomeCarousel v-if="banners.length" :banners="banners" @open="openBanner" />
@@ -125,8 +126,8 @@ function openBanner(banner: SiteBanner): void {
         </div>
       </div>
 
-      <section
-        class="flex h-[280px] flex-col overflow-hidden rounded-xl border border-border bg-card lg:h-full"
+      <Card
+        class="flex h-[280px] flex-col overflow-hidden lg:h-full"
       >
         <header class="flex shrink-0 items-center gap-2.5 border-b border-border px-5 py-4">
           <Megaphone class="size-[18px] text-brand" />
@@ -136,42 +137,46 @@ function openBanner(banner: SiteBanner): void {
           <MarkdownView v-if="announcement" :source="announcement" />
           <p v-else class="text-[13px] text-muted-foreground">{{ t('home.noAnnouncement') }}</p>
         </div>
-      </section>
+      </Card>
     </div>
 
     <!-- 下方区块吃满剩余高度：入口磁贴 + 小贴士不再挤在窄栏里 -->
-    <div class="mt-4 flex min-h-0 flex-col gap-4 lg:flex-1">
+    <div class="mt-4 flex flex-col gap-4">
       <section
-        class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 lg:min-h-[160px] lg:flex-[1.1]"
+        class="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4"
         :aria-label="t('home.explore')"
       >
-        <button
+        <Card
           v-for="card in cards"
           :key="card.to"
-          type="button"
-          class="group flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-5 text-left transition-colors hover:border-foreground/20 sm:px-6"
-          @click="router.push(card.to)"
+          class="group min-h-[88px] overflow-hidden transition-colors hover:border-foreground/20"
         >
-          <span
-            class="grid size-12 shrink-0 place-items-center rounded-xl"
-            :class="TONE_SURFACE_CLASSES[card.tone]"
+          <button
+            type="button"
+            class="flex h-full w-full items-center gap-4 px-5 py-5 text-left sm:px-6"
+            @click="router.push(card.to)"
           >
-            <component :is="card.icon" class="size-5" :stroke-width="1.8" />
-          </span>
-          <span class="min-w-0 flex-1">
-            <span class="block text-[17px] font-semibold">{{ t(card.titleKey) }}</span>
-            <span class="mt-1 block truncate text-[13px] text-muted-foreground">
-              {{ t(card.descKey) }}
+            <span
+              class="grid size-12 shrink-0 place-items-center rounded-xl"
+              :class="TONE_SURFACE_CLASSES[card.tone]"
+            >
+              <component :is="card.icon" class="size-5" :stroke-width="1.8" />
             </span>
-          </span>
-          <ChevronRight
-            class="size-5 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5"
-          />
-        </button>
+            <span class="min-w-0 flex-1">
+              <span class="block text-[17px] font-semibold">{{ t(card.titleKey) }}</span>
+              <span class="mt-1 block truncate text-[13px] text-muted-foreground">
+                {{ t(card.descKey) }}
+              </span>
+            </span>
+            <ChevronRight
+              class="size-5 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5"
+            />
+          </button>
+        </Card>
       </section>
 
-      <section
-        class="flex min-h-[136px] flex-col rounded-xl border border-border bg-card px-6 py-5 lg:flex-1"
+      <Card
+        class="flex min-h-[136px] flex-col px-6 py-5"
         :aria-label="t('home.tipsLabel')"
       >
         <header class="flex shrink-0 items-center gap-2.5">
@@ -192,7 +197,7 @@ function openBanner(banner: SiteBanner): void {
             {{ tipText }}
           </p>
         </Transition>
-      </section>
+      </Card>
     </div>
   </div>
 </template>

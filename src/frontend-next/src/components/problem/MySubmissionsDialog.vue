@@ -88,7 +88,9 @@ defineExpose({ load, reset: resetPage })
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="flex h-[70vh] max-w-[760px] flex-col gap-0 overflow-hidden p-0">
+    <DialogContent
+      class="flex h-[84vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100vw-2rem)]"
+    >
       <div class="border-b border-border px-5 py-4 pr-12">
         <DialogTitle class="text-[15px] font-semibold">
           {{ t('problems.detail.mySubmissions') }}

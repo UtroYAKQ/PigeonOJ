@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { CalendarClock, FileText } from '@lucide/vue'
 
 import MarkdownView from '@/components/common/MarkdownView.vue'
+import { Card } from '@/components/ui/card'
 import ContestAnnouncement from './ContestAnnouncement.vue'
 import { formatDateTime } from '@/utils/format'
 import type { ContestDetail } from '@/types'
@@ -39,7 +40,7 @@ const schedule = computed(() => {
       :updated-at="detail.announcement_updated_at"
     />
 
-    <section class="rounded-xl border border-border bg-card p-4">
+    <Card class="p-4">
       <h2 class="flex items-center gap-2 text-[13.5px] font-semibold">
         <CalendarClock class="size-4 text-muted-foreground" />
         {{ t('contests.detail.schedule') }}
@@ -53,9 +54,9 @@ const schedule = computed(() => {
           <dd class="text-[13px] font-medium tabular-nums">{{ item.value }}</dd>
         </div>
       </dl>
-    </section>
+    </Card>
 
-    <section class="rounded-xl border border-border bg-card p-4">
+    <Card class="p-4">
       <h2 class="flex items-center gap-2 text-[13.5px] font-semibold">
         <FileText class="size-4 text-muted-foreground" />
         {{ t('contests.detail.about') }}
@@ -66,6 +67,6 @@ const schedule = computed(() => {
           {{ t('contests.detail.noDescription') }}
         </p>
       </div>
-    </section>
+    </Card>
   </div>
 </template>

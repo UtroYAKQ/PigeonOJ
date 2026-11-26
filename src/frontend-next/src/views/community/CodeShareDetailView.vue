@@ -2,20 +2,20 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Check, Copy, Loader2, Trash2 } from '@lucide/vue'
+import { ArrowLeft, Loader2, Trash2 } from '@lucide/vue'
 
 import { deleteCodeShare, getCodeShare } from '@/api/community'
 import CommentThread from '@/components/community/CommentThread.vue'
 import ReportDialog from '@/components/community/ReportDialog.vue'
+import CodeBlockView from '@/components/common/CodeBlockView.vue'
 import InlineNotice from '@/components/common/InlineNotice.vue'
 import MarkdownView from '@/components/common/MarkdownView.vue'
+import { Card } from '@/components/ui/card'
 import PageShell from '@/components/common/PageShell.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
 import { Button } from '@/components/ui/button'
 import { languageOptions } from '@/constants/languages'
-import { TONE_TEXT_CLASSES } from '@/components/common/tone'
 import { useUserStore } from '@/stores/user'
-import { copyToClipboard } from '@/utils/clipboard'
 import { confirmDialog, message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
 import type { CodeShareDetail } from '@/types'
@@ -27,7 +27,7 @@ const userStore = useUserStore()
 
 const share = ref<CodeShareDetail | null>(null)
 const loading = ref(false)
-const copied = ref(false)
+
 const reportOpen = ref(false)
 
 const shareId = String(route.params.id)
@@ -50,13 +50,6 @@ async function load(): Promise<void> {
   }
 }
 
-async function copyCode(): Promise<void> {
-  if (!share.value) return
-  if (!(await copyToClipboard(share.value.code))) return
-  copied.value = true
-  message.success(t('problems.detail.copied'))
-  window.setTimeout(() => (copied.value = false), 1500)
-}
 
 async function remove(): Promise<void> {
   const ok = await confirmDialog({
@@ -93,7 +86,7 @@ onMounted(load)
     </div>
 
     <template v-else-if="share">
-      <article class="overflow-hidden rounded-xl border border-border bg-card">
+      <Card class="overflow-hidden">
         <header class="border-b border-border px-5 py-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
@@ -131,26 +124,14 @@ onMounted(load)
 
           <MarkdownView v-if="share.description" :source="share.description" />
 
-          <div class="overflow-hidden rounded-lg border border-border">
-            <div class="flex items-center justify-between border-b border-border px-3 py-1.5">
-              <span class="font-mono text-[12px] text-muted-foreground">{{ languageLabel }}</span>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                :aria-label="t('action.copy')"
-                @click="copyCode"
-              >
-                <Check v-if="copied" class="size-3.5" :class="TONE_TEXT_CLASSES.success" />
-                <Copy v-else class="size-3.5" />
-              </Button>
-            </div>
-            <pre
-              class="max-h-[520px] overflow-auto whitespace-pre-wrap break-all bg-code px-4 py-3 font-mono text-[12.5px] leading-6 text-code-foreground"
-              >{{ share.code }}</pre
-            >
-          </div>
+          <CodeBlockView
+            :code="share.code"
+            :language="share.language"
+            :title="languageLabel"
+            max-height="max-h-[520px]"
+          />
         </div>
-      </article>
+      </Card>
 
       <div class="mt-4">
         <CommentThread target-type="code_share" :target-id="share.id" :disabled="removed" />
@@ -159,8 +140,8 @@ onMounted(load)
       <ReportDialog v-model:open="reportOpen" target-type="code_share" :target-id="share.id" />
     </template>
 
-    <div v-else class="grid min-h-[320px] place-items-center rounded-xl border border-border bg-card">
+    <Card v-else class="grid min-h-[320px] place-items-center">
       <p class="text-[13px] text-muted-foreground">{{ t('admin.codes.previewNotFound') }}</p>
-    </div>
+    </Card>
   </PageShell>
 </template>

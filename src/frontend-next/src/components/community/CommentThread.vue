@@ -8,6 +8,7 @@ import BaseAvatar from '@/components/common/BaseAvatar.vue'
 import LineList from '@/components/common/LineList.vue'
 import ReportDialog from '@/components/community/ReportDialog.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { useUserStore } from '@/stores/user'
 import { confirmDialog, message } from '@/utils/feedback'
@@ -170,7 +171,7 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="rounded-xl border border-border bg-card">
+  <Card>
     <header class="flex items-center gap-2 border-b border-border px-4 py-3">
       <MessageSquare class="size-4 text-muted-foreground" />
       <h2 class="text-[13.5px] font-semibold">{{ t('community.comment.title') }}</h2>
@@ -363,5 +364,5 @@ onMounted(load)
     </div>
 
     <ReportDialog v-model:open="reportOpen" target-type="comment" :target-id="reportTargetId" />
-  </section>
+  </Card>
 </template>

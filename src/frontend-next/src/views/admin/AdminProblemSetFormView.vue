@@ -11,7 +11,7 @@ import { Loader2 } from '@lucide/vue'
 
 import { createProblemSet, getProblemSet, updateProblemSet } from '@/api/problemSets'
 import MarkdownEditor from '@/components/common/MarkdownEditor.vue'
-import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -101,18 +101,26 @@ function cancel(): void {
 </script>
 
 <template>
-  <WorkbenchShell
-    :title="isEdit ? t('problemSets.detail.editTitle') : t('problemSets.list.createTitle')"
-    :description="t('problemSets.form.hint')"
-  >
-    <div v-if="loading" class="grid min-h-0 flex-1 place-items-center">
+  <div class="mx-auto w-full max-w-[1200px] px-4 pb-12 pt-4 sm:px-6">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div class="min-w-0">
+        <h1 class="text-xl font-semibold leading-tight tracking-tight">
+          {{ isEdit ? t('problemSets.detail.editTitle') : t('problemSets.list.createTitle') }}
+        </h1>
+        <p class="mt-2 text-sm leading-5 text-muted-foreground">{{ t('problemSets.form.hint') }}</p>
+      </div>
+    </header>
+
+    <div class="my-5 h-px bg-border" role="separator" />
+
+    <div v-if="loading" class="grid h-[320px] place-items-center">
       <Loader2 class="size-6 animate-spin text-muted-foreground" />
     </div>
 
-    <!-- 无框分区表单：标题 + 说明 + 细分隔线 + 字段提示 -->
-    <form v-else class="min-h-0 flex-1 overflow-y-auto pb-6" @submit.prevent="submit">
-      <div class="mx-auto w-full max-w-[960px]">
-        <h3 class="text-lg font-medium">{{ t('problemSets.form.basicTitle') }}</h3>
+    <!-- 平铺无框表单：与新建题目页一致 -->
+    <form v-else class="space-y-8" @submit.prevent="submit">
+      <section>
+        <h2 class="text-lg font-medium">{{ t('problemSets.form.basicTitle') }}</h2>
         <p class="mt-1 text-sm leading-5 text-muted-foreground">
           {{ t('problemSets.form.basicHint') }}
         </p>
@@ -164,30 +172,31 @@ function cancel(): void {
             </p>
           </div>
         </div>
+      </section>
 
-        <div class="my-8 h-px bg-border" role="separator" />
-        <h3 class="text-lg font-medium">{{ t('problemSets.list.descLabel') }}</h3>
+      <section>
+        <div class="h-px bg-border" role="separator" />
+        <h2 class="pt-8 text-lg font-medium">{{ t('problemSets.list.descLabel') }}</h2>
         <p class="mt-1 text-sm leading-5 text-muted-foreground">
           {{ t('problemSets.form.descHint') }}
         </p>
-        <div class="mt-5">
-          <MarkdownEditor
-            v-model="form.description"
-            min-height="320px"
-            :placeholder="t('problemSets.form.descPlaceholder')"
-          />
-        </div>
+        <div class="my-5 h-px bg-border" role="separator" />
+        <MarkdownEditor
+          v-model="form.description"
+          min-height="320px"
+          :placeholder="t('problemSets.form.descPlaceholder')"
+        />
+      </section>
 
-        <div class="mt-8 flex flex-wrap justify-start gap-2">
-          <Button type="submit" :disabled="submitting || loading">
-            <Loader2 v-if="submitting" class="size-4 animate-spin" />
-            {{ isEdit ? t('action.save') : t('problemSets.form.createAction') }}
-          </Button>
-          <Button type="button" variant="outline" :disabled="submitting" @click="cancel">
-            {{ t('action.cancel') }}
-          </Button>
-        </div>
+        <div class="flex flex-wrap justify-start gap-2 pt-2">
+        <Button type="submit" :disabled="submitting || loading">
+          <Loader2 v-if="submitting" class="size-4 animate-spin" />
+          {{ isEdit ? t('action.save') : t('problemSets.form.createAction') }}
+        </Button>
+        <Button type="button" variant="outline" :disabled="submitting" @click="cancel">
+          {{ t('action.cancel') }}
+        </Button>
       </div>
     </form>
-  </WorkbenchShell>
+  </div>
 </template>

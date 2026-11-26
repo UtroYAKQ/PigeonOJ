@@ -3,6 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { FileText } from '@lucide/vue'
 
 import MarkdownView from '@/components/common/MarkdownView.vue'
+import { Card } from '@/components/ui/card'
 import { formatDateTime } from '@/utils/format'
 import type { ProblemSetDetail } from '@/types'
 
@@ -18,7 +19,7 @@ const { t } = useI18n()
 
 <template>
   <div class="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)]">
-    <section class="overflow-hidden rounded-xl border border-border bg-card">
+    <Card class="overflow-hidden">
       <header class="border-b border-border/70 px-4 py-2.5 text-[13px] font-semibold">
         {{ t('problemSets.list.descLabel') }}
       </header>
@@ -32,9 +33,9 @@ const { t } = useI18n()
           <p class="text-sm">{{ t('problemSets.detail.noDescription') }}</p>
         </div>
       </div>
-    </section>
+    </Card>
 
-    <aside class="self-start overflow-hidden rounded-xl border border-border bg-card">
+    <Card class="self-start overflow-hidden">
       <header class="border-b border-border/70 px-4 py-2.5 text-[13px] font-semibold">
         {{ t('problemSets.detail.infoTitle') }}
       </header>
@@ -67,6 +68,6 @@ const { t } = useI18n()
           {{ t('problemSets.detail.progressText', { done: solved, total }) }}
         </p>
       </div>
-    </aside>
+    </Card>
   </div>
 </template>

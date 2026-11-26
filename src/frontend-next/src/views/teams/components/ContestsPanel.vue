@@ -1,20 +1,16 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Plus } from '@lucide/vue'
 
 import { listTeamContests } from '@/api/teams'
-import BaseAvatar from '@/components/common/BaseAvatar.vue'
-import PaginatedTable from '@/components/common/PaginatedTable.vue'
+import PaginatedCardGrid from '@/components/common/PaginatedCardGrid.vue'
 import RefreshButton from '@/components/common/RefreshButton.vue'
 import SearchFilterBar from '@/components/common/SearchFilterBar.vue'
-import ToneBadge from '@/components/common/ToneBadge.vue'
-import type { AppTableColumn } from '@/components/common/table-types'
-import ContestStatusBadge from '@/components/contests/ContestStatusBadge.vue'
+import ContestCard from '@/components/contests/ContestCard.vue'
 import RowActions from '@/components/teams/RowActions.vue'
 import type { RowAction } from '@/components/teams/types'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { usePagination } from '@/composables/usePagination'
 import { message } from '@/utils/feedback'
@@ -34,14 +30,6 @@ const contests = ref<ContestSummary[]>([])
 const loading = ref(false)
 const keyword = ref('')
 const { page, pageSize, total, changePage, resetPage, beginLoad, isCurrent } = usePagination()
-
-function formatCompact(iso: string | null | undefined): string {
-  if (!iso) return '—'
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return '—'
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
 
 async function load(): Promise<void> {
   const seq = beginLoad()
@@ -102,96 +90,6 @@ function onAction(key: ContestAction, row: ContestSummary): void {
   void router.push(`/teams/${props.teamId}/contests/${row.id}/tools`)
 }
 
-const columns = computed<AppTableColumn<ContestSummary>[]>(() => {
-  const cols: AppTableColumn<ContestSummary>[] = [
-    {
-      key: 'title',
-      title: t('contests.list.titleLabel'),
-      cell: (row) =>
-        h('div', { class: 'flex min-w-0 items-center gap-2.5 py-0.5' }, [
-          h(BaseAvatar, {
-            kind: 'contest',
-            src: row.logo,
-            name: row.title,
-            size: 32,
-            round: false,
-            radius: 8,
-            bordered: true,
-          }),
-          h('div', { class: 'min-w-0 space-y-0.5' }, [
-            h('div', { class: 'flex flex-wrap items-center gap-1.5' }, [
-              h('span', { class: 'text-[13.5px] font-medium' }, row.title),
-              row.board_frozen
-                ? h(ToneBadge, { tone: 'warning', label: t('contests.boardFrozenTag') })
-                : null,
-            ]),
-            h(
-              'div',
-              { class: 'max-w-[420px] truncate text-[12px] text-muted-foreground' },
-              row.description || '—',
-            ),
-          ]),
-        ]),
-    },
-    {
-      key: 'status',
-      title: t('problems.detail.status'),
-      width: '110px',
-      cell: (row) => h(ContestStatusBadge, { status: row.status }),
-    },
-    {
-      key: 'rule',
-      title: t('contests.list.ruleType'),
-      width: '84px',
-      cell: (row) =>
-        h(
-          Badge,
-          { variant: 'outline', class: 'h-5 border px-2 text-[11.5px]' },
-          () => row.rule_type,
-        ),
-    },
-    {
-      key: 'problems',
-      title: t('contests.list.problems'),
-      width: '90px',
-      align: 'center',
-      cell: (row) => t('contests.list.problemCount', { count: row.problem_count }),
-      cellClass: 'tabular-nums text-muted-foreground',
-    },
-    {
-      key: 'registered',
-      title: t('contests.detail.registeredCount'),
-      width: '100px',
-      align: 'center',
-      cell: (row) => t('contests.list.registeredCount', { count: row.registered_count }),
-      cellClass: 'tabular-nums text-muted-foreground',
-    },
-    {
-      key: 'schedule',
-      title: t('contests.detail.schedule'),
-      width: '190px',
-      cell: (row) => `${formatCompact(row.start_time)} → ${formatCompact(row.end_time)}`,
-      cellClass: 'text-[12.5px] text-muted-foreground tabular-nums',
-    },
-  ]
-
-  if (props.isAdmin) {
-    cols.push({
-      key: 'ops',
-      width: '56px',
-      align: 'right',
-      cell: (row) =>
-        h(RowActions, {
-          actions: actionsFor(row),
-          label: t('teams.detail.more'),
-          onSelect: (key: string) => onAction(key as ContestAction, row),
-        }),
-    })
-  }
-
-  return cols
-})
-
 onMounted(load)
 </script>
 
@@ -213,20 +111,30 @@ onMounted(load)
       </template>
     </SearchFilterBar>
 
-    <PaginatedTable
-      :columns="columns"
-      :data="contests"
+    <PaginatedCardGrid
+      :items="contests"
       :loading="loading"
       :total="total"
       :page="page"
       :page-size="pageSize"
       :empty-text="t('teams.space.contestsEmpty')"
-      :row-click="openContest"
       @update:page="onPageChange"
     >
+      <template #default="{ item }">
+        <div class="relative h-full">
+          <ContestCard :contest="item" @open="openContest" />
+          <div v-if="isAdmin" class="absolute bottom-1.5 right-1.5">
+            <RowActions
+              :actions="actionsFor(item)"
+              :label="t('teams.detail.more')"
+              @select="(key) => onAction(key as ContestAction, item)"
+            />
+          </div>
+        </div>
+      </template>
       <template #pager-left>
         <span class="tabular-nums">{{ t('teams.pane.contestTotal', { count: total }) }}</span>
       </template>
-    </PaginatedTable>
+    </PaginatedCardGrid>
   </div>
 </template>

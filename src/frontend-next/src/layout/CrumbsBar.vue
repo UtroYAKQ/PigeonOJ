@@ -21,8 +21,8 @@ const crumbs = computed(() => buildCrumbs(route, (key) => t(key)))
 </script>
 
 <template>
-  <Breadcrumb v-if="crumbs.length" class="min-w-0 text-[13px]">
-    <BreadcrumbList class="flex-nowrap">
+  <Breadcrumb v-if="crumbs.length" class="min-w-0 overflow-hidden text-[13px]">
+    <BreadcrumbList class="min-w-0 flex-nowrap overflow-hidden">
       <template v-for="(crumb, index) in crumbs" :key="`${index}-${crumb.label}`">
         <BreadcrumbItem>
           <BreadcrumbLink v-if="crumb.to" as-child>

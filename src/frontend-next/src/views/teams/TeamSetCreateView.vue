@@ -12,9 +12,10 @@ import {
 import ErrorState from '@/components/common/ErrorState.vue'
 import LineList from '@/components/common/LineList.vue'
 import MarkdownEditor from '@/components/common/MarkdownEditor.vue'
-import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
+
 import ProblemPicker from '@/components/problemsets/ProblemPicker.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { message } from '@/utils/feedback'
@@ -101,14 +102,27 @@ async function submitCreate(): Promise<void> {
 </script>
 
 <template>
-  <WorkbenchShell :title="t('teams.space.createSet')" :description="t('teams.space.setBasicHint')">
-    <div v-if="gateLoading" class="grid min-h-0 flex-1 place-items-center">
+  <div class="mx-auto w-full max-w-[1200px] px-4 pb-12 pt-4 sm:px-6">
+    <header class="flex flex-wrap items-end justify-between gap-3">
+      <div class="min-w-0">
+        <h1 class="text-xl font-semibold leading-tight tracking-tight">
+          {{ t('teams.space.createSet') }}
+        </h1>
+        <p class="mt-2 text-sm leading-5 text-muted-foreground">
+          {{ t('teams.space.setBasicHint') }}
+        </p>
+      </div>
+    </header>
+
+    <div class="my-5 h-px bg-border" role="separator" />
+
+    <div v-if="gateLoading" class="grid h-[320px] place-items-center">
       <Loader2 class="size-6 animate-spin text-muted-foreground" />
     </div>
 
-    <div
+    <Card
       v-else-if="!allowed || failed"
-      class="grid min-h-0 flex-1 place-items-center rounded-xl border border-border bg-card"
+      class="grid min-h-[320px] place-items-center"
     >
       <ErrorState :message="forbidden ? t('teams.detail.forbidden') : t('teams.detail.loadFailed')">
         <template #actions>
@@ -121,11 +135,11 @@ async function submitCreate(): Promise<void> {
           </Button>
         </template>
       </ErrorState>
-    </div>
+    </Card>
 
-    <form v-else class="min-h-0 flex-1 overflow-y-auto pb-6" @submit.prevent="submitCreate">
-      <div class="mx-auto w-full max-w-[960px]">
-        <h3 class="text-lg font-medium">{{ t('problemSets.form.basicTitle') }}</h3>
+    <form v-else class="space-y-8" @submit.prevent="submitCreate">
+      <section>
+        <h2 class="text-lg font-medium">{{ t('problemSets.form.basicTitle') }}</h2>
         <p class="mt-1 text-sm leading-5 text-muted-foreground">
           {{ t('teams.space.setBasicHint') }}
         </p>
@@ -189,20 +203,23 @@ async function submitCreate(): Promise<void> {
           </div>
         </div>
 
-        <div class="my-8 h-px bg-border" role="separator" />
-        <h3 class="text-lg font-medium">{{ t('problemSets.list.descLabel') }}</h3>
-        <p class="mt-1 text-sm leading-5 text-muted-foreground">
-          {{ t('teams.space.setDescHint') }}
-        </p>
-        <div class="mt-5">
+        </section>
+
+        <section>
+          <div class="h-px bg-border" role="separator" />
+          <h2 class="pt-8 text-lg font-medium">{{ t('problemSets.list.descLabel') }}</h2>
+          <p class="mt-1 text-sm leading-5 text-muted-foreground">
+            {{ t('teams.space.setDescHint') }}
+          </p>
+          <div class="my-5 h-px bg-border" role="separator" />
           <MarkdownEditor
             v-model="form.description"
             min-height="320px"
             :placeholder="t('problemSets.form.descPlaceholder')"
           />
-        </div>
+        </section>
 
-        <div class="mt-8 flex flex-wrap justify-start gap-2">
+        <div class="flex flex-wrap justify-start gap-2 pt-2">
           <Button type="submit" :disabled="submitting || gateLoading">
             <Loader2 v-if="submitting" class="size-4 animate-spin" />
             {{ t('action.save') }}
@@ -211,14 +228,13 @@ async function submitCreate(): Promise<void> {
             {{ t('action.cancel') }}
           </Button>
         </div>
-      </div>
-    </form>
+      </form>
 
-    <ProblemPicker
-      v-model:show="pickerOpen"
-      :chosen-ids="chosenIds"
-      :loader="pickerLoader"
-      @add="addProblem"
-    />
-  </WorkbenchShell>
+      <ProblemPicker
+        v-model:show="pickerOpen"
+        :chosen-ids="chosenIds"
+        :loader="pickerLoader"
+        @add="addProblem"
+      />
+  </div>
 </template>

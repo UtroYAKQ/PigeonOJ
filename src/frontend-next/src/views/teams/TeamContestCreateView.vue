@@ -13,6 +13,7 @@ import ErrorState from '@/components/common/ErrorState.vue'
 import MarkdownEditor from '@/components/common/MarkdownEditor.vue'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -103,9 +104,9 @@ async function submit(): Promise<void> {
       <Loader2 class="size-6 animate-spin text-muted-foreground" />
     </div>
 
-    <div
+    <Card
       v-else-if="!allowed || failed"
-      class="grid min-h-0 flex-1 place-items-center rounded-xl border border-border bg-card"
+      class="grid min-h-0 flex-1 place-items-center"
     >
       <ErrorState :message="forbidden ? t('teams.detail.forbidden') : t('teams.detail.loadFailed')">
         <template #actions>
@@ -118,11 +119,11 @@ async function submit(): Promise<void> {
           </Button>
         </template>
       </ErrorState>
-    </div>
+    </Card>
 
     <!-- 与设置页一致：分区标题 + 细分隔线 + 无边框表单 -->
     <form v-else class="min-h-0 flex-1 overflow-y-auto pb-6" @submit.prevent="submit">
-      <div class="mx-auto w-full max-w-[960px]">
+      <div class="mx-auto w-full max-w-[1200px]">
         <h3 class="text-lg font-medium">{{ t('contests.wizard.basic') }}</h3>
         <p class="mt-1 text-sm leading-5 text-muted-foreground">
           {{ t('teams.space.contestArrangeHint') }}
