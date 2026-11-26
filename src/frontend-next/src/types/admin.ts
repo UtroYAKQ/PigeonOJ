@@ -1,0 +1,151 @@
+/**
+ * 管理 / 运维模块类型（docs/contracts/admin.md）。
+ */
+
+/** 在线用户面板条目（每活跃会话一行，docs/contracts/admin.md） */
+export interface OnlineUser {
+  user_id: string
+  nickname: string
+  email: string
+  avatar_url: string | null
+  role: string | null
+  status: string
+  device_info: string | null
+  ip_address: string | null
+  location: string | null
+  last_active_at: string
+  session_created_at: string
+}
+
+/** 全站提交面板条目（admin，docs/contracts/admin.md） */
+export interface AdminSubmission {
+  id: string
+  problem_id: string
+  problem_title: string | null
+  user_id: string
+  nickname: string
+  language: string
+  submit_type: 'practice' | 'contest' | 'verify'
+  status: string
+  score: number
+  time_used_ms: number | null
+  memory_used_kb: number | null
+  created_at: string
+}
+
+// ---------------- 系统配置 ----------------
+
+export type ConfigCategory =
+  'site' | 'auth_email' | 'team' | 'contest' | 'model' | 'token' | 'sandbox' | 'log' | 'community'
+
+export interface SystemConfigItem {
+  id: string
+  category: ConfigCategory
+  config_key: string
+  config_value: unknown
+  description: string | null
+  updated_by: string | null
+  updated_at: string
+}
+
+// ---------------- 日志 ----------------
+
+export type LogType = 'request' | 'login' | 'exception'
+
+export interface RequestLogRow {
+  id: string
+  request_id: string
+  user_id: string | null
+  /** 用户昵称（后端批量 JOIN 回填） */
+  nickname: string | null
+  method: string
+  path: string
+  status_code: number
+  ip_address: string | null
+  /** ip2region 离线解析：「中国 浙江省 杭州市 阿里云」；内网「内网IP」；null=解析失败 */
+  location: string | null
+  user_agent: string | null
+  /** extra.device：{browser, os, device}，由后端 UA 解析生成 */
+  device: { browser: string | null; os: string | null; device: string | null } | null
+  duration_ms: number | null
+  created_at: string
+}
+
+export interface LoginLogRow {
+  id: string
+  user_id: string | null
+  nickname: string | null
+  email: string | null
+  action: string
+  ip_address: string | null
+  location: string | null
+  user_agent: string | null
+  success: boolean
+  reason: string | null
+  created_at: string
+}
+
+export interface ExceptionLogRow {
+  id: string
+  level: 'error' | 'warning' | 'fatal'
+  message: string
+  traceback: string | null
+  request_id: string | null
+  user_id: string | null
+  created_at: string
+}
+
+export interface LogQuery {
+  page?: number
+  page_size?: number
+  keyword?: string
+  /** 昵称模糊过滤（关联 users.nickname） */
+  nickname?: string
+  start?: string
+  end?: string
+}
+
+// ---------------- 沙箱状态 ----------------
+
+export type SandboxNodeStatus = 'online' | 'offline'
+
+export interface SandboxNode {
+  id: string
+  name: string
+  status: SandboxNodeStatus
+  /** 0~1 负载 */
+  load: number
+  cpu_usage: number
+  memory_usage: number
+  running_tasks: number
+  last_heartbeat_at: string
+  version: string
+}
+
+// ---------------- 用户管理查询 ----------------
+
+export interface AdminUserQuery {
+  page?: number
+  page_size?: number
+  keyword?: string
+  status?: string
+}
+
+// ---------------- 举报 ----------------
+
+export type ReportStatus = 'pending' | 'handled' | 'ignored'
+export type ReportType = 'problem' | 'solution' | 'code_share' | 'post' | 'comment' | 'user'
+
+export interface Report {
+  id: string
+  target_type: ReportType
+  target_id: string
+  /** 目标内容摘要（内容表实现后回填；当前可能为 null） */
+  target_summary: string | null
+  reporter_nickname: string
+  reason: string
+  status: ReportStatus
+  handled_by: string | null
+  handled_at: string | null
+  created_at: string
+}

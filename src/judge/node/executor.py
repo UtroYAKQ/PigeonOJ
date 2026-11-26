@@ -224,11 +224,18 @@ class NsjailExecutor:
         t_out = threading.Thread(target=_pump, args=(proc.stdout, out_buf), daemon=True)
         t_err = threading.Thread(target=_pump, args=(proc.stderr, err_buf), daemon=True)
         t_out.start(); t_err.start()
-        try:
-            proc.stdin.write(stdin)
-            proc.stdin.close()
-        except Exception:
-            pass
+
+        def _write_stdin(pipe, data):
+            # stdin 写入必须在线程内：用户程序若不读 stdin 且输入超过管道缓冲
+            # （约 64KB），同步 write 会永久阻塞，deadline 轮询永远到不了
+            try:
+                pipe.write(data)
+                pipe.close()
+            except Exception:
+                pass
+
+        t_in = threading.Thread(target=_write_stdin, args=(proc.stdin, stdin), daemon=True)
+        t_in.start()
 
         # 峰值内存：优先每 jail 一个 cgroup v2 叶子读 memory.current；
         # 不可用时沿 nsjail 进程树读 VmRSS（不再扫宿主机全部 /proc）
@@ -273,6 +280,7 @@ class NsjailExecutor:
 
         stop.set(); sampler.join(timeout=1)
         t_out.join(timeout=1); t_err.join(timeout=1)
+        t_in.join(timeout=1)
         stdout_raw = b"".join(out_buf)
         stderr_raw = b"".join(err_buf)
 

@@ -9,6 +9,7 @@ import RefreshButton from '@/components/RefreshButton.vue'
 import { listActiveTags, listProblems } from '@/api/problems'
 import { message } from '@/utils/feedback'
 import { renderSolveMark } from '@/utils/solveMark'
+import { renderDifficulty, renderPassRate } from '@/utils/problemCells'
 import { useUserStore } from '@/stores/user'
 import { usePagination } from '@/composables/usePagination'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
@@ -29,9 +30,9 @@ const tagOptions = ref<Array<{ label: string; value: string }>>([])
 /** 难度分闭区间筛选（null = 不限） */
 const difficultyMin = ref<number | null>(null)
 const difficultyMax = ref<number | null>(null)
-/** 「我的」勾选仅对题库管理角色（admin/tutor）开放：只看本人已发布题目（含私有已发布） */
+/** 「我的」勾选仅对题库管理角色（admin）开放：只看本人已发布题目（含私有已发布） */
 const userStore = useUserStore()
-const isManager = computed(() => userStore.isAdmin || userStore.hasAnyRole(['tutor']))
+const isManager = computed(() => userStore.isAdmin)
 const mineOnly = ref(false)
 /** 标签列默认隐藏，右上角「显示标签」勾选后展示 */
 const showTags = ref(false)
@@ -78,13 +79,6 @@ function onSearch() {
 function changeTag() {
   resetPage()
   load()
-}
-
-/** 通过率展示：accepted/submission 百分比；无提交显示 -- */
-function passRate(row: ProblemSummary): string {
-  const total = row.submission_count ?? 0
-  if (!total) return '--'
-  return `${Math.round(((row.accepted_count ?? 0) / total) * 100)}%`
 }
 
 onMounted(() => {
@@ -154,13 +148,13 @@ const columns = computed<DataTableColumns<ProblemSummary>>(() => [
     title: t('problems.list.difficulty'),
     key: 'difficulty',
     width: 90,
-    render: (row) => ((row.difficulty ?? null) === null ? '--' : String(row.difficulty)),
+    render: (row) => renderDifficulty(row),
   },
   {
     title: t('problems.list.passRate'),
     key: 'pass_rate',
     width: 100,
-    render: (row) => passRate(row),
+    render: (row) => renderPassRate(row),
   },
 ])
 

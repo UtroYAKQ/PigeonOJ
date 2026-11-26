@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.enums import Theme, UserStatus, UserRoleScope
+from app.enums import EditorFontFamily, Theme, UserStatus, UserRoleScope
 
 
 class UserPublic(BaseModel):
@@ -27,6 +27,8 @@ class UserPublic(BaseModel):
     avatar_url: str | None
     signature: str | None
     theme: Theme
+    editor_font_size: int
+    editor_font_family: EditorFontFamily
     status: UserStatus
     frozen_until: datetime | None = None
     last_login_at: datetime | None
@@ -47,6 +49,15 @@ class ProfileUpdate(BaseModel):
     signature: str | None = None
     avatar_url: str | None = None
     theme: Theme | None = None
+    editor_font_size: int | None = None
+    editor_font_family: EditorFontFamily | None = None
+
+    @field_validator("editor_font_size")
+    @classmethod
+    def validate_font_size(cls, value: int | None) -> int | None:
+        if value is not None and not 11 <= value <= 24:
+            raise ValueError("编辑器字号取值 11-24")
+        return value
 
 
 class PasswordConfirm(BaseModel):

@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
+import { sanitizeRedirect } from '@/utils/navigation'
 import { message } from '@/utils/feedback'
 
 const router = useRouter()
@@ -23,9 +24,7 @@ async function onSubmit() {
   try {
     await userStore.login(form.email, form.password)
     message.success(t('auth.loginSuccess'))
-    router.push(
-      typeof route.query.redirect === 'string' && route.query.redirect ? route.query.redirect : '/',
-    )
+    router.push(sanitizeRedirect(route.query.redirect))
   } catch (e) {
     message.error(e instanceof Error ? e.message : t('auth.loginFailed'))
   } finally {

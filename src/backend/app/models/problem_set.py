@@ -40,18 +40,16 @@ class ProblemSet(Base):
         String(16), nullable=False, server_default=ProblemSetVisibility.PUBLIC
     )
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemSetStatus.ACTIVE)
-    # 经团队引用进入团队题单的时间（引用来源标记；NULL=非引用产生，docs/contracts/teams.md 团队空间）
-    referenced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
-        # 归属与可见性匹配：全站题单 public/private，团队题单 team_visible/admin_visible
-        # （0032 起团队分支与团队题目对齐，原 'team' 值由迁移回填为 'team_visible'）
+        # 归属与可见性匹配：全站题单 public/private，团队题单恒 team_visible
+        # （0043 起团队题单不再有 admin_visible 分支，存量回填为 team_visible）
         CheckConstraint(
             "("
             "(team_id IS NULL     AND visibility IN ('public','private')) OR"
-            "(team_id IS NOT NULL AND visibility IN ('team_visible','admin_visible'))"
+            "(team_id IS NOT NULL AND visibility IN ('team_visible'))"
             ")",
             name="ck_problem_sets_owner_visibility",
         ),

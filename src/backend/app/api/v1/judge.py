@@ -9,25 +9,22 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import ValidationError
 
-from app.api.deps import ProblemServiceDep, SelfTestServiceDep, SessionDep, SubmissionServiceDep
-from app.core.dependency import get_current_admin, get_current_user
-from app.core.exceptions import (
-    APIError,
-    PARAM_FORMAT_INVALID,
-    RATE_LIMITED,
-    RATE_SEND_TOO_FREQUENT,
-    SYSTEM_UPSTREAM_FAILURE,
+from app.api.deps import (
+    ProblemServiceDep,
+    SelfTestServiceDep,
+    SessionDep,
+    SubmissionServiceDep,
+    get_current_admin,
+    get_current_user,
 )
+from app.core.exceptions import APIError
 from app.enums import SubmissionStatus, SubmitType
 from app.models.user import User
 from app.rpc.judge_gateway import (
     REGISTRY,
-    GatewayBusyError,
-    GatewayTimeoutError,
-    GatewayUnavailableError,
-    dispatch_run_code,
-    dispatch_submission,
+    commit_and_dispatch,
 )
 from app.schemas.judge import (
     ProblemSubmissionItem,
@@ -65,8 +62,7 @@ async def verify_problem(
 ) -> ApiResponse[SubmissionCreatedResponse | VerificationInitOut]:
     if body.code is not None:
         submission = await service.create_verify_submission(user, problem_id, body)
-        await db.commit()  # 显式提交：确保 submission 已持久化，dispatch_submission 才能找到它
-        await dispatch_submission(submission.id)
+        await commit_and_dispatch(db, submission)
         return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
     result = await problem_service.init_verification(user, problem_id, body.invite_expires_hours)
     await db.commit()  # 显式提交：确保数据持久化
@@ -97,8 +93,7 @@ async def create_submission(
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SubmissionCreatedResponse]:
     submission = await service.create(user, body)
-    await db.commit()  # 显式提交：确保 submission 已持久化，dispatch_submission 才能找到它
-    await dispatch_submission(submission.id)
+    await commit_and_dispatch(db, submission)
     return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
 
 
@@ -113,8 +108,8 @@ async def list_submissions(
 ) -> ApiResponse[PaginatedResponse[SubmissionSummary]]:
     try:
         query = SubmissionQuery(page=page, page_size=page_size, problem_id=problem_id, status=status)
-    except Exception as exc:
-        raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
+    except ValidationError as exc:
+        raise APIError.bad_query(exc) from exc
     items, total = await service.list_summaries(user, query)
     return ok(PaginatedResponse(items=items, total=total, page=query.page, page_size=query.page_size))
 
@@ -151,7 +146,7 @@ async def list_problem_submissions(
         status_value = SubmissionStatus(status) if status else None
         submit_type_value = SubmitType(submit_type) if submit_type else None
     except ValueError as exc:
-        raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
+        raise APIError.bad_query(exc) from exc
     items, total = await service.list_problem_summaries(
         user, problem_id, status_value, keyword, language, submit_type_value, page, page_size
     )
@@ -184,33 +179,7 @@ async def run_problem_code(
 ) -> ApiResponse[SelfTestResultOut]:
     """用户自测：代码 + 自定义输入经判题节点一次性运行，仅回传 stdout（docs/contracts/judge.md）。"""
     order = await service.create_order(user, problem_id, body)
-    if not await service.try_claim_cooldown(order, user.id):
-        raise APIError(RATE_SEND_TOO_FREQUENT, "操作过于频繁，请稍后再试", 429)
-    try:
-        outcome = await dispatch_run_code(
-            problem=order.problem,
-            sandbox_config=order.sandbox_config,
-            language=order.language,
-            code=order.code,
-            stdin_data=order.stdin_data,
-            max_concurrent=order.max_concurrent,
-        )
-    except GatewayUnavailableError as exc:
-        await service.release_cooldown(order, user.id)
-        raise APIError(SYSTEM_UPSTREAM_FAILURE, "暂无在线判题节点，请稍后重试", 502) from exc
-    except GatewayBusyError as exc:
-        await service.release_cooldown(order, user.id)
-        raise APIError(RATE_LIMITED, "全局判题并发已达上限，请稍后重试", 429) from exc
-    except GatewayTimeoutError as exc:
-        await service.release_cooldown(order, user.id)
-        raise APIError(SYSTEM_UPSTREAM_FAILURE, "沙箱执行超时，请稍后重试", 502) from exc
-    return ok(SelfTestResultOut(
-        status=outcome.status,
-        output=outcome.output.decode("utf-8", errors="replace"),
-        error_message=outcome.error_message,
-        time_used_ms=outcome.time_used_ms,
-        memory_used_kb=outcome.memory_used_kb,
-    ))
+    return ok(await service.run_once(order, user.id))
 
 
 # ---- 沙箱 ----

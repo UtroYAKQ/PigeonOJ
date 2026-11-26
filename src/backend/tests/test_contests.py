@@ -22,8 +22,6 @@ from app.rpc.judge_jobs import CaseOutcome, JudgeOutcome, apply_job_result
 
 from .conftest import api_login, register_user
 
-TUTOR_ROLE_ID = uuid_mod.UUID("22222222-2222-2222-2222-222222222222")
-
 
 async def _seed_problem(title: str) -> str:
     async with SessionLocal() as db:
@@ -37,18 +35,11 @@ async def _seed_problem(title: str) -> str:
         return str(problem.id)
 
 
-async def _tutor_headers(client: httpx.AsyncClient) -> dict[str, str]:
-    from app.models.user import UserRole
+async def _manager_headers(client: httpx.AsyncClient) -> dict[str, str]:
+    """全站比赛管理角色请求头（tutor 已下线，公开赛创建 / 管理收敛为 admin）。"""
+    from .conftest import api_login
 
-    email = "tutor@pigeonoj.dev"
-    from .conftest import register_user, api_login
-
-    await register_user(client, email)
-    async with SessionLocal() as db:
-        user = (await db.execute(select(User).where(User.email == email))).scalar_one()
-        db.add(UserRole(user_id=user.id, role_id=TUTOR_ROLE_ID, scope="global", object_id=None))
-        await db.commit()
-    token = await api_login(client, email, "Pass@123")
+    token = await api_login(client, "admin@pigeonoj.dev", "Admin@123")
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -82,7 +73,7 @@ def _contest_payload(
     return payload
 
 
-async def _get_contest_id(client: httpx.AsyncClient, tutor: dict) -> str:
+async def _get_contest_id(client: httpx.AsyncClient, manager: dict) -> str:
     rows = (await client.get("/api/v1/contests")).json()["data"]["items"]
     return rows[0]["id"]
 
@@ -109,51 +100,47 @@ async def _seed_problem(
         return str(problem.id)
 
 
-async def test_arrange_own_private_problem(client: httpx.AsyncClient, user_headers) -> None:
-    """编排题目可选本人私有题（已发布）；他人私有题拒绝；搜索端点仅管理角色。"""
-    tutor = await _tutor_headers(client)
+async def test_arrange_public_only(client: httpx.AsyncClient, user_headers) -> None:
+    """编排候选 = 已发布全站公开题（本人私有分支随个人出题取消移除）；
+    私有题拒绝；搜索端点仅管理角色。"""
+    manager = await _manager_headers(client)
     own_private = await _seed_problem(
-        "tutor 私有题", visibility="private", owner_email="tutor@pigeonoj.dev"
-    )
-    other_private = await _seed_problem(
-        "admin 私有题", visibility="private", owner_email="admin@pigeonoj.dev"
+        "管理员私有题", visibility="private", owner_email="admin@pigeonoj.dev"
     )
     public_p = await _seed_problem("公开赛题")
 
     payload = _contest_payload(problems=[])
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = resp.json()["data"]["id"]
 
-    # 编排：本人私有 + 公开可以，他人私有 → 1001（problems 全量替换走 PUT /contests/{id}）
+    # 编排：公开可以，私有 → 1001（problems 全量替换走 PUT /contests/{id}）
     resp = await client.put(
         f"/api/v1/contests/{cid}",
-        json={"problems": [
-            {"problem_id": own_private}, {"problem_id": public_p},
-        ]},
-        headers=tutor,
+        json={"problems": [{"problem_id": public_p}]},
+        headers=manager,
     )
     assert resp.json()["code"] == 0, resp.text
 
     resp = await client.put(
         f"/api/v1/contests/{cid}",
-        json={"problems": [{"problem_id": other_private}]},
-        headers=tutor,
+        json={"problems": [{"problem_id": own_private}]},
+        headers=manager,
     )
     assert resp.json()["code"] == 1001
 
-    # 编排搜索端点：返回公开 + 本人私有，不含他人私有
-    resp = await client.get(f"/api/v1/contests/{cid}/problems/search", headers=tutor)
+    # 编排搜索端点：仅返回公开题（私有不出现，含本人私有）
+    resp = await client.get(f"/api/v1/contests/{cid}/problems/search", headers=manager)
     assert resp.json()["code"] == 0, resp.text
     titles = {it["title"] for it in resp.json()["data"]["items"]}
-    assert "tutor 私有题" in titles and "公开赛题" in titles
-    assert "admin 私有题" not in titles
+    assert "公开赛题" in titles
+    assert "管理员私有题" not in titles
 
     # 关键字过滤
     resp = await client.get(
-        f"/api/v1/contests/{cid}/problems/search?keyword=tutor", headers=tutor
+        f"/api/v1/contests/{cid}/problems/search?keyword=公开赛", headers=manager
     )
     titles = {it["title"] for it in resp.json()["data"]["items"]}
-    assert titles == {"tutor 私有题"}
+    assert titles == {"公开赛题"}
 
     # 普通用户调搜索端点 → 2003
     resp = await client.get(f"/api/v1/contests/{cid}/problems/search", headers=user_headers)
@@ -161,7 +148,7 @@ async def test_arrange_own_private_problem(client: httpx.AsyncClient, user_heade
 
 
 async def test_create_requires_manager_role(client: httpx.AsyncClient, user_headers) -> None:
-    """普通用户建赛 → 2003；tutor 建 → 0，字母自动分配。"""
+    """普通用户建赛 → 2003；admin 建 → 0（tutor 已下线），字母自动分配。"""
     p1 = await _seed_problem("比赛题一")
     p2 = await _seed_problem("比赛题二")
     resp = await client.post(
@@ -169,11 +156,11 @@ async def test_create_requires_manager_role(client: httpx.AsyncClient, user_head
     )
     assert resp.json()["code"] == 2003
 
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     resp = await client.post(
         "/api/v1/contests",
         json=_contest_payload(problems=[{"problem_id": p1}, {"problem_id": p2, "score": 100}]),
-        headers=tutor,
+        headers=manager,
     )
     body = resp.json()
     assert body["code"] == 0, resp.text
@@ -183,112 +170,97 @@ async def test_create_requires_manager_role(client: httpx.AsyncClient, user_head
     bad = _contest_payload(problems=[])
     bad["register_end_time"] = bad["end_time"]
     bad["end_time"] = _iso(datetime.now(timezone.utc) - timedelta(hours=1))
-    resp = await client.post("/api/v1/contests", json=bad, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=bad, headers=manager)
     assert resp.json()["code"] == 1001
 
 
-async def test_tutor_cannot_manage_others_contests(client: httpx.AsyncClient, admin_headers) -> None:
-    """单一所有权模型（docs/security.md）：tutor 仅能管理本人创建的比赛——
+async def test_user_cannot_manage_others_contests(client: httpx.AsyncClient, admin_headers, user_headers) -> None:
+    """管理边界（docs/security.md）：普通用户对他人比赛——
 
-    admin 创建的比赛对 tutor：编辑 / 公告 / 编排搜索 → 2003，详情 can_manage=false；
-    tutor 创建的比赛自身可正常编辑。
+    详情 can_manage=false；编辑 / 公告 / 编排搜索 → 2003；admin 创建的比赛自身可正常编辑。
     """
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     p1 = await _seed_problem("他人比赛题")
 
     # admin 建赛
     resp = await client.post(
-        "/api/v1/contests", json=_contest_payload(problems=[{"problem_id": p1}]), headers=admin_headers
+        "/api/v1/contests", json=_contest_payload(problems=[{"problem_id": p1}]), headers=manager
     )
     assert resp.json()["code"] == 0, resp.text
-    admin_cid = resp.json()["data"]["id"]
+    cid = resp.json()["data"]["id"]
 
-    # tutor：详情 can_manage=false（赛前题目不可见）
-    detail = (await client.get(f"/api/v1/contests/{admin_cid}", headers=tutor)).json()["data"]
+    # 普通用户：详情 can_manage=false
+    detail = (await client.get(f"/api/v1/contests/{cid}", headers=user_headers)).json()["data"]
     assert detail["can_manage"] is False
     # 编辑 / 公告 / 编排搜索 → 2003
     resp = await client.put(
-        f"/api/v1/contests/{admin_cid}",
+        f"/api/v1/contests/{cid}",
         json=_contest_payload(problems=[{"problem_id": p1}]),
-        headers=tutor,
+        headers=user_headers,
     )
     assert resp.json()["code"] == 2003
     resp = await client.put(
-        f"/api/v1/contests/{admin_cid}/announcement", json={"announcement": "越权公告"}, headers=tutor
+        f"/api/v1/contests/{cid}/announcement", json={"announcement": "越权公告"}, headers=user_headers
     )
     assert resp.json()["code"] == 2003
     resp = await client.get(
-        f"/api/v1/contests/{admin_cid}/problems/search?keyword=x", headers=tutor
+        f"/api/v1/contests/{cid}/problems/search?keyword=x", headers=user_headers
     )
     assert resp.json()["code"] == 2003
 
-    # tutor 建自己的比赛后可正常编辑
-    resp = await client.post(
-        "/api/v1/contests", json=_contest_payload(problems=[{"problem_id": p1}]), headers=tutor
-    )
-    assert resp.json()["code"] == 0, resp.text
-    own_cid = resp.json()["data"]["id"]
+    # 管理者（admin）建赛后可正常编辑
     resp = await client.put(
-        f"/api/v1/contests/{own_cid}/announcement", json={"announcement": "导师公告"}, headers=tutor
+        f"/api/v1/contests/{cid}/announcement", json={"announcement": "官方公告"}, headers=manager
     )
     assert resp.json()["code"] == 0, resp.text
-    detail = (await client.get(f"/api/v1/contests/{own_cid}", headers=tutor)).json()["data"]
+    detail = (await client.get(f"/api/v1/contests/{cid}", headers=manager)).json()["data"]
     assert detail["can_manage"] is True
 
 
 async def test_admin_manage_list(client: httpx.AsyncClient, user_headers, admin_headers) -> None:
-    """GET /admin/contests 管理视图：admin 全量；tutor 仅本人创建；普通用户 2003。"""
-    tutor = await _tutor_headers(client)
+    """GET /admin/contests 管理视图：admin 全量；普通用户 2003（tutor 已下线）。"""
+    manager = await _manager_headers(client)
     p1 = await _seed_problem("管理视图题")
 
     resp = await client.post(
-        "/api/v1/contests", json=_contest_payload(problems=[{"problem_id": p1}]), headers=tutor
+        "/api/v1/contests", json=_contest_payload(problems=[{"problem_id": p1}]), headers=manager
     )
     assert resp.json()["code"] == 0, resp.text
     own_cid = resp.json()["data"]["id"]
-    resp = await client.post(
-        "/api/v1/contests", json=_contest_payload(problems=[{"problem_id": p1}]), headers=admin_headers
-    )
-    assert resp.json()["code"] == 0, resp.text
 
     # 普通用户 → 2003
     resp = await client.get("/api/v1/admin/contests", headers=user_headers)
     assert resp.json()["code"] == 2003
 
-    # tutor：仅本人创建
-    resp = await client.get("/api/v1/admin/contests", headers=tutor)
+    # admin：全量（本测试共 1 场）
+    resp = await client.get("/api/v1/admin/contests", headers=manager)
     assert resp.json()["code"] == 0, resp.text
     data = resp.json()["data"]
     assert data["total"] == 1
     assert data["items"][0]["id"] == own_cid
 
-    # admin：全量（本测试共 2 场）
-    resp = await client.get("/api/v1/admin/contests", headers=admin_headers)
-    assert resp.json()["code"] == 0
-    assert resp.json()["data"]["total"] == 2
-
     # keyword 过滤
-    resp = await client.get("/api/v1/admin/contests?keyword=测试比赛", headers=admin_headers)
-    assert resp.json()["data"]["total"] == 2
+    resp = await client.get("/api/v1/admin/contests?keyword=测试比赛", headers=manager)
+    assert resp.json()["data"]["total"] == 1
 
-    # contest_type 过滤：缺省全量（2 场公开）；显式 public / team
-    resp = await client.get("/api/v1/admin/contests?contest_type=public", headers=admin_headers)
-    assert resp.json()["data"]["total"] == 2
-    resp = await client.get("/api/v1/admin/contests?contest_type=team", headers=admin_headers)
+    # contest_type 过滤：缺省全量（1 场公开）；显式 public / team
+    resp = await client.get("/api/v1/admin/contests?contest_type=public", headers=manager)
+    assert resp.json()["data"]["total"] == 1
+    resp = await client.get("/api/v1/admin/contests?contest_type=team", headers=manager)
     assert resp.json()["data"]["total"] == 0
 
 
 async def test_register_window(client: httpx.AsyncClient, user_headers, admin_headers) -> None:
     """报名窗口：未开始/已截止 → 3002；窗口内 → 0；重复 → 3003。"""
     p1 = await _seed_problem("报名题")
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     now = datetime.now(timezone.utc)
     payload = _contest_payload(
         problems=[{"problem_id": p1}],
         start_offset=3600, end_offset=7200,
         reg_start_offset=0, reg_end_offset=1800,
     )
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = resp.json()["data"]["id"]
 
     # 名称关键字搜索（列表中心 keyword 过滤）
@@ -311,15 +283,15 @@ async def test_register_window(client: httpx.AsyncClient, user_headers, admin_he
     assert detail["problems"] == []
 
     # 赛前管理者（创建者 / admin）可看题（列表 + 详情），与详情 can_view_problems 口径一致
-    resp = await client.get(f"/api/v1/contests/{cid}/problems", headers=tutor)
+    resp = await client.get(f"/api/v1/contests/{cid}/problems", headers=manager)
     assert resp.json()["code"] == 0, resp.text
     assert [it["problem_id"] for it in resp.json()["data"]] == [p1]
-    resp = await client.get(f"/api/v1/contests/{cid}/problems/{p1}", headers=tutor)
+    resp = await client.get(f"/api/v1/contests/{cid}/problems/{p1}", headers=manager)
     assert resp.json()["code"] == 0, resp.text
     resp = await client.get(f"/api/v1/contests/{cid}/problems", headers=admin_headers)
     assert resp.json()["code"] == 0, resp.text
-    tutor_detail = (await client.get(f"/api/v1/contests/{cid}", headers=tutor)).json()["data"]
-    assert tutor_detail["can_view_problems"] is True
+    manager_detail = (await client.get(f"/api/v1/contests/{cid}", headers=manager)).json()["data"]
+    assert manager_detail["can_view_problems"] is True
 
     # 重复报名 → 3003
     resp = await client.post(f"/api/v1/contests/{cid}/register", headers=user_headers)
@@ -329,13 +301,13 @@ async def test_register_window(client: httpx.AsyncClient, user_headers, admin_he
 async def test_contest_access_and_submission_flow(client: httpx.AsyncClient, user_headers) -> None:
     """赛内访问：未报名 2003 / 已报名可看题、交题；赛后自动补题标记。"""
     p1 = await _seed_problem("赛内题")
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     now = datetime.now(timezone.utc)
     payload = _contest_payload(
         problems=[{"problem_id": p1, "score": 100}],
         start_offset=-600, end_offset=3600, reg_start_offset=-1200, reg_end_offset=-300,
     )
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = resp.json()["data"]["id"]
 
     # 未报名看题 → 2003
@@ -379,12 +351,12 @@ async def test_contest_detail_problem_solved(client: httpx.AsyncClient, user_hea
     （AC=true / 尝试未过=false / 未交=null），练习通过不计入本场；列表端点同口径。"""
     p1 = await _seed_problem("状态题一")
     p2 = await _seed_problem("状态题二")
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     payload = _contest_payload(
         problems=[{"problem_id": p1}, {"problem_id": p2}],
         start_offset=-600, end_offset=3600, reg_start_offset=-1200, reg_end_offset=-300,
     )
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = resp.json()["data"]["id"]
     async with SessionLocal() as db:
         uid = (
@@ -457,14 +429,30 @@ async def test_contest_after_end_open_to_unregistered(
     """赛后开放（第 2 / 6 条）：未报名登录用户可看公开题、可补题（is_after_contest、不计榜单）；
     编排进来的私有题对其按不存在处理（3001），不泄漏私有题存在性。"""
     p_pub = await _seed_problem("赛后公开题")
-    p_priv = await _seed_problem("赛后私有题", visibility="private")  # admin 本人私有，可编排
+    p_priv = await _seed_problem("赛后私有题", visibility="private")
     payload = _contest_payload(
-        problems=[{"problem_id": p_pub}, {"problem_id": p_priv}],
+        problems=[{"problem_id": p_pub}],
         start_offset=-7200, end_offset=-60,  # 已结束
     )
     resp = await client.post("/api/v1/contests", json=payload, headers=admin_headers)
     assert resp.json()["code"] == 0, resp.text
     cid = resp.json()["data"]["id"]
+
+    # 私有题经 DB 直插编排行构造「比赛含非公开题」场景
+    # （编排 API 候选已收敛为全站公开；此处仅验证赛后可见性过滤不被绕过）
+    from app.models.contest import ContestProblem as ContestProblemModel
+
+    async with SessionLocal() as db:
+        db.add(
+            ContestProblemModel(
+                contest_id=uuid_mod.UUID(cid),
+                problem_id=uuid_mod.UUID(p_priv),
+                letter="B",
+                sort_order=1,
+                score=100,
+            )
+        )
+        await db.commit()
 
     # 详情：未报名可看题、可交题，但题目列表仅公开题（私有题过滤）
     detail = (await client.get(f"/api/v1/contests/{cid}", headers=user_headers)).json()["data"]
@@ -521,12 +509,12 @@ async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_he
     """提交记录窗口（第 7 条）：管理角色随时可见（含比赛期间）；
     比赛期间对其他人隐藏、赛后向所有登录用户开放（含未报名者）。"""
     p1 = await _seed_problem("记录窗口题")
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     payload = _contest_payload(
         problems=[{"problem_id": p1}],
         start_offset=-600, end_offset=3600, reg_start_offset=-1200, reg_end_offset=-300,
     )
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = resp.json()["data"]["id"]
     async with SessionLocal() as db:
         uid = (await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))).scalar_one().id
@@ -542,11 +530,11 @@ async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_he
     submission_id = resp.json()["data"]["submission_id"]
 
     # 比赛期间：管理角色可见列表与详情；参赛者不可见
-    resp = await client.get(f"/api/v1/contests/{cid}/submissions", headers=tutor)
+    resp = await client.get(f"/api/v1/contests/{cid}/submissions", headers=manager)
     assert resp.json()["code"] == 0, resp.text
     items = resp.json()["data"]["items"]
     assert len(items) == 1 and items[0]["letter"] == "A"
-    resp = await client.get(f"/api/v1/contests/{cid}/submissions/{submission_id}", headers=tutor)
+    resp = await client.get(f"/api/v1/contests/{cid}/submissions/{submission_id}", headers=manager)
     assert resp.json()["code"] == 0
     resp = await client.get(f"/api/v1/contests/{cid}/submissions", headers=user_headers)
     assert resp.json()["code"] == 2003
@@ -564,7 +552,7 @@ async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_he
     assert len(items) == 1 and items[0]["letter"] == "A" and items[0]["score"] == 0
     resp = await client.get(f"/api/v1/contests/{cid}/submissions/{submission_id}", headers=user_headers)
     assert resp.json()["code"] == 0
-    resp = await client.get(f"/api/v1/contests/{cid}/submissions", headers=tutor)
+    resp = await client.get(f"/api/v1/contests/{cid}/submissions", headers=manager)
     assert resp.json()["code"] == 0
     # 未报名（新注册用户）→ 赛后可见
     other = None
@@ -614,14 +602,14 @@ async def test_contest_submissions_visibility(client: httpx.AsyncClient, user_he
 async def test_acm_ranking_and_manual_unfreeze(client: httpx.AsyncClient, user_headers) -> None:
     """ACM：错误提交计 attempts、首次 AC 计罚时、封榜冻结更新、手动解冻重算。"""
     p1 = await _seed_problem("ACM 榜单题")
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     now = datetime.now(timezone.utc)
     payload = _contest_payload(
         problems=[{"problem_id": p1}],
         start_offset=-7200, end_offset=3600, reg_start_offset=-10800, reg_end_offset=-5400,
         freeze_before_end=600, rule="ACM",
     )
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = uuid_mod.UUID(resp.json()["data"]["id"])
     async with SessionLocal() as db:
         uid = (await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))).scalar_one().id
@@ -692,7 +680,7 @@ async def test_acm_ranking_and_manual_unfreeze(client: httpx.AsyncClient, user_h
     assert resp.json()["data"]["rows"][0]["cells"][0]["attempts"] == 2  # 冻结未变
 
     # 赛中（running）禁止解冻（3002）：封榜是赛时公平机制
-    resp = await client.post(f"/api/v1/contests/{cid}/unfreeze", headers=tutor)
+    resp = await client.post(f"/api/v1/contests/{cid}/unfreeze", headers=manager)
     body = resp.json()
     assert body["code"] == 3002, body
 
@@ -703,7 +691,7 @@ async def test_acm_ranking_and_manual_unfreeze(client: httpx.AsyncClient, user_h
         row.freeze_time = row.end_time  # 约束：freeze_time <= end_time
         row.status = "finished"
         await db.commit()
-    resp = await client.post(f"/api/v1/contests/{cid}/unfreeze", headers=tutor)
+    resp = await client.post(f"/api/v1/contests/{cid}/unfreeze", headers=manager)
     assert resp.json()["code"] == 0, resp.text
     assert resp.json()["data"]["board_frozen"] is False
     resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
@@ -716,14 +704,14 @@ async def test_acm_ranking_and_manual_unfreeze(client: httpx.AsyncClient, user_h
 
 async def test_ioi_default_score_when_unset(client: httpx.AsyncClient) -> None:
     """IOI 编排未配置分值 → 落库默认 100；ACM 恒 0（无单题分值语义）。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     p1 = await _seed_problem("IOI 默认分题")
     p2 = await _seed_problem("ACM 默认分题")
 
     resp = await client.post(
         "/api/v1/contests",
         json=_contest_payload(problems=[{"problem_id": p1}], rule="IOI"),
-        headers=tutor,
+        headers=manager,
     )
     assert resp.json()["code"] == 0, resp.text
     ioi_cid = resp.json()["data"]["id"]
@@ -731,28 +719,28 @@ async def test_ioi_default_score_when_unset(client: httpx.AsyncClient) -> None:
     resp = await client.post(
         "/api/v1/contests",
         json=_contest_payload(problems=[{"problem_id": p2}], rule="ACM"),
-        headers=tutor,
+        headers=manager,
     )
     assert resp.json()["code"] == 0, resp.text
     acm_cid = resp.json()["data"]["id"]
 
-    resp = await client.get(f"/api/v1/contests/{ioi_cid}", headers=tutor)
+    resp = await client.get(f"/api/v1/contests/{ioi_cid}", headers=manager)
     assert resp.json()["data"]["problems"][0]["score"] == 100, resp.text
-    resp = await client.get(f"/api/v1/contests/{acm_cid}", headers=tutor)
+    resp = await client.get(f"/api/v1/contests/{acm_cid}", headers=manager)
     assert resp.json()["data"]["problems"][0]["score"] == 0
 
 
 async def test_ioi_ranking_takes_max_score(client: httpx.AsyncClient, user_headers) -> None:
     """IOI：每题取历史最高分，多次提交不互相覆盖。"""
     p1 = await _seed_problem("IOI 榜单题")
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     now = datetime.now(timezone.utc)
     payload = _contest_payload(
         problems=[{"problem_id": p1, "score": 100}],
         start_offset=-7200, end_offset=3600, reg_start_offset=-10800, reg_end_offset=-5400,
         rule="IOI",
     )
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = uuid_mod.UUID(resp.json()["data"]["id"])
     async with SessionLocal() as db:
         uid = (await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))).scalar_one().id
@@ -781,13 +769,13 @@ async def test_board_cache_and_invalidation(client: httpx.AsyncClient, user_head
     from app.core.redis import RANK_CONTEST_KEY_PREFIX, get_redis
 
     p1 = await _seed_problem("缓存榜题")
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     payload = _contest_payload(
         problems=[{"problem_id": p1, "score": 100}],
         start_offset=-7200, end_offset=3600, reg_start_offset=-10800, reg_end_offset=-5400,
         rule="IOI",
     )
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     assert resp.json()["code"] == 0, resp.text
     cid = uuid_mod.UUID(resp.json()["data"]["id"])
     async with SessionLocal() as db:
@@ -861,7 +849,7 @@ async def test_board_cache_and_invalidation(client: httpx.AsyncClient, user_head
     async with SessionLocal() as db:
         await ContestService(db).transition()
         await db.commit()
-    resp = await client.post(f"/api/v1/contests/{cid}/unfreeze", headers=tutor)
+    resp = await client.post(f"/api/v1/contests/{cid}/unfreeze", headers=manager)
     assert resp.json()["code"] == 0, resp.text
     resp = await client.get(f"/api/v1/contests/{cid}/board", headers=user_headers)
     board = resp.json()["data"]
@@ -874,13 +862,13 @@ async def test_contest_rule_type_snapshot_and_after_contest(
 ) -> None:
     """赛制快照进提交行（submissions.rule_type）；赛后补题 allowed 且不计榜单。"""
     p1 = await _seed_problem("限分题")
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     payload = _contest_payload(
         problems=[{"problem_id": p1}],
         start_offset=-7200, end_offset=-3600, reg_start_offset=-10800, reg_end_offset=-5400,
         rule="ACM",
     )
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = uuid_mod.UUID(resp.json()["data"]["id"])
     # 比赛已结束（transition 推进状态）
     async with SessionLocal() as db:
@@ -1092,12 +1080,12 @@ async def test_board_cell_accepted_submissions(client: httpx.AsyncClient, user_h
 
 async def test_status_guard_blocks_structural_update(client: httpx.AsyncClient, user_headers) -> None:
     """赛时守卫：running 后 PUT 结构性字段一律 3002；description/logo 同被拒（非白名单语义）。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     payload = _contest_payload(problems=[])
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = resp.json()["data"]["id"]
     # 赛前可编辑
-    resp = await client.put(f"/api/v1/contests/{cid}", json={"title": "赛前改名"}, headers=tutor)
+    resp = await client.put(f"/api/v1/contests/{cid}", json={"title": "赛前改名"}, headers=manager)
     assert resp.json()["code"] == 0, resp.text
     # 驱动周期任务：start_time 已过 → running
     async with SessionLocal() as db:
@@ -1109,26 +1097,26 @@ async def test_status_guard_blocks_structural_update(client: httpx.AsyncClient, 
     resp = await client.put(
         f"/api/v1/contests/{cid}",
         json={"problems": [], "title": "赛中改名"},
-        headers=tutor,
+        headers=manager,
     )
     assert resp.json()["code"] == 3002, resp.text
     resp = await client.put(
-        f"/api/v1/contests/{cid}", json={"description": "赛中改说明"}, headers=tutor
+        f"/api/v1/contests/{cid}", json={"description": "赛中改说明"}, headers=manager
     )
     assert resp.json()["code"] == 3002, resp.text
 
 
 async def test_announcement_roundtrip(client: httpx.AsyncClient, user_headers) -> None:
     """公告：赛时可改、详情透出、置空清除；非管理角色 2003。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     payload = _contest_payload(problems=[])
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = resp.json()["data"]["id"]
 
     resp = await client.put(
         f"/api/v1/contests/{cid}/announcement",
         json={"announcement": "注意：B 题数据已修正"},
-        headers=tutor,
+        headers=manager,
     )
     assert resp.json()["code"] == 0, resp.text
 
@@ -1138,7 +1126,7 @@ async def test_announcement_roundtrip(client: httpx.AsyncClient, user_headers) -
 
     # 置空 = 清除
     resp = await client.put(
-        f"/api/v1/contests/{cid}/announcement", json={"announcement": ""}, headers=tutor
+        f"/api/v1/contests/{cid}/announcement", json={"announcement": ""}, headers=manager
     )
     assert resp.json()["code"] == 0
     detail = (await client.get(f"/api/v1/contests/{cid}")).json()["data"]
@@ -1161,9 +1149,9 @@ async def _start_contest(_cid: str) -> None:
 
 async def test_extend_running_contest(client: httpx.AsyncClient, user_headers) -> None:
     """延时：进行中可把结束时间推后；更早 / 赛前 / 非管理分别 1001 / 3002 / 2003。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     payload = _contest_payload(problems=[])
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = resp.json()["data"]["id"]
     await _start_contest(cid)
 
@@ -1172,14 +1160,14 @@ async def test_extend_running_contest(client: httpx.AsyncClient, user_headers) -
     later = current_end + timedelta(minutes=30)
 
     resp = await client.post(
-        f"/api/v1/contests/{cid}/extend", json={"end_time": _iso(later)}, headers=tutor
+        f"/api/v1/contests/{cid}/extend", json={"end_time": _iso(later)}, headers=manager
     )
     assert resp.json()["code"] == 0, resp.text
     assert datetime.fromisoformat(resp.json()["data"]["end_time"].replace("Z", "+00:00")) == later
 
     earlier = current_end - timedelta(minutes=5)
     resp = await client.post(
-        f"/api/v1/contests/{cid}/extend", json={"end_time": _iso(earlier)}, headers=tutor
+        f"/api/v1/contests/{cid}/extend", json={"end_time": _iso(earlier)}, headers=manager
     )
     assert resp.json()["code"] == 1001
 
@@ -1192,12 +1180,12 @@ async def test_extend_running_contest(client: httpx.AsyncClient, user_headers) -
     future = _contest_payload(
         problems=[], start_offset=3600, end_offset=7200, reg_start_offset=0, reg_end_offset=1800,
     )
-    resp = await client.post("/api/v1/contests", json=future, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=future, headers=manager)
     scheduled_id = resp.json()["data"]["id"]
     resp = await client.post(
         f"/api/v1/contests/{scheduled_id}/extend",
         json={"end_time": _iso(datetime.now(timezone.utc) + timedelta(hours=3))},
-        headers=tutor,
+        headers=manager,
     )
     assert resp.json()["code"] == 3002
 
@@ -1206,9 +1194,9 @@ async def test_freeze_time_adjust_and_immediate_freeze(
     client: httpx.AsyncClient, user_headers
 ) -> None:
     """封榜时间：未封榜可改 / 取消；调到过去立即封榜；已封榜再改 3002。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     payload = _contest_payload(problems=[], freeze_before_end=1800)
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = resp.json()["data"]["id"]
     await _start_contest(cid)
 
@@ -1218,13 +1206,13 @@ async def test_freeze_time_adjust_and_immediate_freeze(
     new_freeze = end - timedelta(minutes=10)
 
     resp = await client.put(
-        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": _iso(new_freeze)}, headers=tutor
+        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": _iso(new_freeze)}, headers=manager
     )
     assert resp.json()["code"] == 0, resp.text
     assert resp.json()["data"]["board_frozen"] is False
 
     resp = await client.put(
-        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": None}, headers=tutor
+        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": None}, headers=manager
     )
     assert resp.json()["code"] == 0
     assert resp.json()["data"]["freeze_time"] is None
@@ -1233,13 +1221,13 @@ async def test_freeze_time_adjust_and_immediate_freeze(
     if not (start < past <= end):
         past = start + timedelta(seconds=1)
     resp = await client.put(
-        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": _iso(past)}, headers=tutor
+        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": _iso(past)}, headers=manager
     )
     assert resp.json()["code"] == 0, resp.text
     assert resp.json()["data"]["board_frozen"] is True
 
     resp = await client.put(
-        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": _iso(new_freeze)}, headers=tutor
+        f"/api/v1/contests/{cid}/freeze-time", json={"freeze_time": _iso(new_freeze)}, headers=manager
     )
     assert resp.json()["code"] == 3002
 
@@ -1254,14 +1242,14 @@ async def test_scoreboard_show_reveal_order(client: httpx.AsyncClient, user_head
     """滚榜：揭晓序列按「最终名次从差到好」生成，快照榜为起点、最终榜为终点。"""
     p1 = await _seed_problem("滚榜题 A")
     p2 = await _seed_problem("滚榜题 B")
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     now = datetime.now(timezone.utc)
     payload = _contest_payload(
         problems=[{"problem_id": p1}, {"problem_id": p2}],
         start_offset=-7200, end_offset=600, reg_start_offset=-10800, reg_end_offset=-5400,
         freeze_before_end=300, rule="ACM",
     )
-    resp = await client.post("/api/v1/contests", json=payload, headers=tutor)
+    resp = await client.post("/api/v1/contests", json=payload, headers=manager)
     cid = uuid_mod.UUID(resp.json()["data"]["id"])
     async with SessionLocal() as db:
         uid = (await db.execute(select(User).where(User.email == "user@pigeonoj.dev"))).scalar_one().id
@@ -1306,7 +1294,7 @@ async def test_scoreboard_show_reveal_order(client: httpx.AsyncClient, user_head
         ))
         await db.commit()
 
-    resp = await client.get(f"/api/v1/contests/{cid}/scoreboard-show", headers=tutor)
+    resp = await client.get(f"/api/v1/contests/{cid}/scoreboard-show", headers=manager)
     body = resp.json()
     assert body["code"] == 0, body
     data = body["data"]

@@ -34,6 +34,7 @@ from app.models.problem import Problem
 from app.models.user import Role, User, UserRole
 from app.services.problem_import import (
     FpsError,
+    FpsItem,
     import_parsed_problems,
     parse_fps,
 )
@@ -165,7 +166,7 @@ async def run(args: argparse.Namespace) -> int:
         print("没有可解析的数据源", file=sys.stderr)
         return 1
 
-    parsed_all: list[dict] = []
+    parsed_all: list[FpsItem] = []
     for name, data in xml_files:
         try:
             parsed_all.extend(parse_fps(data))
@@ -178,10 +179,10 @@ async def run(args: argparse.Namespace) -> int:
 
     for parsed in parsed_all:
         print(
-            f"  {parsed['title'][:40]} | 时限{parsed['time_limit_ms']}ms "
-            f"内存{parsed['memory_limit_mb']}MB | 样例x{len(parsed['samples'])} "
-            f"测试点x{len(parsed['tests'])} | spj={'Y' if parsed['has_spj'] else 'N'}"
-            f" | 标程x{len(parsed['solutions'])}"
+            f"  {parsed.title[:40]} | 时限{parsed.time_limit_ms}ms "
+            f"内存{parsed.memory_limit_mb}MB | 样例x{len(parsed.samples)} "
+            f"测试点x{len(parsed.tests)} | spj={'Y' if parsed.has_spj else 'N'}"
+            f" | 标程x{len(parsed.solutions)}"
         )
     if args.dry_run:
         return 0

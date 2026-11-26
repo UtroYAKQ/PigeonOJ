@@ -18,3 +18,14 @@ export function goBackOrFallback(router: Router, fallback: string): void {
     void router.push(fallback)
   }
 }
+
+/**
+ * 校验登录后回跳地址：仅放行站内路径（以单个 / 开头，且不带协议）。
+ * 外链 / 协议相对地址（//host）经 router.push 会产生跨域 pushState 异常或
+ * 开放跳转风险（守卫写入的 redirect 来自 to.fullPath，恒为站内路径，不受影响）。
+ */
+export function sanitizeRedirect(target: unknown): string {
+  if (typeof target !== 'string') return '/'
+  if (!target.startsWith('/') || target.startsWith('//') || target.includes('://')) return '/'
+  return target
+}

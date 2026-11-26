@@ -1,6 +1,6 @@
 ﻿<script setup lang="ts">
 /**
- * 题单管理（管理后台，admin/tutor；docs/contracts/problem-sets.md）：
+ * 题单管理（管理后台，admin；docs/contracts/problem-sets.md）：
  * 全量题单列表（含私有 / 已下线）+ 新建；行整行点击进入题单详情
  * （编辑信息 / 编排题目 / 下线均收敛在详情页）。
  */
@@ -113,16 +113,19 @@ const columns = computed<DataTableColumns<ProblemSetSummary>>(() => [
     title: t('problemSets.list.visibility'),
     key: 'visibility',
     width: 90,
+    // 团队题单恒 team_visible（迁移 0043 起无可见性分支），不展示
     render: (row) =>
-      h(
-        NTag,
-        {
-          size: 'small',
-          bordered: false,
-          type: problemSetVisibilityTagType(row.visibility),
-        },
-        { default: () => t(problemSetVisibilityKey(row.visibility)) },
-      ),
+      row.team_id
+        ? '—'
+        : h(
+            NTag,
+            {
+              size: 'small',
+              bordered: false,
+              type: problemSetVisibilityTagType(row.visibility),
+            },
+            { default: () => t(problemSetVisibilityKey(row.visibility)) },
+          ),
   },
   {
     title: t('problemSets.list.status'),

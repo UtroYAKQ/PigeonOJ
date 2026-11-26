@@ -14,8 +14,20 @@ import ipaddress
 import re
 
 from fastapi import Request
+from pydantic import BaseModel, ValidationError
 
 from app.core.dependency import parse_client_ip
+
+
+class UAInfo(BaseModel):
+    """UA 轻量解析结果（request_logs.extra['device'] 的持久化结构，键对称有型）。
+
+    device 取值：desktop / mobile / tablet / bot；未识别为 None。
+    """
+
+    browser: str | None = None
+    os: str | None = None
+    device: str | None = None
 
 
 def _is_global(ip: str) -> bool:
@@ -64,13 +76,10 @@ _OS_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
-def parse_user_agent(ua: str | None) -> dict[str, str | None]:
-    """UA → {browser, os, device}；无法识别的字段为 None。
-
-    device 取值：desktop / mobile / tablet；text/plain 探测的爬虫归 desktop。
-    """
+def parse_user_agent(ua: str | None) -> UAInfo:
+    """UA → UAInfo(browser / os / device)；无法识别的字段为 None。"""
     if not ua:
-        return {"browser": None, "os": None, "device": None}
+        return UAInfo()
     browser = None
     for name, pattern in _BROWSER_PATTERNS:
         match = pattern.search(ua)
@@ -93,18 +102,28 @@ def parse_user_agent(ua: str | None) -> dict[str, str | None]:
         device = "bot"
     else:
         device = "desktop" if browser else None
-    return {"browser": browser, "os": os_name, "device": device}
+    return UAInfo(browser=browser, os=os_name, device=device)
+
+
+def coerce_ua_info(raw: object) -> UAInfo | None:
+    """从 request_logs.extra['device'] 读回 UAInfo；历史 / 异常数据返回 None。"""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return UAInfo.model_validate(raw)
+    except ValidationError:
+        return None
 
 
 def format_device_info(ua: str | None) -> str | None:
     """UA → 稳定设备标识（无版本号，浏览器升级不产生新会话）：
     'Chrome · Windows' / 'Safari · iOS · 移动端'；无法识别返回 None（不做同设备去重）。"""
     meta = parse_user_agent(ua)
-    browser = (meta["browser"] or "").split(" ")[0] or None
-    os_name = (meta["os"] or "").split(" ")[0] or None
+    browser = (meta.browser or "").split(" ")[0] or None
+    os_name = (meta.os or "").split(" ")[0] or None
     parts = [p for p in (browser, os_name) if p]
-    if meta["device"] == "mobile":
+    if meta.device == "mobile":
         parts.append("移动端")
-    elif meta["device"] == "tablet":
+    elif meta.device == "tablet":
         parts.append("平板")
     return " · ".join(parts) if parts else None

@@ -6,7 +6,7 @@ export default {
     login: 'Log in',
     register: 'Register',
     logout: 'Log out',
-    role: { admin: 'Administrator', tutor: 'Tutor', user: 'User' },
+    role: { admin: 'Administrator', user: 'User' },
     status: { active: 'Active', frozen: 'Frozen', banned: 'Banned', deleted: 'Deleted' },
   },
   profile: {
@@ -15,6 +15,8 @@ export default {
     signature: 'Signature',
     signatureHint: 'A short introduction',
     theme: 'Theme',
+    editorFontSize: 'Editor font size',
+    editorFontFamily: 'Editor font family',
     light: 'Light',
     dark: 'Dark',
     email: 'Email',

@@ -22,9 +22,9 @@ const sets = ref<ProblemSetSummary[]>([])
 const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
   usePagination()
 const keyword = ref('')
-/** 「我的」勾选仅对题单管理角色（admin/tutor）开放：只看本人未下线题单（含私有） */
+/** 「我的」勾选仅对题单管理角色（admin）开放：只看本人未下线题单（含私有） */
 const userStore = useUserStore()
-const isManager = computed(() => userStore.isAdmin || userStore.hasAnyRole(['tutor']))
+const isManager = computed(() => userStore.isAdmin)
 const mineOnly = ref(false)
 
 async function load() {

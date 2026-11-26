@@ -49,7 +49,7 @@ CHECK (
 | memory_used_kb | INT | NULL | |
 | score | INT | NOT NULL DEFAULT 0 | 该测试点得分（服务端派生：单点分值一致 = 单题满分 ÷ 测试点数，仅通过时计分；练习 / 验题满分为 100，OI 比赛为比赛配置分值） |
 | output | TEXT | NULL | 运行输出（MinIO ossId，正文截断后落对象存储） |
-| message | TEXT | NULL | SPJ 判定信息（特判程序 stdout 截断 ≤2KB，UTF-8；非 SPJ 提交为 NULL。如 `wrong answer expected 3, found 4`，随明细返回提交者定位错误；内容出题人自负；迁移 0036） |
+| message | TEXT | NULL | SPJ 判定信息（特判程序 stdout 截断 ≤2KB，UTF-8；非 SPJ 提交为 NULL。如 `wrong answer expected 3, found 4`，随明细返回（前端当前不展示）；内容出题人自负；迁移 0036） |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
 索引：
@@ -136,8 +136,8 @@ CHECK (
 - 判定按**退出码**：`0` = accepted；`3`（testlib `_died`）/ `4`（testlib `_fail`，checker 自身故障）=
   整个提交 `system_error`；其余退出码 = wrong_answer（含 testlib `_wa`=1、`_pe`=2；
   部分分退出码 `16+分值` 不支持，按 wrong_answer 处理）
-- 特判程序 stdout（UTF-8，截断 ≤2KB）作为该测试点 `message` 落库并随提交详情返回，
-  供提交者定位错误；内容出题人自负（不应打印期望答案）
+- 特判程序 stdout（UTF-8，截断 ≤2KB）作为该测试点 `message` 落库并随提交详情返回
+  （当前前端不展示该列）；内容出题人自负（不应打印期望答案）
 
 **限制**：
 
@@ -160,7 +160,7 @@ CHECK (
 | POST | /submissions | auth | 提交判题 | problem_id, language, code, submit_type, contest_id?/verification_id? | submission_id |
 | GET | /submissions/{id} | owner | 提交详情（含代码、逐测试点明细 case_name + 状态/耗时/内存/得分/程序输出；cases 按判定集顺序排列；不返回期望输出） | - | submission |
 | GET | /submissions | auth | 提交历史（本人，`WHERE user_id=?`） | problem_id/contest_id/status/分页 | submission[] |
-| GET | /problems/{id}/submissions | 题目管理角色（创建者 / admin / tutor / team_creator / team_admin，`can_manage_problem`） | 题目管理视角**全员提交列表**（题目管理页「查看提交」入口；含提交人昵称与提交类型；提交时间倒序分页） | 分页/status（提交状态）/keyword（昵称模糊）/language /submit_type（均精确） | submission[]（含 user_id / nickname / submit_type） |
+| GET | /problems/{id}/submissions | 题目管理者（创建者 / admin / 组织成员，`can_manage_problem`，见 problems.md 数据所有权） | 题目管理视角**全员提交列表**（题目管理页「查看提交」入口；含提交人昵称与提交类型；提交时间倒序分页） | 分页/status（提交状态）/keyword（昵称模糊）/language /submit_type（均精确） | submission[]（含 user_id / nickname / submit_type） |
 | GET | /problems/{id}/submissions/{sid} | 题目管理角色（同上） | 题目管理视角**提交详情（统一入口）**：管理权限 + 提交归属该题校验后复用判题详情装配（含代码与逐测试点明细；不返回期望输出） | - | submission |
 | POST | /problems/{id}/run-code | auth | 用户自测（单次运行，不落库不计分；见「用户自测」节） | language, code, input? | status, output(stdout), error_message?, time_used_ms, memory_used_kb? |
 | GET | /sandbox/health | admin | 沙箱节点健康 | - | nodes[{id, name, status, channel, load, cpu_usage, memory_usage, running_tasks, capacity, version, last_heartbeat_at}] |

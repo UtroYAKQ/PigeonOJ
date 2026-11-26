@@ -254,11 +254,12 @@ class ContestRepository:
         self, user_id: uuid.UUID, problem_ids: list[uuid.UUID],
         *, team_id: uuid.UUID | None = None,
     ) -> list[Problem]:
-        """编排候选校验：已发布且（全站公开 或 本人私有）题目（docs/contracts/contests.md）。
+        """编排候选校验：已发布且（全站公开）题目（docs/contracts/contests.md）。
 
-        - 全站编排（team_id=None）：一律排除团队题目（team_id 非空）——团队是封闭空间，
-          团队题目不得流入公开比赛 / 题单（docs/contracts/teams.md）
-        - 团队编排（team_id 非 None）：额外放开该团队的题目（admin_visible / team_visible）
+        - 全站编排（team_id=None）：一律排除团队 / 组织封闭空间题目
+          （team_id / org_id 非空）——团队与组织是封闭空间，封闭题目不得流入公开比赛
+        - 团队编排（team_id 非 None）：额外放开该团队的题目（快照，
+          admin_visible / team_visible；组织题须先引用进团队）
         """
         if not problem_ids:
             return []
@@ -268,17 +269,12 @@ class ContestRepository:
         ]
         if team_id is None:
             conditions.append(Problem.team_id.is_(None))
-            conditions.append(
-                or_(
-                    Problem.visibility == ProblemVisibility.PUBLIC,
-                    Problem.owner_id == user_id,
-                )
-            )
+            conditions.append(Problem.org_id.is_(None))
+            conditions.append(Problem.visibility == ProblemVisibility.PUBLIC)
         else:
             conditions.append(
                 or_(
                     Problem.visibility == ProblemVisibility.PUBLIC,
-                    Problem.owner_id == user_id,
                     Problem.team_id == team_id,
                 )
             )
@@ -295,26 +291,21 @@ class ContestRepository:
         page_size: int,
         team_id: uuid.UUID | None = None,
     ) -> tuple[list[Problem], int]:
-        """编排页题目搜索：已发布且（全站公开 或 本人私有），标题模糊，开题时间倒序。
+        """编排页题目搜索：已发布且全站公开，标题模糊，创建时间倒序。
 
-        team_id 非 None（团队比赛编排）时额外包含该团队题目。
+        团队比赛编排（team_id 非 None）额外包含该团队题目（快照）。
         """
         conditions: list = [
             Problem.status == ProblemStatus.PUBLISHED,
         ]
         if team_id is None:
             conditions.append(Problem.team_id.is_(None))
-            conditions.append(
-                or_(
-                    Problem.visibility == ProblemVisibility.PUBLIC,
-                    Problem.owner_id == user_id,
-                )
-            )
+            conditions.append(Problem.org_id.is_(None))
+            conditions.append(Problem.visibility == ProblemVisibility.PUBLIC)
         else:
             conditions.append(
                 or_(
                     Problem.visibility == ProblemVisibility.PUBLIC,
-                    Problem.owner_id == user_id,
                     Problem.team_id == team_id,
                 )
             )
@@ -374,6 +365,19 @@ class ContestRepository:
             .where(Contest.status == ContestStatus.RUNNING, Contest.end_time <= now)
             .values(status=ContestStatus.FINISHED)
         )
+
+    async def is_problem_in_running_contest(self, problem_id: uuid.UUID) -> bool:
+        """题目是否被进行中的比赛引用（community 比赛防作弊门禁，community.md）。"""
+        stmt = (
+            select(ContestProblem.id)
+            .join(Contest, Contest.id == ContestProblem.contest_id)
+            .where(
+                ContestProblem.problem_id == problem_id,
+                Contest.status == ContestStatus.RUNNING,
+            )
+            .limit(1)
+        )
+        return (await self.db.execute(stmt)).first() is not None
 
 
 class ContestRankingRepository:
@@ -464,11 +468,13 @@ class ContestRankingRepository:
         )
         return result.rowcount or 0
 
-    async def freeze_rows(self, contest_id: uuid.UUID) -> None:
-        """封榜快照：该比赛全部榜单行置 is_frozen=true。"""
+    async def freeze_rows(self, contest_ids: list[uuid.UUID]) -> None:
+        """封榜快照：指定比赛全部榜单行置 is_frozen=true（批量 UPDATE，单场也走列表）。"""
+        if not contest_ids:
+            return
         await self.db.execute(
             update(ContestRanking)
-            .where(ContestRanking.contest_id == contest_id)
+            .where(ContestRanking.contest_id.in_(contest_ids))
             .values(is_frozen=True, updated_at=func.now())
         )
 

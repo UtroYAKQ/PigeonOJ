@@ -26,7 +26,7 @@ from app.core.exceptions import (
     APIError,
 )
 from app.core.redis import SESSION_ACTIVE_KEY_PREFIX, SESSION_KEY_PREFIX, redis_get, redis_set
-from app.enums import UserStatus
+from app.enums import RoleCode, UserStatus
 from app.utils.security import hash_token
 
 logger = logging.getLogger(__name__)
@@ -42,10 +42,9 @@ def _utcnow() -> datetime:
 REQUEST_STATE_USER_ID = "log_user_id"
 
 # 题目管理角色集合（docs/contracts/problems.md 端点表）
-# admin: 系统管理员
-# tutor: 导师
-# team_creator: 团队创建者（teams 模块接入后生效）
-MANAGER_ROLE_CODES: set[str] = {"admin", "tutor", "team_creator"}
+# admin: 系统管理员（全站题创建；tutor 已随组织化改造下线，出题收敛到组织题库）
+# team_creator: 团队创建者（团队空间引用动作承载）
+MANAGER_ROLE_CODES: set[str] = {RoleCode.ADMIN, RoleCode.TEAM_CREATOR}
 
 
 def parse_client_ip(host: str | None) -> str | None:
@@ -109,8 +108,12 @@ async def _load_user(request: Request, db: AsyncSession, raw_token: str) -> User
         if session is None:
             raise APIError(AUTH_SESSION_EXPIRED, "会话已过期或失效，请重新登录", 401)
         user_id = session.user_id
-        # 写入热点缓存（TTL 与会话剩余有效期对齐）
-        ttl = int((session.expires_at - datetime.now()).total_seconds()) + _SESSION_CACHE_TTL_BUFFER
+        # 写入热点缓存（TTL 与会话剩余有效期对齐）；expires_at 读回为 aware（TIMESTAMPTZ），
+        # 历史行 / 驱动差异可能出现 naive，统一按 UTC 归一后再作差（naive - aware 直接 TypeError）
+        expires_at = session.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        ttl = int((expires_at - _utcnow()).total_seconds()) + _SESSION_CACHE_TTL_BUFFER
         await redis_set(cache_key, str(user_id), max(ttl, 1))
 
     # 会话活跃节流回写（失败不影响认证；get_db 统一 commit）
@@ -161,7 +164,7 @@ async def get_current_admin(
 ) -> User:
     """管理员依赖：非 admin 访问管理端点抛 2003（docs/contracts/admin.md）。"""
     roles = await RoleRepository(db).get_global_role_codes(current_user.id)
-    if "admin" not in roles:
+    if RoleCode.ADMIN not in roles:
         raise APIError(AUTH_FORBIDDEN, "无权限：需要管理员角色", 403)
     return current_user
 
@@ -174,8 +177,8 @@ async def get_user_role_codes(db: AsyncSession, user_id) -> set[str]:
 async def is_manager(db: AsyncSession, user: User) -> bool:
     """检查用户是否为题目管理角色。
 
-    全局角色（admin / tutor / team_creator）之外，团队角色（team_creator / team_admin，
-    scope='team'）同样可出题——团队空间「出团队题目」即由引用动作承载
+    全局角色（admin / team_creator）之外，团队角色（team_creator / team_admin，
+    scope='team'）同样可出题——团队空间「出团队题目」由引用动作承载
     （docs/contracts/problems.md 端点表；管理范围仍按单一所有权限制为本人资源）。
     """
     codes = await get_user_role_codes(db, user.id)
@@ -186,7 +189,7 @@ async def is_manager(db: AsyncSession, user: User) -> bool:
 
 async def is_admin(db: AsyncSession, user: User) -> bool:
     """检查用户是否为 admin（单一所有权模型：admin 管理全站资源，其余角色仅本人资源）。"""
-    return "admin" in await get_user_role_codes(db, user.id)
+    return RoleCode.ADMIN in await get_user_role_codes(db, user.id)
 
 
 async def require_manager_role(db: AsyncSession, user: User) -> None:

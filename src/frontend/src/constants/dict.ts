@@ -18,7 +18,7 @@ const labels = <T extends string>(prefix: string, values: readonly T[]) =>
     ownKeys: () => [...values],
     getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
   })
-export const ROLE_NAME = labels('user.role', ['admin', 'tutor', 'user'] as const) as Record<
+export const ROLE_NAME = labels('user.role', ['admin', 'user'] as const) as Record<
   GlobalRoleCode,
   string
 >
@@ -65,6 +65,7 @@ export const SANDBOX_STATUS = statusProxy(
 export const REPORT_TYPE = labels('dictionary.reportType', [
   'problem',
   'solution',
+  'code_share',
   'post',
   'comment',
   'user',

@@ -1,0 +1,538 @@
+import type { RouteRecordRaw } from 'vue-router'
+
+import { useUserStore } from '@/stores/user'
+
+/**
+ * 管理后台路由（hidden：不在前台侧栏显示；入口在头像菜单）。
+ * tutor 仅见「题目管理」，admin 见全部区块。
+ */
+export const adminRoutes: RouteRecordRaw[] = [
+  {
+    path: 'admin',
+    redirect: () => {
+      const userStore = useUserStore()
+      return userStore.hasAnyRole(['admin']) ? '/admin/users' : '/admin/problems'
+    },
+    meta: {
+      title: '管理后台',
+      titleKey: 'nav.admin',
+      icon: 'Monitor',
+      roles: ['admin'],
+      hidden: true,
+    },
+    children: [
+      {
+        path: 'problems',
+        name: 'admin-problems-section',
+        meta: {
+          title: '题目管理',
+          titleKey: 'nav.problemsManage',
+          icon: 'Collection',
+          roles: ['admin'],
+        },
+        children: [
+          {
+            path: '',
+            name: 'problem-mine',
+            component: () => import('@/views/problems/ProblemMineView.vue'),
+            meta: {
+              title: '题目管理',
+              titleKey: 'nav.problemsManage',
+              icon: 'Collection',
+              roles: ['admin'],
+              requiresAuth: true,
+              keepAlive: true,
+            },
+          },
+          {
+            path: 'new',
+            name: 'problem-create',
+            component: () => import('@/views/problems/ProblemStatementView.vue'),
+            meta: {
+              title: '创建题目',
+              titleKey: 'problems.create.title',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            path: ':id/edit',
+            redirect: (to) => `/admin/problems/${String(to.params.id)}/edit/statement`,
+          },
+          {
+            path: ':id/edit/statement',
+            name: 'problem-edit-statement',
+            component: () => import('@/views/problems/ProblemStatementView.vue'),
+            meta: {
+              title: '编辑题目',
+              titleKey: 'problems.create.editTitle',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            path: ':id/edit/cases',
+            name: 'problem-edit-cases',
+            component: () => import('@/views/problems/ProblemCasesView.vue'),
+            meta: {
+              title: '样例与测试点',
+              titleKey: 'problems.wizard.cases',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            path: ':id/edit/verify',
+            name: 'problem-edit-verify',
+            component: () => import('@/views/problems/ProblemVerifyView.vue'),
+            meta: {
+              title: '验题与发布',
+              titleKey: 'problems.wizard.verifyPublish',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            path: ':id/preview',
+            name: 'problem-preview',
+            component: () => import('@/views/problems/ProblemPreviewView.vue'),
+            meta: {
+              title: '题目预览',
+              titleKey: 'problems.preview.title',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            // 题目管理 · 提交列表（全员提交，题目管理角色可见）
+            path: ':id/submissions',
+            name: 'problem-submissions',
+            component: () => import('@/views/problems/ProblemSubmissionsView.vue'),
+            meta: {
+              title: '提交列表',
+              titleKey: 'problems.submissionsManage.title',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              keepAlive: true,
+              breadcrumbParent: { titleKey: 'nav.problemsManage', path: '/admin/problems' },
+            },
+          },
+          {
+            // 题目管理 · 提交评测详情（面包屑回当前题目的提交列表）
+            path: ':id/submissions/:sid',
+            name: 'problem-submission-detail',
+            component: () => import('@/views/problems/ProblemSubmissionDetailView.vue'),
+            meta: {
+              title: '评测结果',
+              titleKey: 'problems.submission.title',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              keepAlive: true,
+              breadcrumbParent: {
+                titleKey: 'problems.submissionsManage.title',
+                path: (route) => `/admin/problems/${String(route.params.id)}/submissions`,
+              },
+            },
+          },
+        ],
+      },
+      {
+        path: 'problem-sets',
+        name: 'admin-problem-sets-section',
+        meta: {
+          title: '题单管理',
+          titleKey: 'nav.problemSetsManage',
+          icon: 'Document',
+          roles: ['admin'],
+        },
+        children: [
+          {
+            path: '',
+            name: 'admin-problem-sets',
+            component: () => import('@/views/admin/AdminProblemSetsView.vue'),
+            meta: {
+              title: '题单管理',
+              titleKey: 'nav.problemSetsManage',
+              icon: 'Document',
+              roles: ['admin'],
+              requiresAuth: true,
+              keepAlive: true,
+            },
+          },
+          {
+            path: 'new',
+            name: 'problem-set-create',
+            component: () => import('@/views/admin/AdminProblemSetFormView.vue'),
+            meta: {
+              title: '新建题单',
+              titleKey: 'problemSets.list.createTitle',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemSetsManage', path: '/admin/problem-sets' },
+            },
+          },
+          {
+            path: ':id/edit',
+            name: 'problem-set-edit',
+            component: () => import('@/views/admin/AdminProblemSetFormView.vue'),
+            meta: {
+              title: '编辑题单',
+              titleKey: 'problemSets.detail.editTitle',
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: { titleKey: 'nav.problemSetsManage', path: '/admin/problem-sets' },
+            },
+          },
+          {
+            path: ':id',
+            name: 'admin-problem-set-detail',
+            component: () => import('@/views/admin/AdminProblemSetDetailView.vue'),
+            meta: {
+              title: '题单详情',
+              titleKey: 'problemSets.detail.title',
+              roles: ['admin'],
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              keepAlive: true,
+            },
+          },
+          {
+            // 题单管理内的题目预览（只读题面，不进入写题页 / 不跳题库）
+            // 面包屑：管理后台 / 题单管理 / 题单详情 / 题目预览（父级动态解析到当前题单详情）
+            // 参数命名与前台题单上下文一致：:setId=题单 :problemId=题目（预览组件按上下文取参）
+            path: ':setId/problems/:problemId/preview',
+            name: 'admin-problem-set-problem-preview',
+            component: () => import('@/views/problems/ProblemPreviewView.vue'),
+            meta: {
+              title: '题目预览',
+              titleKey: 'problems.preview.title',
+              roles: ['admin'],
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              breadcrumbParent: {
+                titleKey: 'problemSets.detail.title',
+                path: (route) => `/admin/problem-sets/${String(route.params.setId)}`,
+              },
+            },
+          },
+        ],
+      },
+      {
+        path: 'contests',
+        name: 'admin-contests',
+        component: () => import('@/views/admin/AdminContestsView.vue'),
+        meta: {
+          title: '比赛管理',
+          titleKey: 'nav.contestsManage',
+          icon: 'Trophy',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        path: 'contests/create',
+        name: 'admin-contest-create',
+        component: () => import('@/views/admin/AdminContestBasicView.vue'),
+        meta: {
+          title: '创建比赛',
+          titleKey: 'contests.list.createTitle',
+          roles: ['admin'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: { titleKey: 'nav.contestsManage', path: '/admin/contests' },
+        },
+      },
+      {
+        // 赛时工具页：公告 / 赛后解榜 / 滚榜大屏入口（管理动线，不进前台）
+        path: 'contests/:cid/tools',
+        name: 'admin-contest-tools',
+        component: () => import('@/views/admin/AdminContestToolsView.vue'),
+        meta: {
+          title: '赛时工具',
+          titleKey: 'contests.tools.title',
+          roles: ['admin'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: { titleKey: 'nav.contestsManage', path: '/admin/contests' },
+        },
+      },
+      {
+        path: 'contests/:cid/edit/basic',
+        name: 'admin-contest-edit-basic',
+        component: () => import('@/views/admin/AdminContestBasicView.vue'),
+        meta: {
+          title: '编辑比赛',
+          titleKey: 'contests.list.editTitle',
+          roles: ['admin'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: { titleKey: 'nav.contestsManage', path: '/admin/contests' },
+        },
+      },
+      {
+        path: 'contests/:cid/edit/problems',
+        name: 'admin-contest-edit-problems',
+        component: () => import('@/views/admin/AdminContestArrangeView.vue'),
+        meta: {
+          title: '编排题目',
+          titleKey: 'contests.wizard.arrange',
+          roles: ['admin'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: { titleKey: 'nav.contestsManage', path: '/admin/contests' },
+        },
+      },
+      {
+        path: 'teams',
+        name: 'admin-teams-section',
+        meta: {
+          title: '团队管理',
+          titleKey: 'nav.teamsManage',
+          icon: 'UserFilled',
+          roles: ['admin'],
+        },
+        children: [
+          {
+            path: '',
+            name: 'admin-teams',
+            component: () => import('@/views/admin/AdminTeamsView.vue'),
+            meta: {
+              title: '团队管理',
+              titleKey: 'nav.teamsManage',
+              icon: 'UserFilled',
+              roles: ['admin'],
+              requiresAuth: true,
+              keepAlive: true,
+            },
+          },
+          {
+            // 团队管理详情（只读浏览：成员 / 团队题库 / 团队题单 / 团队比赛）
+            path: ':id',
+            name: 'admin-team-detail',
+            component: () => import('@/views/admin/AdminTeamDetailView.vue'),
+            meta: {
+              title: '团队详情',
+              titleKey: 'admin.teams.detailTitle',
+              roles: ['admin'],
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              keepAlive: true,
+            },
+          },
+        ],
+      },
+      {
+        path: 'orgs',
+        name: 'admin-orgs-section',
+        meta: {
+          title: '组织管理',
+          titleKey: 'nav.orgsManage',
+          icon: 'OfficeBuilding',
+          roles: ['admin'],
+        },
+        children: [
+          {
+            path: '',
+            name: 'admin-orgs',
+            component: () => import('@/views/admin/AdminOrgsView.vue'),
+            meta: {
+              title: '组织管理',
+              titleKey: 'nav.orgsManage',
+              icon: 'OfficeBuilding',
+              roles: ['admin'],
+              requiresAuth: true,
+              keepAlive: true,
+            },
+          },
+          {
+            path: ':id',
+            name: 'admin-org-detail',
+            component: () => import('@/views/orgs/OrgDetailView.vue'),
+            meta: {
+              title: '组织详情',
+              titleKey: 'admin.orgs.detailTitle',
+              roles: ['admin'],
+              requiresAuth: true,
+              hidden: true,
+              contextPage: true,
+              keepAlive: true,
+            },
+          },
+        ],
+      },
+      {
+        path: 'solutions',
+        name: 'admin-solutions',
+        component: () => import('@/views/admin/AdminSolutionsView.vue'),
+        meta: {
+          title: '题解管理',
+          titleKey: 'nav.solutionsManage',
+          icon: 'Document',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        path: 'codes',
+        name: 'admin-codes',
+        component: () => import('@/views/admin/AdminCodesView.vue'),
+        meta: {
+          title: '代码分享',
+          titleKey: 'nav.codesManage',
+          icon: 'Code',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        path: 'users',
+        name: 'admin-users',
+        component: () => import('@/views/admin/AdminUsersView.vue'),
+        meta: {
+          title: '用户管理',
+          titleKey: 'nav.users',
+          icon: 'User',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        // 首页配置：轮播海报 + 系统公告（独立面板，不经通用配置表格）
+        path: 'home',
+        name: 'admin-home-config',
+        component: () => import('@/views/admin/AdminHomeView.vue'),
+        meta: {
+          title: '首页配置',
+          titleKey: 'nav.homeConfig',
+          icon: 'Picture',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        // 在线用户面板：10 分钟窗口内有活跃回写的有效会话（15s 轮询）
+        path: 'online',
+        name: 'admin-online-users',
+        component: () => import('@/views/admin/AdminOnlineUsersView.vue'),
+        meta: {
+          title: '在线用户',
+          titleKey: 'nav.onlineUsers',
+          icon: 'Aim',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        // 全站提交面板：提交类型 / 用户 / 题目 / 状态 / 语言筛选（admin）
+        path: 'submissions',
+        name: 'admin-submissions',
+        component: () => import('@/views/admin/AdminSubmissionsView.vue'),
+        meta: {
+          title: '提交查看',
+          titleKey: 'nav.submissionsManage',
+          icon: 'Document',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+      {
+        // 提交查看 · 题目预览（复用预览组件；返回与面包屑挂回提交查看，不入题目管理动线）
+        path: 'submissions/problems/:problemId/preview',
+        name: 'admin-submission-problem-preview',
+        component: () => import('@/views/problems/ProblemPreviewView.vue'),
+        meta: {
+          title: '题目预览',
+          titleKey: 'problems.preview.title',
+          roles: ['admin'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          backFallback: '/admin/submissions',
+          backLabelKey: 'nav.submissionsManage',
+          breadcrumbParent: {
+            titleKey: 'nav.submissionsManage',
+            path: '/admin/submissions',
+          },
+        },
+      },
+      {
+        // 提交查看 · 评测详情（复用题目管理详情组件，problemId 参数名对齐；
+        // 返回与面包屑挂回提交查看，不入题目管理动线）
+        path: 'submissions/problems/:problemId/submissions/:sid',
+        name: 'admin-submission-detail',
+        component: () => import('@/views/problems/ProblemSubmissionDetailView.vue'),
+        meta: {
+          title: '评测结果',
+          titleKey: 'problems.submission.title',
+          roles: ['admin'],
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          backFallback: '/admin/submissions',
+          backLabelKey: 'nav.submissionsManage',
+          breadcrumbParent: {
+            titleKey: 'nav.submissionsManage',
+            path: '/admin/submissions',
+          },
+        },
+      },
+      {
+        path: 'configs',
+        name: 'admin-configs',
+        component: () => import('@/views/admin/AdminConfigsView.vue'),
+        meta: { title: '系统配置', titleKey: 'nav.configs', icon: 'Setting', roles: ['admin'] },
+      },
+      {
+        path: 'logs',
+        name: 'admin-logs',
+        component: () => import('@/views/admin/AdminLogsView.vue'),
+        meta: { title: '日志', titleKey: 'nav.logs', icon: 'Document', roles: ['admin'] },
+      },
+      {
+        path: 'sandbox',
+        name: 'admin-sandbox',
+        component: () => import('@/views/admin/AdminSandboxView.vue'),
+        meta: { title: '沙箱状态', titleKey: 'nav.sandbox', icon: 'Odometer', roles: ['admin'] },
+      },
+      {
+        path: 'reports',
+        name: 'admin-reports',
+        component: () => import('@/views/admin/AdminReportsView.vue'),
+        meta: { title: '举报管理', titleKey: 'nav.reports', icon: 'Warning', roles: ['admin'] },
+      },
+      {
+        path: 'tags',
+        name: 'admin-tags',
+        component: () => import('@/views/admin/AdminTagsView.vue'),
+        meta: {
+          title: '标签管理',
+          titleKey: 'nav.tags',
+          icon: 'PriceTag',
+          roles: ['admin'],
+          keepAlive: true,
+        },
+      },
+    ],
+  },
+]

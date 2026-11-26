@@ -9,12 +9,16 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
     CaseStatus,
+    ProblemScope,
     ProblemStatus,
+    OrgStatus,
     ProblemVisibility,
+    RoleCode,
     SubmissionStatus,
     SubmitType,
     TagStatus,
@@ -30,16 +34,17 @@ from app.core.exceptions import (
     SYSTEM_UPSTREAM_FAILURE,
 )
 from app.core.redis import (
+    VERIFY_INVITE_KEY_PREFIX,
+    VERIFY_INVITE_PROBLEM_PREFIX,
     get_redis,
     redis_delete,
     redis_get,
-    redis_get_json,
+    redis_get_model,
     redis_set,
-    redis_set_json,
+    redis_set_model,
 )
 from app.core.storage import get_storage
-from app.core.dependency import is_admin, is_manager
-from app.repositories.team import TeamRepository
+from app.core.dependency import is_admin
 from app.repositories.user import RoleRepository
 from app.models.problem import (
     Problem,
@@ -50,6 +55,8 @@ from app.models.problem import (
     TestCase,
 )
 from app.models.judge import Submission
+from app.models.org import Organization
+from app.models.team import Team
 from app.repositories.problem import ProblemRepository, TagRepository, VerificationRepository
 from app.repositories.judge import TestCaseRepository
 from app.schemas.problem import (
@@ -73,8 +80,14 @@ from app.schemas.problem import (
 
 logger = logging.getLogger(__name__)
 
-VERIFY_INVITE_KEY_PREFIX = "verify_invite:"
-VERIFY_INVITE_PROBLEM_PREFIX = "verify_invite_problem:"
+# 测试点内容回读对象存储的并发上限（judge.py 逐点输出拉取同款策略）
+_CASE_FETCH_CONCURRENCY = 8
+
+
+class VerifyInvitePayload(BaseModel):
+    """验题邀请链接 Redis 载荷（verify_invite:<token>）。"""
+
+    problem_id: str
 
 
 def _uuid_list(raw: list | None) -> list[uuid.UUID]:
@@ -201,9 +214,53 @@ class ProblemService:
         self, query: ProblemQuery, viewer: object | None = None,
     ) -> tuple[list[Problem], int]:
         viewer_id = getattr(viewer, "id", None)
-        # scope=mine 全量视图仅 admin；其余管理角色（tutor 等）只看本人创建
+        # scope=mine 全量视图仅 admin；其余用户见所在组织的组织题聚合 ∪ 本人创建的存量题
         see_all = viewer is not None and await is_admin(self.db, viewer)
-        return await self.problems.list_published(query, viewer_id, see_all)
+        org_ids: list[uuid.UUID] = []
+        if query.scope == ProblemScope.MINE and not see_all and viewer_id is not None:
+            org_ids = await RoleRepository(self.db).org_ids_with_roles(
+                viewer_id, {RoleCode.ORG_ADMIN, RoleCode.ORG_MEMBER}
+            )
+        return await self.problems.list_published(query, viewer_id, see_all, org_ids)
+
+    async def list_org_problems(
+        self,
+        org_id: uuid.UUID,
+        *,
+        keyword: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[Problem], int]:
+        """组织题库列表（组织空间端点；组织成员门由路由层经 OrgService 校验）。"""
+        return await self.problems.list_org_problems(
+            org_id, keyword=keyword, status=status, page=page, page_size=page_size
+        )
+
+    async def get_org_problem_detail(
+        self, org_id: uuid.UUID, problem_id: uuid.UUID, user: object | None
+    ) -> ProblemDetail:
+        """组织题目详情（组织上下文统一入口）：归属校验（题目属于该组织题库）后
+        复用题库详情装配（组织成员经 can_manage 全量读写）。"""
+        problem = await self.problems.get_by_id(problem_id)
+        if problem is None or problem.org_id != org_id:
+            raise APIError(RESOURCE_NOT_FOUND, "题目不在该组织题库中", 404)
+        return to_problem_detail(await self.get_detail(problem_id, user))
+
+    async def _org_readable_via_team(self, user_id: uuid.UUID, org_id: uuid.UUID) -> bool:
+        """组织名下团队的创建者 / 管理员对组织题库的只读门（docs/contracts/orgs.md）。"""
+        from sqlalchemy import select as _select
+
+        team_ids = (
+            (await self.db.execute(_select(Team.id).where(Team.org_id == org_id)))
+            .scalars()
+            .all()
+        )
+        if not team_ids:
+            return False
+        return await RoleRepository(self.db).has_team_roles_on_teams(
+            user_id, list(team_ids), {RoleCode.TEAM_CREATOR, RoleCode.TEAM_ADMIN}
+        )
 
     async def verification_flags(self, problem_ids: list[uuid.UUID]) -> dict[uuid.UUID, bool]:
         """返回 {problem_id: needs_reverification} 用于 scope=mine 列表。
@@ -258,25 +315,29 @@ class ProblemService:
             tags = tags_map.get(item.id, [])
             item.tags = [TagPublic.model_validate(t) for t in tags]
 
-    async def create(self, user: object, body: ProblemCreate) -> Problem:
-        if not await is_manager(self.db, user):
-            raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
-        team_id = getattr(body, "team_id", None)
-        if body.visibility in (ProblemVisibility.ADMIN_VISIBLE, ProblemVisibility.TEAM_VISIBLE):
-            if team_id is None:
-                # 团队分支可见性仅经团队引用 / 团队上下文创建设置（docs/contracts/teams.md）
+    async def create(self, user: object, body: ProblemCreate, *, org_id: uuid.UUID | None = None) -> Problem:
+        """创建题目。全站题（org_id 为空）：仅站点 admin（tutor 已下线，公开内容收归 admin）；
+        组织题（org_id 非空）：org_member 门，visibility 恒 org_visible，owner_id 为创建人署名。
+        团队直建已移除——团队题目只来自引用快照（docs/contracts/teams.md）。"""
+        if org_id is not None:
+            org = await self.db.get(Organization, org_id)
+            if org is None or org.status != OrgStatus.ACTIVE:
+                raise APIError(RESOURCE_NOT_FOUND, "组织不存在", 404)
+            codes = set(await RoleRepository(self.db).get_org_role_codes(user.id, org_id))
+            if not ({RoleCode.ORG_ADMIN, RoleCode.ORG_MEMBER} & codes) and not await is_admin(self.db, user):
+                raise APIError(AUTH_FORBIDDEN, "无权限在该组织创建题目", 403)
+            if body.visibility in (
+                ProblemVisibility.ADMIN_VISIBLE,
+                ProblemVisibility.TEAM_VISIBLE,
+            ):
                 raise APIError(PARAM_FORMAT_INVALID, "团队可见性仅可经团队引用设置", 400)
-        elif team_id is not None:
-            # 团队题目必须落团队可见性分支（可见性 CHECK 双分支一致）
-            raise APIError(PARAM_FORMAT_INVALID, "团队题目可见性须为团队分支", 400)
-        if team_id is not None:
-            # 团队上下文直建：须为该团队创建者 / 管理员（或全局 admin），且团队存在
-            team = await TeamRepository(self.db).get_by_id(team_id)
-            if team is None:
-                raise APIError(RESOURCE_NOT_FOUND, "团队不存在", 404)
-            codes = set(await RoleRepository(self.db).get_team_role_codes(user.id, team_id))
-            if not ({"team_creator", "team_admin"} & codes or await is_admin(self.db, user)):
-                raise APIError(AUTH_FORBIDDEN, "无权限为该团队创建题目", 403)
+            visibility: str = ProblemVisibility.ORG_VISIBLE
+        else:
+            if not await is_admin(self.db, user):
+                raise APIError(AUTH_FORBIDDEN, "无权限创建全站题目", 403)
+            if body.visibility not in (ProblemVisibility.PRIVATE, ProblemVisibility.PUBLIC):
+                raise APIError(PARAM_FORMAT_INVALID, "全站题目可见性须为 private/public", 400)
+            visibility = body.visibility
         problem = Problem(
             title=body.title,
             background=body.background,
@@ -285,12 +346,12 @@ class ProblemService:
             output_description=body.output_description,
             note=body.note,
             solution=body.solution,
-            visibility=body.visibility,
+            visibility=visibility,
             time_limit_ms=body.time_limit_ms,
             memory_limit_mb=body.memory_limit_mb,
             difficulty=body.difficulty,
             owner_id=user.id,
-            team_id=team_id,
+            org_id=org_id,
         )
         problem = await self.problems.create(problem)
         if body.tags:
@@ -315,10 +376,15 @@ class ProblemService:
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         if not can_manage and problem.status != ProblemStatus.PUBLISHED:
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
+        if problem.org_id is not None and not can_manage:
+            # 组织题库只读门：组织名下团队的创建者 / 管理员可读（引用选题），其余拦截
+            # （docs/contracts/orgs.md；组织成员经 can_manage 全量读写）
+            if user is None or not await self._org_readable_via_team(user.id, problem.org_id):
+                raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         # 私有题仅创建者 / admin 可见（docs/contracts/problems.md 可见性表）；
         # 题单 / 比赛等引用上下文经各自门控（题单可见 + 归属 / 比赛可见窗口）传入
         # bypass_visibility=True，题库裸路径（直访 / 交题 / 自测）一律严格校验。
-        if (
+        elif (
             not bypass_visibility
             and not can_manage
             and problem.visibility != ProblemVisibility.PUBLIC
@@ -366,20 +432,25 @@ class ProblemService:
             code = raw.decode("utf-8", errors="replace")
         return SpjOut(code=code, staged=staged)
 
-    async def replace_spj(self, user: object, problem_id: uuid.UUID, body: SpjUpdate) -> None:
-        """设置 / 覆盖**暂存**特判程序（生效集不动，验题通过后随 apply 晋升）。"""
+    async def _require_editable(self, user: object, problem_id: uuid.UUID, *, action: str) -> Problem:
+        """管理权 + 归档守卫：「归档题目不可{action}」为编辑类操作统一前置。"""
         problem = await self._require_manage(user, problem_id)
         if problem.status == ProblemStatus.ARCHIVED:
-            raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑特判程序", 409)
+            raise APIError(RESOURCE_STATE_CONFLICT, f"归档题目不可{action}", 409)
+        return problem
+
+    async def replace_spj(self, user: object, problem_id: uuid.UUID, body: SpjUpdate) -> None:
+        """设置 / 覆盖**暂存**特判程序（生效集不动，验题通过后随 apply 晋升）。"""
+        problem = await self._require_editable(user, problem_id, action="编辑特判程序")
         try:
             storage = get_storage()
         except OSError as exc:
-            raise APIError(SYSTEM_UPSTREAM_FAILURE, "对象存储服务未配置或不可用", 503) from exc
+            raise APIError(SYSTEM_UPSTREAM_FAILURE, "对象存储服务未配置或不可用", 502) from exc
         key = f"problems/{problem_id}/spj/{uuid.uuid4()}/code"
         try:
             await storage.put_bytes(key, body.code.encode("utf-8"), "text/x-c++src; charset=utf-8")
         except Exception as exc:
-            raise APIError(SYSTEM_UPSTREAM_FAILURE, "特判程序上传失败", 503) from exc
+            raise APIError(SYSTEM_UPSTREAM_FAILURE, "特判程序上传失败", 502) from exc
         stale = [k for k in (problem.pending_spj_oss_id,) if k and k != key]
         problem.pending_spj_oss_id = key
         problem.pending_verified = False  # 任何新的暂存写入都会使「已验」标记失效
@@ -389,9 +460,7 @@ class ProblemService:
 
     async def remove_spj(self, user: object, problem_id: uuid.UUID) -> None:
         """暂存移除特判程序（写 pending_spj_oss_id=''，apply 晋升后生效集置 NULL）。"""
-        problem = await self._require_manage(user, problem_id)
-        if problem.status == ProblemStatus.ARCHIVED:
-            raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑特判程序", 409)
+        problem = await self._require_editable(user, problem_id, action="编辑特判程序")
         if problem.spj_oss_id is None and problem.pending_spj_oss_id is None:
             raise APIError(RESOURCE_STATE_CONFLICT, "题目未配置特判程序", 409)
         if problem.pending_spj_oss_id == "":
@@ -449,9 +518,7 @@ class ProblemService:
         ]
 
     async def update(self, user: object, problem_id: uuid.UUID, body: ProblemUpdate) -> Problem:
-        problem = await self._require_manage(user, problem_id)
-        if problem.status == ProblemStatus.ARCHIVED:
-            raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑", 409)
+        problem = await self._require_editable(user, problem_id, action="编辑")
         if body.title is not None:
             problem.title = body.title
         if body.background is not None:
@@ -492,13 +559,11 @@ class ProblemService:
 
     async def replace_cases(self, user: object, problem_id: uuid.UUID, body: TestCasesUpdate) -> None:
         """全量替换**暂存集**（PUT 语义；生效集不动，验题通过后晋升）。"""
-        problem = await self._require_manage(user, problem_id)
-        if problem.status == ProblemStatus.ARCHIVED:
-            raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑测试点", 409)
+        problem = await self._require_editable(user, problem_id, action="编辑测试点")
         try:
             storage = get_storage()
         except OSError as exc:
-            raise APIError(SYSTEM_UPSTREAM_FAILURE, "对象存储服务未配置或不可用", 503) from exc
+            raise APIError(SYSTEM_UPSTREAM_FAILURE, "对象存储服务未配置或不可用", 502) from exc
         created: list[TestCase] = []
         uploaded_keys: list[str] = []
         try:
@@ -519,14 +584,10 @@ class ProblemService:
                     sort_order=item.sort_order or idx + 1,
                 ))
         except Exception as exc:
-            for key in uploaded_keys:
-                try:
-                    await storage.delete(key)
-                except Exception:
-                    pass
+            await _discard_uploaded(storage, uploaded_keys)
             if isinstance(exc, APIError):
                 raise
-            raise APIError(SYSTEM_UPSTREAM_FAILURE, "测试点上传失败", 503) from exc
+            raise APIError(SYSTEM_UPSTREAM_FAILURE, "测试点上传失败", 502) from exc
         # 行不可变：旧行退役留档（历史判题结果外键恒有效），目标状态整体写入暂存集
         await self.problems.add_test_cases(created)
         problem.pending_case_ids = [str(row.id) for row in created]
@@ -544,17 +605,22 @@ class ProblemService:
     async def _cases_out(
         self, problem_id: uuid.UUID, rows: list[TestCase], *, staged: bool,
     ) -> list[TestCaseOut]:
+        """回读测试点内容；对象存储往返并发化（每测试点 2 次，串行随点数线性恶化）。"""
         storage = get_storage()
+        sem = asyncio.Semaphore(_CASE_FETCH_CONCURRENCY)
+
+        async def _fetch(oss_id: str | None) -> str | None:
+            if not oss_id:
+                return None
+            async with sem:
+                raw, _ = await storage.get_bytes(oss_id)
+            return raw.decode("utf-8", errors="replace")
+
         out: list[TestCaseOut] = []
         for tc in rows:
-            input_text = None
-            expected_text = None
-            if tc.input_oss_id:
-                raw, _ = await storage.get_bytes(tc.input_oss_id)
-                input_text = raw.decode("utf-8", errors="replace")
-            if tc.expected_output_oss_id:
-                raw, _ = await storage.get_bytes(tc.expected_output_oss_id)
-                expected_text = raw.decode("utf-8", errors="replace")
+            input_text, expected_text = await asyncio.gather(
+                _fetch(tc.input_oss_id), _fetch(tc.expected_output_oss_id)
+            )
             out.append(TestCaseOut(
                 id=str(tc.id),
                 name=tc.name,
@@ -578,9 +644,7 @@ class ProblemService:
         - upserts 不带 id：新增（输入输出不能全空；两侧同时显式置空同样拒绝）
         - 至少保留一个测试点：目标状态不允许为空（生效集非空后永不为空的不变式）
         """
-        problem = await self._require_manage(user, problem_id)
-        if problem.status == ProblemStatus.ARCHIVED:
-            raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑测试点", 409)
+        problem = await self._require_editable(user, problem_id, action="编辑测试点")
         if not body.upserts and not body.delete_ids:
             return  # 空 PATCH：不触碰任何集合状态
 
@@ -599,7 +663,7 @@ class ProblemService:
         try:
             storage = get_storage()
         except OSError as exc:
-            raise APIError(SYSTEM_UPSTREAM_FAILURE, "对象存储服务未配置或不可用", 503) from exc
+            raise APIError(SYSTEM_UPSTREAM_FAILURE, "对象存储服务未配置或不可用", 502) from exc
 
         uploaded_keys: list[str] = []
 
@@ -697,14 +761,10 @@ class ProblemService:
             problem.cases_revision += 1
             await self.db.flush()
         except Exception as exc:
-            for key in uploaded_keys:
-                try:
-                    await storage.delete(key)
-                except Exception:
-                    pass
+            await _discard_uploaded(storage, uploaded_keys)
             if isinstance(exc, APIError):
                 raise
-            raise APIError(SYSTEM_UPSTREAM_FAILURE, "测试点上传失败", 503) from exc
+            raise APIError(SYSTEM_UPSTREAM_FAILURE, "测试点上传失败", 502) from exc
 
     async def apply_pending_cases(self, user: object, problem_id: uuid.UUID) -> Problem:
         """显式生效（点「保存」才晋升）：把已通过验题的暂存改动晋升为生效集。
@@ -712,9 +772,7 @@ class ProblemService:
         测试点与特判程序一并晋升（docs/contracts/problems.md「SPJ 特判程序」）。
         前置：存在暂存改动且已打「已验待生效」标记；任何新的暂存写入都会清除标记。
         """
-        problem = await self._require_manage(user, problem_id)
-        if problem.status == ProblemStatus.ARCHIVED:
-            raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可应用测试点", 409)
+        problem = await self._require_editable(user, problem_id, action="应用测试点")
         if problem.pending_case_ids is None and problem.pending_spj_oss_id is None:
             raise APIError(RESOURCE_STATE_CONFLICT, "没有待生效的改动", 409)
         if not problem.pending_verified:
@@ -736,9 +794,7 @@ class ProblemService:
         return problem
 
     async def replace_samples(self, user: object, problem_id: uuid.UUID, body: SamplesUpdate) -> None:
-        problem = await self._require_manage(user, problem_id)
-        if problem.status == ProblemStatus.ARCHIVED:
-            raise APIError(RESOURCE_STATE_CONFLICT, "归档题目不可编辑样例", 409)
+        problem = await self._require_editable(user, problem_id, action="编辑样例")
         # explanation 仅在非空时落键（JSONB 存量格式保持 {"input", "output"} 干净）
         problem.samples = [
             {
@@ -786,8 +842,8 @@ class ProblemService:
         token = await redis_get(f"{VERIFY_INVITE_PROBLEM_PREFIX}{problem_id}")
         if not token:
             return None
-        payload = await redis_get_json(f"{VERIFY_INVITE_KEY_PREFIX}{token}")
-        if not isinstance(payload, dict) or "problem_id" not in payload:
+        payload = await redis_get_model(f"{VERIFY_INVITE_KEY_PREFIX}{token}", VerifyInvitePayload)
+        if payload is None:
             return None
         remaining = await get_redis().ttl(f"{VERIFY_INVITE_KEY_PREFIX}{token}")
         if not isinstance(remaining, int) or remaining <= 0:
@@ -826,9 +882,9 @@ class ProblemService:
 
         token = secrets.token_urlsafe(32)[:64]
         ttl_seconds = int(invite_expires_hours * 3600)
-        await redis_set_json(
+        await redis_set_model(
             f"{VERIFY_INVITE_KEY_PREFIX}{token}",
-            {"problem_id": str(problem_id)},
+            VerifyInvitePayload(problem_id=str(problem_id)),
             ttl_seconds=ttl_seconds,
         )
         await redis_set(
@@ -843,11 +899,11 @@ class ProblemService:
 
     async def resolve_invite(self, token: str) -> VerificationInviteOut:
         """解析验题邀请链接（数据源 Redis；返回题面与样例，不含正式测试点内容与题解）。"""
-        payload = await redis_get_json(f"{VERIFY_INVITE_KEY_PREFIX}{token}")
-        if not isinstance(payload, dict) or "problem_id" not in payload:
+        payload = await redis_get_model(f"{VERIFY_INVITE_KEY_PREFIX}{token}", VerifyInvitePayload)
+        if payload is None:
             raise APIError(RESOURCE_NOT_FOUND, "邀请链接无效", 404)
         try:
-            problem_id = uuid.UUID(str(payload["problem_id"]))
+            problem_id = uuid.UUID(payload.problem_id)
         except ValueError as exc:
             raise APIError(RESOURCE_NOT_FOUND, "邀请链接无效", 404) from exc
         remaining = await get_redis().ttl(f"{VERIFY_INVITE_KEY_PREFIX}{token}")
@@ -875,12 +931,14 @@ class ProblemService:
         )
 
     async def _sync_tags(self, problem_id: uuid.UUID, tag_names: list[str]) -> None:
+        """全量替换题目标签：IN 批查 + 批量建关系（避免逐标签两次往返）。"""
         await self.tags.delete_relations(problem_id)
+        by_name = {t.name: t for t in await self.tags.list_by_names(tag_names)}
         for name in tag_names:
-            tag = await self.tags.get_by_name(name)
+            tag = by_name.get(name)
             if tag is None or tag.status != TagStatus.ACTIVE:
                 raise APIError(PARAM_FORMAT_INVALID, f"标签不存在或已归档：{name}", 400)
-            await self.tags.add_relation(problem_id, tag.id)
+        await self.tags.add_relations(problem_id, [by_name[name].id for name in tag_names])
 
     async def _require_manage(self, user: object, problem_id: uuid.UUID) -> Problem:
         problem = await self.problems.get_by_id(problem_id)
@@ -891,11 +949,27 @@ class ProblemService:
         return problem
 
 
+async def _discard_uploaded(storage: object, keys: list[str]) -> None:
+    """失败清理：尽力删除本次已上传的对象；删除失败仅忽略，不掩盖原异常。"""
+    for key in keys:
+        try:
+            await storage.delete(key)
+        except Exception:
+            pass
+
+
 async def _can_manage(db: AsyncSession, user: object, problem: Problem) -> bool:
-    """题目管理权限（单一所有权模型，docs/security.md）：admin 管理全站题目；
-    其余管理角色（tutor / team_creator）仅可管理本人创建的题目。"""
+    """题目管理权限：admin 管理全站；组织题库按组织成员资格判定（docs/contracts/orgs.md，
+    owner_id 仅为创建人署名、无权限语义）；其余题目按创建人判定（单一所有权模型）。"""
     if await is_admin(db, user):
         return True
+    if problem.org_id is not None:
+        if user is None:
+            return False
+        org_ids = await RoleRepository(db).org_ids_with_roles(
+            user.id, {RoleCode.ORG_ADMIN, RoleCode.ORG_MEMBER}
+        )
+        return problem.org_id in org_ids
     return problem.owner_id == user.id
 
 
@@ -946,27 +1020,12 @@ async def get_problem(db: AsyncSession, problem_id: uuid.UUID) -> Problem:
     return problem
 
 
-async def get_test_case(db: AsyncSession, test_case_id: uuid.UUID) -> TestCase:
-    tc = await TestCaseRepository(db).get_by_id(test_case_id)
-    if tc is None:
-        raise APIError(RESOURCE_NOT_FOUND, "测试点不存在", 404)
-    return tc
-
-
 async def can_manage_problem(db: AsyncSession, user: object, problem: Problem) -> bool:
     return await _can_manage(db, user, problem)
 
 
 async def get_pending_verification(db: AsyncSession, problem_id: uuid.UUID) -> ProblemVerification | None:
     return await VerificationRepository(db).get_pending(problem_id)
-
-
-async def validate_verification_invite(db: AsyncSession, verification_id: uuid.UUID, token: str | None) -> ProblemVerification:
-    repo = VerificationRepository(db)
-    verification = await repo.get_by_id(verification_id)
-    if verification is None:
-        raise APIError(RESOURCE_NOT_FOUND, "验题记录不存在", 404)
-    return verification
 
 
 async def attach_verification_code(

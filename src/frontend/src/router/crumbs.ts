@@ -17,7 +17,9 @@ export function buildCrumbs(
   const items: CrumbItem[] = []
   route.matched.forEach((record, index) => {
     if (!record.meta?.titleKey && !record.meta?.title) return
-    if (record.path === '') return // 根路由即首页，平级关系不入面包屑
+    // 根路由即首页，平级关系不入面包屑；vue-router 会把根下 path:'' 的子路由
+    // 规范化为 '/'（home 记录），故不能只比对空串
+    if (record.path === '' || record.path === '/') return
     const label = record.meta?.titleKey
       ? translate(String(record.meta.titleKey))
       : String(record.meta?.title ?? '')

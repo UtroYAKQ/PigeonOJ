@@ -1,0 +1,94 @@
+/* ===== PigeonOJ 代码补全浮层样式 ===== */
+/* 全局（非 scoped），用于覆盖 Monaco 注入的 suggest-widget DOM。
+   颜色优先引用 main.css 的 CSS 变量，随 html.dark 自动明暗切换；
+   需要压过 Monaco 内联样式的属性加 !important。 */
+
+/* 浮层容器：圆角 + 阴影 + 细边框 */
+.monaco-editor .suggest-widget {
+  border-radius: var(--radius-lg) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 10px 30px rgba(16, 16, 20, 0.14) !important;
+  overflow: hidden;
+}
+
+html.dark .monaco-editor .suggest-widget {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55) !important;
+}
+
+/* 列表行间距 */
+.monaco-editor .suggest-widget .monaco-list-row {
+  padding: 2px 8px;
+}
+
+/* 选中行：圆角，与主题 selectedBackground 互补 */
+.monaco-editor .suggest-widget .monaco-list-row.focused {
+  border-radius: var(--radius-sm);
+}
+
+/* 补全项左侧图标：统一尺寸与间距 */
+.monaco-editor .suggest-widget .monaco-list-row .codicon {
+  font-size: 14px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* 按补全类型给图标上品牌色，提升可读性（类/函数/方法/关键字/模块/常量） */
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-keyword {
+  color: var(--brand);
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-class {
+  color: var(--info);
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-function {
+  color: var(--success);
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-module {
+  color: #8b5cf6;
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-method {
+  color: #13c2c2;
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-constant {
+  color: var(--warning);
+}
+.monaco-editor .suggest-widget .monaco-list-row .codicon-symbol-text {
+  color: color-mix(in srgb, var(--muted-foreground) 80%, transparent);
+}
+
+/* 匹配片段高亮（主题 highlightForeground 同源）：
+   light 用主色 pressed 深橙（#f4511e 白底对比 3.5:1 偏浅）、dark 用 GitHub dark 橙；
+   加粗强化，保证输入时匹配字符一眼可辨 */
+.monaco-editor .suggest-widget .monaco-list-row .highlight {
+  color: #c2410c;
+  font-weight: 600;
+}
+html.dark .monaco-editor .suggest-widget .monaco-list-row .highlight {
+  color: #ffa657;
+}
+/* 聚焦行（当前选中项）匹配高亮：Monaco 0.52+ 拆分 focusHighlightForeground，
+   未覆盖时继承基础主题浅青蓝默认值，这里与主题键双保险（!important 压内部规则） */
+.monaco-editor .suggest-widget .monaco-list-row.focused .highlight {
+  color: #c2410c !important;
+}
+html.dark .monaco-editor .suggest-widget .monaco-list-row.focused .highlight {
+  color: #ffa657 !important;
+}
+
+/* 右侧类型标签 / detail：text-muted（#8a9099 / 45% 白）过浅，升为次要文本色；
+   opacity 兜底压过 Monaco 内部可能存在的透明度削弱 */
+.monaco-editor .suggest-widget .monaco-list-row .label-description,
+.monaco-editor .suggest-widget .monaco-list-row .type-label {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  opacity: 1 !important;
+}
+
+/* 文档说明面板 */
+.monaco-editor .suggest-widget .details {
+  border-left: 1px solid var(--border);
+  padding: 8px 10px;
+}
+
+.monaco-editor .suggest-widget .details .description {
+  color: var(--muted-foreground);
+}

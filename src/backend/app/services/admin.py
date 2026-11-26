@@ -13,6 +13,12 @@ from app.enums import ReportStatus
 from app.models.audit import ExceptionLog, LoginLog, RequestLog
 from app.models.user import User
 from app.repositories.admin import ReportRepository
+from app.repositories.community import (
+    CodeShareRepository,
+    CommentRepository,
+    SolutionRepository,
+)
+from app.repositories.problem import ProblemRepository
 from app.repositories.user import UserRepository
 from app.repositories.audit import LogRepository
 from app.repositories.system_config import ConfigRepository
@@ -27,6 +33,7 @@ from app.schemas.admin import (
     SandboxNodeOut,
 )
 from app.utils.pagination import PaginatedResponse
+from app.utils.request_meta import coerce_ua_info
 from app.core.exceptions import (
     RESOURCE_NOT_FOUND,
     RESOURCE_STATE_CONFLICT,
@@ -84,8 +91,10 @@ class AdminConfigService:
 
     async def update_configs(self, admin: User, items: list[ConfigUpdateItem]) -> list[ConfigItemOut]:
         updated_keys: list[tuple[str, str]] = []
+        rows = await self.repo.get_by_ids([item.id for item in items])
+        by_id = {str(row.id): row for row in rows}
         for item in items:
-            row = await self.repo.get_by_id(item.id)
+            row = by_id.get(str(item.id))
             if row is None:
                 raise APIError(RESOURCE_NOT_FOUND, f"配置不存在：{item.id}", 404)
             value = item.config_value
@@ -130,7 +139,7 @@ class LogService:
                     method=r.method, path=r.path, status_code=r.status_code,
                     ip_address=r.ip_address, location=r.location,
                     user_agent=r.user_agent,
-                    device=(r.extra or {}).get("device"),
+                    device=coerce_ua_info((r.extra or {}).get("device")),
                     duration_ms=r.duration_ms,
                     created_at=r.created_at.isoformat(),
                 )
@@ -178,16 +187,19 @@ class SandboxService:
 
     async def status(self) -> list[SandboxNodeOut]:
         r = get_redis()
+        keys = [key async for key in r.scan_iter(f"{SANDBOX_NODE_KEY_PREFIX}*", count=100)]
+        if not keys:
+            return []
+        raws = await r.mget(*keys)
         nodes: list[SandboxNodeOut] = []
-        async for key in r.scan_iter(f"{SANDBOX_NODE_KEY_PREFIX}*", count=100):
-            raw = await r.get(key)
+        for raw in raws:
             if not raw:
                 continue
             try:
                 data = json.loads(raw)
                 nodes.append(SandboxNodeOut(**data))
-            except (json.JSONDecodeError, Exception):
-                logger.warning("sandbox node key %s 解析失败", key)
+            except Exception:
+                logger.warning("sandbox node key 解析失败", exc_info=True)
         return nodes
 
 
@@ -200,12 +212,13 @@ class ReportService:
         rows, total = await self.repo.list_page(page, page_size, status)
         reporter_ids = {r.reporter_id for r in rows}
         nicknames = await UserRepository(self.db).get_nicknames(list(reporter_ids))
+        summaries = await self._target_summaries(rows)
         items = [
             ReportOut(
                 id=str(r.id),
                 target_type=r.target_type,
                 target_id=str(r.target_id),
-                target_summary=None,  # 内容表（题解/帖子/评论）实现后回填摘要
+                target_summary=summaries.get(r.target_id),
                 reporter_nickname=nicknames.get(r.reporter_id, "未知用户"),
                 reason=r.reason,
                 status=r.status,
@@ -216,6 +229,27 @@ class ReportService:
             for r in rows
         ]
         return PaginatedResponse[ReportOut](items=items, total=total, page=page, page_size=page_size)
+
+    async def _target_summaries(self, rows: list) -> dict[uuid.UUID, str]:
+        """回填被举报内容摘要（题解标题 / 代码分享标题 / 评论正文截断 / 题目标题；community.md）。"""
+        from app.models.community import CodeShare
+
+        solution_ids = [r.target_id for r in rows if r.target_type == "solution"]
+        code_share_ids = [r.target_id for r in rows if r.target_type == "code_share"]
+        comment_ids = [r.target_id for r in rows if r.target_type == "comment"]
+        problem_ids = [r.target_id for r in rows if r.target_type == "problem"]
+        summaries: dict[uuid.UUID, str] = {}
+        for row in await SolutionRepository(self.db).get_by_ids(list(dict.fromkeys(solution_ids))):
+            summaries[row.id] = row.title[:100]
+        for row in await CodeShareRepository(self.db).get_by_ids(
+            list(dict.fromkeys(code_share_ids))
+        ):
+            summaries[row.id] = row.title[:100]
+        for row in await CommentRepository(self.db).get_by_ids(list(dict.fromkeys(comment_ids))):
+            summaries[row.id] = row.content[:100]
+        for pid, title in (await ProblemRepository(self.db).get_titles(list(dict.fromkeys(problem_ids)))).items():
+            summaries[pid] = title[:100]
+        return summaries
 
     async def handle(self, report_id: uuid.UUID, admin: User, action: str) -> None:
         """处理举报：handled（通过）/ ignored（驳回），见 docs/contracts/community.md。"""

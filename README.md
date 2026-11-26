@@ -1,4 +1,4 @@
-﻿<p align="center">
+<p align="center">
   <img alt="Docs First" src="https://img.shields.io/badge/Docs--First-blue?style=flat-square" />
   <img alt="OJ + AI" src="https://img.shields.io/badge/OJ%20%2B%20AI-teal?style=flat-square" />
   <img alt="Platform" src="https://img.shields.io/badge/Type-Platform-purple?style=flat-square" />
@@ -32,7 +32,7 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 
 ## 快速开始
 
-- **Windows 一键启动（推荐）**：双击根目录 `run-local.bat` —— 自动拉起 PostgreSQL / MinIO / Redis，检测并安装缺失的前后端依赖，判题节点镜像缺失时才构建，并在独立窗口启动 1 个本地判题节点，执行数据库迁移与演示账号引导，随后弹出后端（默认 8000，可经 `.env` 的 `SERVER_PORT` 覆盖）与前端（5173）窗口。
+- **Windows 一键启动（推荐）**：双击根目录 `run-local.bat` —— 自动拉起 PostgreSQL / MinIO / Redis，检测并安装缺失的前后端依赖，判题节点镜像缺失时才构建，并在独立窗口启动 1 个本地判题节点，执行数据库迁移与演示账号引导，随后弹出后端（默认 8000，可经 `.env` 的 `SERVER_PORT` 覆盖）与前端（5173）窗口。启动前自动清理端口上的残留进程（重复运行脚本即等价于重启）；**停止服务用 `stop-local.bat`**（直接关窗口可能留下孤儿 reload worker 占用端口）。
 - **生产环境**（后端 + 前端 + 基础设施）：
 
   ```bash
@@ -82,9 +82,9 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 | `docs/frontend.md` | 前端设计系统、布局、i18n 与质量门禁 |
 | `docs/workflow.md` | AI 协作工作流与文档同步映射 |
 | `docker/` | Docker Compose 编排（生产 `docker-compose.yml` 与判题节点 `docker-compose-node.yml`） |
-| `src/backend` / `src/frontend` / `src/judge` | 后端 / 前端 / 判题节点（含 nsjail 沙箱镜像与节点守护进程） |
+| `src/backend` / `src/frontend-next` / `src/frontend` / `src/judge` | 后端 / 新前端（shadcn-vue） / 旧前端（参考） / 判题节点 |
 
 ## 说明
 
-- 当前阶段：文档契约已完成。**后端已实现 users（认证 / 用户中心 / 用户管理）/ files / problems（题库 · 测试点 · 验题记录）/ judge（提交判题调度 · 沙箱配置 · gRPC 节点网关）/ admin 模块**（含 Alembic 迁移与集成测试；模块间经 `api.py` 门面通信，规则由 `src/backend/scripts/check_import_rules.py` 检查）；**前端已实现整体布局**（左侧固定图标栏 + 顶栏面包屑/用户菜单 + 区块二级菜单）与**用户 / 管理 / 题库**页面，直连真实后端 API（题库含列表分页筛选、写题/编辑、提交判题与测试点明细；样例支持复制输入，在线试运行规划中），已建立 ESLint / Prettier / Vitest 质量门禁。判题链路为「后端 gRPC 网关 + 判题节点双向流注册/心跳负载 + 维护循环兜底重调度」架构——后端进程不执行任何用户代码，本地由 `run-local.bat` 一键拉起。其余业务功能（比赛 / 团队 / 题单 / AI / 社区等）按 `docs/contracts/` 各模块契约逐步实现（AI 模块及其模型配置 / Token 用量暂缓；团队题目可见性与验题邀请的团队侧随 teams 模块接入）。
+- 当前阶段：文档契约已完成。**后端已实现 users（认证 / 用户中心 / 用户管理）/ files / problems（题库 · 测试点 · 验题记录）/ judge（提交判题调度 · 沙箱配置 · gRPC 节点网关）/ admin 模块**（含 Alembic 迁移与集成测试；模块间经 `api.py` 门面通信，规则由 `src/backend/scripts/check_import_rules.py` 检查）；**前端已重构为 `src/frontend-next`**（Vue 3 + shadcn-vue + Tailwind v4）：中后台统一应用壳（侧栏 / 命令面板 / 面包屑）、题库与出题向导、题单、比赛、团队、用户设置与管理后台均已迁移，直连真实后端 API，并建立 ESLint / Prettier / Vitest（含 i18n key 完整性）质量门禁。判题链路为「后端 gRPC 网关 + 判题节点双向流注册/心跳负载 + 维护循环兜底重调度」架构——后端进程不执行任何用户代码，本地由 `run-local.bat` 一键拉起。AI / 社区等模块按 `docs/contracts/` 各模块契约逐步实现（AI 模块及其模型配置 / Token 用量暂缓）。
 - 沙箱执行环境首批支持 Python 3.12、C++17、Java 21。

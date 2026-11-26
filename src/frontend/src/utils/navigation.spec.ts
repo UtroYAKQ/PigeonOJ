@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { goBackOrFallback } from './navigation'
+import { goBackOrFallback, sanitizeRedirect } from './navigation'
 
 type HistoryState = { back?: string | null } | null
 
@@ -47,5 +47,20 @@ describe('goBackOrFallback', () => {
     goBackOrFallback(router as never, '/admin/problems')
     expect(router.push).toHaveBeenCalledWith('/admin/problems')
     expect(router.back).not.toHaveBeenCalled()
+  })
+})
+
+describe('sanitizeRedirect', () => {
+  it('放行站内路径（含 query/hash）', () => {
+    expect(sanitizeRedirect('/problems/5?tab=submissions')).toBe('/problems/5?tab=submissions')
+    expect(sanitizeRedirect('/admin/users')).toBe('/admin/users')
+  })
+
+  it('拦截外链、协议相对地址与非法类型', () => {
+    expect(sanitizeRedirect('https://evil.com')).toBe('/')
+    expect(sanitizeRedirect('//evil.com')).toBe('/')
+    expect(sanitizeRedirect('javascript:alert(1)')).toBe('/')
+    expect(sanitizeRedirect(undefined)).toBe('/')
+    expect(sanitizeRedirect(123)).toBe('/')
   })
 })

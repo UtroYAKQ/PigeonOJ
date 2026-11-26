@@ -77,12 +77,9 @@ export default {
     space: {
       problemSearch: 'Search team problems',
       problemsEmpty: 'No problems in the team bank yet',
-      draftBox: 'Drafts',
-      draftsEmpty: 'No drafts yet',
-      continueEdit: 'Continue editing',
       referenceProblem: 'Reference problem',
       referenceProblemHint:
-        'Pick from your own published public problems; referencing moves ownership to this team (one-way).',
+        'Pick from your organization library or global public problems; referencing snapshot-copies the problem into the team bank (one-way, cannot be removed).',
       referenceEmpty: 'No problems available to reference',
       referenced: 'Referenced',
       created: 'Created',
@@ -93,17 +90,11 @@ export default {
       createSet: 'New set',
       setCreated: 'Team problem set created',
       setTitleRequired: 'Please enter a title',
-      copyFromSet: 'Copy from my sets (optional)',
-      copyFromSetPlaceholder: 'Pick a global set to copy its problem items',
-      copyFromSetHint:
-        'Snapshot-copies the problem items of your own global set. The source set stays untouched; both evolve independently.',
       reference: 'Reference',
       noArrangeable: 'No arrangeable problems',
-      referenceNoPermission: 'Only tutors / admins can reference their own problems into a team',
       teamVisible: 'Visible to all members',
       adminVisible: 'Visible to team admins only',
-      setVisibilityHint:
-        'Team-visible sets are open to all members; admins-only sets are visible to you and team admins only',
+      setAllMembersHint: 'Team problem sets are visible to all team members',
       itemCount: '{count} problems',
       referencedAt: 'Referenced at {time}',
       arrange: 'Arrange problems',

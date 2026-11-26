@@ -1,6 +1,6 @@
 ﻿<script setup lang="ts">
 /**
- * 比赛管理（管理后台，admin/tutor；docs/contracts/contests.md）：
+ * 比赛管理（管理后台，admin；docs/contracts/contests.md）：
  * 全量比赛列表；行点击进入编辑页，创建走全页表单（/admin/contests/create）。
  * 行内「⋯」：管理比赛 / 赛时工具（公告 / 赛后解榜 / 滚榜大屏）。
  * 比赛开始后结构性字段被后端守卫锁定，赛时调整收敛到工具页。
@@ -20,6 +20,7 @@ import { adminListContests } from '@/api/admin'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
+import { contestStatusLabelKey, contestStatusTagType } from '@/constants/contestStatus'
 import type { ContestSummary, PageResult } from '@/types'
 
 const router = useRouter()
@@ -65,12 +66,6 @@ async function load() {
 
 onMounted(load)
 
-const statusMap = computed(() => ({
-  running: { label: t('contests.statusRunning'), type: 'success' as const },
-  scheduled: { label: t('contests.statusScheduled'), type: 'info' as const },
-  finished: { label: t('contests.statusFinished'), type: 'default' as const },
-}))
-
 const columns = computed<DataTableColumns<ContestSummary>>(() => [
   {
     title: t('contests.list.titleLabel'),
@@ -102,8 +97,8 @@ const columns = computed<DataTableColumns<ContestSummary>>(() => [
     render: (row) =>
       h(
         NTag,
-        { size: 'small', bordered: false, type: statusMap.value[row.status].type },
-        { default: () => statusMap.value[row.status].label },
+        { size: 'small', bordered: false, type: contestStatusTagType(row.status) },
+        { default: () => t(contestStatusLabelKey(row.status)) },
       ),
   },
   {

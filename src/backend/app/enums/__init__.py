@@ -7,10 +7,18 @@ from __future__ import annotations
 
 from app.enums.admin import ReportAction, ReportStatus, ReportTargetType
 from app.enums.audit import LogLevel, LoginAction
+from app.enums.community import (
+    CodeShareLanguage,
+    CodeShareStatus,
+    CommentTargetType,
+    SolutionStatus,
+)
 from app.enums.contest import ContestStatus, ContestType, RegistrationStatus, RuleType
 from app.enums.judge import SubmissionStatus, SubmitType
+from app.enums.org import OrgMemberStatus, OrgStatus
 from app.enums.problem import (
     CaseStatus,
+    ImportStatus,
     ProblemScope,
     ProblemSetStatus,
     ProblemSetVisibility,
@@ -26,13 +34,23 @@ from app.enums.team import (
     TeamStatus,
     TeamVisibility,
 )
-from app.enums.user import Theme, UserRoleScope, UserStatus
+from app.enums.user import (
+    EditorFontFamily,
+    RoleCode,
+    RoleLevel,
+    Theme,
+    UserRoleScope,
+    UserStatus,
+)
 
 __all__ = [
     # 用户域
     "UserStatus",
+    "EditorFontFamily",
     "Theme",
     "UserRoleScope",
+    "RoleCode",
+    "RoleLevel",
     # 题库域
     "ProblemStatus",
     "ProblemVisibility",
@@ -40,6 +58,7 @@ __all__ = [
     "TagStatus",
     "VerificationStatus",
     "CaseStatus",
+    "ImportStatus",
     "ProblemSetStatus",
     "ProblemSetVisibility",
     # 判题域
@@ -54,11 +73,19 @@ __all__ = [
     "ReportStatus",
     "ReportAction",
     "ReportTargetType",
+    # 社区域
+    "SolutionStatus",
+    "CommentTargetType",
+    "CodeShareStatus",
+    "CodeShareLanguage",
     # 团队域
     "TeamStatus",
     "TeamVisibility",
     "TeamMemberStatus",
     "TeamApplicationStatus",
+    # 组织域
+    "OrgStatus",
+    "OrgMemberStatus",
     # 审计域
     "LoginAction",
     "LogLevel",

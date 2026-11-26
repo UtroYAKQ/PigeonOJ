@@ -19,6 +19,9 @@ const problemId = String(route.params.id)
 /** 团队上下文：回读走团队端点（豁免题库可见性），步骤跳转回团队路由 */
 const teamId = route.params.teamId ? String(route.params.teamId) : null
 const isTeam = teamId !== null
+/** 组织上下文：回读走题库统一端点（组织成员过权限门），步骤跳转回组织路由 */
+const orgId = route.params.orgId ? String(route.params.orgId) : null
+const isOrg = orgId !== null
 
 const cases = ref<TestCaseDraft[]>([])
 /** 展示样例（problems.samples；仅展示与自测，不参与判题；explanation 为选填样例解释） */
@@ -65,7 +68,8 @@ function normalize() {
 async function loadExisting() {
   loading.value = true
   try {
-    // 团队题目经团队上下文端点回读（题库裸路径按可见性拦截，docs/contracts/teams.md）
+    // 团队题目经团队上下文端点回读（题库裸路径按可见性拦截，docs/contracts/teams.md）；
+    // 组织题 / 全站题走题库统一端点（组织成员过权限门）
     const loaded: ProblemDetail = await (isTeam
       ? getTeamProblem(teamId!, problemId)
       : getProblem(problemId))
@@ -96,7 +100,9 @@ async function loadExisting() {
     serverSamples = samples.value.map((item) => ({ ...item }))
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('problems.detail.loadFailed'))
-    router.push(isTeam ? `/teams/${teamId}` : '/admin/problems')
+    router.push(
+      isTeam ? `/teams/${teamId}` : isOrg ? `/me/orgs/${orgId}` : '/admin/problems',
+    )
   } finally {
     loading.value = false
   }
@@ -233,7 +239,9 @@ function goNext() {
   void save().then((ok) => {
     const target = isTeam
       ? `/teams/${teamId}/problems/${problemId}/edit/verify`
-      : `/admin/problems/${problemId}/edit/verify`
+      : isOrg
+        ? `/me/orgs/${orgId}/problems/${problemId}/edit/verify`
+        : `/admin/problems/${problemId}/edit/verify`
     if (ok) router.push(target)
   })
 }
@@ -241,13 +249,15 @@ function goPrev() {
   router.push(
     isTeam
       ? `/teams/${teamId}/problems/${problemId}/edit/statement`
-      : `/admin/problems/${problemId}/edit/statement`,
+      : isOrg
+        ? `/me/orgs/${orgId}/problems/${problemId}/edit/statement`
+        : `/admin/problems/${problemId}/edit/statement`,
   )
 }
 /** 保存并退出：持久化样例与测试点后返回来源列表 */
 function saveAndExit() {
   void save().then((ok) => {
-    if (ok) router.push(isTeam ? `/teams/${teamId}` : '/admin/problems')
+    if (ok) router.push(isTeam ? `/teams/${teamId}` : isOrg ? `/me/orgs/${orgId}` : '/admin/problems')
   })
 }
 

@@ -26,7 +26,8 @@ import {
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { goBackOrFallback } from '@/utils/navigation'
 import { copyToClipboard } from '@/utils/clipboard'
-import { formatDateTime } from '@/utils/format'
+import { formatDateTime, formatDuration } from '@/utils/format'
+import { contestStatusLabelKey, contestStatusTagType } from '@/constants/contestStatus'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
 import MarkdownView from '@/components/MarkdownView.vue'
@@ -78,28 +79,6 @@ const editPath = computed(() =>
 )
 const listFallback = computed(() => (teamId.value ? `/teams/${teamId.value}` : '/admin/contests'))
 
-const statusMap = computed(() => ({
-  running: { label: t('contests.statusRunning'), type: 'success' as const },
-  scheduled: { label: t('contests.statusScheduled'), type: 'info' as const },
-  finished: { label: t('contests.statusFinished'), type: 'default' as const },
-}))
-
-function pad(n: number) {
-  return String(n).padStart(2, '0')
-}
-
-function formatRemain(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const days = Math.floor(total / 86400)
-  const hours = Math.floor((total % 86400) / 3600)
-  const minutes = Math.floor((total % 3600) / 60)
-  const seconds = total % 60
-  if (days > 0) {
-    return `${days}${t('contests.detail.unitDay')} ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
-  }
-  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
-}
-
 const countdown = computed(() => {
   const d = contest.value
   if (!d) return { label: t('contests.tools.countdown'), value: '—' }
@@ -110,9 +89,9 @@ const countdown = computed(() => {
     return { label: t('contests.detail.contestOver'), value: '—' }
   }
   if (d.status === 'running' || now >= start) {
-    return { label: t('contests.detail.endsIn'), value: formatRemain(end - now) }
+    return { label: t('contests.detail.endsIn'), value: formatDuration(end - now, t('contests.detail.unitDay')) }
   }
-  return { label: t('contests.detail.startsIn'), value: formatRemain(start - now) }
+  return { label: t('contests.detail.startsIn'), value: formatDuration(start - now, t('contests.detail.unitDay')) }
 })
 
 const unfreezeDisabledHint = computed(() => {
@@ -302,8 +281,8 @@ onBeforeUnmount(stopClock)
       <div class="tools-head">
         <strong class="tools-head__title">{{ t('contests.tools.title') }}</strong>
         <span v-if="contest" class="tools-head__contest">{{ contest.title }}</span>
-        <n-tag v-if="contest" size="small" :bordered="false" :type="statusMap[contest.status].type">
-          {{ statusMap[contest.status].label }}
+        <n-tag v-if="contest" size="small" :bordered="false" :type="contestStatusTagType(contest.status)">
+          {{ t(contestStatusLabelKey(contest.status)) }}
         </n-tag>
         <n-tag v-if="contest?.board_frozen" size="small" type="warning" :bordered="false">
           {{ t('contests.boardFrozenTag') }}

@@ -5,16 +5,20 @@
  * 验题页传 @submit 走自行验题提交，@self-test 走用户自测（docs/contracts/judge.md）。
  * 分栏比例全局持久化（useSplitPane），窄屏（<900px）自动上下堆叠。
  */
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
+import { Setting as SettingIcon } from '@element-plus/icons-vue'
 
 import { useSplitPane } from '@/composables/useSplitPane'
+import { EDITOR_FONT_OPTIONS, EDITOR_FONT_SIZES } from '@/constants/editorFonts'
 import { languageOptions } from '@/constants/languages'
 import CodeEditor from '@/components/CodeEditor.vue'
 import ProblemMetaBar from '@/components/problem/ProblemMetaBar.vue'
 import ProblemStatement from '@/components/problem/ProblemStatement.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import { useUserStore } from '@/stores/user'
+import { message } from '@/utils/feedback'
 import type { ProblemDetail, ProblemLanguage, SelfTestResult } from '@/types'
 
 const props = withDefaults(
@@ -25,8 +29,8 @@ const props = withDefaults(
     submitting?: boolean
     /** 主按钮禁用（如验题代码为空） */
     submitDisabled?: boolean
-    /** 是否渲染官方题解分区 */
-    showSolution?: boolean
+    /** 是否渲染「题解」入口（团队上下文 / 验题面板不展示；community.md） */
+    showSolutionsEntry?: boolean
     /** 已发布时隐藏状态标签（前台消费页口径） */
     hidePublishedStatus?: boolean
     /** 自测请求进行中 */
@@ -34,7 +38,7 @@ const props = withDefaults(
     /** 最近一次自测结果（null = 尚未运行） */
     selfTestResult?: SelfTestResult | null
   }>(),
-  { showSolution: true, selfTestResult: null },
+  { showSolutionsEntry: false, selfTestResult: null },
 )
 
 const emit = defineEmits<{
@@ -42,9 +46,34 @@ const emit = defineEmits<{
   submit: []
   /** 打开本人该题的提交记录 */
   'show-submissions': []
+  /** 跳转当前上下文的题解页（官方题解 / 题解分享） */
+  'show-solutions': []
   /** 用户自测：载荷由宿主从模型组装（code/language/selfTestInput） */
   'self-test': []
 }>()
+
+const userStore = useUserStore()
+
+// 编辑器字号 / 字体弹层：改动即时持久化到用户偏好（PUT /users/me），
+// CodeEditor watch 偏好变化自动应用；未登录（公共面板）时改动不落库
+const fontSizeOptions = EDITOR_FONT_SIZES.map((s) => ({ label: String(s), value: s }))
+const fontFamilyOptions = EDITOR_FONT_OPTIONS.map((o) => ({ label: o.label, value: o.value }))
+
+async function onFontSizeChange(size: number) {
+  try {
+    await userStore.updateProfile({ editor_font_size: size })
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('common.operationFailed'))
+  }
+}
+
+async function onFontFamilyChange(family: string) {
+  try {
+    await userStore.updateProfile({ editor_font_family: family })
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : t('common.operationFailed'))
+  }
+}
 
 const code = defineModel<string>('code', { required: true })
 const language = defineModel<ProblemLanguage>('language', { required: true })
@@ -63,9 +92,13 @@ const activeTab = ref<'result' | 'input'>('result')
 // 控制台与编辑区上下排布（不遮挡代码）；开关钮统一承担「单击展开/收起」与「按住上下拖拽调高」（px 持久化，与分栏 composable 同款交互）
 const CONSOLE_H_KEY = 'pigeonoj.problems.consoleHeight.v2'
 const CONSOLE_H_DEFAULT = 440
+// 控制台可压缩的最小高度：低于此值会贴近代码编辑器右缘触发滚动条，故拖拽与还原都以此为下限
+const MIN_CONSOLE_DRAG_HEIGHT = 140
 function loadConsoleHeight(): number {
   const raw = Number(localStorage.getItem(CONSOLE_H_KEY))
-  return Number.isFinite(raw) && raw >= 120 && raw <= 720 ? raw : CONSOLE_H_DEFAULT
+  return Number.isFinite(raw) && raw >= MIN_CONSOLE_DRAG_HEIGHT && raw <= 720
+    ? raw
+    : CONSOLE_H_DEFAULT
 }
 const consoleHeight = ref(loadConsoleHeight())
 const editorShellRef = ref<HTMLElement>()
@@ -79,11 +112,25 @@ const TOGGLE_DRAG_THRESHOLD = 3
 // 收起态起拖从收起条高度平滑长出（不跳到持久化高度），展开态起拖顶缘同样跟手
 let dragBaseHeight = 0
 let heightBeforeDrag = CONSOLE_H_DEFAULT
+// 起拖时的面板状态：收起态轻拖上滑应视为主动展开而非取消（见 endConsoleResize）
+let dragStartedCollapsed = false
+// 拖拽高度按 rAF 节流应用：合并每帧多次 pointermove，避免 Monaco 自动布局高频重排
+// （容器被高速缩放时 ResizeObserver loop 抖动，会误现横向滚动条/画布重绘偶发丢光标）
+let resizeFrame: number | undefined
+let pendingClientY = 0
 
-/** 开关钮按下：仅记录起点，是否进入拖拽由后续位移决定（见 onConsolePointerMove） */
+/** 开关钮按下：仅记录起点，是否进入拖拽由后续位移决定（见 onConsolePointerMove）；
+ *  指针捕获保证在浏览器窗口外松开也能收到 pointerup，拖拽态样式不会残留 */
 function onTogglePointerDown(event: PointerEvent) {
   if (event.button !== 0) return
   event.preventDefault()
+  if (event.currentTarget instanceof HTMLElement) {
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // 个别环境不支持指针捕获，退回 window 级监听清理
+    }
+  }
   toggleArmed = true
   toggleStartY = event.clientY
 }
@@ -93,6 +140,7 @@ function onConsolePointerMove(event: PointerEvent) {
     if (Math.abs(event.clientY - toggleStartY) < TOGGLE_DRAG_THRESHOLD) return
     // 越过阈值进入高度拖拽：收起态自动展开
     resizingConsole = true
+    dragStartedCollapsed = collapsed.value
     heightBeforeDrag = consoleHeight.value
     // 基准取此刻面板的真实渲染高度（收起态 = 收起条高度），保证展开瞬间无跳变
     dragBaseHeight = consoleRef.value?.getBoundingClientRect().height ?? consoleHeight.value
@@ -101,10 +149,21 @@ function onConsolePointerMove(event: PointerEvent) {
     document.body.classList.add('is-console-resizing')
   }
   if (!resizingConsole || !editorShellRef.value) return
+  pendingClientY = event.clientY
+  if (resizeFrame !== undefined) return
+  resizeFrame = window.requestAnimationFrame(applyConsoleResize)
+}
+
+function applyConsoleResize() {
+  resizeFrame = undefined
+  if (!resizingConsole || !editorShellRef.value) return
   const rect = editorShellRef.value.getBoundingClientRect()
-  // 拖拽中下限放宽到 40（跟手连续）；上限给编辑器留最小操作空间
-  const height = Math.round(dragBaseHeight + (toggleStartY - event.clientY))
-  consoleHeight.value = Math.min(Math.max(40, height), Math.max(200, Math.floor(rect.height) - 60))
+  // 拖拽下限 MIN_CONSOLE_DRAG_HEIGHT 防止控制台压缩过小；上限只留底部安全边距，不限最高高度
+  const height = Math.round(dragBaseHeight + (toggleStartY - pendingClientY))
+  consoleHeight.value = Math.min(
+    Math.max(MIN_CONSOLE_DRAG_HEIGHT, height),
+    Math.max(200, Math.floor(rect.height) - 60),
+  )
 }
 
 function endConsoleResize() {
@@ -112,11 +171,22 @@ function endConsoleResize() {
   toggleArmed = false
   if (resizingConsole) {
     resizingConsole = false
+    if (resizeFrame !== undefined) {
+      window.cancelAnimationFrame(resizeFrame)
+      resizeFrame = undefined
+    }
     document.body.classList.remove('is-console-resizing')
-    if (consoleHeight.value < 140) {
-      // 没拖出可读高度：视为取消——收回面板并还原拖前高度（收起态轻拖、展开态拖到底都走这里）
-      collapsed.value = true
-      consoleHeight.value = heightBeforeDrag
+    if (consoleHeight.value < MIN_CONSOLE_DRAG_HEIGHT) {
+      if (dragStartedCollapsed) {
+        // 收起态起拖即视为主动展开：补足最小可读高度，轻拖上滑不再弹回
+        collapsed.value = false
+        consoleHeight.value = MIN_CONSOLE_DRAG_HEIGHT
+        localStorage.setItem(CONSOLE_H_KEY, String(consoleHeight.value))
+      } else {
+        // 没拖出可读高度：视为取消——收回面板并还原拖前高度（展开态拖到底走这里）
+        collapsed.value = true
+        consoleHeight.value = heightBeforeDrag
+      }
     } else {
       localStorage.setItem(CONSOLE_H_KEY, String(consoleHeight.value))
     }
@@ -124,6 +194,17 @@ function endConsoleResize() {
   }
   // 全程未拖动：按单击开关处理
   collapsed.value = !collapsed.value
+}
+
+/** 打断拖拽时的兜底：清空待执行帧与拖拽态样式（失焦 / 组件卸载等场景） */
+function releaseConsoleResize() {
+  toggleArmed = false
+  resizingConsole = false
+  if (resizeFrame !== undefined) {
+    window.cancelAnimationFrame(resizeFrame)
+    resizeFrame = undefined
+  }
+  document.body.classList.remove('is-console-resizing')
 }
 
 /** 键盘兜底：Enter/Space 触发的 click（detail=0）切换展开/收起；鼠标/触屏点击已由指针路径处理 */
@@ -134,6 +215,9 @@ function onToggleClick(event: MouseEvent) {
 useEventListener(window, 'pointermove', onConsolePointerMove)
 useEventListener(window, 'pointerup', endConsoleResize)
 useEventListener(window, 'pointercancel', endConsoleResize)
+// 拖拽途中窗口失焦（切标签/最小化）：取消拖拽并清理全局拖拽态，避免样式残留
+useEventListener(window, 'blur', releaseConsoleResize)
+onBeforeUnmount(releaseConsoleResize)
 
 const canSelfTest = () => Boolean(code.value.trim()) && !props.selfTesting
 
@@ -196,7 +280,7 @@ watch(
           />
         </template>
 
-        <ProblemStatement :problem="problem" :show-solution="showSolution" />
+        <ProblemStatement :problem="problem" />
       </n-card>
     </section>
 
@@ -220,7 +304,41 @@ watch(
             class="editor-toolbar__language"
             :options="languageOptions"
           />
+          <n-popover trigger="click" placement="bottom">
+            <template #trigger>
+              <n-button quaternary circle :aria-label="t('problems.detail.editorSettings')">
+                <template #icon>
+                  <n-icon><SettingIcon /></n-icon>
+                </template>
+              </n-button>
+            </template>
+            <div class="editor-prefs">
+              <div class="editor-prefs__row">
+                <span>{{ t('profile.editorFontSize') }}</span>
+                <n-select
+                  size="tiny"
+                  style="width: 84px"
+                  :value="userStore.user?.editor_font_size ?? 14"
+                  :options="fontSizeOptions"
+                  @update:value="onFontSizeChange"
+                />
+              </div>
+              <div class="editor-prefs__row">
+                <span>{{ t('profile.editorFontFamily') }}</span>
+                <n-select
+                  size="tiny"
+                  style="width: 156px"
+                  :value="userStore.user?.editor_font_family ?? 'jetbrains-mono'"
+                  :options="fontFamilyOptions"
+                  @update:value="onFontFamilyChange"
+                />
+              </div>
+            </div>
+          </n-popover>
           <div class="editor-toolbar__actions">
+            <n-button v-if="showSolutionsEntry" secondary @click="emit('show-solutions')">
+              {{ t('problems.solutions.title') }}
+            </n-button>
             <n-button secondary @click="emit('show-submissions')">{{
               t('problems.detail.mySubmissions')
             }}</n-button>
@@ -344,10 +462,10 @@ watch(
                       !selfTestResult.error_message && !selfTestResult.output,
                   }"
                   >{{
-                  selfTestResult.error_message ||
-                  selfTestResult.output ||
-                  t('problems.detail.noOutput')
-                }}</pre>
+                    selfTestResult.error_message ||
+                    selfTestResult.output ||
+                    t('problems.detail.noOutput')
+                  }}</pre>
               </div>
             </template>
           </div>
@@ -387,7 +505,7 @@ watch(
   justify-content: center;
   width: 14px;
   margin: 0 -3px;
-  cursor: col-resize;
+  cursor: var(--app-cursor-col-resize);
   touch-action: none;
   z-index: 2;
 }
@@ -513,6 +631,7 @@ watch(
 .console__stdin :deep(textarea) {
   height: 100%;
   resize: none;
+  cursor: var(--app-cursor-text);
 }
 .console__hint {
   height: 100%;
@@ -576,5 +695,19 @@ watch(
   .editor-shell {
     min-height: 480px;
   }
+}
+
+.editor-prefs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.editor-prefs__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
 }
 </style>

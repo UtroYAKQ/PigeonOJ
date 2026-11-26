@@ -1,10 +1,12 @@
 ﻿<script setup lang="ts">
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { NButton, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
 import * as adminApi from '@/api/admin'
+import { adminGetComment } from '@/api/community'
 import type { Report, ReportStatus, ReportType } from '@/types'
 import { REPORT_STATUS, REPORT_TYPE, toNaiveTagType } from '@/constants/dict'
 import { formatDateTime } from '@/utils/format'
@@ -16,6 +18,7 @@ import WorkbenchShell from '@/components/WorkbenchShell.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 
 const { t } = useI18n()
+const router = useRouter()
 const loading = ref(false)
 const list = ref<Report[]>([])
 const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
@@ -56,6 +59,35 @@ function openHandle(report: Report) {
   handleTarget.value = report
   handleAction.value = 'handled'
   handleDialog.value = true
+}
+
+/** 查看内容：题解 / 代码分享 / 评论举报跳转对应管理页预览（评论经管理上下文反查） */
+async function openContent(report: Report) {
+  if (report.target_type === 'solution') {
+    void router.push({
+      path: '/admin/solutions',
+      query: { solution: report.target_id },
+    })
+    return
+  }
+  if (report.target_type === 'code_share') {
+    void router.push({
+      path: '/admin/codes',
+      query: { code: report.target_id },
+    })
+    return
+  }
+  if (report.target_type === 'comment') {
+    try {
+      const context = await adminGetComment(report.target_id)
+      void router.push({
+        path: '/admin/solutions',
+        query: { solution: context.target_id, comment: report.target_id },
+      })
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : t('common.loadFailed'))
+    }
+  }
 }
 function cancelHandle() {
   handleDialog.value = false
@@ -151,16 +183,32 @@ const columns = computed<DataTableColumns<Report>>(() => [
   {
     title: t('action.handle'),
     key: 'actions',
-    width: 100,
+    width: 150,
     fixed: 'right',
     render(row) {
-      if (row.status !== 'pending')
-        return h('span', { class: 'cell-muted' }, t('admin.reports.handled'))
-      return h(
-        NButton,
-        { text: true, type: 'primary', onClick: () => openHandle(row) },
-        { default: () => t('action.handle') },
+      const buttons: ReturnType<typeof h>[] = []
+      if (
+        row.target_type === 'solution' ||
+        row.target_type === 'comment' ||
+        row.target_type === 'code_share'
+      ) {
+        buttons.push(
+          h(
+            NButton,
+            { text: true, type: 'primary', onClick: () => openContent(row) },
+            { default: () => t('admin.reports.viewContent') },
+          ),
+        )
+      }
+      if (row.status !== 'pending') return h('div', { class: 'cell-actions' }, buttons)
+      buttons.push(
+        h(
+          NButton,
+          { text: true, type: 'primary', onClick: () => openHandle(row) },
+          { default: () => t('action.handle') },
+        ),
       )
+      return h('div', { class: 'cell-actions' }, buttons)
     },
   },
 ])

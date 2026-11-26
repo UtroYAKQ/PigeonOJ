@@ -1,0 +1,17 @@
+/**
+ * 前端共享类型包：与 docs/contracts/ 各模块契约对齐。
+ * 统一出口，消费方使用 import type { ... } from '@/types'。
+ */
+
+export * from './common'
+export * from './contest'
+export * from './files'
+export * from './judge'
+export * from './org'
+export * from './community'
+export * from './problem'
+export * from './problem-set'
+export * from './site'
+export * from './team'
+export * from './user'
+export * from './admin'

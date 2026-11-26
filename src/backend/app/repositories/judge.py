@@ -10,17 +10,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.judge import Submission, SubmissionTestCaseResult
 from app.models.problem import Problem, TestCase
 from app.models.user import User
+from app.schemas.judge import CaseResultRow
 
 
 class JudgeRepository:
     async def write_case_results(
-        self, db: AsyncSession, submission_id: uuid.UUID, rows: list[dict]
+        self, db: AsyncSession, rows: list[CaseResultRow]
     ) -> None:
         """批量写入逐测试点结果：PG INSERT ... ON CONFLICT DO UPDATE 单次往返
         （重判场景命中 uq_submission_case 唯一约束转更新，幂等可重复应用）。"""
         if not rows:
             return
-        stmt = pg_insert(SubmissionTestCaseResult).values(rows)
+        stmt = pg_insert(SubmissionTestCaseResult).values(
+            [row.model_dump() for row in rows]
+        )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_submission_case",
             set_={

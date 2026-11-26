@@ -14,7 +14,7 @@ from app.models.team import Team
 from app.models.user import User, UserRole
 from app.core.database import SessionLocal
 
-from .conftest import api_login, register_user
+from .conftest import api_login, create_org, register_user
 
 
 async def _create_problem(client, admin_headers, **overrides) -> dict:
@@ -30,6 +30,32 @@ async def _create_problem(client, admin_headers, **overrides) -> dict:
     assert resp.status_code == 200, resp.text
     assert resp.json()["code"] == 0
     return resp.json()["data"]
+
+
+async def _create_org_problem(client, headers, org_id: str, **overrides) -> dict:
+    """组织题库直建（org_member 门），返回题目数据。"""
+    payload = {
+        "title": "组织题 A+B",
+        "background": "组织题背景",
+        "description": "计算 A+B",
+        "input_description": "一行两个整数 A B",
+        "output_description": "一行输出 A+B 的值",
+    }
+    payload.update(overrides)
+    resp = await client.post(f"/api/v1/orgs/{org_id}/problems", json=payload, headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["code"] == 0, resp.text
+    return resp.json()["data"]
+
+
+async def _org_member_headers(client, email: str = "mentor@pigeonoj.dev") -> tuple[dict, str]:
+    """注册用户 → 创建组织并任命为组织管理员 → (headers, org_id)。"""
+    await register_user(client, email)
+    token = await api_login(client, email, "Pass@123")
+    headers = {"Authorization": f"Bearer {token}"}
+    uid = (await client.get("/api/v1/users/me", headers=headers)).json()["data"]["id"]
+    org_id = await create_org(client, f"组织-{email}", [uid])
+    return headers, org_id
 
 
 async def _pass_verification(pid: str) -> None:
@@ -60,60 +86,71 @@ async def _get_cases(client, headers, pid: str) -> list[dict]:
     return resp.json()["data"]["cases"]
 
 
-async def _tutor_headers(client) -> dict[str, str]:
-    """注册一个 tutor 账号并返回认证头（题目管理角色，单一所有权模型用例）。"""
-    email = "tutor@pigeonoj.dev"
-    await register_user(client, email)
-    async with SessionLocal() as db:
-        user = (await db.execute(select(User).where(User.email == email))).scalar_one()
-        db.add(
-            UserRole(
-                user_id=user.id,
-                role_id="22222222-2222-2222-2222-222222222222",
-                scope="global",
-                object_id=None,
-            )
-        )
-        await db.commit()
-    token = await api_login(client, email, "Pass@123")
-    return {"Authorization": f"Bearer {token}"}
-
-
 @pytest.mark.asyncio
-async def test_tutor_cannot_manage_others_problems(client, admin_headers):
-    """单一所有权模型（docs/security.md）：tutor 仅能管理本人创建的题目——
+async def test_org_member_manage_and_outsider_gate(client, admin_headers):
+    """组织题库所有权模型（docs/contracts/orgs.md）：组织题按组织成员资格判定管理权——
 
-    admin 创建的题目对 tutor 不可见（草稿 2003）、不可编辑（2003）、不在 scope=mine 列表；
-    tutor 仍可创建并管理自己的题目。
+    组织成员可编辑组织内他人创建的题目（owner_id 仅署名）；组织外用户草稿 2003、
+    编辑 2003；全站题创建仅 admin（普通用户 2003）。
     """
-    tutor = await _tutor_headers(client)
-    admin_problem = await _create_problem(client, admin_headers, title="管理员的题目")
+    mentor, org_id = await _org_member_headers(client)
+    # 第二名组织成员
+    from .conftest import admin_api_headers
 
-    # 草稿详情：非创建者、非 admin → 2003
-    resp = await client.get(f"/api/v1/problems/{admin_problem['id']}", headers=tutor)
-    assert resp.json()["code"] == 2003
-    # 编辑 → 2003
-    resp = await client.put(
-        f"/api/v1/problems/{admin_problem['id']}", json={"title": "越权改名"}, headers=tutor
-    )
-    assert resp.json()["code"] == 2003
-    # 不在 tutor 的 scope=mine 列表
-    resp = await client.get("/api/v1/problems?scope=mine", headers=tutor)
-    assert resp.json()["code"] == 0
-    titles = {it["title"] for it in resp.json()["data"]["items"]}
-    assert "管理员的题目" not in titles
-
-    # tutor 创建自己的题目后可正常编辑
-    own = await _create_problem(client, tutor, title="导师的题目")
-    resp = await client.put(
-        f"/api/v1/problems/{own['id']}", json={"title": "导师改过"}, headers=tutor
+    admin = await admin_api_headers(client)
+    await register_user(client, "orgpeer@pigeonoj.dev")
+    token2 = await api_login(client, "orgpeer@pigeonoj.dev", "Pass@123")
+    member2 = {"Authorization": f"Bearer {token2}"}
+    uid2 = (await client.get("/api/v1/users/me", headers=member2)).json()["data"]["id"]
+    resp = await client.post(
+        f"/api/v1/orgs/{org_id}/members", json={"user_ids": [uid2]}, headers=mentor
     )
     assert resp.json()["code"] == 0, resp.text
-    assert resp.json()["data"]["title"] == "导师改过"
-    # tutor 的 scope=mine 含自己的题目
-    resp = await client.get("/api/v1/problems?scope=mine", headers=tutor)
+
+    await register_user(client, "poutsider@pigeonoj.dev")
+    token3 = await api_login(client, "poutsider@pigeonoj.dev", "Pass@123")
+    outsider_headers = {"Authorization": f"Bearer {token3}"}
+
+    # mentor 直建组织题（草稿）
+    own = await _create_org_problem(client, mentor, org_id, title="导师的题目")
+
+    # 组织外用户：草稿详情 2003、编辑 2003
+    resp = await client.get(f"/api/v1/problems/{own['id']}", headers=outsider_headers)
+    assert resp.json()["code"] == 2003
+    resp = await client.put(
+        f"/api/v1/problems/{own['id']}", json={"title": "越权改名"}, headers=outsider_headers
+    )
+    assert resp.json()["code"] == 2003
+
+    # 第二名组织成员可编辑 mentor 创建的题目（组织题库全员可编辑）
+    resp = await client.put(
+        f"/api/v1/problems/{own['id']}", json={"title": "同伴改过"}, headers=member2
+    )
+    assert resp.json()["code"] == 0, resp.text
+    assert resp.json()["data"]["title"] == "同伴改过"
+
+    # scope=mine（组织聚合）：组织成员可见组织题；组织外用户不含
+    resp = await client.get("/api/v1/problems?scope=mine", headers=member2)
     titles = {it["title"] for it in resp.json()["data"]["items"]}
-    assert "导师改过" in titles
+    assert "同伴改过" in titles
+    resp = await client.get("/api/v1/problems?scope=mine", headers=outsider_headers)
+    titles = {it["title"] for it in resp.json()["data"]["items"]}
+    assert "同伴改过" not in titles
+
+    # 全站题创建：普通用户 2003（tutor 已下线，公开内容收归 admin）
+    resp = await client.post(
+        "/api/v1/problems",
+        json={
+            "title": "T",
+            "background": "B",
+            "description": "D",
+            "input_description": "I",
+            "output_description": "O",
+        },
+        headers=outsider_headers,
+    )
+    assert resp.status_code == 403
+    assert resp.json()["code"] == 2003
 
 
 @pytest.mark.asyncio
@@ -1286,52 +1323,78 @@ async def test_list_scope_mine_shows_own_private_problems(client, admin_headers,
 
 
 @pytest.mark.asyncio
-async def test_list_scope_mine_ownership_filter(client):
-    """scope=mine 的 ownership 过滤：solo=全站题 / team=团队题；非法值 1001。"""
-    tutor_headers = await _tutor_headers(client)
-    await _create_problem(client, tutor_headers, title="Solo Problem", visibility="public")
+async def test_list_scope_mine_ownership_filter(client, admin_headers):
+    """scope=mine 的 ownership 过滤（admin 全量视图）：solo=全站题 / org=组织题 /
+    team=团队题；非法值 1001。"""
+    org_id = await create_org(client, "归属过滤组织")
+    await _create_problem(client, admin_headers, title="Solo Problem", visibility="public")
 
-    # 直接种子一道团队题（owner=tutor）
+    # 直接种子一道团队题与一道组织题（owner=admin）
     async with SessionLocal() as db:
-        tutor_uid = (
-            await db.execute(select(User).where(User.email == "tutor@pigeonoj.dev"))
+        uid = (
+            await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))
         ).scalar_one().id
-        team = Team(name="归属过滤队", creator_id=tutor_uid)
+        team = Team(name="归属过滤队", creator_id=uid)
         db.add(team)
         await db.flush()
         team_problem = Problem(
             title="Team Problem",
+            background="B",
             description="D",
-            owner_id=tutor_uid,
+            input_description="I",
+            output_description="O",
+            owner_id=uid,
             status="published",
             visibility="team_visible",
             team_id=team.id,
             verified_at=datetime.now(timezone.utc),
         )
         db.add(team_problem)
+        org_problem = Problem(
+            title="Org Problem",
+            background="B",
+            description="D",
+            input_description="I",
+            output_description="O",
+            owner_id=uid,
+            status="published",
+            visibility="org_visible",
+            org_id=uuid.UUID(org_id),
+            verified_at=datetime.now(timezone.utc),
+        )
+        db.add(org_problem)
         await db.commit()
         team_problem_id = str(team_problem.id)
+        org_problem_id = str(org_problem.id)
 
-    # solo → 仅全站题
+    # solo → 仅全站题（组织题 / 团队题不出现）
     resp = await client.get(
-        "/api/v1/problems?scope=mine&ownership=solo", headers=tutor_headers
+        "/api/v1/problems?scope=mine&ownership=solo", headers=admin_headers
     )
     assert resp.json()["code"] == 0, resp.text
     items = resp.json()["data"]["items"]
-    assert "Solo Problem" in {it["title"] for it in items}
-    assert "Team Problem" not in {it["title"] for it in items}
+    titles = {it["title"] for it in items}
+    assert "Solo Problem" in titles
+    assert "Team Problem" not in titles
+    assert "Org Problem" not in titles
+
+    # org → 仅组织题
+    resp = await client.get(
+        "/api/v1/problems?scope=mine&ownership=org", headers=admin_headers
+    )
+    assert resp.json()["code"] == 0, resp.text
+    assert {it["id"] for it in resp.json()["data"]["items"]} == {org_problem_id}
 
     # team → 仅团队题
     resp = await client.get(
-        "/api/v1/problems?scope=mine&ownership=team", headers=tutor_headers
+        "/api/v1/problems?scope=mine&ownership=team", headers=admin_headers
     )
     assert resp.json()["code"] == 0, resp.text
-    items = resp.json()["data"]["items"]
-    assert {it["id"] for it in items} == {team_problem_id}
+    assert {it["id"] for it in resp.json()["data"]["items"]} == {team_problem_id}
 
     # 非法值 → 1001
     resp = await client.get(
-        "/api/v1/problems?scope=mine&ownership=bogus", headers=tutor_headers
+        "/api/v1/problems?scope=mine&ownership=bogus", headers=admin_headers
     )
     assert resp.json()["code"] == 1001
 

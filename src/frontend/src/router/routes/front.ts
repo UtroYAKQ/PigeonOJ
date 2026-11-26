@@ -1,5 +1,7 @@
 import type { RouteRecordRaw } from 'vue-router'
 
+import { buildSolutionRoutes } from './solutions'
+
 /**
  * 前台布局子路由（侧边栏菜单数据源）。
  * meta.titleKey 驱动侧栏 / 浏览器标题；meta.hidden 从侧栏隐藏。
@@ -34,6 +36,12 @@ export const frontRoutes: RouteRecordRaw[] = [
           contextPage: true,
         },
       },
+      // 题解页（官方题解 / 题解分享双 tab；上下文内跳转）
+      ...buildSolutionRoutes({
+        problemPath: ':id',
+        namePrefix: 'problem',
+        problemRoutePath: (route) => `/problems/${String(route.params.id)}`,
+      }),
       {
         path: ':problemId/submissions/:id',
         name: 'submission-detail',
@@ -96,6 +104,13 @@ export const frontRoutes: RouteRecordRaw[] = [
           },
         },
       },
+      // 题解页（题单上下文）
+      ...buildSolutionRoutes({
+        problemPath: ':setId/problems/:problemId',
+        namePrefix: 'problem-set',
+        problemRoutePath: (route) =>
+          `/problem-sets/${String(route.params.setId)}/problems/${String(route.params.problemId)}`,
+      }),
       {
         path: ':setId/problems/:problemId/submissions/:id',
         name: 'problem-set-submission',
@@ -164,6 +179,13 @@ export const frontRoutes: RouteRecordRaw[] = [
           },
         },
       },
+      // 题解页（比赛上下文；比赛进行中门禁由后端 3002 拦截）
+      ...buildSolutionRoutes({
+        problemPath: ':cid/problems/:problemId',
+        namePrefix: 'contest',
+        problemRoutePath: (route) =>
+          `/contests/${String(route.params.cid)}/problems/${String(route.params.problemId)}`,
+      }),
       {
         path: ':cid/problems/:problemId/submissions/:id',
         name: 'contest-submission',
@@ -252,7 +274,7 @@ export const frontRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        // 团队题单创建页：新建 / 引用我的题单（引用 tab 仅 tutor / admin）
+        // 团队题单创建页（copy_items_from 已随组织化改造移除，仅表单创建）
         path: ':teamId/sets/new',
         name: 'team-set-create',
         component: () => import('@/views/teams/TeamSetCreateView.vue'),
@@ -269,7 +291,7 @@ export const frontRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        // 团队题目引用页：团队题目 = 引用制（tutor / admin 引用本人题目）
+        // 团队题目引用页：团队题目 = 引用制（候选 = 所属组织题库 ∪ 全站公开题）
         path: ':teamId/problems/new',
         name: 'team-problem-reference',
         component: () => import('@/views/teams/TeamProblemReferenceView.vue'),
@@ -540,23 +562,6 @@ export const frontRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        // 团队题目直建向导（第一步题面）：POST /problems 带 team_id（团队可见性分支）
-        path: ':teamId/problems/create',
-        name: 'team-problem-create',
-        component: () => import('@/views/problems/ProblemStatementView.vue'),
-        meta: {
-          title: '创建题目',
-          titleKey: 'problems.create.title',
-          requiresAuth: true,
-          hidden: true,
-          contextPage: true,
-          breadcrumbParent: {
-            titleKey: 'teams.detail.title',
-            path: (route) => `/teams/${String(route.params.teamId)}`,
-          },
-        },
-      },
-      {
         // 团队题目编辑向导第一步（题面）：回读 / 更新走团队端点（豁免题库可见性）
         path: ':teamId/problems/:id/edit/statement',
         name: 'team-problem-edit-statement',
@@ -647,6 +652,45 @@ export const frontRoutes: RouteRecordRaw[] = [
                 `/teams/${String(route.params.teamId)}/problems/${String(route.params.problemId)}`,
             },
           ],
+        },
+      },
+    ],
+  },
+
+  {
+    path: 'codes',
+    meta: { title: '广场', titleKey: 'nav.codes', icon: 'Share' },
+    children: [
+      {
+        path: '',
+        name: 'codes',
+        component: () => import('@/views/community/CodePlazaView.vue'),
+        meta: { title: '广场', titleKey: 'nav.codes', icon: 'Share', keepAlive: true },
+      },
+      {
+        path: 'new',
+        name: 'code-share-new',
+        component: () => import('@/views/community/CodeShareEditorView.vue'),
+        meta: {
+          title: '分享代码',
+          titleKey: 'codes.createTitle',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: { titleKey: 'nav.codes', path: '/codes' },
+        },
+      },
+      {
+        path: ':id',
+        name: 'code-share-detail',
+        component: () => import('@/views/community/CodeShareDetailView.vue'),
+        meta: {
+          title: '代码分享详情',
+          titleKey: 'codes.detailTitle',
+          hidden: true,
+          contextPage: true,
+          keepAlive: true,
+          breadcrumbParent: { titleKey: 'nav.codes', path: '/codes' },
         },
       },
     ],

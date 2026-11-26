@@ -11,8 +11,12 @@ from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 
 from app.api.deps import (
     AdminConfigServiceDep,
+    CommunityServiceDep,
     ContestServiceDep,
+    get_current_admin,
+    get_current_user,
     LogServiceDep,
+    OrgServiceDep,
     ProblemImportServiceDep,
     ProblemSetServiceDep,
     ReportServiceDep,
@@ -25,8 +29,16 @@ from app.api.deps import (
     UserServiceDep,
 )
 from app.models.user import User
-from app.enums import ContestStatus, ContestType, ProblemSetStatus, TeamStatus
+from app.enums import ContestStatus, ContestType, ProblemSetStatus, SubmissionStatus, SubmitType, TeamStatus
 from app.schemas.contest import ContestSummary
+from app.schemas.community import (
+    AdminCodeShareOut,
+    AdminCodeShareStatusUpdate,
+    AdminCommentStatusUpdate,
+    AdminSolutionOut,
+    AdminSolutionStatusUpdate,
+    CommentAdminOut,
+)
 from app.schemas.judge import AdminSubmissionItem
 from app.schemas.admin import (
     ConfigItemOut,
@@ -51,9 +63,9 @@ from app.schemas.problem import (
     TeamProblemSummary,
 )
 from app.schemas.problem_set import ProblemSetSummary
+from app.schemas.org import OrgAdminDetail, OrgAdminSummary, OrgMemberOut, OrgTeamAssign
 from app.schemas.team import TeamAdminDetail, TeamAdminSummary, TeamMemberOut
 from app.schemas.user import UserPublic
-from app.core.dependency import get_current_admin, get_current_user
 from app.core.exceptions import APIError, PARAM_FORMAT_INVALID
 from app.utils.pagination import PaginatedResponse
 from app.utils.response import ApiResponse, ok
@@ -110,13 +122,11 @@ async def list_all_submissions(
 
     user_id 亦可经「提交人昵称」搜索定位；行内含题目标题，点击行进入题目管理视角评测详情。
     """
-    from app.enums import SubmissionStatus, SubmitType
-
     try:
         status_value = SubmissionStatus(status) if status else None
         submit_type_value = SubmitType(submit_type) if submit_type else None
     except ValueError as exc:
-        raise APIError(PARAM_FORMAT_INVALID, "查询参数不合法", 400) from exc
+        raise APIError.bad_query(exc) from exc
     items, total = await service.list_admin_summaries(
         submit_type=submit_type_value, user_id=user_id, problem_id=problem_id,
         status=status_value, language=language, keyword=keyword, page=page, page_size=page_size,
@@ -257,6 +267,112 @@ async def handle_report(
     return ok(None)
 
 
+# ---- 社区内容管理（docs/contracts/admin.md「社区内容管理」） ----
+
+
+@router.get(
+    "/solutions", response_model=ApiResponse[PaginatedResponse[AdminSolutionOut]]
+)
+async def admin_list_solutions(
+    service: CommunityServiceDep,
+    admin: User = _admin,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = None,
+    keyword: str | None = Query(default=None, max_length=128),
+    problem_id: uuid.UUID | None = None,
+) -> ApiResponse[PaginatedResponse[AdminSolutionOut]]:
+    """题解管理列表（全状态；评论治理经行内预览下钻，不设独立评论列表页）。"""
+    return ok(await service.admin_list_solutions(page, page_size, status, keyword, problem_id))
+
+
+@router.get("/solutions/{solution_id}", response_model=ApiResponse[AdminSolutionOut])
+async def admin_get_solution(
+    solution_id: uuid.UUID,
+    service: CommunityServiceDep,
+    admin: User = _admin,
+) -> ApiResponse[AdminSolutionOut]:
+    """题解管理详情（按 id 直接打开预览；community.md）。"""
+    return ok(await service.admin_get_solution(solution_id))
+
+
+@router.put("/solutions/{solution_id}/status", response_model=ApiResponse[None])
+async def admin_set_solution_status(
+    solution_id: uuid.UUID,
+    body: AdminSolutionStatusUpdate,
+    service: CommunityServiceDep,
+    db: SessionDep,
+    admin: User = _admin,
+) -> ApiResponse[None]:
+    await service.admin_set_solution_status(solution_id, body.status)
+    await db.commit()
+    return ok(None)
+
+
+@router.get("/comments/{comment_id}", response_model=ApiResponse[CommentAdminOut])
+async def admin_get_comment(
+    comment_id: uuid.UUID,
+    service: CommunityServiceDep,
+    admin: User = _admin,
+) -> ApiResponse[CommentAdminOut]:
+    """评论管理上下文（举报处理页定位所属题解；community.md）。"""
+    return ok(await service.admin_get_comment(comment_id))
+
+
+@router.put("/comments/{comment_id}/status", response_model=ApiResponse[None])
+async def admin_set_comment_status(
+    comment_id: uuid.UUID,
+    body: AdminCommentStatusUpdate,
+    service: CommunityServiceDep,
+    db: SessionDep,
+    admin: User = _admin,
+) -> ApiResponse[None]:
+    await service.admin_set_comment_status(comment_id, body.is_deleted)
+    await db.commit()
+    return ok(None)
+
+
+# ---- 代码分享管理（docs/contracts/community.md「代码广场」） ----
+
+
+@router.get("/codes", response_model=ApiResponse[PaginatedResponse[AdminCodeShareOut]])
+async def admin_list_code_shares(
+    service: CommunityServiceDep,
+    admin: User = _admin,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = None,
+    keyword: str | None = Query(default=None, max_length=128),
+    language: str | None = Query(default=None, max_length=32),
+) -> ApiResponse[PaginatedResponse[AdminCodeShareOut]]:
+    """代码分享管理列表（全状态；预览复用 GET /codes/{id}）。"""
+    return ok(
+        await service.admin_list_code_shares(page, page_size, status, keyword, language)
+    )
+
+
+@router.get("/codes/{share_id}", response_model=ApiResponse[AdminCodeShareOut])
+async def admin_get_code_share(
+    share_id: uuid.UUID,
+    service: CommunityServiceDep,
+    admin: User = _admin,
+) -> ApiResponse[AdminCodeShareOut]:
+    return ok(await service.admin_get_code_share(share_id))
+
+
+@router.put("/codes/{share_id}/status", response_model=ApiResponse[None])
+async def admin_set_code_share_status(
+    share_id: uuid.UUID,
+    body: AdminCodeShareStatusUpdate,
+    service: CommunityServiceDep,
+    db: SessionDep,
+    admin: User = _admin,
+) -> ApiResponse[None]:
+    await service.admin_set_code_share_status(share_id, body.status)
+    await db.commit()
+    return ok(None)
+
+
 # ---- 标签管理（docs/contracts/problems.md 端点表 /admin/tags*） ----
 @router.get("/tags", response_model=ApiResponse[PaginatedResponse[TagOut]])
 async def list_tags(
@@ -373,7 +489,7 @@ async def export_problem_xml(
     )
 
 
-# ---- 比赛管理视图（单一所有权模型：admin 全量、tutor 仅本人创建，docs/contracts/contests.md） ----
+# ---- 比赛管理视图（单一所有权模型：admin 全量；docs/contracts/contests.md） ----
 @router.get("/contests", response_model=ApiResponse[PaginatedResponse[ContestSummary]])
 async def admin_list_contests(
     service: ContestServiceDep,
@@ -394,7 +510,7 @@ async def admin_list_contests(
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
 
 
-# ---- 题单管理（docs/contracts/problem-sets.md；管理角色 admin/tutor，非 admin 专属） ----
+# ---- 题单管理（docs/contracts/problem-sets.md；管理角色：admin） ----
 
 
 @router.get("/problem-sets", response_model=ApiResponse[PaginatedResponse[ProblemSetSummary]])
@@ -530,3 +646,72 @@ async def admin_list_team_contests(
         team_id, keyword=keyword, status=status, page=page, page_size=page_size
     )
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.post("/teams/{team_id}/disband", response_model=ApiResponse[None])
+async def admin_disband_team(
+    team_id: uuid.UUID,
+    service: TeamServiceDep,
+    db: SessionDep,
+    admin: User = _admin,
+) -> ApiResponse[None]:
+    """站点 admin 代解散团队（治理逃生门；创建者账号缺失时的兜底通道）。"""
+    await service.disband(admin, team_id)
+    await db.commit()
+    return ok(None)
+
+
+# ---- 组织管理视图（docs/contracts/orgs.md 管理端：admin 全量只读浏览，免组织角色） ----
+
+
+@router.get("/orgs", response_model=ApiResponse[PaginatedResponse[OrgAdminSummary]])
+async def admin_list_orgs(
+    service: OrgServiceDep,
+    admin: User = _admin,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=64),
+    status: str | None = Query(default=None),
+) -> ApiResponse[PaginatedResponse[OrgAdminSummary]]:
+    """组织管理列表（admin 全量，含已解散）：成员数 / 团队数 / 创建操作人昵称 / 状态。"""
+    items, total = await service.admin_list(page, page_size, keyword, status)
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.get("/orgs/{org_id}", response_model=ApiResponse[OrgAdminDetail])
+async def admin_get_org(
+    org_id: uuid.UUID,
+    service: OrgServiceDep,
+    admin: User = _admin,
+) -> ApiResponse[OrgAdminDetail]:
+    """组织管理详情（免组织成员校验，含已解散）。"""
+    return ok(await service.admin_get_detail(org_id))
+
+
+@router.get("/orgs/{org_id}/members", response_model=ApiResponse[PaginatedResponse[OrgMemberOut]])
+async def admin_list_org_members(
+    org_id: uuid.UUID,
+    service: OrgServiceDep,
+    admin: User = _admin,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=64),
+    status: str | None = Query(default=None),
+) -> ApiResponse[PaginatedResponse[OrgMemberOut]]:
+    """组织成员列表（admin 管理视图；status 缺省 = 在册成员，keyword 模糊昵称）。"""
+    items, total = await service.admin_list_members(org_id, status, page, page_size, keyword)
+    return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.put("/teams/{team_id}/org", response_model=ApiResponse[None])
+async def admin_assign_team_org(
+    team_id: uuid.UUID,
+    body: OrgTeamAssign,
+    service: OrgServiceDep,
+    db: SessionDep,
+    admin: User = _admin,
+) -> ApiResponse[None]:
+    """存量团队指派组织（迁移用；组织必须 active）。"""
+    await service.admin_assign_team(team_id, body)
+    await db.commit()
+    return ok(None)

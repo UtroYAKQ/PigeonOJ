@@ -1,0 +1,28 @@
+export default {
+  codes: {
+    allLanguages: 'All languages',
+    mineOnly: 'My shares only',
+    share: 'Share code',
+    searchPlaceholder: 'Search title / description',
+    noExcerpt: '(No description)',
+    empty: 'No code shared yet — be the first to share',
+    mineEmpty: "You haven't shared any code",
+    deleteTitle: 'Remove share',
+    deleteConfirm:
+      'Remove this code share? It will be hidden from others; restoring requires an administrator.',
+    createTitle: 'Share code',
+    detailTitle: 'Code share detail',
+    backToList: 'Back to Plaza',
+    titleLabel: 'Title',
+    titlePlaceholder: 'Summarize what this code does in one line',
+    languageLabel: 'Language',
+    descriptionLabel: 'Description (optional)',
+    descriptionPlaceholder: 'Describe the idea, usage and caveats…',
+    codeLabel: 'Code',
+    publish: 'Publish',
+    titleRequired: 'Title is required',
+    codeRequired: 'Code content is required',
+    statusPublished: 'Published',
+    statusRemoved: 'Removed',
+  },
+}

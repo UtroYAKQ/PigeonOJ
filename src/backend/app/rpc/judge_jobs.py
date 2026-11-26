@@ -27,9 +27,12 @@ from app.enums import RuleType, SubmissionStatus, SubmitType
 from app.models.judge import SandboxConfig, Submission
 from app.models.problem import TestCase
 from app.repositories.judge import JudgeRepository
+from app.schemas.judge import CaseResultRow
 from app.services import problem as problems
-from app.services.contest import ContestService
 from app.services.problem import ProblemService
+
+# ContestService 延迟到使用点导入：judge_jobs 位于 contest → judge → gateway → jobs
+# 回路的末端，顶层导入会构成模块启动环（check_import_rules 允许，原因注明于此）
 
 from app.core.storage import get_storage
 
@@ -176,20 +179,8 @@ async def build_job_bundle(db, submission_id: uuid.UUID) -> JobBundle | None:
     if submission is None:
         return None
     # 原子认领：仅当仍为 pending 时置 judging，杜绝双执行方并发判同一题；
-    # 认领失败说明已被其他执行方处理，静默放弃。
-    # updated_at 刷新为认领时刻：judging 滞留判定（5 分钟判死）以此为基准
-    claimed = (
-        await db.execute(
-            update(Submission)
-            .where(Submission.id == submission_id, Submission.status == SubmissionStatus.PENDING)
-            .values(
-                status=SubmissionStatus.JUDGING,
-                error_message=None,
-                updated_at=datetime.now(timezone.utc),
-            )
-        )
-    ).rowcount
-    if not claimed:
+    # 认领失败说明已被其他执行方处理，静默放弃
+    if not await _claim_submission(db, submission_id, [SubmissionStatus.PENDING], clear_error=True):
         return None
     problem = await problems.get_problem(db, submission.problem_id)
     if problem is None:
@@ -242,6 +233,31 @@ async def build_job_bundle(db, submission_id: uuid.UUID) -> JobBundle | None:
     )
 
 
+async def _claim_submission(
+    db,
+    submission_id: uuid.UUID,
+    from_statuses: list[SubmissionStatus],
+    *,
+    clear_error: bool = False,
+) -> bool:
+    """原子认领：仅当提交仍处于 from_statuses 时置 judging（防双执行方并发判同一题）。
+
+    updated_at 刷新为认领时刻：judging 滞留判定（5 分钟判死）以此为基准；
+    clear_error=True 供正常认领入口顺带清空旧 error_message（收口路径不清）。
+    返回是否认领成功。"""
+    values: dict = {"status": SubmissionStatus.JUDGING, "updated_at": datetime.now(timezone.utc)}
+    if clear_error:
+        values["error_message"] = None
+    claimed = (
+        await db.execute(
+            update(Submission)
+            .where(Submission.id == submission_id, Submission.status.in_(from_statuses))
+            .values(**values)
+        )
+    ).rowcount
+    return bool(claimed)
+
+
 async def _finish_with_error(db, repository: JudgeRepository, submission: Submission, message: str) -> None:
     await repository.finish_submission(
         db, submission, status=SubmissionStatus.SYSTEM_ERROR, score=0, time_used_ms=0, memory_used_kb=None, error_message=message
@@ -251,45 +267,27 @@ async def _finish_with_error(db, repository: JudgeRepository, submission: Submis
     await db.commit()
 
 
-async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
-    """节点回传结果落库；返回是否成功应用（提交不存在/非 judging 返回 False）。"""
-    repository = JudgeRepository()
-    sid = uuid.UUID(outcome.submission_id)
-    submission = await db.get(Submission, sid)
-    if submission is None or submission.status != SubmissionStatus.JUDGING:
-        return False
+def _derive_scores(
+    cases: tuple[CaseOutcome, ...],
+    case_map: dict[uuid.UUID, object],
+    *,
+    acm: bool,
+    base: int,
+    extra: int,
+    case_count: int,
+) -> tuple[list[tuple[CaseOutcome, object, int]], int, int, int | None]:
+    """计分推导（纯函数，不做 IO / 不改库）：逐测试点推导分值并聚合总分 / 总耗时 / 峰值内存。
 
-    # 分数在服务端按赛制派生（docs/contracts/judge.md「赛制计分」）：
-    # - ACM（二值）：全部测试点通过 = 单题满分，否则 0；测试点不设分值。
-    #   短路执行（stop_on_failure）下节点仅回传已执行测试点，无部分分可泄露。
-    # - IOI / 练习 / 验题（部分计分）：测试点分值一致，单点 = 满分 ÷ 测试点数，
-    #   仅通过计分；比赛提交的单题满分基准经比赛上下文端口获取（不直查 ContestProblem）。
-    # 节点可能回传少于全部测试点的结果（ACM 短路），未执行测试点不落结果行。
-    contest_service = ContestService(db)
-    problem_service = ProblemService(db)
-    cases = outcome.cases
-    case_count = len(cases)
-    full = _FULL_SCORE
-    if submission.submit_type == SubmitType.CONTEST and submission.contest_id is not None:
-        full = (
-            await contest_service.full_score_for(submission.contest_id, submission.problem_id)
-            or _FULL_SCORE
-        )
-    acm = submission.rule_type == RuleType.ACM
-    base, extra = divmod(full, case_count) if case_count else (0, 0)
-
-    # 批量取回本次涉及测试点（单次 IN 查询替代逐点单查的 N+1）
-    case_ids = [uuid.UUID(c.test_case_id) for c in cases]
-    case_map: dict[uuid.UUID, object] = {}
-    if case_ids:
-        for row in (await db.execute(select(TestCase).where(TestCase.id.in_(case_ids)))).scalars():
-            case_map[row.id] = row
-
+    返回 (scored, total_score, max_time, max_memory)：
+    - scored = [(回传测试点, 对应 TestCase 行, 单点分值)]；未知 / 重复 test_case_id 跳过，
+      节点可能回传少于全部测试点的结果（ACM 短路），未执行测试点不落结果行。
+    - 单点分值（docs/contracts/judge.md「赛制计分」）：ACM 恒 0（总分收口时按整体结果
+      给满/零，见 apply_job_result）；部分计分单点 = base + 前 extra 点补偿，仅通过计分。
+    """
+    scored: list[tuple[CaseOutcome, object, int]] = []
     total_score = 0
     max_time = 0
     max_memory: int | None = None
-    result_rows: list[dict] = []
-    pending_uploads: list[tuple[str, bytes]] = []
     seen_case_ids: set[uuid.UUID] = set()
     for index, case in enumerate(cases):
         cid = uuid.UUID(case.test_case_id)
@@ -303,23 +301,49 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
         else:
             score = base + (1 if index < extra else 0) if accepted and case_count else 0
             total_score += score
+        scored.append((case, test_case, score))
         max_time = max(max_time, case.time_used_ms)
         if case.memory_used_kb:
             max_memory = max(max_memory or 0, case.memory_used_kb)
-        output_key = f"submissions/{sid}/cases/{test_case.id}/output"
+    return scored, total_score, max_time, max_memory
+
+
+async def _persist_result(
+    db,
+    repository: JudgeRepository,
+    submission: Submission,
+    outcome: JudgeOutcome,
+    scored: list[tuple[CaseOutcome, object, int]],
+    *,
+    total_score: int,
+    max_time: int,
+    max_memory: int | None,
+    storage,
+) -> None:
+    """持久化与副作用：结果输出并行上传 MinIO → 结果行批量 upsert → 提交收口落库
+    → 终态回写（题目 / 比赛双上下文，同事务内顺序执行，任一失败整体回滚）→ 提交
+    → 榜单缓存失效。"""
+    from app.services.contest import ContestService  # 局部导入：打破 services 启动环（见文件头注释）
+
+    contest_service = ContestService(db)
+    problem_service = ProblemService(db)
+    result_rows: list[CaseResultRow] = []
+    pending_uploads: list[tuple[str, bytes]] = []
+    for case, test_case, score in scored:
+        output_key = f"submissions/{submission.id}/cases/{test_case.id}/output"
         pending_uploads.append((output_key, case.output or b""))
         # SPJ 判定信息（特判程序 stdout ≤2KB；非 SPJ 提交为空）
         message = (case.message or b"").decode("utf-8", errors="replace")[:2000].strip() or None
-        result_rows.append({
-            "submission_id": sid,
-            "test_case_id": test_case.id,
-            "status": case.status,
-            "time_used_ms": case.time_used_ms,
-            "memory_used_kb": case.memory_used_kb,
-            "score": score,
-            "output": output_key,
-            "message": message,
-        })
+        result_rows.append(CaseResultRow(
+            submission_id=submission.id,
+            test_case_id=test_case.id,
+            status=case.status,
+            time_used_ms=case.time_used_ms,
+            memory_used_kb=case.memory_used_kb,
+            score=score,
+            output=output_key,
+            message=message,
+        ))
     # 测试点运行输出并行上传 MinIO（限并发，避免逐点串行往返）
     if pending_uploads:
         semaphore = asyncio.Semaphore(_CASE_IO_CONCURRENCY)
@@ -330,9 +354,7 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
 
         await asyncio.gather(*(_put(key, data) for key, data in pending_uploads))
     # 结果行单次批量 upsert（替代逐点 SELECT + INSERT/UPDATE + flush）
-    await repository.write_case_results(db, sid, result_rows)
-    if acm:
-        total_score = full if outcome.status == SubmissionStatus.ACCEPTED else 0
+    await repository.write_case_results(db, result_rows)
     await repository.finish_submission(
         db, submission,
         status=outcome.status or SubmissionStatus.SYSTEM_ERROR,
@@ -351,6 +373,57 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
     #    之间回填旧榜单；结束后为永久缓存，必须补删保证最终一致
     if submission.submit_type == SubmitType.CONTEST and submission.contest_id is not None:
         await contest_service.invalidate_board_cache(submission.contest_id)
+
+
+async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
+    """节点回传结果落库；返回是否成功应用（提交不存在/非 judging 返回 False）。
+
+    编排：赛制满分基准 → 计分推导（纯函数 _derive_scores）→ 持久化与副作用
+    （_persist_result，含 MinIO 上传 / 落库 / 双上下文回调 / 缓存失效）。
+    """
+    repository = JudgeRepository()
+    sid = uuid.UUID(outcome.submission_id)
+    submission = await db.get(Submission, sid)
+    if submission is None or submission.status != SubmissionStatus.JUDGING:
+        return False
+
+    # 分数在服务端按赛制派生（docs/contracts/judge.md「赛制计分」）：
+    # - ACM（二值）：全部测试点通过 = 单题满分，否则 0；测试点不设分值。
+    #   短路执行（stop_on_failure）下节点仅回传已执行测试点，无部分分可泄露。
+    # - IOI / 练习 / 验题（部分计分）：测试点分值一致，单点 = 满分 ÷ 测试点数，
+    #   仅通过计分；比赛提交的单题满分基准经比赛上下文端口获取（不直查 ContestProblem）。
+    from app.services.contest import ContestService  # 局部导入：打破 services 启动环（见文件头注释）
+
+    contest_service = ContestService(db)
+    cases = outcome.cases
+    case_count = len(cases)
+    full = _FULL_SCORE
+    if submission.submit_type == SubmitType.CONTEST and submission.contest_id is not None:
+        full = (
+            await contest_service.full_score_for(submission.contest_id, submission.problem_id)
+            or _FULL_SCORE
+        )
+    acm = submission.rule_type == RuleType.ACM
+    base, extra = divmod(full, case_count) if case_count else (0, 0)
+
+    # 批量取回本次涉及测试点（单次 IN 查询替代逐点单查的 N+1）
+    case_ids = [uuid.UUID(c.test_case_id) for c in cases]
+    case_map: dict[uuid.UUID, object] = {}
+    if case_ids:
+        for row in (await db.execute(select(TestCase).where(TestCase.id.in_(case_ids)))).scalars():
+            case_map[row.id] = row
+
+    scored, total_score, max_time, max_memory = _derive_scores(
+        cases, case_map, acm=acm, base=base, extra=extra, case_count=case_count,
+    )
+    # ACM 总分二值收口：全部通过给满分，否则 0（与节点是否短路无关）
+    if acm:
+        total_score = full if outcome.status == SubmissionStatus.ACCEPTED else 0
+
+    await _persist_result(
+        db, repository, submission, outcome, scored,
+        total_score=total_score, max_time=max_time, max_memory=max_memory, storage=storage,
+    )
     return True
 
 
@@ -453,14 +526,7 @@ async def fail_no_spj_node(submission_id: uuid.UUID) -> None:
     """无支持 SPJ 的在线节点：原子认领后落 system_error（防旧节点静默误判，
     docs/contracts/judge.md「SPJ 特判」；幂等，重复调用安全）。"""
     async with SessionLocal() as db:
-        claimed = (
-            await db.execute(
-                update(Submission)
-                .where(Submission.id == submission_id, Submission.status == SubmissionStatus.PENDING)
-                .values(status=SubmissionStatus.JUDGING, updated_at=datetime.now(timezone.utc))
-            )
-        ).rowcount
-        if not claimed:
+        if not await _claim_submission(db, submission_id, [SubmissionStatus.PENDING]):
             return
         submission = await db.get(Submission, submission_id)
         await _finish_with_error(
@@ -471,17 +537,9 @@ async def fail_no_spj_node(submission_id: uuid.UUID) -> None:
 async def fail_retry_exhausted(submission_id: uuid.UUID) -> None:
     """重派超过阈值：judging/pending 收口为 system_error（契约「超过阈值转 system_error」）。"""
     async with SessionLocal() as db:
-        claimed = (
-            await db.execute(
-                update(Submission)
-                .where(
-                    Submission.id == submission_id,
-                    Submission.status.in_([SubmissionStatus.PENDING, SubmissionStatus.JUDGING]),
-                )
-                .values(status=SubmissionStatus.JUDGING, updated_at=datetime.now(timezone.utc))
-            )
-        ).rowcount
-        if not claimed:
+        if not await _claim_submission(
+            db, submission_id, [SubmissionStatus.PENDING, SubmissionStatus.JUDGING]
+        ):
             return
         submission = await db.get(Submission, submission_id)
         await _finish_with_error(db, JudgeRepository(), submission, "judge retry exhausted")

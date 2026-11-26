@@ -24,6 +24,13 @@ class ConfigRepository:
     async def get_by_id(self, config_id: Any) -> SystemConfig | None:
         return await self.db.get(SystemConfig, config_id)
 
+    async def get_by_ids(self, config_ids: list[Any]) -> list[SystemConfig]:
+        """按 id 批量取配置行（update_configs 批量选择，避免逐条 SELECT）。"""
+        if not config_ids:
+            return []
+        stmt = select(SystemConfig).where(SystemConfig.id.in_(config_ids))
+        return list((await self.db.execute(stmt)).scalars().all())
+
     async def list_by_category(self, category: str | None) -> list[SystemConfig]:
         stmt = select(SystemConfig)
         if category:

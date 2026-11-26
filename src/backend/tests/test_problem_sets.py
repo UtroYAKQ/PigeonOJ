@@ -17,8 +17,6 @@ from app.models.user import User, UserRole
 
 from .conftest import api_login, register_user
 
-TUTOR_ROLE_ID = uuid_mod.UUID("22222222-2222-2222-2222-222222222222")
-
 
 async def _seed_problem(
     title: str, *, status: str = "published", visibility: str = "public",
@@ -42,30 +40,24 @@ async def _seed_problem(
         return str(problem.id)
 
 
-async def _tutor_headers(client: httpx.AsyncClient) -> dict[str, str]:
-    """注册一个 tutor 账号并返回认证头（题单管理角色正向用例）。"""
-    email = "tutor@pigeonoj.dev"
-    await register_user(client, email)
-    async with SessionLocal() as db:
-        user = (await db.execute(select(User).where(User.email == email))).scalar_one()
-        db.add(UserRole(user_id=user.id, role_id=TUTOR_ROLE_ID, scope="global", object_id=None))
-        await db.commit()
-    token = await api_login(client, email, "Pass@123")
+async def _manager_headers(client: httpx.AsyncClient) -> dict[str, str]:
+    """全站题单管理角色请求头（tutor 已下线，公开题单创建 / 管理收敛为 admin）。"""
+    token = await api_login(client, "admin@pigeonoj.dev", "Admin@123")
     return {"Authorization": f"Bearer {token}"}
 
 
 async def test_create_requires_manager_role(client: httpx.AsyncClient, user_headers) -> None:
-    """普通用户创建题单 → 2003；tutor 创建 → 0。"""
+    """普通用户创建题单 → 2003；admin 创建 → 0（tutor 已下线）。"""
     resp = await client.post(
         "/api/v1/problem-sets", json={"title": "我的题单"}, headers=user_headers
     )
     assert resp.json()["code"] == 2003, resp.text
 
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     resp = await client.post(
         "/api/v1/problem-sets",
         json={"title": "入门 100 题", "description": "新手向", "visibility": "public"},
-        headers=tutor,
+        headers=manager,
     )
     body = resp.json()
     assert body["code"] == 0, resp.text
@@ -77,21 +69,21 @@ async def test_create_requires_manager_role(client: httpx.AsyncClient, user_head
         resp = await client.post(
             "/api/v1/problem-sets",
             json={"title": "团队题单", "visibility": visibility},
-            headers=tutor,
+            headers=manager,
         )
         assert resp.json()["code"] == 1001
 
 
 async def test_center_lists_public_active_only(client: httpx.AsyncClient) -> None:
     """题单中心：仅公开且未下线；私有题单不出现；下线后消失。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     pub = (
         await client.post(
-            "/api/v1/problem-sets", json={"title": "公开题单A"}, headers=tutor
+            "/api/v1/problem-sets", json={"title": "公开题单A"}, headers=manager
         )
     ).json()["data"]["id"]
     await client.post(
-        "/api/v1/problem-sets", json={"title": "私有题单B", "visibility": "private"}, headers=tutor
+        "/api/v1/problem-sets", json={"title": "私有题单B", "visibility": "private"}, headers=manager
     )
 
     resp = await client.get("/api/v1/problem-sets")
@@ -99,7 +91,7 @@ async def test_center_lists_public_active_only(client: httpx.AsyncClient) -> Non
     assert [it["id"] for it in items] == [pub]
 
     # 下线公开题单 → 中心不再展示
-    resp = await client.post(f"/api/v1/problem-sets/{pub}/archive", headers=tutor)
+    resp = await client.post(f"/api/v1/problem-sets/{pub}/archive", headers=manager)
     assert resp.json()["code"] == 0
     resp = await client.get("/api/v1/problem-sets")
     assert resp.json()["data"]["items"] == []
@@ -107,13 +99,13 @@ async def test_center_lists_public_active_only(client: httpx.AsyncClient) -> Non
 
 async def test_detail_visibility(client: httpx.AsyncClient, user_headers) -> None:
     """公开题单匿名可看；私有题单仅创建者 / 管理角色可见（2003）。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     pub = (
-        await client.post("/api/v1/problem-sets", json={"title": "公开C"}, headers=tutor)
+        await client.post("/api/v1/problem-sets", json={"title": "公开C"}, headers=manager)
     ).json()["data"]["id"]
     priv = (
         await client.post(
-            "/api/v1/problem-sets", json={"title": "私有D", "visibility": "private"}, headers=tutor
+            "/api/v1/problem-sets", json={"title": "私有D", "visibility": "private"}, headers=manager
         )
     ).json()["data"]["id"]
 
@@ -128,7 +120,7 @@ async def test_detail_visibility(client: httpx.AsyncClient, user_headers) -> Non
     assert resp.json()["code"] == 2003
 
     # 创建者可见
-    resp = await client.get(f"/api/v1/problem-sets/{priv}", headers=tutor)
+    resp = await client.get(f"/api/v1/problem-sets/{priv}", headers=manager)
     assert resp.json()["code"] == 0
     assert resp.json()["data"]["can_manage"] is True
 
@@ -141,9 +133,9 @@ async def test_detail_items_limits_and_solve_status(
     client: httpx.AsyncClient, user_headers
 ) -> None:
     """题单详情条目带题目限制与登录用户作答状态（三态）；匿名 solved 恒 null。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     sid = (
-        await client.post("/api/v1/problem-sets", json={"title": "限制与状态"}, headers=tutor)
+        await client.post("/api/v1/problem-sets", json={"title": "限制与状态"}, headers=manager)
     ).json()["data"]["id"]
     p1 = await _seed_problem("状态一")
     p2 = await _seed_problem("状态二")
@@ -151,7 +143,7 @@ async def test_detail_items_limits_and_solve_status(
     await client.put(
         f"/api/v1/problem-sets/{sid}/items",
         json={"items": [{"problem_id": p1}, {"problem_id": p2}, {"problem_id": p3}]},
-        headers=tutor,
+        headers=manager,
     )
 
     # 用户 p1 AC、p2 仅 WA、p3 未提交
@@ -186,21 +178,21 @@ async def test_detail_items_limits_and_solve_status(
 
 async def test_center_mine_shows_own_private(client: httpx.AsyncClient) -> None:
     """题单中心 mine=true：仅本人未下线题单（含私有）；匿名 401；默认列表仍仅公开。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     priv = (
         await client.post(
             "/api/v1/problem-sets",
             json={"title": "我的私有题单", "visibility": "private"},
-            headers=tutor,
+            headers=manager,
         )
     ).json()["data"]["id"]
 
     # 创建者：mine=true 可见私有题单
-    resp = await client.get("/api/v1/problem-sets?mine=true", headers=tutor)
+    resp = await client.get("/api/v1/problem-sets?mine=true", headers=manager)
     assert [i["id"] for i in resp.json()["data"]["items"]] == [priv]
 
     # 默认中心列表：私有题单不出现
-    resp = await client.get("/api/v1/problem-sets", headers=tutor)
+    resp = await client.get("/api/v1/problem-sets", headers=manager)
     assert resp.json()["data"]["items"] == []
 
     # 匿名：mine=true → 401
@@ -213,25 +205,25 @@ async def test_private_problem_context_access_control(
 ) -> None:
     """私有已发布题访问矩阵：创建者经题单上下文可看可交；他人题单内可看可交
     （创建者编入即视为经题单分发）；题库裸路径一律 403（直访 / 直提 / 提交列表 / 自测）。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     pid = await _seed_problem(
-        "上下文私有题", visibility="private", owner_email="tutor@pigeonoj.dev"
+        "上下文私有题", visibility="private", owner_email="admin@pigeonoj.dev"
     )
 
     sid = (
-        await client.post("/api/v1/problem-sets", json={"title": "上下文公开题单"}, headers=tutor)
+        await client.post("/api/v1/problem-sets", json={"title": "上下文公开题单"}, headers=manager)
     ).json()["data"]["id"]
     resp = await client.put(
-        f"/api/v1/problem-sets/{sid}/items", json={"items": [{"problem_id": pid}]}, headers=tutor
+        f"/api/v1/problem-sets/{sid}/items", json={"items": [{"problem_id": pid}]}, headers=manager
     )
     assert resp.json()["code"] == 0, resp.text  # 创建者可把自己的私有题编入题单
 
-    # ---- 创建者（tutor）：题库裸路径放行 ----
-    assert (await client.get(f"/api/v1/problems/{pid}", headers=tutor)).json()["code"] == 0
+    # ---- 创建者（admin）：题库裸路径放行 ----
+    assert (await client.get(f"/api/v1/problems/{pid}", headers=manager)).json()["code"] == 0
     r = await client.post(
         "/api/v1/submissions",
         json={"problem_id": pid, "language": "cpp17", "code": "int main(){}"},
-        headers=tutor,
+        headers=manager,
     )
     assert r.json()["code"] == 0
 
@@ -269,16 +261,16 @@ async def test_private_problem_context_access_control(
     resp = await client.put(
         f"/api/v1/problem-sets/{sid}/items",
         json={"items": [{"problem_id": pid}, {"problem_id": draft}]},
-        headers=tutor,
+        headers=manager,
     )
     assert resp.json()["code"] == 1001
 
 
 async def test_replace_items_validation_and_ordering(client: httpx.AsyncClient) -> None:
     """编排题目：已发布公开题方可加入；同题单内重复 → 3003；按 sort_order 展示。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     sid = (
-        await client.post("/api/v1/problem-sets", json={"title": "编排题单"}, headers=tutor)
+        await client.post("/api/v1/problem-sets", json={"title": "编排题单"}, headers=manager)
     ).json()["data"]["id"]
     p1 = await _seed_problem("题目一")
     p2 = await _seed_problem("题目二")
@@ -286,14 +278,14 @@ async def test_replace_items_validation_and_ordering(client: httpx.AsyncClient) 
     private = await _seed_problem("私有题", visibility="private")
 
     url = f"/api/v1/problem-sets/{sid}/items"
-    # 草稿 / 私有题目不可加入 → 1001
-    resp = await client.put(url, json={"items": [{"problem_id": draft}]}, headers=tutor)
+    # 草稿不可加入 → 1001；admin 本人私有题可加入（admin 同权，docs/contracts/problem-sets.md）
+    resp = await client.put(url, json={"items": [{"problem_id": draft}]}, headers=manager)
     assert resp.json()["code"] == 1001
-    resp = await client.put(url, json={"items": [{"problem_id": private}]}, headers=tutor)
-    assert resp.json()["code"] == 1001
+    resp = await client.put(url, json={"items": [{"problem_id": private}]}, headers=manager)
+    assert resp.json()["code"] == 0, resp.text
     # 同题单内重复 → 3003
     resp = await client.put(
-        url, json={"items": [{"problem_id": p1}, {"problem_id": p1, "sort_order": 1}]}, headers=tutor
+        url, json={"items": [{"problem_id": p1}, {"problem_id": p1, "sort_order": 1}]}, headers=manager
     )
     assert resp.json()["code"] == 3003
 
@@ -301,7 +293,7 @@ async def test_replace_items_validation_and_ordering(client: httpx.AsyncClient) 
     resp = await client.put(
         url,
         json={"items": [{"problem_id": p2, "sort_order": 1}, {"problem_id": p1, "sort_order": 0}]},
-        headers=tutor,
+        headers=manager,
     )
     assert resp.json()["code"] == 0, resp.text
 
@@ -310,7 +302,7 @@ async def test_replace_items_validation_and_ordering(client: httpx.AsyncClient) 
     assert detail["item_count"] == 2
 
     # 全量替换：再次提交仅含 p2 → p1 被移除
-    resp = await client.put(url, json={"items": [{"problem_id": p2, "sort_order": 0}]}, headers=tutor)
+    resp = await client.put(url, json={"items": [{"problem_id": p2, "sort_order": 0}]}, headers=manager)
     assert resp.json()["code"] == 0
     detail = (await client.get(f"/api/v1/problem-sets/{sid}")).json()["data"]
     assert [it["problem_id"] for it in detail["items"]] == [p2]
@@ -318,15 +310,15 @@ async def test_replace_items_validation_and_ordering(client: httpx.AsyncClient) 
 
 async def test_archived_set_access_control(client: httpx.AsyncClient, user_headers) -> None:
     """下线题单：中心不可见；创建者 / 管理角色可直接查看；普通用户 → 2003。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     sid = (
-        await client.post("/api/v1/problem-sets", json={"title": "下线题单"}, headers=tutor)
+        await client.post("/api/v1/problem-sets", json={"title": "下线题单"}, headers=manager)
     ).json()["data"]["id"]
-    await client.post(f"/api/v1/problem-sets/{sid}/archive", headers=tutor)
+    await client.post(f"/api/v1/problem-sets/{sid}/archive", headers=manager)
 
     resp = await client.get(f"/api/v1/problem-sets/{sid}", headers=user_headers)
     assert resp.json()["code"] == 2003
-    resp = await client.get(f"/api/v1/problem-sets/{sid}", headers=tutor)
+    resp = await client.get(f"/api/v1/problem-sets/{sid}", headers=manager)
     assert resp.json()["code"] == 0
     assert resp.json()["data"]["status"] == "archived"
 
@@ -337,83 +329,62 @@ async def test_archived_set_access_control(client: httpx.AsyncClient, user_heade
 
 async def test_update_set_meta(client: httpx.AsyncClient) -> None:
     """编辑题单元信息：title / visibility 缺省不动，传即改。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     sid = (
-        await client.post("/api/v1/problem-sets", json={"title": "原标题"}, headers=tutor)
+        await client.post("/api/v1/problem-sets", json={"title": "原标题"}, headers=manager)
     ).json()["data"]["id"]
     resp = await client.put(
         f"/api/v1/problem-sets/{sid}",
         json={"title": "新标题", "visibility": "private"},
-        headers=tutor,
+        headers=manager,
     )
     assert resp.json()["code"] == 0, resp.text
-    detail = (await client.get(f"/api/v1/problem-sets/{sid}", headers=tutor)).json()["data"]
+    detail = (await client.get(f"/api/v1/problem-sets/{sid}", headers=manager)).json()["data"]
     assert detail["title"] == "新标题"
     assert detail["visibility"] == "private"
 
 
 async def test_admin_manage_list(client: httpx.AsyncClient, user_headers) -> None:
-    """/admin/problem-sets 管理视图：admin 全量（含私有、已下线）；tutor 仅本人创建；普通用户 2003。"""
-    tutor = await _tutor_headers(client)
+    """/admin/problem-sets 管理视图：admin 全量（含私有、已下线）；普通用户 2003；
+    来源过滤 solo / team（tutor 已下线，全站题单管理角色 = admin 单一身份）。"""
+    manager = await _manager_headers(client)
     pub = (
-        await client.post("/api/v1/problem-sets", json={"title": "管理公开"}, headers=tutor)
+        await client.post("/api/v1/problem-sets", json={"title": "管理公开"}, headers=manager)
     ).json()["data"]["id"]
     await client.post(
-        "/api/v1/problem-sets", json={"title": "管理私有", "visibility": "private"}, headers=tutor
+        "/api/v1/problem-sets", json={"title": "管理私有", "visibility": "private"}, headers=manager
     )
-    await client.post(f"/api/v1/problem-sets/{pub}/archive", headers=tutor)
+    await client.post(f"/api/v1/problem-sets/{pub}/archive", headers=manager)
 
     # 普通用户 → 2003
     resp = await client.get("/api/v1/admin/problem-sets", headers=user_headers)
     assert resp.json()["code"] == 2003
 
-    # tutor：全量（含私有 + 已下线）
-    resp = await client.get("/api/v1/admin/problem-sets", headers=tutor)
+    # admin：全量（含私有 + 已下线）
+    resp = await client.get("/api/v1/admin/problem-sets", headers=manager)
     assert resp.json()["code"] == 0, resp.text
     titles = {it["title"] for it in resp.json()["data"]["items"]}
     assert {"管理公开", "管理私有"} <= titles
 
     # 状态过滤：archived 仅含已下线
     resp = await client.get(
-        "/api/v1/admin/problem-sets?status=archived", headers=tutor
+        "/api/v1/admin/problem-sets?status=archived", headers=manager
     )
     items = resp.json()["data"]["items"]
     assert items and all(it["status"] == "archived" for it in items)
 
-    # 单一所有权模型：admin 创建的私有题单对 tutor 不可见、不可编辑
-    admin_token = await api_login(client, "admin@pigeonoj.dev", "Admin@123")
-    admin_headers = {"Authorization": f"Bearer {admin_token}"}
-    admin_set = (
-        await client.post(
-            "/api/v1/problem-sets",
-            json={"title": "管理员私有题单", "visibility": "private"},
-            headers=admin_headers,
-        )
-    ).json()["data"]["id"]
-    resp = await client.get("/api/v1/admin/problem-sets", headers=tutor)
+    # 管理视图总数（admin 创建的 2 个全站题单）
+    resp = await client.get("/api/v1/admin/problem-sets", headers=manager)
     assert resp.json()["code"] == 0
-    titles = {it["title"] for it in resp.json()["data"]["items"]}
-    assert "管理员私有题单" not in titles
-    resp = await client.put(
-        f"/api/v1/problem-sets/{admin_set}", json={"title": "越权改名"}, headers=tutor
-    )
-    assert resp.json()["code"] == 2003
+    assert resp.json()["data"]["total"] == 2
 
-    # admin 全量（tutor 的 2 个 + admin 的 1 个）
+    # 来源过滤：solo=全站题单（2 个均 solo，列表项带 team_id=null）/ team=团队题单
     resp = await client.get(
-        "/api/v1/admin/problem-sets", headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    assert resp.json()["code"] == 0
-    assert resp.json()["data"]["total"] == 3
-
-    # 来源过滤：solo=全站题单（3 个均 solo，列表项带 team_id=null）/ team=团队题单
-    resp = await client.get(
-        "/api/v1/admin/problem-sets?ownership=solo",
-        headers={"Authorization": f"Bearer {admin_token}"},
+        "/api/v1/admin/problem-sets?ownership=solo", headers=manager
     )
     assert resp.json()["code"] == 0
     items = resp.json()["data"]["items"]
-    assert resp.json()["data"]["total"] == 3
+    assert resp.json()["data"]["total"] == 2
     assert all(it["team_id"] is None for it in items)
 
     # 团队题单（team_id 非空）出现在管理视图且可按 ownership=team 过滤
@@ -425,16 +396,16 @@ async def test_admin_manage_list(client: httpx.AsyncClient, user_headers) -> Non
     from app.models.user import User as UserModel
 
     async with SessionLocal() as db:
-        tutor_uid = (
-            await db.execute(sa_select(UserModel).where(UserModel.email == "tutor@pigeonoj.dev"))
+        admin_uid = (
+            await db.execute(sa_select(UserModel).where(UserModel.email == "admin@pigeonoj.dev"))
         ).scalar_one().id
-        team = TeamModel(name="管理来源队", creator_id=tutor_uid)
+        team = TeamModel(name="管理来源队", creator_id=admin_uid)
         db.add(team)
         await db.flush()
         db.add(
             ProblemSetModel(
                 title="管理团队题单",
-                owner_id=tutor_uid,
+                owner_id=admin_uid,
                 team_id=team.id,
                 visibility="team_visible",
                 status="active",
@@ -442,7 +413,7 @@ async def test_admin_manage_list(client: httpx.AsyncClient, user_headers) -> Non
         )
         await db.commit()
     resp = await client.get(
-        "/api/v1/admin/problem-sets?ownership=team", headers=admin_headers
+        "/api/v1/admin/problem-sets?ownership=team", headers=manager
     )
     assert resp.json()["code"] == 0, resp.text
     items = resp.json()["data"]["items"]
@@ -453,23 +424,23 @@ async def test_admin_manage_list(client: httpx.AsyncClient, user_headers) -> Non
 
     # 非法 ownership → 1001
     resp = await client.get(
-        "/api/v1/admin/problem-sets?ownership=bogus", headers=admin_headers
+        "/api/v1/admin/problem-sets?ownership=bogus", headers=manager
     )
     assert resp.json()["code"] == 1001
 
 
 async def test_set_submission(client: httpx.AsyncClient, user_headers) -> None:
     """题单内交题：题单可见 + 题目属于该题单才可提交；落库走统一判题链路。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     sid = (
-        await client.post("/api/v1/problem-sets", json={"title": "交题题单"}, headers=tutor)
+        await client.post("/api/v1/problem-sets", json={"title": "交题题单"}, headers=manager)
     ).json()["data"]["id"]
     p1 = await _seed_problem("题单内题目")
     p_outside = await _seed_problem("题单外题目")
     await client.put(
         f"/api/v1/problem-sets/{sid}/items",
         json={"items": [{"problem_id": p1, "sort_order": 0}]},
-        headers=tutor,
+        headers=manager,
     )
 
     url = f"/api/v1/problem-sets/{sid}/problems/{p1}/submissions"
@@ -491,13 +462,13 @@ async def test_set_submission(client: httpx.AsyncClient, user_headers) -> None:
     priv = (
         await client.post(
             "/api/v1/problem-sets", json={"title": "私有交题", "visibility": "private"},
-            headers=tutor,
+            headers=manager,
         )
     ).json()["data"]["id"]
     await client.put(
         f"/api/v1/problem-sets/{priv}/items",
         json={"items": [{"problem_id": p1, "sort_order": 0}]},
-        headers=tutor,
+        headers=manager,
     )
     resp = await client.post(
         f"/api/v1/problem-sets/{priv}/problems/{p1}/submissions",
@@ -514,16 +485,16 @@ async def test_set_submission(client: httpx.AsyncClient, user_headers) -> None:
 
 async def test_set_problem_detail(client: httpx.AsyncClient, user_headers) -> None:
     """题单内题目详情（统一入口）：归属校验后返回与题库一致的详情装配。"""
-    tutor = await _tutor_headers(client)
+    manager = await _manager_headers(client)
     sid = (
-        await client.post("/api/v1/problem-sets", json={"title": "详情题单"}, headers=tutor)
+        await client.post("/api/v1/problem-sets", json={"title": "详情题单"}, headers=manager)
     ).json()["data"]["id"]
     p1 = await _seed_problem("题单内详情题目")
     p_outside = await _seed_problem("题单外详情题目")
     await client.put(
         f"/api/v1/problem-sets/{sid}/items",
         json={"items": [{"problem_id": p1, "sort_order": 0}]},
-        headers=tutor,
+        headers=manager,
     )
 
     url = f"/api/v1/problem-sets/{sid}/problems/{p1}"
@@ -545,7 +516,7 @@ async def test_set_problem_detail(client: httpx.AsyncClient, user_headers) -> No
     priv = (
         await client.post(
             "/api/v1/problem-sets", json={"title": "私有详情", "visibility": "private"},
-            headers=tutor,
+            headers=manager,
         )
     ).json()["data"]["id"]
     resp = await client.get(f"/api/v1/problem-sets/{priv}/problems/{p1}")

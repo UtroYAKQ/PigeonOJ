@@ -4,14 +4,8 @@
 
 export type UserStatus = 'active' | 'frozen' | 'banned' | 'deleted'
 
-/** 全局角色 code（docs/security.md） */
-export type GlobalRoleCode = 'admin' | 'tutor' | 'user'
-
-export interface RoleInfo {
-  code: GlobalRoleCode
-  name: string
-  description: string
-}
+/** 全局角色 code（docs/security.md；tutor 已随组织化改造下线） */
+export type GlobalRoleCode = 'admin' | 'user'
 
 export interface User {
   id: string
@@ -21,6 +15,9 @@ export interface User {
   avatar_url: string | null
   signature: string | null
   theme: string // 'light' | 'dark'
+  /** 编辑器偏好（Monaco 字号 / 字体，docs/contracts/users.md） */
+  editor_font_size: number
+  editor_font_family: string
   status: UserStatus
   /** 冻结到期时刻（frozen 状态专用；null = 无限期 / 非冻结） */
   frozen_until?: string | null
@@ -59,4 +56,6 @@ export interface ProfilePatch {
   signature?: string | null
   avatar_url?: string | null
   theme?: 'light' | 'dark'
+  editor_font_size?: number
+  editor_font_family?: string
 }

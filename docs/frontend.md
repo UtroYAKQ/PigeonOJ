@@ -1,135 +1,174 @@
 # 前端设计规范
 
-> 前端设计系统、布局、组件、i18n 与质量门禁约定。修改 `src/frontend/` 前必读；API、数据模型、权限仍须遵循 `docs/architecture.md` 与 `docs/contracts/`。
+> 前端设计系统、布局、组件、i18n 与质量门禁约定。修改 `src/frontend-next/` 前必读；API、数据模型、权限仍须遵循 `docs/architecture.md` 与 `docs/contracts/`。
+> `src/frontend/` 为旧版（naive-ui）实现，仅作迁移参考；行为、路由与 API 契约以本文件与新工程为准。
 
 ## 技术栈
 
-Vue 3 · Vue Router · Pinia · Naive UI · Tailwind CSS v4（原子类辅助布局）· vue-i18n · Monaco Editor。图标源 `@element-plus/icons-vue`（独立 SVG 组件，在 `n-icon` 中渲染），`meta.icon` 名称见 `layout/icon.ts`。未经决策记录不得替换或新增同类框架。
+Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwind CSS v4 · vue-i18n · Monaco Editor · vue-sonner（Toast）· lucide 图标（`@lucide/vue`）。未经决策记录不得替换或新增同类框架。
 
 ## 设计系统
 
 ### 色板与令牌
 
-- 主色橙 `#F4511E`（pressed `#D84315`）；info `#2080F0` / success `#18A058` / warning `#F0A020` / error `#D03050`；圆角 3px
-- Naive UI 主题经 `settings/theme.ts` 的 `themeOverrides` 注入，**不使用** CSS 变量映射组件库主题
-- 布局层 CSS 变量唯一来源：`assets/main.css` 的 `:root` + `html.dark`（`--app-primary / --app-content-bg / --app-card-bg / --app-chrome-bg / --app-border / --app-text / --app-text-secondary / --app-muted-bg`，及语义色 `--app-info / success / warning / error`）；组件只允许引用令牌，禁止硬编码色值
-- 暗色模式：`html.dark` class 驱动（Tailwind `dark:` 变体、Monaco 主题同步），持久化 localStorage，登录后跟随用户偏好（stores/app + stores/user）
-
-> 参考 [vue-fastapi-admin](https://github.com/mizhexiaoxiao/vue-fastapi-admin)。
+- 中性 shadcn 基调：浅色 `#ffffff / #0d0d0d`，深色 `#212121 / #ececec`；1px `--border` 描边、无投影
+- 品牌橙 `--brand`（浅色 `#d9480f` / 深色 `#f08a5d`）只用于强调：链接 hover、选中态点缀、Markdown 链接；主按钮为近黑中性色；Logo 保持透明底、原色显示，不加品牌色块或描边遮盖
+- 语义色：success 绿 / warning 琥珀 / info 蓝 / destructive 红，经 `components/common/tone.ts` 统一映射，由 `StatusTag`、`ToneBadge` 消费；禁止页面各自硬编码
+- 令牌唯一来源：`src/frontend-next/src/assets/main.css` 的 `:root` 与 `.dark`（含 shadcn token）；组件只允许引用 token，禁止硬编码色值，也不再保留 `--app-*` 旧别名
+- 字体：Geist + Noto Sans SC（正文/标题）、Geist Mono + JetBrains Mono（代码）；字号以 13–15px 为主，表格与工具条使用 12–13.5px
+- 圆角统一取 `main.css` 的 `--radius-*`：sm 4 / md 6 / lg 8 / xl 10 / 2xl 12 / 3xl 16 / 4xl 20px（整体偏平），卡片用 `rounded-xl`、按钮/输入框用 `rounded-md`；除头像 / 徽标等 pill 外不要写死 `rounded-full` 或任意圆角值
+- 暗色模式：`html.dark` class 驱动（Tailwind `dark:` 变体、Monaco 主题同步），首屏由 `index.html` 内联脚本读取 localStorage 提前置 class，避免闪烁；登录后跟随用户偏好
 
 ### 应用壳
 
-1. **侧边栏**：展开 220px / 收起 64px（图标态，tooltip 显示名称），白底右边框；Logo 主色块 + 主色标题（站点名 / Logo 来自 `GET /site-config`，未配置回退默认）；`n-menu accordion`，选中项左侧 4px 主色描边；窄屏 ≤991px 强制收起
-2. **顶栏**：白底 60px 下边框；左侧折叠钮 + 面包屑（<667px 隐藏），右侧语言 / 明暗 / 头像菜单
-3. **内容画布**：浅灰蓝 `--app-content-bg`；页面内容白底无边框 `n-card` 承载，间距 12–16px
-4. **管理后台空间**：进入 `/admin` 后侧栏整体切换为管理菜单，底部「返回前台」；面向 staff（admin / tutor），tutor 仅见「题目管理」，admin 见全部；团队创建入口收敛在后台「团队管理」（`/admin/teams`），前台团队中心仅浏览
-5. **面包屑**：只反映真实层级（`管理后台/用户管理`、`题库/题目管理/编辑`），首页与顶级区块平级不入
+1. **侧栏**：展开 256px / 收起 0；`bg-sidebar` 浅灰面，品牌块（站点 Logo 或 Bird 图标，透底无底色块）+ 站点名 + 副标题；导航项 36px 高、圆角 6px，选中项为白底 + 边框；前台导航为 首页 / 题库 / 题单 / 比赛 / 团队 / 组织 / 代码广场
+2. **后台空间**：`/admin/*` 时侧栏切换为管理菜单（内容 / 社区 / 数据 / 系统 四组），底部「返回前台」；管理入口与区块仅 `admin`（tutor 已随组织化改造下线）
+3. **顶栏**：56px 下边框；左侧侧栏开关 + 面包屑（<640px 隐藏），命令面板入口（Ctrl/⌘+K），右侧语言 / 明暗切换；账户菜单统一收在侧栏底部用户区（个人资料 / 管理后台 / 退出），避免与顶栏重复
+4. **内容画布**：列表页使用 `WorkbenchShell` 视口锁定（工具栏 + 列表区域内部滚动）；「一行一条」的列表统一用 `LineList` 无框横线壳（表格列表经 `PaginatedTable` 接入），团队 / 组织 / 比赛 / 代码广场等网格浏览型列表仍用 `PaginatedCardGrid`；内容页使用 `PageShell`（最大 1360px 居中、自然滚动、底部留白）
+5. **面包屑**：只反映真实层级（`管理后台/用户管理`、`题库/题目管理/编辑`）；`router/crumbs.ts` 为唯一解析来源
+6. **命令面板**：可搜索全部前台/后台菜单与账户页；`↑↓` 选择、`Enter` 打开、`Esc` 关闭
 
 ### 交互习惯
 
-- 危险操作（删除、封禁、注销、提交）先确认再执行；确认弹窗用 `utils/feedback.ts` 的 `$dialog.warning`；需输入的（封禁原因、注销密码）用内联 `n-modal`
-- 命令式反馈统一走 `utils/feedback.ts`（message / dialog，createDiscreteApi），组件内不再包 MessageProvider
-- 配置多分类页面用横向 `n-tabs type="line"`
-- **刷新按钮统一复用 `components/RefreshButton.vue`**（icon-only 圆形幽灵按钮，`loading` 传入加载态）：加载中图标自旋表达状态，禁止绑 naive `:loading`（图标被整体替换为转圈组件，产生尺寸跳变与视觉突兀）；查询进度由页面表格 / 内容区的 loading 遮罩承担；aria-label 与 @click 经 attrs 透传
+- 危险操作（删除、封禁、注销、退出团队、提交）先确认再执行；统一走 `utils/feedback.ts` 的 `confirmDialog`（Promise）或 `confirmAsyncDialog`
+- 命令式提示统一 `utils/feedback.ts`（sonner）：`message.success/error/warning/info/loading`；组件内不重复挂 Provider
+- 图标按钮必须有 `aria-label` 或 `TooltipHint`；不单靠颜色传递状态
+- 列表工具条的筛选开关统一用 `FilterCheckbox`（整行 label 可点击的勾选框），不再使用 `Switch`；配置编辑等非列表场景的布尔开关仍可用 `Switch`
+- 刷新按钮统一复用 `components/common/RefreshButton.vue`（icon-only 幽灵按钮，loading 时图标自旋）；组件显式声明并转发 `click`，调用方直接用 `@click="load"` 即可，不要依赖 attrs 穿过 Tooltip 链
+- 详情页按任务拆 Tabs（共享 `ui/tabs`），禁止自造按钮组；创建 / 编辑表单页统一使用无框版式，不再用 `WizardShell` 卡片外壳
+- 题目预览（`views/problems/ProblemPreviewView.vue`）与评测结果（`components/submission/SubmissionResultPage.vue` + `SubmissionResult.vue`）同为 `PageShell` 无框分区：标题 + 灰色说明 + 细分隔线，刷新 / 返回放页头，统计用纯文本，代码与测试点各自成段，不再套 `rounded-xl border bg-card` 大卡片
+- 团队 / 组织详情例外：`views/teams/TeamDetailView.vue`、`views/orgs/OrgDetailView.vue` 用同一上下布局（顶部摘要卡 + 下方功能卡，操作按钮与刷新按钮放在摘要卡内），下方卡内左侧为 `Button variant="ghost"` 竖排功能导航（窄屏横排置顶）、右侧为内容区（标题栏 + 各面板 `v-show` 懒挂载），不再用横向 `TabsList`；上下两张卡之间用 `mt-4` 留间距，避免贴死
+- 组织 / 团队设置面板（`views/orgs/components/OrgSettingsPanel.vue`、`views/teams/components/SettingsPanel.vue`）仿 shadcn-vue-admin 设置页：标题 + 说明 + 细分隔线 + 无边框表单（`space-y-8`，字段下方说明文字、左对齐提交按钮），危险操作同样无提示框；不要再用嵌套 `rounded-xl border bg-card` 卡片包裹
+- 团队创建比赛页（`views/teams/TeamContestCreateView.vue`）沿用同一无框表单：分区标题 + 分隔线，基本信息 / 比赛说明分段，底部左对齐保存与取消
+- 管理后台比赛创建向导两页（`views/admin/AdminContestBasicView.vue`、`views/admin/AdminContestArrangeView.vue`）都不再使用 `WizardShell` 卡片外壳，直接写成无卡片页面（标题 + 步骤标识 + 细分隔线分区，底部左对齐操作按钮）
+- 出题向导三页（`views/problems/ProblemStatementView.vue`、`ProblemCasesView.vue`、`ProblemVerifyView.vue`）同样去掉 `WizardShell`：页面直接写标题 + `WizardSteps` 步骤条 + 细分隔线，题面 / 样例测试点 / 验题分区保留各自说明，操作按钮统一放到页面底部左对齐
+- 题单新建 / 编辑（`views/admin/AdminProblemSetFormView.vue`）与团队题单创建（`views/teams/TeamSetCreateView.vue`）改为同一无框表单：基础信息 / 题单说明分段，字段下方提示，底部左对齐保存与取消；`components/common/WizardShell.vue` 已无引用并移除
+- 系统配置（`views/admin/AdminConfigsView.vue`）与首页配置（`views/admin/AdminHomeView.vue`）同为 shadcn 设置页风格：分类导航无卡片外框，配置行只保留分隔线，海报行去卡片化，页面底部左对齐保存按钮；编辑弹窗沿用 `ui/dialog`，标题与控件尺寸与表单统一
+- 空态、加载、错误三态必须覆盖；「一行一条」的列表统一由 `LineList` 承载骨架 / 空态 / 分页，`PaginatedTable` 也按列定义渲染成横线行（不再是 `<table>`）；独立面板使用 `EmptyState` / `ErrorState`
+- 编辑器字号 / 字体偏好来自用户资料（`editor_font_size` / `editor_font_family`），`CodeEditor` 统一消费，个人资料页保存后即时生效
+- `CodeEditor` 自身不设最小高度（`min-h-0`），由父容器给定高度；需要最小高度时在父级 `min-h-*` 声明，避免嵌套最小高度叠加导致相邻面板溢出
 
-### 表格工作台
+### 列表工作台
 
-- 筛选 / 搜索 / 导出放工具栏（允许换行）；表格 `n-data-table`（columns 数组 + render，列文案随 locale 翻译）；行内操作 `text` 按钮；分页底部分页器
-- **搜索统一手动触发**：`SearchFilterBar` 固定渲染「查询」主按钮——输入只同步关键词、不自动查询，点击按钮或回车触发，关键词清空（X）按空关键词立即重查；工具栏不使用「重置」按钮，重新拉取统一用 RefreshButton（见「交互习惯」）
-- 复用 `components/PaginatedDataTable.vue` + `composables/usePagination.ts`（含空态垂直居中 + 底部分页条，页面不得手写同构样板）
-- 工作台高度两种模式：**默认锁定一屏**——表格接 `table-fill`（或 `flex-height`），表体内部滚动，筛选栏 / 分页条恒可见；**自然高度**——表格随内容增长、整页滚动到底（如系统日志页），空态独立占位在剩余空间居中、分页条 `margin-top: auto` 沉底，两种模式均不得让短页面塌陷或出现双重滚动条
-- 外壳复用 `components/WorkbenchShell.vue`（page-fill 视口锁定 + 无边框卡片；支持 `title` / `header` / `header-extra` 插槽），页面不得手写 `.page-fill` + `n-card` 样板；表格区 `table-fill`，空态经 `table-fill-empty` 居中
-- **空态样板（卡片墙等非表格内容区同样适用）**：空态 div 必须是内容区的**兄弟节点**（卡片内容 flex 列的直接子元素）并使用全局类 `table-fill-empty`（`flex: 1 + grid place-items: center`，main.css），与内容区以 `v-show` 互斥切换（v-if 分支锚点增删会触发 Vue patch 崩溃）；内容区外包 `n-spin` 时挂 `class="table-fill"` 并以 `content-style="height: 100%; overflow: auto"` 打通高度链——**不得**把空态嵌进 `n-spin` 内部、也不得依赖 scoped / `:deep` 规则命中 naive-ui 内部 DOM（组件内部节点不带页面 scope 属性，样式静默失效、空态贴顶不居中）；空态所在 `n-tab-pane` 声明 `display-directive="show"`（pane 常驻仅切 display，避免 if 模式反复卸载重建引发 v-show 节点补丁错位）
-- 字典层标签类型（`TagType`）渲染到 `n-tag` 时须经 `toNaiveTagType()` 映射（danger → error）
+- 页面结构：`WorkbenchShell` → `#toolbar` 放 `SearchFilterBar`（+ 共享 Tabs 状态筛选）→ `LineList`（表格列表经 `PaginatedTable`）或 `PaginatedCardGrid`；前台题库列表（`views/problems/ProblemListView.vue`）用 `LineList` 的表头 / 行分隔线，保留筛选、标签显隐、分页与空 / 加载态
+- 列表列定义：`AppTableColumn<T>`（`key/title/width/align/cell`）；`ColumnLineList` 由列定义生成表头 / 横线行（含勾选、行点击、骨架）并交给 `LineList`，`PaginatedTable` = `ColumnLineList` + 分页开关；无分页的列驱动列表直接用 `ColumnLineList`，其余列表直接用 `LineList` 的 `#item` 插槽；旧的 `DataTable.vue` 已移除，禁止各页手写 `<Table>` 或 `divide-y` 列表壳
+- 卡片列表：`PaginatedCardGrid` 负责响应式网格（1 / 2 / 3 / 4 列）、骨架、空态与分页；领域卡片用 `EntityCard` 作为整卡可点击外壳（支持 Enter / Space 与可见焦点环），卡片内展示头像、标题、状态徽标、简介与 1–2 行元信息
+- 比赛卡片与代码分享卡片保持极简：头像 / 图标 + 标题 + 两行简介 + 纯文本元信息；比赛的起止时间单独一行，赛制 / 题数 / 报名人数另起一行，代码卡片是语言 / 作者 / 更新时间一行；只在确有必要时保留一个状态徽标，不用信息栏、箭头、多个彩色徽标或图标行堆砌，hover 只轻微描边
+- 首页沿用旧版的全屏气势：内容铺满主区宽度，上半部为主视觉（桌面 `clamp(340px,52dvh,580px)`，海报轮播 / 品牌横幅 2fr + 公告 1fr，最小 260px），下半部入口磁贴与小贴士吃满剩余空间；窄屏退回自然高度滚动，不收窄成中间栏
+- `views/home/HomeCarousel.vue`：自动播放间隔 5s，海报异步加载后自动启动；不渲染左右箭头，只保留底部圆点切图；鼠标悬停不暂停；手动点圆点后重置计时；切换用 420ms 交叉淡入淡出，加载过的图片保持挂载避免空窗
+- 列表形态选择：所有「一行一条」的列表统一无框横线（`LineList`，分页列表经 `PaginatedTable`，列驱动列表经 `ColumnLineList`）；提交、日志、测试点 / 比赛单元格明细等也用列定义渲染成横线行；网格浏览型实体（团队 / 组织 / 比赛 / 代码广场）继续用 `PaginatedCardGrid`，不改成横线列表
+- 搜索统一手动触发：输入只同步关键词，点击「查询」或回车才发起；清空（X）立即按空关键词重查
+- 题库列表的标签列可在工具条勾选显示 / 隐藏，偏好写入 localStorage（`pigeonoj.problems.showTags`），切换不重新请求
+- 分页：`LineList`（`showPager` 开启，分页列表经 `PaginatedTable`）与 `PaginatedCardGrid` 统一内置 `Pager`（页码窗口、总数、可选每页条数）；无分页列表不要开 `showPager`；页面只维护 `usePagination()` 的 page / pageSize / total，慢响应用 `beginLoad/isCurrent` 守卫
+- 批量操作：`PaginatedTable` 支持可选 `selectable / rowKey / selectedKeys`（跨页保留勾选）；不使用时零影响
+- 行 / 卡片点击进入详情时保持上下文路由，不跳出当前业务区块
 
 ### 按钮与表单
 
-- 每个操作区域最多一个主按钮；次要操作用 `secondary` / 默认；行内操作用 `text`
-- 删除 / 封禁 / 注销用 `type="error"`，文案描述结果
-- 表单 `label-placement="top"`；必填/格式/范围用控件规则；提交按钮显示 loading
-- 统一覆盖 loading / error / empty / success 状态
+- 每个操作区域最多一个主按钮；次要操作用 `outline` / `ghost`；危险操作用 `destructive`
+- 工具条按钮统一 `size="toolbar"`（36px，与 `h-9` 输入框 / 选择器同高）；对话框内操作保持 `size="sm"`，不再用 `class="h-9"` 临时抬高
+- 表单 `Label` 置顶；必填/范围用控件属性与提交前校验；提交按钮 loading 用 `Loader2` 自旋 + 禁用
+- 表单内的编辑器工具栏按钮（如 `MarkdownEditor` 的加粗 / 预览切换）必须显式 `type="button"`，避免浏览器默认 `submit` 误触发表单保存
+- 弹窗使用 `ui/dialog`（受控 `v-model:open`），必须有 `DialogTitle`（可 `sr-only`）；输入型确认（封禁原因、密码）在弹窗内完成
 
 ### 「题面 + 编辑器」双栏工作台
 
-复用 `components/problem/ProblemWorkbench.vue`：占满视口剩余高度，整页无滚动条、各栏独立滚动；比例持久化 localStorage；窄屏 <900px 上下堆叠；分隔条 `role="separator"` + 提示文案。工具行固定为「语言选择 + 我的提交 + 提交代码」，按钮只抛事件，行为由宿主注入。
+- `components/common/SplitPane.vue`：桌面端左右独立滚动、分隔条可拖拽且比例持久化（双击复位）；<900px 自动上下堆叠
+- `components/problem/ProblemWorkbench.vue`：左题面（`ProblemMetaBar` + `ProblemStatement`），右编辑器 + 自测控制台；上方工具行只放「语言 / 我的提交」（题解按需），「自测运行 / 提交」放进下方控制台标题行，避免顶部拥挤
+- 自测控制台常驻编辑器下方，标题行同时承载自测与提交按钮；可折叠到只剩标题行，展开态最低 180px（保证输出文字不被裁切），上方分隔条支持上下拖拽自由调整高度（双击复位、方向键微调），上限按工具栏实测高度 + 编辑器最小高度动态计算，容器尺寸变化时自动重新约束，高度按 px 持久化到 `pigeonoj.problems.consoleHeight`；Tabs 切换「运行结果 / 自定义输入」，结果含状态、耗时、内存与输出/报错
+- 提交历史经 `components/problem/MySubmissionsDialog.vue` 懒加载分页，行点击进入上下文内评测结果页
 
 ### 可访问性
 
-- 图标按钮必须有可见文字、`aria-label` 或 `n-tooltip`
-- 不单一靠颜色传递状态，状态标签含文本
-- 键盘可聚焦；弹窗焦点留在弹窗内
+- 图标按钮必须有可见文字、`aria-label` 或 Tooltip；弹窗焦点留在弹窗内
+- 状态标签含文本；键盘可聚焦；命令面板 / 弹窗支持 Esc 关闭
+
+## 组织与社区
+
+- **组织中心**：`/orgs/mine` 列表 + `/orgs/:orgId` 详情（成员 / 组织团队 / 组织题库 / 设置）；组织管理员可拉人、授管理员、建团队、维护组织题库；组织题目路由固定为 `/orgs/:orgId/problems/...`，读题 / 交题 / 自测全部留在组织上下文
+- **团队创建**：唯一入口为组织详情「创建团队」（`POST /orgs/{orgId}/teams`）；团队题目只来自组织题库 / 全站公开的引用快照，团队中心仅浏览与申请
+- **社区**：题解页随题目上下文挂载（题库 / 题单 / 比赛 / 组织各自 `/solutions/*` 路由），官方题解收口题解页 Tab；代码广场 `/codes` 列表 / 分享 / 详情；评论与举报统一 `components/community/CommentThread.vue` / `ReportDialog.vue`
+- **管理治理**：`/admin/orgs`、`/admin/solutions`、`/admin/codes` 分别负责组织、题解、代码分享；题解预览弹窗内可直接治理评论
 
 ## Markdown 渲染
 
-- 题面 / 背景 / 输入输出说明 / 题面说明（note，渲染于题面最后） / 官方题解用 `components/MarkdownView.vue` 渲染（markdown-it `html:false` + DOMPurify 白名单）；禁止对用户可控内容直接 `v-html`
-- 编辑：`components/MarkdownEditor.vue`（md-editor-v3 封装，CodeMirror 编辑，工具栏「纯预览」切换，暗色/语言跟随全局）
-- 插图：`POST /files/upload/image`（登录用户，≤5MB，JPG/PNG/WEBP/GIF），插入 `![](url)`，限宽 50%
-- 数学公式：编辑器与展示侧均支持 KaTeX（`$...$` 行内 / `$$...$$` 块级）
+- 题面 / 公告 / 题解统一 `components/common/MarkdownView.vue`（markdown-it `html:false` + DOMPurify 白名单 + KaTeX）
+- 编辑统一 `components/common/MarkdownEditor.vue`（textarea + 工具栏 + 写/预览切换 + 粘贴/选择图片上传）；存储仍为纯 Markdown
+- 插图：`POST /files/upload/image`（登录用户，≤5MB，JPG/PNG/WEBP/GIF），题面展示限宽 50%
+- 禁止对用户可控内容直接 `v-html`（仅 MarkdownView 内部经白名单渲染）
 
 ## 国际化
 
-- 所有用户可见静态文案位于 `src/frontend/src/i18n/`，使用 `t('key')` / `$t('key')`；禁止硬编码自然语言
-- 覆盖范围：路由标题、导航、按钮、表单标签与 placeholder、表格列、状态字典、筛选项、空状态、弹窗、Toast、兜底错误、CSV 导出表头
-- 每个 key 必须同时提供 `zh-CN` 与 `en-US`；切换语言后即时更新
+- 所有用户可见静态文案位于 `src/frontend-next/src/i18n/locales/`，使用 `t('key')`；禁止硬编码自然语言
+- 每个 key 必须同时提供 `zh-CN` 与 `en-US`；`src/i18n/keys.spec.ts` 会扫描模板 / 路由中的静态 key，缺失即测试失败
+- 覆盖范围：路由标题、导航、按钮、表单标签与 placeholder、表格列、状态字典、筛选项、空状态、弹窗、Toast、兜底错误、CSV 导出的表头
 
 ## 共享组件
 
-| 组件 | 用途 | 共用页面 |
-| --- | --- | --- |
-| `components/BaseAvatar.vue` | 统一头像 / logo 展示：`src` 为空或**加载失败**（外链失效）时回退默认头像图（`assets/avatars/`，按 `kind` 区分 user / team / contest，透明底 SVG + `--app-muted-bg` 适配明暗）；props：`src` / `name`（alt 与 aria）/ `size` / `round`（默认圆形）/ `radius` / `bordered` / `kind`；页面只保留描边、投影等附加框架样式，禁止再手写首字母占位或 v-if 分支回退 | 顶栏 / 个人资料 / 管理用户 / 在线用户 / 团队列表 / 团队详情 / 邀请落地页 / 管理团队 / 比赛列表 / 比赛详情 |
-| `components/problem/ProblemWorkbench.vue` | 题面 + 编辑器双栏 | 题目详情 / 编辑向导 |
-| `components/problem/ProblemMetaBar.vue` | 标题 + 限制 + 标签 | 题目详情 / 管理 |
-| `components/problem/ProblemStatement.vue` | 描述 + 输入输出 + 样例 + 题面说明 | 题目详情 / 管理 |
-| `components/problem/ProblemSamples.vue` | 展示样例（各带复制；解释选填渲染） | 详情 / 邀请落地页 |
-| `components/WizardShell.vue` | 页眉卡片（标题 + 步骤序号 + 动作） | 写题向导多步骤 |
-| `components/StatusTag.vue` | 状态 → 标签颜色/文案 | 提交历史 / 结果页 |
-| `components/EmailCodeInput.vue` | 验证码输入 + 60s 倒计时 | 注册 / 安全设置 |
-| `components/PaginatedDataTable.vue` + `composables/usePagination.ts` | 分页列表 | 所有管理列表 |
-| `components/SearchFilterBar.vue` | 统一搜索筛选工具栏：关键词输入 + 自定义筛选控件（默认插槽）+ 「查询」按钮 + 右侧动作区（actions 插槽，功能按钮 → 刷新图标）；搜索手动触发语义见「表格工作台」 | 所有列表 / 详情页 tab 工具栏（含团队详情前后台） |
-| `components/WorkbenchShell.vue` | 视口锁定工作台外壳（page-fill 卡片 + 头部插槽） | 所有管理列表 |
-| `components/RefreshButton.vue` | 刷新按钮（icon-only 圆形幽灵按钮，加载中图标自旋） | 列表 / 状态页 |
-| `constants/languages.ts` | 判题语言选项 | 所有语言选择器 |
-| `components/problemsets/ProblemPicker.vue` | 题库选择器弹窗（`defaultMine` 默认仅本人题目；`loader` 自定义候选源，团队编排走 arrangeable） | 题单编排 / 团队引用 |
+| 组件 | 用途 |
+| --- | --- |
+| `components/common/BaseAvatar.vue` | 头像 / Logo：空值或加载失败回退默认图（user/team/contest） |
+| `components/common/LineList.vue` | 唯一无框横线列表壳：表头 / 逐行分隔线 / 骨架 / 空态 / 可选分页，支持 `#item` 行插槽 |
+| `components/common/ColumnLineList.vue` + `table-types.ts` | 列驱动的横线列表：由 `AppTableColumn` 生成表头 / 行 / 勾选，接入 `LineList` |
+| `components/common/PaginatedTable.vue` | `ColumnLineList` + 分页开关，供所有分页列表使用 |
+| `components/common/PaginatedCardGrid.vue` + `EntityCard.vue` | 统一卡片列表壳（响应式网格 / 骨架 / 空态 / 分页）与整卡可点击外壳 |
+| `components/common/Pager.vue` | 独立分页条（页码窗口 + 总数 + 可选每页条数） |
+| `components/common/EmptyState.vue` / `ErrorState.vue` | 统一空态 / 加载失败态（可带重试与操作） |
+| `components/common/InlineNotice.vue` | 语义提示条（info / success / warning / danger / neutral） |
+| `components/common/DateTimeField.vue` | 统一 `datetime-local` 输入（时间戳模型 + 清空） |
+| `components/common/SearchFilterBar.vue` | 搜索框 + 筛选控件插槽 + 「查询」+ 右侧动作区 |
+| `components/common/RefreshButton.vue` | 刷新按钮（loading 自旋） |
+| `components/common/FilterCheckbox.vue` | 列表工具条勾选筛选（整行可点击，`update:modelValue`） |
+| `components/common/WorkbenchShell.vue` / `PageShell.vue` | 视口锁定列表壳 / 自然滚动内容壳 |
+| `components/common/StatusTag.vue` / `ToneBadge.vue` | 提交状态 / 通用语义徽标（色值统一取自 `tone.ts`） |
+| `components/common/MarkdownView.vue` / `MarkdownEditor.vue` | Markdown 渲染 / 编辑 |
+| `components/common/CodeEditor.vue` | Monaco 编辑器（Python/C++/Java 按需语言包） |
+| `components/common/SplitPane.vue` | 可拖拽双栏（题面 / 编辑器） |
+| `components/common/EmailCodeInput.vue` | 邮箱验证码输入 + 60s 倒计时 |
+| `components/problem/*` | 题目元信息、题面、样例、工作台、提交历史、标签选择、测试点导入 |
+| `components/submission/SubmissionResult.vue` | 评测结果页统一展示（统计 / 代码 / 测试点） |
+| `components/problemsets/ProblemPicker.vue` | 题库选择弹窗（默认仅本人；loader 支持团队候选源） |
+| `components/contests/*` / `components/teams/*` | 比赛 / 团队领域共享展示组件 |
+| `components/community/CommentThread.vue` / `ReportDialog.vue` | 评论（含回复 / 举报 / 管理恢复）与举报弹窗 |
+| `views/orgs/*` / `views/community/*` | 组织空间与社区页面 |
+| `layout/*` | 应用壳、侧栏、顶栏、命令面板、面包屑、语言 / 主题 / 用户菜单 |
 
 ## 代码组织
 
 ```text
-src/frontend/
+src/frontend-next/
   eslint.config.js       # ESLint flat config（Vue + TS）
   .prettierrc.json       # Prettier（格式化唯一权威）
   vite.config.ts         # Vite + Vitest
   src/
     api/                 # 统一 HTTP 与领域 API
-    assets/              # 全局样式、布局层 CSS 变量
-    components/          # 跨领域可复用展示组件
-    constants/           # 展示字典
-    i18n/                # 语言文件
-    layout/              # 应用壳
-    router/              # 路由 + 守卫（meta 驱动菜单 / 标题 / 权限）
-    settings/            # 布局尺寸 + themeOverrides
-    stores/              # 跨页面状态
-    types/               # 与 contracts 对齐的共享类型
-    utils/               # 无 UI 副作用工具
-    views/               # 路由页面
+    assets/              # 设计令牌、Monaco 覆盖样式、默认头像
+    components/
+      common/            # 通用展示 / 工作台组件
+      ui/                # shadcn-vue 原子组件（reka-ui）
+      problem/ submission/ problemsets/ contests/ teams/  # 领域组件
+    composables/         # 分页 / 防抖草稿 / 自测 / 轮询等
+    constants/ i18n/ layout/ monaco/ router/ stores/ types/ utils/
+    views/               # 路由页面（按领域分目录；大页拆 components/ 子组件）
 ```
 
-- 页面组件管理请求、筛选、弹窗、本页状态；纯展示组件 props/emits 工作
+- 页面组件管理请求、筛选、弹窗、本页状态；展示组件 props / emits / 插槽工作
+- 单文件目标 < 350 行；大详情页按任务拆 Tabs 子组件，禁止复制粘贴整段模板
 - 通过 `api/` 调用后端，统一处理 `{ code, message, data }` 信封
-- 样式优先 Naive UI；布局、间距、响应式用 Tailwind 原子类
+- 样式优先 Tailwind 原子类 + 设计令牌；组件内复杂样式才写 scoped CSS
 - 不在组件中硬编码环境 URL、密钥、Token 或权限绕过逻辑
-- 单元测试与被测文件同目录，命名 `*.spec.ts`
 
 ## 工具链与质量门禁
 
 | 工具 | 命令 | 说明 |
 | --- | --- | --- |
-| ESLint（`eslint.config.js`） | `npm run lint:check` / `npm run lint` | 静态检查 / 自动修复 |
-| Prettier（`.prettierrc.json`） | `npm run format` | 一键格式化 |
-| Vitest | `npm test` | 单元测试（jsdom） |
-| 类型检查 + 构建 | `npm run build` | `vue-tsc -b` + vite build |
+| ESLint | `npm run lint:check` / `npm run lint` | 静态检查 / 自动修复 |
+| Prettier | `npm run format` | 一键格式化 |
+| Vitest | `npm test` | 单元测试（jsdom；含 i18n 静态 key 完整性） |
+| 类型检查 + 构建 | `npm run build` | `vue-tsc -b` + `vite build` |
 
-- 格式类规则统一交给 Prettier，ESLint 关闭重叠规则
-- 模板内联事件禁止多条语句（Prettier 折行生成非法表达式）
+- 工作目录：`src/frontend-next`；格式类规则统一交给 Prettier，ESLint 关闭重叠规则
+- 模板内联事件禁止多条语句（Prettier 折行会生成非法表达式），多语句逻辑写方法
 - `@typescript-eslint/no-explicit-any` 暂关闭
 
 ## 路由与导航
@@ -141,56 +180,27 @@ src/frontend/
 
 ### 页面实例缓存（面包屑链式缓存）
 
-`AppLayout.vue` 对 `router-view` 采用插槽分流：声明 `meta.keepAlive: true` 的页面进入 `<KeepAlive>`（实例 key 为 `route.fullPath`，参数页按 URL 区分、互不串数据），从深层页面（如评测结果）沿面包屑逐级返回（题目详情 → 列表）时沿途页面实例全部命中缓存——筛选、页码、题面、滚动位置等状态保留，不重新拉取；`:max=8` LRU 兜底，最久未用的实例自动释放。缓存 key 绑定当前登录用户 id（`router-view :key="cacheScope"`）：登出 / 换号后缓存整体作废。
+`AppLayout.vue` 对 `router-view` 采用插槽分流：声明 `meta.keepAlive: true` 的页面进入 `<KeepAlive>`（实例 key 为 `route.fullPath`），从深层页面沿面包屑返回时保留筛选、页码、题面、滚动位置；`:max=8` LRU 兜底；缓存 key 绑定当前登录用户 id，登出 / 换号后整体作废。
 
-- 缓存范围（`meta.keepAlive: true`）：题库 / 题单 / 比赛 / 团队列表，题库 / 题单 / 比赛 / 团队详情与上下文写题页，各类提交列表与评测结果页，管理后台题目 / 题单 / 比赛 / 用户 / 标签 / 团队管理、题单详情、团队管理详情，会话管理；赛时工具与比赛编辑向导不缓存（带表单）
-- 不缓存：写题向导各步（create / statement / cases / verify）、题目预览、团队邀请、个人资料 / 安全设置——带表单或与编辑强耦合的页面进出都重新挂载，保证数据新鲜
-- 轮询 / 计时页面（评测结果 ×3、比赛详情）必须实现 `onDeactivated` 暂停 + `onActivated` 恢复，禁止缓存页后台空转
-- 面包屑层级解析收敛于 `router/crumbs.ts` 的 `buildCrumbs`（`TheBreadcrumb` 展示与缓存共用同一来源）；新增上下文页接入链式缓存：路由声明 `meta.keepAlive: true` 即可，带表单页面禁止声明
-- 数据时效由各列表页刷新按钮兜底（如新建题目后返回列表需手动刷新）；
-  **例外**：退出 / 解散团队后回退团队列表，本人成员关系必然过期——经 `stores/teams` 脏标记
-  （`markMembershipChanged`）在列表页 `onActivated` 时重拉，不走手动刷新兜底
+- 缓存范围（`meta.keepAlive: true`）：题库 / 题单 / 比赛 / 团队列表与详情、上下文写题页、各类提交列表与评测结果、管理后台列表与题单 / 团队详情、会话管理
+- 不缓存：写题向导各步、题目预览、邀请页、个人资料 / 安全设置等带表单页面
+- 轮询 / 计时页面（评测结果 ×3、比赛详情、在线用户）必须实现 `onDeactivated` 暂停 + `onActivated` 恢复
+- 面包屑层级解析收敛于 `router/crumbs.ts` 的 `buildCrumbs`；新增上下文页只需声明 `meta.keepAlive`（带表单页面禁止声明）
+- 数据时效由各列表页刷新按钮兜底；退出 / 解散团队经 `stores/teams` 脏标记在列表页 `onActivated` 重拉
 
 ### 路由上下文隔离（契约级规范）
 
-> 设计术语对齐：本节即 **限界上下文**（Bounded Context，DDD）在前端路由层的应用——
-> 同一资源在不同业务上下文中拥有独立的交互闭环；规则 2、3 落实 **迪米特法则**
-> （Law of Demeter，只与直接上下文通信）；规则 4 是 **模块统一入口**
-> （Facade 门面模式）+ **REST 嵌套资源**（归属关系写入 URL，入口即校验）。
-
-同一资源页面被多个业务上下文复用（题目详情 / 评测结果 / 预览 × 题库、题单、比赛、团队）时，
-每个上下文拥有**独立路由实例**，上下文内的所有导航与交互必须封闭在本上下文路由内，
-**禁止把用户带离当前业务上下文**。实例：题库 `/problems/:id`、题单
-`/problem-sets/:setId/problems/:problemId`、比赛 `/contests/:cid/problems/:problemId`、
-团队 `/teams/:teamId/problems/:problemId`、团队题单 `/teams/:teamId/sets/:setId/problems/:pid`、
-  团队比赛 `/teams/:teamId/contests/:cid`（详情 / 编辑向导 / 赛时工具 / 内题目 / 内评测结果）、
-管理后台 `/admin/problem-sets/:id/problems/:pid/preview`。
+同一资源页面被多个业务上下文复用（题目详情 / 评测结果 / 预览 × 题库、题单、比赛、团队）时，每个上下文拥有独立路由实例，上下文内的所有导航与交互必须封闭在本上下文路由内，**禁止把用户带离当前业务上下文**。实例：题库 `/problems/:id`、题单 `/problem-sets/:setId/problems/:problemId`、比赛 `/contests/:cid/problems/:problemId`、团队 `/teams/:teamId/problems/:problemId`、团队题单 `/teams/:teamId/sets/:setId/problems/:pid`、团队比赛 `/teams/:teamId/contests/:cid`（详情 / 编辑向导 / 赛时工具 / 内题目 / 内评测结果）、管理后台 `/admin/problem-sets/:id/problems/:pid/preview`。
 
 规则：
 
-1. **上下文路由独立**：每个上下文为自己的 URL 前缀下声明路由（页面组件可复用），
-   上下文专属路由声明在所属业务区块的 children 内，紧随其列表 / 详情路由之后。
-2. **禁止跨上下文跳转**：进入下一层、返回上一层、提交后跳转都必须落在本上下文路由内；
-   如题单内交题、查看评测结果不得跳 `/problems/:id`；管理端点击资源不得进入作答 / 写作页面。
-3. **组件复用取参**：复用组件按「上下文参数优先」取参
-   （如 `route.params.problemId ?? route.params.id`），内部链接基于上下文动态构造
-   （如评测结果基路径 `submissionsBase`），不得硬编码单一前缀；
-   详情 / 交题 / 自测 API 按上下文选择模块统一入口端点
-   （团队上下文走 `/teams/{teamId}/problems/*`，题库裸路径对团队题目按可见性拦截）
-4. **配套后端上下文端点（模块统一入口，Facade）**：上下文内对资源的读 / 写调用本上下文模块的
-   专属端点，不跨模块直调（读如题单内题目详情 `GET /problem-sets/{id}/problems/{pid}`，
-   写如题单交题 `POST .../submissions`）；端点在入口校验资源归属关系
-   （题单可见 + 题目属于该题单），装配与业务链路复用统一实现，保证多入口行为一致。
-5. **面包屑真实层级**：面包屑按当前上下文展示完整父链
-   （题单 / 题单详情 / 题目详情 / 评测结果；管理后台 / 题单管理 / 题单详情），
-   `breadcrumbParent` 支持函数动态解析路径与数组多级父链，中间级必须可点击回跳。
-6. **管理端只读隔离**：管理后台的资源浏览页点击资源仅打开**只读预览**
-   （如题单管理内的题目预览），禁止跳转前台交互页面；管理操作收敛在 `/admin`，前台只留浏览。
-7. **新增上下文时同步契约**：引入新的上下文路由（或新的资源页面复用）必须同步更新
-   `docs/contracts/` 对应模块契约（端点表、关键流程、前端页面说明），跨模块公共语义落在本文件。
-
-> 完整实例参见 `docs/contracts/problem-sets.md`「关键流程 / 验收条件」（题库 / 题单 / 管理后台
-> 三上下文的路由隔离、专属交题端点与只读预览约束）。
+1. **上下文路由独立**：每个上下文为自己的 URL 前缀下声明路由（页面组件可复用），上下文专属路由声明在所属业务区块的 children 内，紧随其列表 / 详情路由之后
+2. **禁止跨上下文跳转**：进入下一层、返回上一层、提交后跳转都必须落在本上下文路由内；管理端点击资源仅打开只读预览
+3. **组件复用取参**：复用组件按「上下文参数优先」取参（如 `route.params.problemId ?? route.params.id`），内部链接基于上下文动态构造（如评测结果基路径 `submissionsBase`）
+4. **配套后端上下文端点（模块统一入口）**：上下文内对资源的读 / 写调用本上下文模块的专属端点，不跨模块直调；端点在入口校验资源归属关系
+5. **面包屑真实层级**：`breadcrumbParent` 支持函数动态解析路径与数组多级父链，中间级必须可点击回跳
+6. **管理端只读隔离**：管理后台的资源浏览页点击资源仅打开只读预览，管理操作收敛在 `/admin`
+7. **新增上下文时同步契约**：引入新的上下文路由必须同步更新 `docs/contracts/` 对应模块契约
 
 ## 前端验收
 
@@ -198,7 +208,7 @@ src/frontend/
 
 1. `npm run lint:check`（+ `npm run format`）
 2. `npm run build`（类型检查 + 构建）
-3. `npm test`（Vitest；utils / api 层须有 `*.spec.ts`）
+3. `npm test`（Vitest；utils / api / i18n key 完整性）
 4. 涉及界面时，中英文 + 亮暗主题 + 窄屏 + loading/error/empty 双语言检查
 5. 涉及路由时，验证侧栏激活、子跳转、标题、权限过滤
-6. 涉及 i18n 时，扫描新增文案确认无硬编码
+6. 涉及 i18n 时，确认无硬编码文案（`src/i18n/keys.spec.ts` 必须通过）

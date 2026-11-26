@@ -29,8 +29,6 @@ export interface ProblemSetSummary {
   /** 归属团队（非空 = 团队题单；题单中心 / mine 恒为空，管理视图区分来源用） */
   team_id?: string | null
   item_count: number
-  /** 非空 = 经团队引用进入团队题单（引用时间；团队空间） */
-  referenced_at?: string | null
   created_at: string
   updated_at: string
 }

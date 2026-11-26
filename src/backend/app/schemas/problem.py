@@ -24,8 +24,9 @@ class ProblemCreate(BaseModel):
     """创建题目：生命周期只允许从 draft 起步，发布走 POST /problems/{id}/publish。
 
     题面要素（题目背景 / 题面 / 输入说明 / 输出说明）均为必填；tags 为激活标签名（≤8）。
-    team_id 非空 = 团队题目直建（团队空间端点上下文）：visibility 须为团队分支
-    （admin_visible / team_visible，缺省 admin_visible），referenced_at 恒 NULL。
+    全站题（无 org 上下文）仅 admin 可建；组织题经 /orgs/{org_id}/problems 创建，
+    visibility 恒 org_visible；团队直建已移除——团队题目只来自引用快照
+    （docs/contracts/problems.md / orgs.md / teams.md）。
     """
 
     title: str = Field(min_length=1, max_length=255)
@@ -42,8 +43,6 @@ class ProblemCreate(BaseModel):
     memory_limit_mb: int = Field(default=256, ge=16, le=4096)
     # 难度分（手动填写；NULL=未评分；仅约束非负，不设上限）
     difficulty: int | None = Field(default=None, ge=0)
-    # 团队上下文创建（POST /problems 携带 team_id，docs/contracts/problems.md 端点表）
-    team_id: uuid.UUID | None = None
 
     @field_validator("tags")
     @classmethod
@@ -79,10 +78,10 @@ class ProblemUpdate(BaseModel):
 class ProblemQuery(BaseModel):
     """题库列表查询（docs/contracts/common.md 分页契约）。
 
-    scope=all：题库中心，仅 published + public；
-    scope=mine：我的题目管理视图（须登录）——创建者看自己的全部题目，
-    管理角色（admin/tutor/team_creator）可管理范围内全量；可叠加 status 过滤。
-    mine=true（题库中心「我的」勾选，须登录）：仅本人已发布题目（任意可见性，含私有已发布）。
+    scope=all：题库中心，仅 published + public（组织题不进题库中心）；
+    scope=mine：我的题目管理视图（须登录）——admin 见全量，其余用户见所在组织的
+    组织题聚合 ∪ 本人创建的存量题；可叠加 status 过滤。
+    mine=true（题库中心「我的」勾选，须登录）：仅本人已发布全站题（任意可见性，含私有已发布）。
     """
 
     page: int = Field(default=1, ge=1)
@@ -93,9 +92,9 @@ class ProblemQuery(BaseModel):
     status: ProblemStatus | None = None
     # 题库中心「我的」勾选：仅本人已发布（任意可见性）；仅 scope=all 分支生效
     mine: bool = False
-    # 管理视图来源过滤（仅 scope=mine 生效）：solo=全站题（team_id IS NULL）/
-    # team=团队题（team_id 非空）；缺省不过滤
-    ownership: Literal["solo", "team"] | None = None
+    # 管理视图来源过滤（仅 scope=mine 生效）：solo=全站题 / org=组织题 / team=团队题；
+    # 缺省不过滤
+    ownership: Literal["solo", "org", "team"] | None = None
     # 难度分闭区间筛选（未评分题目不落在任何区间内）
     difficulty_min: int | None = Field(default=None, ge=0)
     difficulty_max: int | None = Field(default=None, ge=0)

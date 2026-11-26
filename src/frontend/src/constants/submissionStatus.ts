@@ -5,3 +5,22 @@ export function submissionStatusTagType(status?: string): 'success' | 'info' | '
   if (status === 'wrong_answer') return 'warning'
   return 'error'
 }
+
+const KNOWN_STATUS_LABELS = new Set([
+  'pending',
+  'judging',
+  'accepted',
+  'ok',
+  'wrong_answer',
+  'time_limit_exceeded',
+  'memory_limit_exceeded',
+  'output_limit_exceeded',
+  'runtime_error',
+  'compile_error',
+  'system_error',
+])
+
+/** 提交/测试点状态 → i18n 键；未知状态兜底原值，避免生产环境渲染裸 key（missingWarn 关闭） */
+export function submissionStatusLabelKey(status?: string): string {
+  return status && KNOWN_STATUS_LABELS.has(status) ? `problems.status.${status}` : status || '--'
+}

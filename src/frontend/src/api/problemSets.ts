@@ -22,7 +22,7 @@ export function getProblemSet(id: string): Promise<ProblemSetDetail> {
   return apiRequest('GET', `/problem-sets/${id}`)
 }
 
-/** 创建题单（admin/tutor；团队题单随 teams 模块开放） */
+/** 创建题单（admin；团队题单随 teams 模块开放） */
 export function createProblemSet(body: ProblemSetCreatePayload): Promise<ProblemSetSummary> {
   return apiRequest('POST', '/problem-sets', body)
 }

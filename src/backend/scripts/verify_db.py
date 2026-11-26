@@ -1,13 +1,25 @@
-"""验证迁移与种子数据（开发用脚本）。"""
+"""验证迁移与种子数据（开发用脚本）。
+
+连接串从统一配置链读取（优先级：进程环境变量 > .env > backend.toml），
+不在此硬编码；SQLAlchemy 风格的 `postgresql+asyncpg://` 会自动转成
+asyncpg 原生 DSN。
+"""
 import asyncio
 
 import asyncpg
 
-DSN = "postgresql://pigeonoj:pigeonoj@localhost:5432/pigeonoj"
+from app.settings.config import get_settings
+
+
+def build_dsn() -> str:
+    url = get_settings().database_url
+    if url.startswith("postgresql+asyncpg://"):
+        url = url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    return url
 
 
 async def main() -> None:
-    conn = await asyncpg.connect(DSN)
+    conn = await asyncpg.connect(build_dsn())
     version = await conn.fetchval("select version_num from alembic_version")
     print("alembic version:", version)
     rows = await conn.fetch(

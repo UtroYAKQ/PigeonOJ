@@ -110,7 +110,6 @@ export interface TeamProblemListQuery {
   page?: number
   page_size?: number
   keyword?: string
-  status?: 'draft' | 'published' | 'archived'
   visibility?: 'admin_visible' | 'team_visible'
 }
 
@@ -128,12 +127,10 @@ export interface TeamSetListQuery {
   status?: 'active' | 'archived'
 }
 
-/** 创建团队题单载荷（visibility 与团队题目对齐，缺省 team_visible；copy_from_set_id 非空 = 复制本人全站题单条目，快照复制） */
+/** 创建团队题单载荷（团队题单恒 team_visible，全队成员可见；快照复制来源字段已随组织化改造移除） */
 export interface TeamSetCreatePayload {
   title: string
   description?: string | null
-  copy_from_set_id?: string
-  visibility?: 'team_visible' | 'admin_visible'
 }
 
 /** 团队比赛列表查询 */

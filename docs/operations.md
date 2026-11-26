@@ -1,10 +1,14 @@
-﻿# 运行与运维
+# 运行与运维
 
 > 如何运行、测试、部署本项目；基础设施约定（Redis、调度、对象存储）。涉及配置或发布变更时先读本文件。
 
 ## 一键启动（Windows）
 
 双击 `run-local.bat`：自动启动 PostgreSQL / MinIO / Redis 容器，检测并安装缺失的前后端依赖（`pip install -r requirements.txt` / `npm install`），判题节点镜像缺失时才构建（已有则直接复用），并在独立窗口启动 1 个本地节点（`compose up`，日志可见，无需人工补 `--env-file`），执行数据库迁移与演示账号引导，随后弹出后端与前端（5173）窗口。后端端口取配置链（进程环境变量 > `.env` 的 `SERVER_PORT` > `backend.toml` `[server] port`，默认 8000），脚本据此导出 `SERVER_PORT` 供前端 vite 代理联动。
+
+**启动前自清理**：后端 `run.py` 以 uvicorn `--reload` 运行，直接关闭服务窗口时 worker 子进程可能成为孤儿继续占用端口（`cmd` 外壳被杀、子进程存活），导致再次启动绑定失败。`run-local.bat` 在启动后端 / 前端前先按端口（`SERVER_PORT` / 5173）清理 LISTENING 残留进程，**重复运行脚本即等价于重启**。
+
+**停止服务**：双击 `stop-local.bat`——按端口结束后端与前端进程、`docker compose down` 判题节点容器（镜像保留）。关闭窗口的方式可能留下孤儿 reload worker，不是可靠的停止手段；判题节点容器也可手动 `docker compose --env-file .env.node -f docker/docker-compose-node.yml down` 停止。
 
 ## 本地运行（不用 Docker）
 
@@ -29,12 +33,15 @@ source .venv/Scripts/activate
 .venv/Scripts/python -m pip install -r src/backend/requirements.txt   # 首次或依赖变更后
 cd src/backend && ../../.venv/Scripts/python -m alembic upgrade head && ../../.venv/Scripts/python run.py
 
-# 前端
-cd src/frontend && npm install && npm run dev
+# 前端（新工程）
+cd src/frontend-next && npm install && npm run dev
+
+# 旧前端（仅参考，不建议新开发）
+# cd src/frontend && npm install && npm run dev
 ```
 
 - 后端 `http://localhost:8000`（API `/api/v1`；端口可经 `.env` 的 `SERVER_PORT` 覆盖）；前端 `http://localhost:5173`（vite 代理 `/api` 到后端，代理目标读 `SERVER_PORT`，默认 8000）
-- `vite.config.ts` 是唯一生效的 vite 配置，`vue-tsc -b` 产物已重定向到 `node_modules/.vite-config/`
+- 新前端端口同为 5173（vite 代理 `/api` 到后端）；`vue-tsc -b` 产物已重定向到 `node_modules/.vite-config/`。`docker/docker-compose.yml` 与 `run-local.bat` 当前仍指向旧 `src/frontend`，切换前需按新工程重新构建验证。
 
 ## Docker 运行
 

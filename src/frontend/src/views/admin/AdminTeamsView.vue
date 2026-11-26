@@ -1,28 +1,26 @@
 ﻿<script setup lang="ts">
 /**
  * 团队管理（管理后台，admin；docs/contracts/teams.md 管理端）：
- * 全量团队列表（含已解散）+ 创建团队入口（创建动作自前台团队中心收敛到后台）；
+ * 全量团队列表（含已解散）+ 「指派组织」动作（PUT /admin/teams/{id}/org，
+ * 存量团队迁移用——组织化改造后团队创建入口收敛在组织空间，引用题目需归属组织）；
  * 行整行点击进入团队详情（成员 / 团队题库 / 团队题单 / 团队比赛只读浏览）。
  */
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { CirclePlus } from '@element-plus/icons-vue'
-import { NButton, NIcon, NTag } from 'naive-ui'
+import { NButton, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 
-import { adminListTeams } from '@/api/admin'
+import { adminAssignTeamOrg, adminListOrgs, adminListTeams } from '@/api/admin'
 import BaseAvatar from '@/components/BaseAvatar.vue'
-import { createTeam } from '@/api/teams'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
-import ModalFooter from '@/components/ModalFooter.vue'
 import PaginatedDataTable from '@/components/PaginatedDataTable.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
 import SearchFilterBar from '@/components/SearchFilterBar.vue'
 import WorkbenchShell from '@/components/WorkbenchShell.vue'
-import type { TeamAdminSummary } from '@/types'
+import type { OrgSummary, TeamAdminSummary } from '@/types'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -147,6 +145,26 @@ const columns = computed<DataTableColumns<TeamAdminSummary>>(() => [
     width: 170,
     render: (row) => formatDateTime(row.created_at),
   },
+  {
+    // 指派组织（迁移用；阻断冒泡：行 onClick 会吞成「进入团队详情」）
+    title: '',
+    key: 'ops',
+    width: 100,
+    render(row) {
+      return h(
+        NButton,
+        {
+          size: 'tiny',
+          secondary: true,
+          onClick: (e: MouseEvent) => {
+            e.stopPropagation()
+            openAssign(row)
+          },
+        },
+        { default: () => t('admin.teams.assignOrg') },
+      )
+    },
+  },
 ])
 
 /** 编辑 / 成员维护在团队空间完成；管理端整行点击进入只读详情 */
@@ -154,36 +172,55 @@ function rowProps(row: TeamAdminSummary) {
   return { style: 'cursor: pointer;', onClick: () => router.push(`/admin/teams/${row.id}`) }
 }
 
-// ---- 创建团队（自前台团队中心收敛到后台；POST /teams 权限仍为 admin/tutor） ----
+// ---- 指派组织（PUT /admin/teams/{id}/org；组织选项经管理端组织列表拉取） ----
 
-const showCreate = ref(false)
-const creating = ref(false)
-const createForm = ref({ name: '', description: '', visibility: 'private' as 'public' | 'private' })
+const showAssign = ref(false)
+const assigning = ref(false)
+const assignTarget = ref<TeamAdminSummary | null>(null)
+const assignOrgId = ref<string | null>(null)
+const orgs = ref<OrgSummary[]>([])
+const orgsLoading = ref(false)
 
-function openCreate() {
-  createForm.value = { name: '', description: '', visibility: 'private' }
-  showCreate.value = true
+const orgOptions = computed(() =>
+  orgs.value.map((org) => ({
+    label: `${org.name}（${t('admin.orgs.memberCount')} ${org.member_count}）`,
+    value: org.id,
+  })),
+)
+
+async function openAssign(row: TeamAdminSummary) {
+  assignTarget.value = row
+  assignOrgId.value = null
+  showAssign.value = true
+  if (!orgs.value.length) {
+    orgsLoading.value = true
+    try {
+      // 活跃组织全量（存量团队只能指派到 active 组织）；上限取 200 供选择
+      const result = await adminListOrgs({ page: 1, page_size: 200, status: 'active' })
+      orgs.value = result.items
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t('common.loadFailed'))
+    } finally {
+      orgsLoading.value = false
+    }
+  }
 }
 
-async function doCreate() {
-  if (!createForm.value.name.trim()) {
-    message.warning(t('teams.create.nameRequired'))
+async function doAssign() {
+  if (!assignTarget.value || !assignOrgId.value) {
+    message.warning(t('admin.teams.assignOrgRequired'))
     return
   }
-  creating.value = true
+  assigning.value = true
   try {
-    const team = await createTeam({
-      name: createForm.value.name.trim(),
-      description: createForm.value.description.trim() || undefined,
-      visibility: createForm.value.visibility,
-    })
-    message.success(t('admin.teams.createSuccess'))
-    showCreate.value = false
-    void router.push(`/admin/teams/${team.id}`)
+    await adminAssignTeamOrg(assignTarget.value.id, assignOrgId.value)
+    message.success(t('admin.teams.assignOrgSuccess'))
+    showAssign.value = false
+    load()
   } catch (error) {
     message.error(error instanceof Error ? error.message : t('common.operationFailed'))
   } finally {
-    creating.value = false
+    assigning.value = false
   }
 }
 </script>
@@ -210,12 +247,6 @@ async function doCreate() {
         :aria-label="t('admin.teams.status')"
       />
       <template #actions>
-        <n-button type="primary" size="small" @click="openCreate">
-          <template #icon>
-            <n-icon :component="CirclePlus" />
-          </template>
-          {{ t('admin.teams.create') }}
-        </n-button>
         <RefreshButton :loading="loading" :aria-label="t('action.refresh')" @click="load" />
       </template>
     </SearchFilterBar>
@@ -230,7 +261,7 @@ async function doCreate() {
       v-model:page-size="pageSize"
       :page-sizes="[20, 50, 100]"
       :empty-text="t('admin.teams.empty')"
-      :table-props="{ rowProps, scrollX: 1100 }"
+      :table-props="{ rowProps, scrollX: 1200 }"
       @update:page="
         (p: number) => {
           changePage(p)
@@ -249,44 +280,37 @@ async function doCreate() {
       </template>
     </PaginatedDataTable>
 
-    <!-- 创建团队（表单与前台原创建弹窗一致：name ≤64 / description ≤2000） -->
+    <!-- 指派组织（存量团队迁移用；组织创建在组织管理 / 组织中心进行） -->
     <n-modal
-      v-model:show="showCreate"
-      :title="t('admin.teams.create')"
+      v-model:show="showAssign"
+      :title="t('admin.teams.assignOrgTitle')"
       preset="card"
-      style="width: 480px"
+      style="width: 440px"
     >
-      <n-form label-placement="top">
-        <n-form-item :label="t('teams.create.name')" required>
-          <n-input
-            v-model:value="createForm.name"
-            maxlength="64"
-            :placeholder="t('teams.create.namePlaceholder')"
-          />
-        </n-form-item>
-        <n-form-item :label="t('teams.create.description')">
-          <n-input
-            v-model:value="createForm.description"
-            type="textarea"
-            :rows="3"
-            maxlength="2000"
-            :placeholder="t('teams.create.descriptionPlaceholder')"
-          />
-        </n-form-item>
-        <n-form-item :label="t('teams.settings.visibility')">
-          <n-radio-group v-model:value="createForm.visibility">
-            <n-radio value="private">{{ t('teams.settings.visibilityPrivate') }}</n-radio>
-            <n-radio value="public">{{ t('teams.settings.visibilityPublic') }}</n-radio>
-          </n-radio-group>
-        </n-form-item>
-      </n-form>
+      <p class="assign-hint">
+        {{
+          t('admin.teams.assignOrgHint', {
+            name: assignTarget?.name ?? '',
+          })
+        }}
+      </p>
+      <n-select
+        v-model:value="assignOrgId"
+        :options="orgOptions"
+        :loading="orgsLoading"
+        filterable
+        clearable
+        :placeholder="t('admin.orgs.org')"
+      />
       <template #footer>
-        <ModalFooter
-          :loading="creating"
-          :confirm-text="t('action.save')"
-          @cancel="showCreate = false"
-          @confirm="doCreate"
-        />
+        <div class="assign-footer">
+          <n-button size="small" quaternary @click="showAssign = false">
+            {{ t('action.cancel') }}
+          </n-button>
+          <n-button size="small" type="primary" :loading="assigning" @click="doAssign">
+            {{ t('action.confirm') }}
+          </n-button>
+        </div>
       </template>
     </n-modal>
   </WorkbenchShell>
@@ -296,5 +320,16 @@ async function doCreate() {
 .cell-name {
   font-weight: 600;
   color: var(--app-text);
+}
+.assign-hint {
+  margin: 0 0 10px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.assign-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 </style>

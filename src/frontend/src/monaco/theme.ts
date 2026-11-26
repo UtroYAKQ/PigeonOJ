@@ -52,7 +52,8 @@ const lightColors: Record<string, string> = {
   'editor.foreground': '#333639',
   'editorLineNumber.foreground': '#8a9099',
   'editorLineNumber.activeForeground': '#333639',
-  'editorCursor.foreground': '#f4511e',
+  // 亮色编辑区插入光标用近黑色（原主色橙在白底下对比一般，且曾反馈“白/看不清”）
+  'editorCursor.foreground': '#1f2328',
   'editor.selectionBackground': '#f4511e22',
   'editorIndentGuide.background': '#efeff5',
   'editorWhitespace.foreground': '#0000001a',

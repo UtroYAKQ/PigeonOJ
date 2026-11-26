@@ -1,0 +1,61 @@
+import type { RouteLocationNormalizedLoaded } from 'vue-router'
+
+import 'vue-router'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    /** 菜单 / 页面 / 浏览器标题 */
+    title?: string
+    /** vue-i18n 文案 key，存在时优先用于布局标题 */
+    titleKey?: string
+    /** 菜单图标名（key 见 @/layout/icon.ts） */
+    icon?: string
+    /** 是否在侧边栏隐藏（用户设置 / 管理后台由头像菜单进入） */
+    hidden?: boolean
+    /** 需要的全局角色 code 列表（满足任一即可，见 docs/security.md） */
+    roles?: string[]
+    /** 是否需要登录 */
+    requiresAuth?: boolean
+    /** 公开页面（登录 / 注册），跳过登录校验 */
+    public?: boolean
+    /**
+     * 是否 KeepAlive 缓存页面实例（仅无参数的列表 / 工作台页使用）：
+     * 从上下文页经面包屑返回时恢复状态（筛选、页码、数据），不重新拉取；
+     * 详情 / 编辑等参数页一律不缓存（避免跨参数串数据与脏数据）。
+     */
+    keepAlive?: boolean
+    /** 占位页配置（尚未实现的模块页面） */
+    placeholder?: {
+      title?: string
+      titleKey?: string
+      description?: string
+      descriptionKey?: string
+      endpoints?: string[]
+    }
+    /** 对象上下文页面（详情、创建、提交结果等）；不进入侧边栏菜单 */
+    contextPage?: boolean
+    /**
+     * 复用页的返回兜底路径（无历史直达打开时 goBackOrFallback 落点），
+     * 缺省由组件自身默认值兜底（如题目预览回 /admin/problems）
+     */
+    backFallback?: string
+    /** 复用页的返回按钮文案 key（如提交查看上下文题目预览回「返回提交查看」） */
+    backLabelKey?: string
+    /**
+     * 面包屑父级工作台：上下文页在面包屑中挂到所属工作台下，
+     * 如 管理后台/题目管理/编辑题目（{ titleKey: 'nav.problemsManage', path: '/admin/problems' }）。
+     * path 支持按当前路由解析的动态路径（如题单上下文写题页挂到具体题单详情：
+     * path: (route) => `/problem-sets/${route.params.setId}`）；
+     * 数组形式声明多级父链（按序插入，如 题单/题单详情/题目详情/评测结果）
+     */
+    breadcrumbParent?:
+      | {
+          titleKey: string
+          path: string | ((route: RouteLocationNormalizedLoaded) => string)
+        }
+      | Array<{
+          titleKey: string
+          path: string | ((route: RouteLocationNormalizedLoaded) => string)
+        }>
+  }
+}

@@ -18,6 +18,7 @@ import BaseAvatar from '@/components/BaseAvatar.vue'
 import { message } from '@/utils/feedback'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
+import { contestStatusLabelKey } from '@/constants/contestStatus'
 import type { ContestSummary, PageResult } from '@/types'
 
 const router = useRouter()
@@ -69,12 +70,6 @@ const statusValue = computed({
     load()
   },
 })
-
-const statusLabel = computed<Record<string, string>>(() => ({
-  running: t('contests.statusRunning'),
-  scheduled: t('contests.statusScheduled'),
-  finished: t('contests.statusFinished'),
-}))
 
 function openContest(row: ContestSummary) {
   router.push(`/contests/${row.id}`)
@@ -152,7 +147,7 @@ function openContest(row: ContestSummary) {
                 <h3 class="contest-card__title" :title="row.title">{{ row.title }}</h3>
                 <span class="state-chip" :class="`state-chip--${row.status}`">
                   <span class="state-chip__dot" aria-hidden="true" />
-                  {{ statusLabel[row.status] }}
+                  {{ t(contestStatusLabelKey(row.status)) }}
                 </span>
                 <span
                   v-if="row.board_frozen"

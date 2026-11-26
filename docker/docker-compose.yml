@@ -3,7 +3,6 @@
 # ⚠️ 必须从仓库根目录加 --env-file 启动，否则 ${MINIO_ACCESS_KEY} 等插值回落到弱默认值，
 #    与后端 env_file 注入的真实密钥不一致（表现为对象存储全部 503 InvalidAccessKeyId）：
 #    docker compose --env-file .env -f docker/docker-compose.yml up -d --build
-name: pigeonoj
 services:
   db:
     image: postgres:16-alpine

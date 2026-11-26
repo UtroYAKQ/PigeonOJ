@@ -5,10 +5,15 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import ProblemSetServiceDep, SessionDep, SubmissionServiceDep
-from app.core.dependency import get_current_user, get_optional_user
+from app.api.deps import (
+    ProblemSetServiceDep,
+    SessionDep,
+    SubmissionServiceDep,
+    get_current_user,
+    get_optional_user,
+)
 from app.models.user import User
-from app.rpc.judge_gateway import dispatch_submission
+from app.rpc.judge_gateway import commit_and_dispatch
 from app.schemas.judge import SubmissionCreate, SubmissionCreatedResponse
 from app.schemas.problem import ProblemDetail
 from app.schemas.problem_set import (
@@ -48,7 +53,7 @@ async def create_problem_set(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSetSummary]:
-    """创建题单（admin/tutor；团队题单随 teams 模块开放）。"""
+    """创建题单（admin；团队题单随 teams 模块开放）。"""
     summary = await service.create(user, body)
     await db.commit()  # 显式提交：确保数据持久化后再返回
     return ok(summary)
@@ -72,7 +77,7 @@ async def update_problem_set(
     db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSetSummary]:
-    """编辑题单元信息（admin/tutor）。"""
+    """编辑题单元信息（admin）。"""
     summary = await service.update(set_id, user, body)
     await db.commit()  # 显式提交：确保数据持久化
     return ok(summary)
@@ -141,6 +146,5 @@ async def create_problem_set_submission(
         SubmissionCreate(problem_id=problem_id, language=body.language, code=body.code),
         bypass_visibility=True,  # 私有题豁免：题单门控（可见+归属）已通过
     )
-    await db.commit()  # 显式提交：确保 submission 已持久化，dispatch_submission 才能找到它
-    await dispatch_submission(submission.id)
+    await commit_and_dispatch(db, submission)
     return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))

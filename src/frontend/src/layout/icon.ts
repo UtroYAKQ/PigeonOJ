@@ -3,15 +3,18 @@
  */
 import {
   Aim,
+  ChatDotRound,
   Collection,
   Document,
   HomeFilled,
   Lock,
+  OfficeBuilding,
   Monitor,
   Odometer,
   Picture,
   PriceTag,
   Setting,
+  Share,
   Trophy,
   User,
   UserFilled,
@@ -21,6 +24,7 @@ import type { Component } from 'vue'
 
 export const iconMap: Record<string, Component> = {
   HomeFilled,
+  OfficeBuilding,
   Collection,
   Trophy,
   UserFilled,
@@ -34,6 +38,8 @@ export const iconMap: Record<string, Component> = {
   PriceTag,
   Aim,
   Picture,
+  ChatDotRound,
+  Share,
 }
 
 export function resolveIcon(name?: string): Component | null {

@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+import pytest
+
 import httpx
 from sqlalchemy import select
 
@@ -299,3 +301,24 @@ async def test_revoke_others_session_forbidden(client: httpx.AsyncClient) -> Non
         headers={"Authorization": f"Bearer {token_b}"},
     )
     assert resp.json()["code"] == 3001
+
+
+@pytest.mark.asyncio
+async def test_editor_preferences(client, user_headers):
+    """编辑器偏好随资料更新持久化；非法字号 / 字体 1001（docs/contracts/users.md）。"""
+    resp = await client.put(
+        "/api/v1/users/me",
+        json={"editor_font_size": 18, "editor_font_family": "fira-code"},
+        headers=user_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    data = resp.json()["data"]
+    assert data["editor_font_size"] == 18
+    assert data["editor_font_family"] == "fira-code"
+
+    resp = await client.put("/api/v1/users/me", json={"editor_font_size": 30}, headers=user_headers)
+    assert resp.json()["code"] == 1001
+    resp = await client.put(
+        "/api/v1/users/me", json={"editor_font_family": "comic-sans"}, headers=user_headers
+    )
+    assert resp.json()["code"] == 1001

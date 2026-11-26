@@ -1,7 +1,7 @@
 ﻿"""比赛域服务：建赛编排、报名、赛内访问窗口、ACM/IOI 计分与封榜解冻。
 
 时间语义：全部使用 UTC aware datetime（TIMESTAMPTZ 列；naive 输入按 UTC 归一）。
-封榜按时间自动触发；解冻必须由 admin/tutor 手动执行，解冻时从 submissions
+封榜按时间自动触发；解冻必须由 admin 手动执行，解冻时从 submissions
 权威重算榜单回填封榜期间结果（docs/contracts/contests.md 第 5 条修订版）。
 """
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
@@ -24,6 +25,8 @@ from app.enums import (
     ProblemStatus,
     ProblemVisibility,
     RegistrationStatus,
+    RoleCode,
+    RoleLevel,
     RuleType,
     SubmissionStatus,
     SubmitType,
@@ -56,11 +59,13 @@ from app.schemas.contest import (
     ScoreboardShowOut,
 )
 from app.schemas.problem import ProblemDetail
+from app.services.judge import SubmissionService  # 判题上下文：交题派发兜底（构造见 submit_problem）
 from app.services.problem import ProblemService, to_problem_detail
 from app.services.system_config import ConfigService
+from app.services.team import TeamService  # 团队角色校验委托（无环：team 不反向依赖 contest）
 
-# 全站比赛管理角色（docs/contracts/contests.md：公开比赛由 admin/tutor 创建管理）
-CONTEST_MANAGER_ROLES: set[str] = {"admin", "tutor"}
+# 全站比赛管理角色（docs/contracts/contests.md：公开比赛由 admin 创建管理；tutor 已下线）
+CONTEST_MANAGER_ROLES: set[str] = {RoleCode.ADMIN}
 # 赛时仍可编辑的字段（赛时工具端点承载；PUT 守卫 = ContestUpdate 全部字段 - 本集合）。
 # 从 ContestUpdate.model_fields 推导守卫清单，新增 schema 字段自动纳入锁定
 ANNOUNCEMENT_EDITABLE_FIELDS: set[str] = {"announcement"}
@@ -102,6 +107,16 @@ def _letter(index: int) -> str:
 # ---------------- 滚榜纯函数（可单测；不触库） ----------------
 
 
+@dataclass
+class CellState:
+    """榜单单格演化状态（终局真值与揭晓序列逐步演化共用，默认零值）。"""
+
+    accepted: bool = False
+    attempts: int = 0
+    penalty: int = 0
+    score: int = 0
+
+
 def _row_key(rule_type: str, row: BoardRow) -> tuple:
     """榜单排序键（与 board() 口径一致）：ACM 通过数↓罚时↑；IOI 总分↓通过数↑。"""
     if rule_type == RuleType.ACM:
@@ -109,19 +124,8 @@ def _row_key(rule_type: str, row: BoardRow) -> tuple:
     return (-row.total_score, -row.solved, row.nickname)
 
 
-def _aggregate_final_rows(
-    contest: Contest,
-    subs: list[Submission],
-    contest_problems: list,
-    factor: int,
-    nickname_of: dict[uuid.UUID, str],
-) -> tuple[list[BoardRow], dict]:
-    """以 submissions 现算最终榜（与 _recompute_rankings 同口径，纯函数不落库）。
-
-    返回 (rows, cell_state)：cell_state[(user_id, problem_id)] 为每格终局真值
-    {accepted, attempts, penalty, score}，供揭晓序列逐步演化。
-    """
-    start = _aware(contest.start_time)
+def _group_terminal(subs: list[Submission]) -> dict[tuple[uuid.UUID, uuid.UUID], list[Submission]]:
+    """过滤非终态提交后按 (user, problem) 分组（榜单聚合唯一事实源预处理）。"""
     grouped: dict[tuple[uuid.UUID, uuid.UUID], list[Submission]] = {}
     for s in subs:
         if s.status in (
@@ -131,9 +135,24 @@ def _aggregate_final_rows(
         ):
             continue
         grouped.setdefault((s.user_id, s.problem_id), []).append(s)
+    return grouped
 
-    cell_state: dict[tuple[uuid.UUID, uuid.UUID], dict] = {}
-    for (user_id, problem_id), group in grouped.items():
+
+def _aggregate_cells(
+    contest: Contest,
+    subs: list[Submission],
+    factor: int,
+) -> dict[tuple[uuid.UUID, uuid.UUID], tuple[CellState, Submission | None]]:
+    """榜单聚合唯一实现：终态提交 → 每格 CellState + 首过提交。
+
+    _aggregate_final_rows（榜单展示）与 _recompute_rankings（落库重建）共用，
+    保证两条路径口径恒等。ACM：attempts = 首过前错误提交数，penalty = 分钟差 +
+    attempts × 系数；IOI：score = 组内历史最高分。纯函数不落库。
+    """
+    start = _aware(contest.start_time)
+    grouped = _group_terminal(subs)
+    result: dict[tuple[uuid.UUID, uuid.UUID], tuple[CellState, Submission | None]] = {}
+    for key, group in grouped.items():
         group.sort(key=lambda s: s.created_at)
         accepted_subs = [s for s in group if s.status == SubmissionStatus.ACCEPTED]
         accepted = bool(accepted_subs)
@@ -152,27 +171,32 @@ def _aggregate_final_rows(
             attempts = len(group)
             penalty = 0
         score = max((int(s.score or 0) for s in group), default=0)
-        cell_state[(user_id, problem_id)] = {
-            "accepted": accepted,
-            "attempts": attempts,
-            "penalty": penalty,
-            "score": score,
-        }
+        result[key] = (
+            CellState(accepted=accepted, attempts=attempts, penalty=penalty, score=score),
+            first_accepted,
+        )
+    return result
 
-    user_ids = {uid for uid, _pid in grouped}
+
+def _aggregate_final_rows(
+    contest: Contest,
+    subs: list[Submission],
+    contest_problems: list,
+    factor: int,
+    nickname_of: dict[uuid.UUID, str],
+) -> tuple[list[BoardRow], dict[tuple[uuid.UUID, uuid.UUID], CellState]]:
+    """以 submissions 现算最终榜（与 _recompute_rankings 同口径，纯函数不落库）。
+
+    返回 (rows, cell_state)：cell_state[(user_id, problem_id)] 为每格终局真值
+    CellState（accepted / attempts / penalty / score），供揭晓序列逐步演化。
+    """
+    cell_state_full = _aggregate_cells(contest, subs, factor)
+    cell_state = {key: state for key, (state, _first) in cell_state_full.items()}
+    user_ids = {uid for uid, _pid in cell_state_full}
     rows: list[BoardRow] = []
     for user_id in user_ids:
         cells = [
-            BoardCell(
-                problem_id=cp.problem_id,
-                letter=cp.letter,
-                problem_score=cp.score,
-                accepted=cell_state.get((user_id, cp.problem_id), {}).get("accepted", False),
-                attempts=cell_state.get((user_id, cp.problem_id), {}).get("attempts", 0),
-                penalty=cell_state.get((user_id, cp.problem_id), {}).get("penalty", 0),
-                score=cell_state.get((user_id, cp.problem_id), {}).get("score", 0),
-                is_frozen=False,
-            )
+            cell_state.get((user_id, cp.problem_id), CellState())
             for cp, _problem in contest_problems
         ]
         rows.append(
@@ -183,7 +207,19 @@ def _aggregate_final_rows(
                 solved=sum(1 for c in cells if c.accepted),
                 total_penalty=sum(c.penalty for c in cells),
                 total_score=sum(c.score for c in cells),
-                cells=cells,
+                cells=[
+                    BoardCell(
+                        problem_id=cp.problem_id,
+                        letter=cp.letter,
+                        problem_score=cp.score,
+                        accepted=state.accepted,
+                        attempts=state.attempts,
+                        penalty=state.penalty,
+                        score=state.score,
+                        is_frozen=False,
+                    )
+                    for (cp, _problem), state in zip(contest_problems, cells, strict=True)
+                ],
             )
         )
     rows.sort(key=lambda r: _row_key(contest.rule_type, r))
@@ -213,22 +249,22 @@ def build_reveal_steps(
             letters.setdefault(cell.problem_id, cell.letter)
 
     # 演化起点 = 冻结快照（base_rows）；终点真值 = final_rows
-    state: dict[tuple[uuid.UUID, uuid.UUID], dict] = {}
+    state: dict[tuple[uuid.UUID, uuid.UUID], CellState] = {}
     for row in base_rows:
         for cell in row.cells:
-            state[(row.user_id, cell.problem_id)] = {
-                "accepted": cell.accepted,
-                "attempts": cell.attempts,
-                "penalty": cell.penalty,
-                "score": cell.score,
-            }
-    final_state: dict[tuple[uuid.UUID, uuid.UUID], dict] = {
-        (row.user_id, cell.problem_id): {
-            "accepted": cell.accepted,
-            "attempts": cell.attempts,
-            "penalty": cell.penalty,
-            "score": cell.score,
-        }
+            state[(row.user_id, cell.problem_id)] = CellState(
+                accepted=cell.accepted,
+                attempts=cell.attempts,
+                penalty=cell.penalty,
+                score=cell.score,
+            )
+    final_state: dict[tuple[uuid.UUID, uuid.UUID], CellState] = {
+        (row.user_id, cell.problem_id): CellState(
+            accepted=cell.accepted,
+            attempts=cell.attempts,
+            penalty=cell.penalty,
+            score=cell.score,
+        )
         for row in final_rows
         for cell in row.cells
     }
@@ -245,14 +281,14 @@ def build_reveal_steps(
     for uid in reveal_order:
         for s in queue[uid]:
             key = (uid, s.problem_id)
-            st = state.get(key, {"accepted": False, "attempts": 0, "penalty": 0, "score": 0})
-            fin = final_state.get(key, {"accepted": False, "attempts": 0, "penalty": 0, "score": 0})
+            st = state.get(key, CellState())
+            fin = final_state.get(key, CellState())
             if s.status == SubmissionStatus.ACCEPTED:
-                st["accepted"] = True
-                st["penalty"] = fin["penalty"]
+                st.accepted = True
+                st.penalty = fin.penalty
             else:
-                st["attempts"] += 1
-            st["score"] = max(st["score"], int(s.score or 0))
+                st.attempts += 1
+            st.score = max(st.score, int(s.score or 0))
             state[key] = st
             steps.append(
                 RevealStep(
@@ -263,9 +299,9 @@ def build_reveal_steps(
                     submission_id=s.id,
                     created_at=s.created_at,
                     accepted=s.status == SubmissionStatus.ACCEPTED,
-                    score=st["score"] if rule_type == RuleType.IOI else 0,
-                    penalty=st["penalty"] if rule_type == RuleType.ACM else 0,
-                    attempts=st["attempts"],
+                    score=st.score if rule_type == RuleType.IOI else 0,
+                    penalty=st.penalty if rule_type == RuleType.ACM else 0,
+                    attempts=st.attempts,
                 )
             )
     return steps
@@ -301,7 +337,7 @@ class ContestService:
         self._submitter = submitter
 
     async def _is_contest_manager(self, user: User | None) -> bool:
-        """比赛管理角色门（创建入口 / 管理后台列表）：admin / tutor。"""
+        """比赛管理角色门（创建入口 / 管理后台列表）：admin。"""
         if user is None:
             return False
         codes = await get_user_role_codes(self.db, user.id)
@@ -317,8 +353,7 @@ class ContestService:
         keyword: str | None = None,
         contest_type: ContestType | None = None,
     ) -> tuple[list[ContestSummary], int]:
-        """管理视图：admin 全量比赛（contest_type 缺省 = 公开 + 团队全量）；
-        tutor 仅本人创建（单一所有权模型），全部状态。"""
+        """管理视图：admin 全量比赛（contest_type 缺省 = 公开 + 团队全量），全部状态。"""
         owner_id = None if await is_admin(self.db, user) else user.id
         rows, total = await self.repo.list_manage(
             page=page, page_size=page_size, status=status, keyword=keyword, owner_id=owner_id,
@@ -328,7 +363,7 @@ class ContestService:
 
     async def _can_manage(self, user: User | None, contest: Contest | None = None) -> bool:
         """单个比赛的管理权限（单一所有权模型，docs/security.md）：admin 管理全站比赛；
-        其余管理角色（tutor）仅可管理本人创建的比赛；团队比赛由团队创建者 / 管理员管理。"""
+        其余用户仅可管理本人创建的比赛；团队比赛由团队创建者 / 管理员管理。"""
         if user is None:
             return False
         if await is_admin(self.db, user):
@@ -336,7 +371,7 @@ class ContestService:
         if contest is None:
             return False
         if contest.contest_type == ContestType.TEAM and contest.team_id is not None:
-            return await self._has_team_role(user, contest.team_id, level="admin")
+            return await self._has_team_role(user, contest.team_id, level=RoleLevel.ADMIN)
         return user.id == contest.owner_id
 
     async def require_manage(self, contest_id: uuid.UUID, user: User) -> Contest:
@@ -651,9 +686,7 @@ class ContestService:
         after = now > _aware(contest.end_time)
         if self._submitter is not None:
             submitter = self._submitter
-        else:  # 非路由组合根兜底：延迟导入避免模块环
-            from app.services.judge import SubmissionService
-
+        else:  # 非路由组合根兜底（tests / rpc / init_app 直构 ContestService(db)）
             submitter = SubmissionService(self.db)
         submission = await submitter.create_contest_submission(
             user,
@@ -786,19 +819,23 @@ class ContestService:
 
     # ---------------- 创建 / 编辑 ----------------
 
-    async def create(self, user: User, body: ContestCreate) -> ContestSummary:
-        if not await self._is_contest_manager(user):
-            raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
+    async def _create_contest(
+        self, user: User, body: ContestCreate, *, team_id: uuid.UUID | None = None
+    ) -> ContestSummary:
+        """建赛唯一实现：公开赛（team_id=None）与团队赛仅 contest_type / team_id / 编排候选范围不同。"""
         self._validate_times(
             body.start_time, body.end_time, body.register_start_time, body.register_end_time
         )
-        await self._validate_problem_ids(user, [p.problem_id for p in body.problems])
+        await self._validate_problem_ids(
+            user, [p.problem_id for p in body.problems], team_id=team_id
+        )
         contest = await self.repo.create(
             Contest(
                 title=body.title.strip(),
                 description=body.description,
                 logo=body.logo,
-                contest_type=ContestType.PUBLIC,
+                contest_type=ContestType.TEAM if team_id is not None else ContestType.PUBLIC,
+                team_id=team_id,
                 owner_id=user.id,
                 rule_type=body.rule_type,
                 start_time=_aware(body.start_time),
@@ -811,6 +848,11 @@ class ContestService:
         )
         await self._replace_problems(contest.id, body.problems, rule_type=body.rule_type)
         return await self._to_summary(self.repo, contest)
+
+    async def create(self, user: User, body: ContestCreate) -> ContestSummary:
+        if not await self._is_contest_manager(user):
+            raise APIError(AUTH_FORBIDDEN, "无权限：需要管理角色", 403)
+        return await self._create_contest(user, body)
 
     async def update(
         self, contest_id: uuid.UUID, user: User, body: ContestUpdate
@@ -909,18 +951,10 @@ class ContestService:
     async def _has_team_role(
         self, user: User, team_id: uuid.UUID | None, *, level: str = "member"
     ) -> bool:
-        """团队角色检查（团队比赛可见性 / 报名 / 管理权共用）：匿名恒 False。
-
-        level='member' 任意团队角色；'admin' 创建者 / 管理员。
-        """
+        """团队角色检查（团队比赛可见性 / 报名 / 管理权共用）：匿名恒 False。委托 TeamService。"""
         if user is None or team_id is None:
             return False
-        codes = set(
-            await RoleRepository(self.db).get_team_role_codes(user.id, team_id)
-        )
-        if level == "admin":
-            return bool({"team_creator", "team_admin"} & codes)
-        return bool({"team_creator", "team_admin", "team_member"} & codes)
+        return await TeamService(self.db).has_team_roles(user, team_id, level=level)
 
     async def list_team_contests(
         self,
@@ -944,31 +978,7 @@ class ContestService:
 
         contest_type='team' + team_id 落库；编排候选在公开比赛规则之上放开本团队题目。
         """
-        self._validate_times(
-            body.start_time, body.end_time, body.register_start_time, body.register_end_time
-        )
-        await self._validate_problem_ids(
-            user, [p.problem_id for p in body.problems], team_id=team_id
-        )
-        contest = await self.repo.create(
-            Contest(
-                title=body.title.strip(),
-                description=body.description,
-                logo=body.logo,
-                contest_type=ContestType.TEAM,
-                team_id=team_id,
-                owner_id=user.id,
-                rule_type=body.rule_type,
-                start_time=_aware(body.start_time),
-                end_time=_aware(body.end_time),
-                register_start_time=_aware(body.register_start_time),
-                register_end_time=_aware(body.register_end_time),
-                freeze_time=_aware(body.freeze_time) if body.freeze_time else None,
-                status=ContestStatus.SCHEDULED,
-            )
-        )
-        await self._replace_problems(contest.id, body.problems, rule_type=body.rule_type)
-        return await self._to_summary(self.repo, contest)
+        return await self._create_contest(user, body, team_id=team_id)
 
     # ---------------- 榜单 ----------------
 
@@ -977,7 +987,8 @@ class ContestService:
 
         团队比赛限团队成员 / admin（封闭空间，非成员 2003）。
         缓存未命中才全量计算（contest_rankings 为权威）并回填，TTL 按场景分级：
-        进行中 3s / 封榜 60s / 已结束 24h；写路径（判题回写、封榜、解冻）主动失效。
+        进行中 20s / 封榜 60s / 已结束 24h（BOARD_CACHE_TTL_* 常量）；
+        写路径（判题回写、封榜、解冻）主动失效。
         并发未命中以 Redis SETNX 重建锁防击穿，Redis 异常一律降级直查数据库。
         """
         contest = await self._get_contest(contest_id)
@@ -1052,6 +1063,19 @@ class ContestService:
             await get_redis().delete(_board_cache_key(contest_id))
         except Exception:
             logger.warning("榜单缓存失效失败 contest_id=%s（等待 TTL 兜底）", contest_id, exc_info=True)
+
+    async def _invalidate_board_caches(self, contest_ids: list[uuid.UUID]) -> None:
+        """批量失效榜单缓存（transition 封榜场次多时走 pipeline，少一次网络往返）。"""
+        if not contest_ids:
+            return
+        try:
+            r = get_redis()
+            async with r.pipeline(transaction=False) as pipe:
+                for contest_id in contest_ids:
+                    pipe.delete(_board_cache_key(contest_id))
+                await pipe.execute()
+        except Exception:
+            logger.warning("榜单缓存批量失效失败（等待 TTL 兜底）", exc_info=True)
 
     async def _compute_board(self, contest: Contest) -> BoardOut:
         """全量计算榜单：按赛制排序（ACM 通过数↓罚时↑；IOI 总分↓通过数↑），封榜展示冻结快照。"""
@@ -1182,7 +1206,7 @@ class ContestService:
     # ---------------- 封榜 / 解冻 / 状态推进 ----------------
 
     async def unfreeze(self, user: User, contest_id: uuid.UUID) -> ContestSummary:
-        """手动解冻（admin/tutor）：从 submissions 权威重算榜单，回填封榜期间结果。
+        """手动解冻（admin）：从 submissions 权威重算榜单，回填封榜期间结果。
 
         仅赛后可执行（running 时返回 3002）——封榜是赛时公平性机制，
         赛中解冻会提前泄露封榜期提交结果；比赛结束前榜单保持冻结快照。
@@ -1201,7 +1225,7 @@ class ContestService:
     async def update_announcement(
         self, user: User, contest_id: uuid.UUID, body: AnnouncementUpdate
     ) -> ContestSummary:
-        """更新比赛公告（admin/tutor / 团队管理角色；赛时受控编辑）。
+        """更新比赛公告（admin / 团队管理角色；赛时受控编辑）。
 
         空字符串 = 清空公告（详情页公告条随之隐藏）。
         """
@@ -1263,7 +1287,7 @@ class ContestService:
         ):
             contest.board_frozen = True
             contest.frozen_at = now
-            await self.rankings.freeze_rows(contest.id)
+            await self.rankings.freeze_rows([contest.id])
             await self.db.flush()
             await self._invalidate_board_cache(contest.id)
         else:
@@ -1273,55 +1297,30 @@ class ContestService:
     async def _recompute_rankings(self, contest: Contest) -> None:
         """重算榜单：以 submissions 为唯一事实源重建 (user, problem) 行。
 
-        ACM：attempts = 首次通过前的错误提交数（非 system_error），penalty = 分钟差 + attempts × 系数；
-        IOI：score = 各题历史最高分。
+        聚合口径统一走 _aggregate_cells（与 _aggregate_final_rows 同源）；
+        ACM：attempts = 首次通过前的错误提交数（非 system_error），
+        penalty = 分钟差 + attempts × 系数；IOI：score = 各题历史最高分。
         """
         subs = await self.submissions.list_contest_submissions(contest.id)
-        terminal = [
-            s
-            for s in subs
-            if s.status
-            not in (SubmissionStatus.PENDING, SubmissionStatus.JUDGING, SubmissionStatus.SYSTEM_ERROR)
-        ]
         factor = int(
             await self.config.get_value(
                 "contest", "contest.penalty_factor_minutes", DEFAULT_PENALTY_FACTOR_MINUTES
             )
         )
-        start = _aware(contest.start_time)
-        grouped: dict[tuple[uuid.UUID, uuid.UUID], list[Submission]] = {}
-        for s in terminal:
-            grouped.setdefault((s.user_id, s.problem_id), []).append(s)
-
+        aggregated = _aggregate_cells(contest, subs, factor)
         fresh: list[ContestRanking] = []
-        for (user_id, problem_id), group in grouped.items():
-            group.sort(key=lambda s: s.created_at)
-            accepted_subs = [s for s in group if s.status == SubmissionStatus.ACCEPTED]
-            accepted = bool(accepted_subs)
-            first_accepted = accepted_subs[0] if accepted else None
-            if first_accepted is not None:
-                attempts = sum(1 for s in group if s.status != SubmissionStatus.ACCEPTED and s.created_at < first_accepted.created_at)
-                penalty = (
-                    int((_aware(first_accepted.created_at) - start).total_seconds() // 60)
-                    + attempts * factor
-                    if contest.rule_type == RuleType.ACM
-                    else 0
-                )
-            else:
-                attempts = len(group)
-                penalty = 0
+        for (user_id, problem_id), (state, first_accepted) in aggregated.items():
             # 提交分数按赛制原生派生（ACM 二值 / IOI 部分计分），取组内最高即为该题得分
-            score = max((int(s.score or 0) for s in group), default=0)
             fresh.append(
                 ContestRanking(
                     contest_id=contest.id,
                     user_id=user_id,
                     problem_id=problem_id,
-                    accepted=accepted,
+                    accepted=state.accepted,
                     accepted_at=first_accepted.created_at if first_accepted else None,
-                    attempts=attempts,
-                    penalty=penalty,
-                    score=score,
+                    attempts=state.attempts,
+                    penalty=state.penalty,
+                    score=state.score,
                     is_frozen=False,
                 )
             )
@@ -1397,7 +1396,7 @@ class ContestService:
     async def transition(self) -> None:
         """周期状态推进：开赛 → running；封榜（自动）；结束 → finished（不自动解冻）。
 
-        解冻由 admin/tutor 手动触发（unfreeze），结束后榜单保持冻结快照直到人工解冻。
+        解冻由 admin 手动触发（unfreeze），结束后榜单保持冻结快照直到人工解冻。
         本方法运行在独立后台会话（init_app.contest_transition_loop），
         请求级 get_db 不会为其提交，故由本方法显式 commit。
         """
@@ -1408,11 +1407,19 @@ class ContestService:
         freezing = await self.repo.list_freeze_candidates(now)
         if freezing:
             await self.repo.freeze_contests([c.id for c in freezing], now)
-            for contest in freezing:
-                await self.rankings.freeze_rows(contest.id)
+            await self.rankings.freeze_rows([c.id for c in freezing])
         # 结束（不自动解冻：真实榜单回填由人工解冻触发）
         await self.repo.finish_due_contests(now)
         await self.db.commit()
         # 封榜改变 board_frozen 快照标记，commit 后失效对应榜单缓存（并发读不可见未提交数据）
-        for contest in freezing:
-            await self._invalidate_board_cache(contest.id)
+        if freezing:
+            await self._invalidate_board_caches([c.id for c in freezing])
+
+
+async def is_problem_locked_by_running_contest(db: AsyncSession, problem_id: uuid.UUID) -> bool:
+    """题目是否被进行中的比赛引用（community 模块比赛门禁端口，community.md「比赛防作弊门禁」）。
+
+    跨上下文只经本公开函数查询（architecture.md：跨模块只 import 对方
+    service / repository 的公开类与函数），不读取 contest 聚合模型。
+    """
+    return await ContestRepository(db).is_problem_in_running_contest(problem_id)

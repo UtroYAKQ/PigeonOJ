@@ -14,7 +14,7 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = 120_000_000
 
 from app.core.exceptions import APIError, PARAM_FORMAT_INVALID, RATE_LIMITED, SYSTEM_UPSTREAM_FAILURE
-from app.core.redis import redis_incr
+from app.core.redis import UPLOAD_RATE_KEY_PREFIX, redis_incr
 from app.core.storage import S3Error, get_storage
 from app.schemas.file import AvatarUploadResult, ImageUploadResult
 
@@ -41,7 +41,7 @@ R = TypeVar("R", AvatarUploadResult, ImageUploadResult)
 
 async def _ensure_upload_quota(user_id: uuid.UUID, kind: str) -> None:
     limit, window = _UPLOAD_QUOTAS[kind]
-    count = await redis_incr(f"upload:rate:{kind}:{user_id}", ttl_seconds=window)
+    count = await redis_incr(f"{UPLOAD_RATE_KEY_PREFIX}{kind}:{user_id}", ttl_seconds=window)
     if count > limit:
         raise APIError(RATE_LIMITED, "上传过于频繁，请稍后再试", 429)
 
@@ -152,7 +152,7 @@ async def _store_image(object_key: str, content_type: str, content: bytes, resul
     try:
         stored = await get_storage().put_bytes(object_key, content, content_type)
     except (OSError, S3Error) as exc:
-        raise APIError(SYSTEM_UPSTREAM_FAILURE, "文件存储失败，请稍后重试", 503) from exc
+        raise APIError(SYSTEM_UPSTREAM_FAILURE, "文件存储失败，请稍后重试", 502) from exc
     return result_cls(
         url=f"/api/v1/files/{stored.object_key}",
         content_type=stored.content_type,

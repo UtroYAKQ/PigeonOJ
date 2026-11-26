@@ -1,0 +1,176 @@
+import { apiRequest, downloadBinary, requestUpload } from './http'
+import { buildQuery } from '@/utils/query'
+import type {
+  FpsImportResult,
+  PageResult,
+  ProblemCreatePayload,
+  ProblemDetail,
+  ProblemEditPayload,
+  ProblemLanguage,
+  ProblemListQuery,
+  ProblemSpj,
+  ProblemSubmissionItem,
+  ProblemSummary,
+  ProblemTagItem,
+  ProblemTestCase,
+  ProblemTestCaseList,
+  Submission,
+  TestCaseDraft,
+  TestCaseUpsertPayload,
+} from '@/types'
+
+export function listProblems(query: ProblemListQuery = {}): Promise<PageResult<ProblemSummary>> {
+  return apiRequest('GET', `/problems${buildQuery(query)}`)
+}
+
+/** 题目管理视角：该题全员提交列表（创建者与管理角色，docs/contracts/judge.md）；
+ * keyword 模糊匹配提交人昵称，language / status / submit_type 精确过滤 */
+export function listProblemSubmissions(
+  id: string,
+  query: {
+    page?: number
+    page_size?: number
+    status?: string
+    keyword?: string
+    language?: string
+    submit_type?: string
+  } = {},
+): Promise<PageResult<ProblemSubmissionItem>> {
+  return apiRequest('GET', `/problems/${id}/submissions${buildQuery(query)}`)
+}
+
+/** 题目管理视角：提交详情（统一入口，管理权限 + 归属校验后复用判题装配） */
+export function getProblemSubmission(problemId: string, submissionId: string): Promise<Submission> {
+  return apiRequest('GET', `/problems/${problemId}/submissions/${submissionId}`)
+}
+
+/** 激活标签列表（public：打标选择器与题库筛选） */
+export function listActiveTags(): Promise<ProblemTagItem[]> {
+  return apiRequest('GET', '/problems/tags')
+}
+
+/** 激活标签分页列表（支持 keyword 搜索） */
+export function listActiveTagsPaged(query: {
+  page: number
+  page_size: number
+  keyword?: string
+}): Promise<PageResult<ProblemTagItem>> {
+  return apiRequest('GET', `/problems/tags${buildQuery({ ...query, page_size: query.page_size })}`)
+}
+export function getProblem(id: string): Promise<ProblemDetail> {
+  return apiRequest('GET', `/problems/${id}`)
+}
+
+/** 测试点列表（独立管理端点，仅题目管理者可读；详情不再携带测试点） */
+export function getProblemTestCases(id: string): Promise<ProblemTestCaseList> {
+  return apiRequest('GET', `/problems/${id}/test-cases`)
+}
+export function createProblem(body: ProblemCreatePayload): Promise<ProblemSummary> {
+  return apiRequest('POST', '/problems', body)
+}
+export function updateProblem(id: string, body: ProblemEditPayload): Promise<ProblemSummary> {
+  return apiRequest('PUT', `/problems/${id}`, body)
+}
+export function replaceTestCases(id: string, cases: TestCaseDraft[]): Promise<null> {
+  return apiRequest('PUT', `/problems/${id}/test-cases`, { cases })
+}
+
+/** 显式生效：把已通过验题的暂存集晋升为生效集（验题与晋升解耦；点「保存」才生效） */
+export function applyTestCases(id: string): Promise<ProblemSummary> {
+  return apiRequest('POST', `/problems/${id}/test-cases/apply`)
+}
+
+/** 增量更新测试点：只提交变化的行（带 id=修改，input/expected_output 缺省或 null=内容不变、空字符串=清空该侧；无 id=新增；delete_ids=删除）。响应为服务器权威全量列表 */
+export function patchTestCases(
+  id: string,
+  body: { upserts: TestCaseUpsertPayload[]; delete_ids: string[] },
+): Promise<{ cases: ProblemTestCase[] }> {
+  return apiRequest('PATCH', `/problems/${id}/test-cases`, body)
+}
+
+/** 特判程序目标状态回读（暂存优先；仅题目管理者可读，docs/contracts/problems.md「SPJ 特判程序」） */
+export function getProblemSpj(id: string): Promise<ProblemSpj> {
+  return apiRequest('GET', `/problems/${id}/spj`)
+}
+
+/** 设置 / 覆盖暂存特判程序（C++17 源码 ≤256KB；生效集不动，验题通过后随 apply 晋升） */
+export function replaceProblemSpj(id: string, code: string): Promise<null> {
+  return apiRequest('PUT', `/problems/${id}/spj`, { code })
+}
+
+/** 暂存移除特判程序（写 pending_spj_oss_id=''，apply 晋升后生效集置 NULL） */
+export function deleteProblemSpj(id: string): Promise<null> {
+  return apiRequest('DELETE', `/problems/${id}/spj`)
+}
+
+/** FPS 题库一键导入（admin）：ZIP（内含 fps XML）或单个 XML，无大小限制；
+ * 单次最多尝试 20 题，超出分批上传（docs/contracts/problems.md「FPS 题库导入」） */
+export function importFpsProblems(file: File): Promise<FpsImportResult> {
+  const form = new FormData()
+  form.append('file', file)
+  return requestUpload<FpsImportResult>('/admin/problems/import', form)
+}
+
+/** 批量导出为 ZIP（admin；ids ≤20，附件下载触发浏览器保存） */
+export function exportProblemsZip(ids: string[]): Promise<void> {
+  return downloadBinary(`/admin/problems/export?ids=${ids.join(',')}`, 'fps-export.zip')
+}
+
+/** 单题导出为 fps.xml 附件（admin） */
+export function exportProblemXml(id: string): Promise<void> {
+  return downloadBinary(`/admin/problems/${id}/export`, 'fps.xml')
+}
+
+/** 全量替换展示样例（存 problems.samples，不参与判题；≤10 组、单项各 ≤64KB，explanation 选填） */
+export function replaceSamples(
+  id: string,
+  samples: Array<{ input: string; output: string; explanation?: string }>,
+): Promise<null> {
+  return apiRequest('PUT', `/problems/${id}/samples`, { samples })
+}
+export function publishProblem(id: string): Promise<ProblemSummary> {
+  return apiRequest('POST', `/problems/${id}/publish`)
+}
+export function archiveProblem(id: string): Promise<ProblemSummary> {
+  return apiRequest('POST', `/problems/${id}/archive`)
+}
+export function initVerification(
+  id: string,
+  body: { invite_expires_hours?: number },
+): Promise<{
+  verification_id: string
+  invite?: { token: string; expires_at: string | null }
+}> {
+  return apiRequest('POST', `/problems/${id}/verify`, body)
+}
+export function resolveVerifyInvite(token: string): Promise<{
+  problem_id: string
+  problem_title: string
+  expires_at: string | null
+  background: string
+  description: string
+  input_description?: string | null
+  output_description?: string | null
+  note?: string | null
+  tags: string[]
+  time_limit_ms: number
+  memory_limit_mb: number
+  samples: Array<{ name: string; input: string; output: string; explanation?: string }>
+}> {
+  return apiRequest('GET', `/verify-invites/${token}`)
+}
+
+/** 查询题目当前有效的验题邀请链接；无或已失效返回 null */
+export function getVerifyInvite(
+  id: string,
+): Promise<{ token: string; expires_at: string | null } | null> {
+  return apiRequest('GET', `/problems/${id}/verify/invite`)
+}
+
+/** 提交验题代码：存在进行中验题时任意登录用户可提交（invite_token 可选） */
+export function submitVerifyCode(
+  id: string,
+  body: { code: string; language: ProblemLanguage; invite_token?: string },
+): Promise<{ submission_id: string; status: string }> {
+  return apiRequest('POST', `/problems/${id}/verify`, body)
+}

@@ -66,7 +66,7 @@ async function load() {
   }
 }
 
-const isManager = computed(() => userStore.isAdmin || userStore.hasAnyRole(['tutor']))
+const isManager = computed(() => userStore.isAdmin)
 
 watch(
   () => props.show,
