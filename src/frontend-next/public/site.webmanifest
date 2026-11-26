@@ -1,7 +1,7 @@
 {
-  "name": "PigeonOJ · 在线编程与竞赛平台",
-  "short_name": "PigeonOJ",
-  "description": "融合传统 OJ 与 AI 辅助的在线编程学习、训练与竞赛平台。",
+  "name": "ARTOJ · 在线编程与竞赛平台",
+  "short_name": "ARTOJ",
+  "description": "ARTOJ（PigeonOJ）是融合传统 OJ 与 AI 辅助的在线编程学习、训练与竞赛平台。",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
