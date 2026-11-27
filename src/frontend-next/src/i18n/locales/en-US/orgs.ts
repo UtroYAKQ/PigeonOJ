@@ -20,7 +20,7 @@ export default {
       descriptionPlaceholder: 'Briefly introduce the organization (optional)',
       adminIds: 'Initial organization admins (optional)',
       adminEmailPlaceholder: 'Enter an admin email address',
-      adminIdsHint: 'Search and select by email; optional — admins can also be appointed later in the organization detail',
+      adminIdsHint: 'The creator is not added to the organization; search and appoint initial admins by email (optional — appoint later in the organization detail)',
       success: 'Organization created',
     },
     role: {

@@ -65,7 +65,7 @@
 
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
-| POST | /orgs | admin | 创建组织（name 全站唯一；创建者自动成为组织管理员，可另任命初始组织管理员） | name, description?, avatar_url?, admin_user_ids[] | org |
+| POST | /orgs | admin | 创建组织（name 全站唯一；创建者仅负责创建与指派，不加入组织；可任命初始组织管理员） | name, description?, avatar_url?, admin_user_ids[] | org |
 | GET | /orgs/mine | auth | 我加入的组织列表（active；带 my_role / 成员数 / 团队数） | 分页/keyword | org[] |
 | GET | /orgs/{id} | org 角色 | 组织详情（非成员 2003） | - | org |
 | PUT | /orgs/{id} | org_admin | 编辑组织信息 | name?/description?/avatar_url? | org |
@@ -112,7 +112,7 @@
 
 ## 关键流程 / 验收条件
 
-1. **创建组织**：站点 admin `POST /orgs` → 写 `organizations` + 创建者自动成为组织管理员（写 `org_members` + `org_admin` 授权，即使未在 `admin_user_ids` 列出）再批量写其他初始管理员；创建者可在「我的组织」看到该组织。
+1. **创建组织**：站点 admin `POST /orgs` → 写 `organizations`；创建者（系统管理员）不写入 `org_members`、不获得组织角色，仅记录 `created_by`；`admin_user_ids` 中的用户写入成员并授予 `org_admin`。
 2. **拉人**：org_admin `POST /orgs/{id}/members` → 写 `org_members`；被拉人即时获得组织题库读写权（org_member）。
 3. **授管理员**：`PUT /orgs/{id}/members/{uid}/admin` 授予即写 `org_admin` 授权、撤销即删（最后一名拒绝 3004）；站点 admin 可对任意成员执行。**自我撤销保护**：org_admin 不可撤销自己的管理员身份（返回 2003），避免误操作后失去管理权；需由其他组织管理员或站点 admin 代执行，与团队「创建者保护」同语义。
 4. **移出**：删除 `org_members` active 行（置 removed）+ 清理该用户在本组织的全部授权；最后一名 org_admin 拒绝 3004、最后一名成员拒绝 3005。

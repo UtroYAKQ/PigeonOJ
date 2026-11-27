@@ -50,18 +50,19 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 10px;
-  --radius-2xl: 12px;
-  --radius-3xl: 16px;
-  --radius-4xl: 20px;
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
 }
 
 :root {
   color-scheme: light;
-  --radius: 8px;
+  --radius: 0px;
 
   --background: #ffffff;
   --foreground: #0d0d0d;
@@ -213,7 +214,7 @@
   ::-webkit-scrollbar-thumb {
     background: color-mix(in srgb, var(--muted-foreground) 24%, transparent);
     border: 2px solid transparent;
-    border-radius: 9999px;
+    border-radius: 0;
     background-clip: content-box;
   }
 
@@ -396,7 +397,7 @@ body.is-console-resizing {
 .markdown code:not(pre code) {
   padding: 0.13em 0.38em;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 0;
   background: var(--surface);
   font-family: var(--font-mono);
   font-size: 0.86em;
@@ -409,7 +410,7 @@ body.is-console-resizing {
   overflow-x: auto;
   padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--code-bg);
   font-family: var(--font-mono);
   font-size: 13px;
@@ -457,7 +458,7 @@ body.is-console-resizing {
 
 .markdown img {
   max-width: 50%;
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .markdown .katex-display {
@@ -466,18 +467,6 @@ body.is-console-resizing {
   padding: 4px 0;
 }
 
-/* 代码区统一系统鼠标指针：避免 箭头 ⇄ I 型 来回切换，快速滑入时浏览器会丢掉指针 */
-.code-surface,
-.code-surface .monaco-editor,
-.code-surface .monaco-editor .margin,
-.code-surface .monaco-editor .margin-view-overlays,
-.code-surface .monaco-editor .view-lines,
-.code-surface .monaco-editor .view-overlays,
-.code-surface .monaco-editor .decorations-overlays,
-.code-surface .monaco-editor .scrollbar,
-.code-surface .monaco-editor .scrollbar .slider {
-  cursor: default;
-}
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -486,4 +475,9 @@ body.is-console-resizing {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
+}
+/* 圆角统一直角：兜底覆盖 Tailwind 无后缀 rounded（4px）与 rounded-xs（2px） */
+.rounded,
+.rounded-xs {
+  border-radius: 0;
 }

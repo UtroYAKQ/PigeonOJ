@@ -143,7 +143,10 @@ class OrgService:
     # ---------------- 创建 / 编辑 / 详情 / 列表 ----------------
 
     async def create(self, user: User, body: OrgCreate) -> OrgDetail:
-        """创建组织（站点 admin）：创建者自动成为组织管理员；可同时任命其他初始组织管理员。"""
+        """创建组织（站点 admin）：仅任命 admin_user_ids 中的初始组织管理员。
+
+        系统管理员只负责创建与指派，不写入 org_members，也不获得组织角色。
+        """
         if not await self._is_site_admin(user):
             raise APIError(AUTH_FORBIDDEN, "仅系统管理员可创建组织", 403)
         if await self.orgs.get_by_name(body.name) is not None:
@@ -161,9 +164,7 @@ class OrgService:
                 created_by=user.id,
             )
         )
-        # 创建者自动成为组织管理员（即使未在 admin_user_ids 中列出）
-        all_admin_ids = list(dict.fromkeys([user.id, *admin_ids]))
-        for uid in all_admin_ids:
+        for uid in admin_ids:
             await self._upsert_member(org.id, uid, added_by=user.id)
             await self.roles.grant_org_role(uid, org.id, RoleCode.ORG_ADMIN)
         return await self.admin_get_detail(org.id)

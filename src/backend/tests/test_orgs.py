@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import uuid as uuid_mod
 
 import httpx
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from .conftest import (
     ORG_ADMIN_ROLE_ID,
@@ -99,13 +99,11 @@ async def test_create_org_permissions(client: httpx.AsyncClient) -> None:
     resp = await client.post("/api/v1/orgs", json={"name": "信奥学会"}, headers=admin)
     assert resp.json()["code"] == 0, resp.text
     org_id = resp.json()["data"]["id"]
-    assert resp.json()["data"]["member_count"] == 1  # 创建者自动成为成员
+    assert resp.json()["data"]["member_count"] == 0  # 系统管理员创建，不自动加入
 
-    # 创建者（未在 admin_user_ids 中列出）也能在「我的组织」看到该组织，且为组织管理员
+    # 系统管理员不写入组织成员，也不在「我的组织」中出现
     resp = await client.get("/api/v1/orgs/mine", headers=admin)
-    assert resp.json()["data"]["total"] == 1
-    assert resp.json()["data"]["items"][0]["id"] == org_id
-    assert resp.json()["data"]["items"][0]["my_role"] == "admin"
+    assert resp.json()["data"]["total"] == 0
 
     # 名称唯一
     resp = await client.post("/api/v1/orgs", json={"name": "信奥学会"}, headers=admin)
@@ -117,7 +115,7 @@ async def test_create_org_permissions(client: httpx.AsyncClient) -> None:
     )
     assert resp.json()["code"] == 0, resp.text
     resp = await client.get(f"/api/v1/orgs/{org_id}", headers=admin)
-    assert resp.json()["data"]["member_count"] == 1  # 创建者已是成员，自我拉人幂等跳过
+    assert resp.json()["data"]["member_count"] == 1  # 仅被拉入的 a 在册
     resp = await client.get(f"/api/v1/orgs/{org_id}", headers=m_headers)
     assert resp.json()["code"] == 2003  # 未被拉入
 
@@ -209,21 +207,8 @@ async def test_member_lifecycle_and_last_admin_guard(client: httpx.AsyncClient) 
     )
     assert resp.json()["code"] == 3001  # 已被移出，非在册成员
 
-    # 站点 admin 是创建者（创建组织自动成为组织管理员）：先清除其本组织授权，
-    # 使 mentor 成为「最后一名 org_admin」，便于验证最后一名保护（3004）
-    async with SessionLocal() as db:
-        site_user = (
-            await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))
-        ).scalar_one()
-        await db.execute(
-            delete(UserRole).where(
-                UserRole.user_id == site_user.id,
-                UserRole.scope == "org",
-                UserRole.object_id == uuid_mod.UUID(org_id),
-            )
-        )
-        await db.commit()
-
+    # 站点 admin 不加入组织，mentor 已是「最后一名 org_admin」，
+    # 便于验证最后一名保护（3004）
     # 直接插一条 org_admin 授权模拟「最后两名」再撤销其一 → 剩零时 3004
     async with SessionLocal() as db:
         uid = (await db.execute(select(User).where(User.email == "member@pigeonoj.dev"))).scalar_one().id

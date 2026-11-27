@@ -89,9 +89,10 @@ onMounted(() => {
     tabSize: 4,
     scrollBeyondLastLine: false,
     readOnly: props.readOnly ?? false,
-    // 编辑器内鼠标指针保持系统箭头：避免快速滑入时箭头 ⇄ I 型切换导致指针瞬态消失
-    mouseStyle: 'default',
-
+    // 行号区收窄：去掉 glyph margin 占位，行号最少 3 字符宽，行号与代码间距收到 4px
+    glyphMargin: false,
+    lineNumbersMinChars: 3,
+    lineDecorationsWidth: 4,
   })
   editor.onDidChangeModelContent(() => emit('update:modelValue', editor?.getValue() ?? ''))
   themeObserver = new MutationObserver(() => {

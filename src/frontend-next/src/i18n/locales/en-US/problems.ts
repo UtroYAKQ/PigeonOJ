@@ -20,12 +20,11 @@ export default {
       org_visible: 'Org visible',
       team_visible: 'Team visible',
     },
-    list: {
-      title: 'Problems',
-      description: 'Browse problems and choose a training task.',
+list: {
       create: 'Create problem',
       empty: 'No published problems',
       name: 'Problem',
+      id: 'ID',
       source: 'Source',
       search: 'Search by problem name',
       tag: 'Tag',
@@ -212,6 +211,9 @@ export default {
       submitConfirm: 'Submit the current code for judging?',
       codeRequired: 'Please enter your code first',
       spjBadge: 'Special Judge',
+      hideTags: 'Hide tags',
+      showTags: 'Show tags',
+
       stdin: 'Standard input',
       expected: 'Expected output',
       status: 'Status',

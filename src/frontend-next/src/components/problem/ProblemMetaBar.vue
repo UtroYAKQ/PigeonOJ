@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+
+import { ChevronDown, ChevronRight } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import ToneBadge from '@/components/common/ToneBadge.vue'
+import { Button } from '@/components/ui/button'
 import { problemStatusLabelKey } from '@/constants/problemStatus'
 import type { ProblemDetail } from '@/types'
 
@@ -43,6 +46,28 @@ const passRate = computed(() => {
   if (!total) return null
   return `${Math.round(((props.problem.accepted_count ?? 0) / total) * 100)}%`
 })
+
+/** 标签显隐：每个浏览器本地记住偏好，默认隐藏，满足不同用户的阅读习惯 */
+const TAGS_VISIBLE_KEY = 'pigeonoj.problems.tagsVisible'
+
+function loadTagsVisible(): boolean {
+  try {
+    return localStorage.getItem(TAGS_VISIBLE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+const tagsVisible = ref(loadTagsVisible())
+
+function toggleTags(): void {
+  tagsVisible.value = !tagsVisible.value
+  try {
+    localStorage.setItem(TAGS_VISIBLE_KEY, tagsVisible.value ? '1' : '0')
+  } catch {
+    /* 持久化不可用时仅保留当前会话 */
+  }
+}
 </script>
 
 <template>
@@ -76,7 +101,20 @@ const passRate = computed(() => {
       />
     </div>
 
-    <div v-if="problem.tags?.length" class="flex flex-wrap gap-1.5">
+    <div v-if="problem.tags?.length" class="space-y-1.5">
+      <Button
+        variant="ghost"
+        size="xs"
+        class="-ml-1 justify-start text-[12px] text-muted-foreground hover:text-foreground"
+        :aria-label="tagsVisible ? t('problems.detail.hideTags') : t('problems.detail.showTags')"
+        :title="tagsVisible ? t('problems.detail.hideTags') : t('problems.detail.showTags')"
+        @click="toggleTags"
+      >
+        <ChevronDown v-if="tagsVisible" class="size-3.5" aria-hidden="true" />
+        <ChevronRight v-else class="size-3.5" aria-hidden="true" />
+        {{ tagsVisible ? t('problems.detail.hideTags') : t('problems.detail.showTags') }}
+      </Button>
+      <div v-if="tagsVisible" class="flex flex-wrap gap-1.5">
       <span
         v-for="tag in problem.tags"
         :key="tag.id"
@@ -85,6 +123,7 @@ const passRate = computed(() => {
       >
         {{ tag.name }}
       </span>
+      </div>
     </div>
   </div>
 </template>

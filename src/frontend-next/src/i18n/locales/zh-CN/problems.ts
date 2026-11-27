@@ -24,6 +24,7 @@ export default {
       create: '创建题目',
       empty: '暂无已发布题目',
       name: '题目',
+      id: 'ID',
       source: '来源',
       search: '搜索题目名称',
       tag: '标签',
@@ -201,6 +202,9 @@ export default {
       submitConfirm: '确认提交当前代码进行评测？',
       codeRequired: '请先输入代码',
       spjBadge: 'SPJ 特判',
+      hideTags: '隐藏标签',
+      showTags: '展示标签',
+
       stdin: '标准输入',
       expected: '期望输出',
       status: '状态',

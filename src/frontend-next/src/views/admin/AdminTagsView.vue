@@ -112,7 +112,7 @@ const columns = computed<AppTableColumn<ProblemTagItem>[]>(() => [
       if (!row.color) return h('span', { class: 'text-[12.5px] text-muted-foreground' }, '—')
       return h('div', { class: 'flex items-center gap-1.5' }, [
         h('span', {
-          class: 'inline-block size-3 shrink-0 rounded-[3px] border border-border/60',
+          class: 'inline-block size-3 shrink-0 rounded-none border border-border/60',
           style: { backgroundColor: row.color },
         }),
         h('span', { class: 'font-mono text-[12px] text-muted-foreground' }, row.color),

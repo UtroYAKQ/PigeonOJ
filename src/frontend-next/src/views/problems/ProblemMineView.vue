@@ -148,17 +148,20 @@ function rowAction(icon: Component, label: string, run: () => void) {
 
 const columns = computed<AppTableColumn<ProblemSummary>[]>(() => [
   {
+    key: 'id',
+    title: t('problems.list.id'),
+    width: '96px',
+    cell: (row) =>
+      h(
+        'span',
+        { class: 'font-mono text-[11.5px] text-muted-foreground', title: row.id },
+        row.id.slice(0, 8),
+      ),
+  },
+  {
     key: 'title',
     title: t('problems.list.name'),
-    cell: (row) =>
-      h('div', { class: 'grid gap-0.5 py-0.5' }, [
-        h('strong', { class: 'text-[13.5px] font-medium' }, row.title),
-        h(
-          'span',
-          { class: 'font-mono text-[11px] text-muted-foreground' },
-          `#${row.id.slice(0, 8)}`,
-        ),
-      ]),
+    cell: (row) => h('strong', { class: 'text-[13.5px] font-medium' }, row.title),
   },
   {
     key: 'status',
@@ -308,7 +311,7 @@ onMounted(load)
       :page="page"
       :page-size="pageSize"
       :page-sizes="[20, 50, 100]"
-      min-width="976px"
+      min-width="1072px"
       show-size-picker
       selectable
       :row-key="(row: ProblemSummary) => row.id"

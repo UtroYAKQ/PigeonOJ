@@ -43,6 +43,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 - 表格窄屏策略：`ColumnLineList` 未显式传 `minWidth` 时默认 `min-width: 640px`，窄屏**横向滚动展示全部列**，不再把列压到几像素；`Pager` 在 ≤640px 收起页码窗口（`sibling-count=0`），避免页码条溢出
 - 列表工具条：`SearchFilterBar` 搜索框窄屏 `w-full`，≥640 才使用传入的 `searchWidth`；工具条整体允许换行
 - 团队 / 组织详情：摘要卡文本列至少 200px 宽，操作按钮组窄屏独占一行；功能导航窄屏横排、可横向滚动（`scrollbar-none`），按钮高 40px
+
 - 代码编辑器：窄屏 `SplitPane` 上下堆叠，右栏最小 360px；控制台控制条允许换行，必须保证「提交代码」始终可见；Monaco 在 ≤640px 自动 `wordWrap: 'on'`。Monaco 字体偏好变更必须按「显式 `document.fonts.load` 等字体 → `remeasureFonts()` 清度量缓存 → `updateOptions`」顺序应用，否则字符宽度误差会累积成光标/文本偏移；容器不设 `padding`、隐藏横向滚动条；keep-alive 返回与容器尺寸变化都要 `layout()`
 - 主区滚动容器使用 `overscroll-contain`，避免移动端滚到底触发页面回弹；触控目标不低于 32px，导航 / 主操作按钮优先 40px
 

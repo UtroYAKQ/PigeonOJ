@@ -24,7 +24,7 @@ import type {
   TeamUpsertPayload,
 } from '@/types'
 
-/** 创建组织（admin；创建者自动成为组织管理员） */
+/** 创建组织（admin；创建者不加入组织，仅任命 admin_user_ids 为初始组织管理员） */
 export function createOrg(body: OrgCreatePayload): Promise<OrgDetail> {
   return apiRequest('POST', '/orgs', body)
 }

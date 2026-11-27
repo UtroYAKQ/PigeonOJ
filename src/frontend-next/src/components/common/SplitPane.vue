@@ -16,6 +16,9 @@ const root = ref<HTMLElement>()
 const ratio = ref(loadRatio())
 let resizing = false
 
+/** 拖到接近端点时吸附：0 = 只显示右侧（编辑器），1 = 只显示左侧（题面） */
+const SNAP_THRESHOLD = 0.03
+
 function loadRatio(): number {
   const raw = Number(localStorage.getItem(props.storageKey))
   return Number.isFinite(raw) && raw >= props.min && raw <= props.max ? raw : 0.5
@@ -31,7 +34,10 @@ function startResize(event: PointerEvent): void {
 function onPointerMove(event: PointerEvent): void {
   if (!resizing || !root.value) return
   const rect = root.value.getBoundingClientRect()
-  ratio.value = Math.min(props.max, Math.max(props.min, (event.clientX - rect.left) / rect.width))
+  let next = Math.min(props.max, Math.max(props.min, (event.clientX - rect.left) / rect.width))
+  if (next <= SNAP_THRESHOLD && props.min === 0) next = 0
+  else if (next >= 1 - SNAP_THRESHOLD && props.max === 1) next = 1
+  ratio.value = next
 }
 
 function endResize(): void {
@@ -46,11 +52,15 @@ function reset(): void {
   localStorage.setItem(props.storageKey, '0.5')
 }
 
-const gridStyle = computed(() =>
-  isDesktop.value
-    ? { gridTemplateColumns: `minmax(280px, ${ratio.value * 100}%) 12px minmax(320px, 1fr)` }
-    : {},
-)
+const leftCollapsed = computed(() => isDesktop.value && ratio.value <= 0)
+
+const gridStyle = computed(() => {
+  if (!isDesktop.value) return {}
+  const ratioPercent = ratio.value * 100
+  return {
+    gridTemplateColumns: `calc(${ratioPercent}% - ${ratio.value * 12}px) 12px minmax(0, 1fr)`,
+  }
+})
 
 useEventListener(window, 'pointermove', onPointerMove)
 useEventListener(window, 'pointerup', endResize)

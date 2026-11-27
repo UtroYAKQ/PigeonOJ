@@ -43,6 +43,7 @@ const selfTestInput = defineModel<string>('self-test-input', { default: '' })
 const { t } = useI18n()
 const router = useRouter()
 
+
 /**
  * 自测控制台常驻底部：常态只露控制条（自测 / 提交按钮都在这一行），
  * 拖动上方分隔条可自由调整高度，双击复位。高度按 px 持久化，
@@ -257,8 +258,9 @@ function runSelfTest(): void {
     </template>
 
     <template #right>
-      <section ref="rightRef" class="code-surface flex h-full min-h-[360px] flex-col lg:min-h-[420px]">
+      <section ref="rightRef" class="code-surface flex h-full min-h-[360px] flex-col gap-0 lg:min-h-[420px]">
         <div ref="toolbarRef" class="flex shrink-0 flex-wrap items-center gap-2 pb-2">
+
           <LanguageSelect v-model="language" />
           <div class="ml-auto flex items-center gap-2">
             <Button variant="outline" size="sm" @click="emit('show-submissions')">
@@ -277,7 +279,10 @@ function runSelfTest(): void {
           </div>
         </div>
 
-        <div ref="editorRef" class="min-h-[220px] flex-1 lg:min-h-[260px]">
+        <div
+          ref="editorRef"
+          class="min-h-[220px] flex-1 [&>.code-surface]:border-b-0 lg:min-h-[260px]"
+        >
           <CodeEditor v-model="code" :language="language" />
         </div>
 
@@ -289,7 +294,7 @@ function runSelfTest(): void {
           <button
             type="button"
             data-slot="console-handle"
-            class="absolute -top-3.5 left-1/2 z-20 flex h-3.5 w-16 -translate-x-1/2 cursor-pointer touch-none items-center justify-center rounded-t-lg border border-b-0 border-border bg-card text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            class="absolute -top-3.5 left-1/2 z-20 flex h-3.5 w-16 -translate-x-1/2 cursor-pointer touch-none items-center justify-center rounded-t-[8px] border border-b-0 border-border bg-card text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             :aria-label="
               consoleCollapsed
                 ? t('problems.detail.selfTestExpand')

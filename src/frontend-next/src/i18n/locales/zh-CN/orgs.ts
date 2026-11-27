@@ -20,7 +20,7 @@ export default {
       descriptionPlaceholder: '简要介绍组织（选填）',
       adminIds: '初始组织管理员（可选）',
       adminEmailPlaceholder: '输入管理员邮箱',
-      adminIdsHint: '按邮箱搜索并选择；可留空，组织管理员也可在组织详情中任命',
+      adminIdsHint: '创建者不会自动加入组织；按邮箱搜索并指派初始组织管理员（可留空，稍后在组织详情中任命）',
       success: '组织已创建',
     },
     role: {
