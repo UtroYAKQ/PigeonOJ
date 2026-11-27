@@ -259,7 +259,7 @@ onMounted(load)
               v-if="visited.settings && canManage"
               v-show="activeTab === 'settings'"
               :org="org"
-              :can-manage="canWrite"
+              :can-manage="canManage"
               :site-admin="siteAdmin"
               @refresh="load"
             />

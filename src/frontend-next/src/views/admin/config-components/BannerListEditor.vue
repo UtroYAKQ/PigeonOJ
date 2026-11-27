@@ -143,6 +143,7 @@ async function onFileChange(event: Event): Promise<void> {
 
           <div class="flex shrink-0 items-center gap-0.5 self-start">
             <Button
+              type="button"
               variant="ghost"
               size="icon-sm"
               class="size-8"
@@ -154,6 +155,7 @@ async function onFileChange(event: Event): Promise<void> {
               <ArrowUp class="size-4" />
             </Button>
             <Button
+              type="button"
               variant="ghost"
               size="icon-sm"
               class="size-8"
@@ -165,6 +167,7 @@ async function onFileChange(event: Event): Promise<void> {
               <ArrowDown class="size-4" />
             </Button>
             <Button
+              type="button"
               variant="ghost"
               size="icon-sm"
               class="size-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
@@ -179,7 +182,7 @@ async function onFileChange(event: Event): Promise<void> {
       </template>
     </LineList>
 
-    <Button variant="outline" :disabled="banner.length >= max" @click="add">
+    <Button type="button" variant="outline" :disabled="banner.length >= max" @click="add">
       <Plus class="size-4" />
       {{ t('config.addBanner') }}
     </Button>
