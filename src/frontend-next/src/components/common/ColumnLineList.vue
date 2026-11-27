@@ -115,7 +115,7 @@ function colWidth(column: AppTableColumn<any>): string | undefined {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col">
+  <div class="flex min-h-[320px] flex-1 flex-col">
     <div
       class="flex min-h-0 flex-1 flex-col overflow-auto [&_[data-slot=table-container]]:overflow-visible"
     >
@@ -183,7 +183,11 @@ function colWidth(column: AppTableColumn<any>): string | undefined {
               <TableCell
                 v-for="column in columns"
                 :key="column.key"
-                :class="[column.cellClass, alignClass(column), 'overflow-hidden text-[13.5px] text-ellipsis px-3']"
+                :class="[
+                  'overflow-hidden text-[13.5px] text-ellipsis px-3',
+                  column.cellClass,
+                  alignClass(column),
+                ]"
               >
                 <VNodeContent v-if="column.cell" :node="column.cell(item, index)" />
                 <template v-else>{{ item[column.key] }}</template>

@@ -35,7 +35,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col gap-3">
+  <div class="flex min-h-[320px] flex-1 flex-col gap-3">
     <div class="flex min-h-0 flex-1 flex-col overflow-auto pr-0.5">
       <div
         v-if="loading"

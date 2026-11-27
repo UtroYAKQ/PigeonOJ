@@ -195,7 +195,7 @@ onMounted(load)
 
       <!-- 下半区：左侧功能按钮 + 右侧内容，窄屏按钮横排置顶 -->
       <Card
-        class="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row"
+        class="mt-4 flex min-h-[420px] flex-1 flex-col overflow-hidden lg:flex-row"
       >
         <nav
           class="flex shrink-0 gap-1 overflow-x-auto border-b border-border p-2 lg:w-[220px] lg:flex-col lg:overflow-x-hidden lg:border-b-0 lg:border-r lg:p-3"

@@ -34,7 +34,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 1. **侧栏**：展开 256px / 收起 0；`bg-sidebar` 浅灰面，品牌块（站点 Logo 或 Bird 图标，透底无底色块）+ 站点名 + 副标题；导航项 36px 高、圆角 6px，选中项为白底 + 边框；前台导航为 首页 / 题库 / 题单 / 比赛 / 团队 / 组织 / 代码广场
 2. **后台空间**：`/admin/*` 时侧栏切换为管理菜单（内容 / 社区 / 数据 / 系统 四组），底部「返回前台」；管理入口与区块仅 `admin`（tutor 已随组织化改造下线）
 3. **顶栏**：56px 下边框；左侧侧栏开关 + 面包屑（<640px 隐藏），命令面板入口（Ctrl/⌘+K），右侧语言 / 明暗切换；账户菜单统一收在侧栏底部用户区（个人资料 / 管理后台 / 退出），避免与顶栏重复
-4. **内容画布**：列表页使用 `WorkbenchShell` 视口锁定（工具栏 + 列表区域内部滚动）；「一行一条」的列表统一用 `LineList` 无框横线壳（表格列表经 `PaginatedTable` 接入），团队 / 组织 / 比赛 / 代码广场等网格浏览型列表仍用 `PaginatedCardGrid`；内容页使用 `PageShell`（最大 1360px 居中、自然滚动、底部留白）
+4. **内容画布**：列表页在桌面（≥`lg`）使用 `WorkbenchShell` 视口锁定（工具栏 + 列表区域内部滚动）；窄屏改为自然高度、整页滚动，避免详情页头部卡片把列表区压到坍缩。列表壳带最小高度兜底：`ColumnLineList` / `PaginatedCardGrid` 320px、`LineList` 240px；团队 / 组织详情下半区最小 420px。「一行一条」的列表统一用 `LineList` 无框横线壳（表格列表经 `PaginatedTable` 接入），团队 / 组织 / 比赛 / 代码广场等网格浏览型列表仍用 `PaginatedCardGrid`；内容页使用 `PageShell`（最大 1360px 居中、自然滚动、底部留白）
 5. **面包屑**：只反映真实层级（`管理后台/用户管理`、`题库/题目管理/编辑`）；`router/crumbs.ts` 为唯一解析来源
 6. **命令面板**：可搜索全部前台/后台菜单与账户页；`↑↓` 选择、`Enter` 打开、`Esc` 关闭
 
@@ -101,7 +101,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 
 - `components/common/SplitPane.vue`：桌面端左右独立滚动、分隔条可拖拽且比例持久化（双击复位）；<900px 自动上下堆叠
 - `components/problem/ProblemWorkbench.vue`：左题面（`ProblemMetaBar` + `ProblemStatement`），右编辑器 + 自测控制台（右栏窄屏 `h-[min(70vh,640px)]`、≥900px `h-full`，保证内部 `CodeEditor` 的百分比高度链有确定基准）；上方工具行「语言」靠左、「我的提交 / 题解」靠右，「自测运行 / 提交」放进下方控制台标题行，避免顶部拥挤
-- 自测控制台常驻编辑器下方，形态对齐旧 UI（naive-ui 版）：面板顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 仍视为单击；方向键 / Home 微调与复位），默认展开 440px、下限 140px，收起态只留约 47px 控制条；点击当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」，运行后自动切到结果并展开；展开态拖得过小视为取消并还原高度；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`（兼容旧键 `pigeonoj.problems.consoleHeight`）；结果含状态、耗时、内存与输出/报错
+- 自测控制台常驻编辑器下方，形态对齐旧 UI（naive-ui 版）：面板顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 仍视为单击；方向键 / Home 微调与复位），默认展开 520px、拖拽下限 140px（展开时按 360px 可读下限兜底，方便输入样例），收起态只留约 47px 控制条；点击当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」，运行后自动切到结果并展开；展开态拖得过小视为取消并还原高度；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`（兼容旧键 `pigeonoj.problems.consoleHeight`）；结果含状态、耗时、内存与输出/报错
 - 提交历史经 `components/problem/MySubmissionsDialog.vue` 懒加载分页（弹窗 `sm:max-w-[760px]`、高 `min(72vh, 520px)`，保留完整列），行点击进入上下文内评测结果页
 
 ### 可访问性
@@ -111,7 +111,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 
 ## 组织与社区
 
-- **组织中心**：`/orgs/mine` 列表 + `/orgs/:orgId` 详情（成员 / 组织团队 / 组织题库 / 设置）；组织管理员可拉人、授管理员、建团队、维护组织题库；组织题目路由固定为 `/orgs/:orgId/problems/...`，读题 / 交题 / 自测全部留在组织上下文
+- **组织中心**：入口固定在侧栏导航「组织」，不放在用户设置 Tabs；`/orgs/mine` 列表 + `/orgs/:orgId` 详情（成员 / 组织团队 / 组织题库 / 设置）；组织管理员可拉人、授管理员、建团队、维护组织题库；组织题目路由固定为 `/orgs/:orgId/problems/...`，读题 / 交题 / 自测全部留在组织上下文
 - **团队创建**：唯一入口为组织详情「创建团队」（`POST /orgs/{orgId}/teams`）；团队题目只来自组织题库 / 全站公开的引用快照，团队中心仅浏览与申请
 - **社区**：题解页随题目上下文挂载（题库 / 题单 / 比赛 / 组织各自 `/solutions/*` 路由），官方题解收口题解页 Tab；题解分享列表采用 `LineList` 无框横线列表（作者头像 + 标题 + 摘要 + 作者/日期 + 评论数，行间 `divide-y` 横线，非表格）；代码广场 `/codes` 列表 / 分享 / 详情，编辑 `/codes/:id/edit` 为详情的下级路由（面包屑：代码广场 / 代码分享详情 / 编辑分享，其中详情项链接回 `/codes/:id`）；评论与举报统一 `components/community/CommentThread.vue` / `ReportDialog.vue`
 - **管理治理**：`/admin/orgs`、`/admin/solutions`、`/admin/codes` 分别负责组织、题解、代码分享；题解预览弹窗内可直接治理评论

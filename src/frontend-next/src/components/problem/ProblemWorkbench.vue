@@ -48,11 +48,12 @@ const router = useRouter()
  * 拖动上方分隔条可自由调整高度，双击复位。高度按 px 持久化，
  * 下限保证可读，上限给编辑器留出最小空间。
  */
-// 对齐旧 UI：默认 440px、下限 140px；沿用旧键以继承老用户调好的高度
+// 默认展开高度按样例输入可读性调高；下限保留 140px 便于手动压缩，展开时不低于可读下限
 const CONSOLE_HEIGHT_KEY = 'pigeonoj.problems.consoleHeight.v2'
 const LEGACY_CONSOLE_HEIGHT_KEY = 'pigeonoj.problems.consoleHeight'
-const CONSOLE_HEIGHT_DEFAULT = 440
+const CONSOLE_HEIGHT_DEFAULT = 520
 const CONSOLE_HEIGHT_MIN = 140
+const CONSOLE_HEIGHT_OPEN_MIN = 360
 const EDITOR_MIN_HEIGHT = 220
 
 function loadConsoleHeight(): number {
@@ -113,7 +114,9 @@ function applyResize(): void {
 
 function toggleConsole(): void {
   if (consoleCollapsed.value) {
-    consoleHeight.value = clampConsoleHeight(consoleHeight.value)
+    consoleHeight.value = clampConsoleHeight(
+      Math.max(consoleHeight.value, CONSOLE_HEIGHT_OPEN_MIN),
+    )
     consoleCollapsed.value = false
   } else {
     consoleCollapsed.value = true
@@ -192,6 +195,9 @@ function onTabClick(value: 'result' | 'input'): void {
     return
   }
   activeTab.value = value
+  consoleHeight.value = clampConsoleHeight(
+    Math.max(consoleHeight.value, CONSOLE_HEIGHT_OPEN_MIN),
+  )
   consoleCollapsed.value = false
 }
 
@@ -233,7 +239,9 @@ watch(
 function runSelfTest(): void {
   if (!code.value.trim() || props.selfTesting) return
   activeTab.value = 'result'
-  consoleHeight.value = clampConsoleHeight(consoleHeight.value)
+  consoleHeight.value = clampConsoleHeight(
+    Math.max(consoleHeight.value, CONSOLE_HEIGHT_OPEN_MIN),
+  )
   consoleCollapsed.value = false
   emit('self-test')
 }

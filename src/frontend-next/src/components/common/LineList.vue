@@ -37,7 +37,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col">
+  <div class="flex min-h-[240px] flex-1 flex-col">
     <div class="min-h-0 flex-1 overflow-auto">
       <div class="flex min-h-full flex-col" :style="minWidth ? { minWidth } : undefined">
         <template v-if="$slots.raw">

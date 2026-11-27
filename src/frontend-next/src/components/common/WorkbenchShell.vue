@@ -9,7 +9,9 @@ withDefaults(
 </script>
 
 <template>
-  <div class="flex h-[calc(100dvh-3.5rem)] flex-col px-4 pb-4 pt-3 md:px-6">
+  <div
+    class="flex min-h-[calc(100dvh-3.5rem)] flex-col px-4 pb-4 pt-3 md:px-6 lg:h-[calc(100dvh-3.5rem)]"
+  >
     <header
       v-if="title || $slots.actions || $slots.title"
       class="flex shrink-0 flex-wrap items-end justify-between gap-2 pb-3"

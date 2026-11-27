@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 用户设置外壳：页面标题取自路由 meta.titleKey。
- * 个人资料 / 安全设置 / 会话管理 / 组织中心为并列页面，顶部提供路由级 Tabs 导航。
+ * 个人资料 / 安全设置 / 会话管理为并列页面，顶部提供路由级 Tabs 导航。
  */
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
@@ -21,7 +21,7 @@ const title = computed(() => {
 const active = computed(() => {
   if (route.name === 'user-security') return 'security'
   if (route.name === 'user-sessions') return 'sessions'
-  if (route.path.startsWith('/orgs')) return 'orgs'
+
   return 'profile'
 })
 </script>
@@ -39,9 +39,7 @@ const active = computed(() => {
         <TabsTrigger value="sessions" as-child class="px-3 text-[12.5px]">
           <RouterLink to="/user/sessions">{{ t('user.sessions') }}</RouterLink>
         </TabsTrigger>
-        <TabsTrigger value="orgs" as-child class="px-3 text-[12.5px]">
-          <RouterLink to="/orgs/mine">{{ t('nav.orgs') }}</RouterLink>
-        </TabsTrigger>
+
       </TabsList>
     </Tabs>
     <slot />

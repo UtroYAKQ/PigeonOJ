@@ -22,7 +22,7 @@ const value = computed({
 
 <template>
   <Select v-model="value">
-    <SelectTrigger class="h-9 w-[150px] text-[13px]" :class="props.class">
+    <SelectTrigger class="h-9 w-[130px] text-[13px]" :class="props.class">
       <SelectValue />
     </SelectTrigger>
     <SelectContent>

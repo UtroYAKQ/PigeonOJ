@@ -130,7 +130,7 @@ const columns = computed<AppTableColumn<ProblemSummary>[]>(() => {
       key: 'title',
       title: t('problems.list.name'),
       cell: (row) => row.title,
-      cellClass: 'font-medium text-[13.5px]',
+      cellClass: 'font-medium text-[13.5px] whitespace-normal break-words',
     },
   ]
 
@@ -240,6 +240,7 @@ const columns = computed<AppTableColumn<ProblemSummary>[]>(() => {
       :page="page"
       :page-size="pageSize"
       :page-sizes="[20, 50, 100]"
+      min-width="880px"
       :empty-text="t('problems.list.empty')"
       :row-click="(row: ProblemSummary) => router.push(`/problems/${row.id}`)"
       @update:page="
