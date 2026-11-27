@@ -225,7 +225,7 @@ const columns = computed<AppTableColumn<OrgMemberItem>[]>(() => {
     {
       key: 'role',
       title: t('teams.members.role'),
-      width: '110px',
+      width: '120px',
       cell: (row) =>
         h(ToneBadge, {
           tone: row.is_admin ? 'warning' : 'default',
@@ -247,7 +247,7 @@ const columns = computed<AppTableColumn<OrgMemberItem>[]>(() => {
       cellClass: 'text-[12.5px] text-muted-foreground',
     },
   ]
-  if (props.canManage && !props.adminMode) {
+  if (props.canManage) {
     cols.push({
       key: 'ops',
       width: '56px',

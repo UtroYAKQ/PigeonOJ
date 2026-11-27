@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { RowAction } from './types'
 
-const props = defineProps<{
+defineProps<{
   actions: RowAction[]
   /** 触发按钮无障碍名称（如「更多操作」） */
   label: string
@@ -22,7 +22,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <DropdownMenu v-if="props.actions.length">
+  <DropdownMenu>
     <DropdownMenuTrigger as-child>
       <Button
         variant="ghost"
