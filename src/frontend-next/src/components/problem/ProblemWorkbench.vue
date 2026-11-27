@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useEventListener, useMediaQuery, useResizeObserver } from '@vueuse/core'
+import { useEventListener, useResizeObserver } from '@vueuse/core'
 import { BookOpen, ChevronDown, History, Loader2 } from '@lucide/vue'
 
 import CodeEditor from '@/components/common/CodeEditor.vue'
@@ -54,11 +54,7 @@ const LEGACY_CONSOLE_HEIGHT_KEY = 'pigeonoj.problems.consoleHeight'
 const CONSOLE_HEIGHT_DEFAULT = 520
 const CONSOLE_HEIGHT_MIN = 140
 const CONSOLE_HEIGHT_OPEN_MIN = 360
-/** 窄屏默认可拖上限：约 60% 视口，最高 560px（右栏自然增高、整页滚动） */
-const CONSOLE_HEIGHT_MAX_COMPACT = 560
 const EDITOR_MIN_HEIGHT = 220
-
-const isCompact = useMediaQuery('(max-width: 899px)')
 
 function loadConsoleHeight(): number {
   for (const key of [CONSOLE_HEIGHT_KEY, LEGACY_CONSOLE_HEIGHT_KEY]) {
@@ -91,21 +87,9 @@ const consoleStyle = computed(() =>
 )
 
 function clampConsoleHeight(value: number, allowCover = false): number {
-  if (isCompact.value) {
-    // 窄屏右栏自然增高、整页滚动：拖拽 / 键盘拉伸可覆盖整屏，其他场景保留约 60% 视口上限
-    const max = allowCover
-      ? Math.max(
-          CONSOLE_HEIGHT_MIN,
-          Math.round(window.innerHeight - (toolbarRef.value?.offsetHeight ?? 0)),
-        )
-      : Math.max(
-          CONSOLE_HEIGHT_OPEN_MIN,
-          Math.min(CONSOLE_HEIGHT_MAX_COMPACT, Math.round(window.innerHeight * 0.6)),
-        )
-    return Math.min(max, Math.max(CONSOLE_HEIGHT_MIN, value))
-  }
   const available = rightRef.value?.clientHeight ?? 0
-  // 拖拽 / 键盘拉伸允许覆盖整个编辑器；其他场景保留编辑器最小高度
+  // 拖拽 / 键盘拉伸允许覆盖整个编辑器；其他场景保留编辑器最小高度。
+  // 右栏（含窄屏）高度固定，拖拽只改变控制台在区域内的占比，不会把页面越拉越长
   const editorMin = allowCover ? 0 : EDITOR_MIN_HEIGHT
   const reserved = (toolbarRef.value?.offsetHeight ?? 0) + editorMin
   const max = Math.max(CONSOLE_HEIGHT_MIN, Math.floor(available - reserved))
@@ -234,11 +218,9 @@ useEventListener(window, 'pointermove', onResizeMove)
 useEventListener(window, 'pointerup', onResizeEnd)
 useEventListener(window, 'pointercancel', onResizeEnd)
 useEventListener(window, 'blur', onResizeEnd)
-// 容器尺寸变化（窗口缩放 / 左右分栏拖动导致工具栏换行）后重新约束高度；
-// 拖拽结束时不要回弹：窄屏允许覆盖（视口上限），桌面右栏固定高度本就不会触发
+// 容器尺寸变化（窗口缩放 / 左右分栏拖动导致工具栏换行）后重新约束高度
 useResizeObserver(rightRef, () => {
-  if (resizing) return
-  consoleHeight.value = clampConsoleHeight(consoleHeight.value, isCompact.value)
+  if (!resizing) consoleHeight.value = clampConsoleHeight(consoleHeight.value)
 })
 onBeforeUnmount(() => {
   if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame)
@@ -285,7 +267,7 @@ function runSelfTest(): void {
     <template #right>
       <section
         ref="rightRef"
-        class="code-surface flex min-h-[360px] flex-col min-[900px]:h-full min-[900px]:min-h-[420px]"
+        class="code-surface flex h-[min(70vh,640px)] min-h-[360px] flex-col min-[900px]:h-full min-[900px]:min-h-[420px]"
       >
         <div ref="toolbarRef" class="flex shrink-0 flex-wrap items-center gap-2 pb-2">
           <LanguageSelect v-model="language" />
@@ -306,10 +288,7 @@ function runSelfTest(): void {
           </div>
         </div>
 
-        <div
-          ref="editorRef"
-          class="h-[clamp(220px,42vh,300px)] shrink-0 min-[900px]:h-auto min-[900px]:min-h-0 min-[900px]:flex-1"
-        >
+        <div ref="editorRef" class="min-h-0 flex-1">
           <CodeEditor v-model="code" :language="language" />
         </div>
 

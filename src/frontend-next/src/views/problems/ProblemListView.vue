@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
@@ -11,6 +11,7 @@ import SearchFilterBar from '@/components/common/SearchFilterBar.vue'
 
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
+import ProblemTagBadge from '@/components/problem/ProblemTagBadge.vue'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -139,8 +140,15 @@ const columns = computed<AppTableColumn<ProblemSummary>[]>(() => {
       key: 'tags',
       title: t('problems.list.tags'),
       width: '220px',
-      cell: (row) => (row.tags ?? []).map((tagItem) => tagItem.name).join(' / ') || '--',
-      cellClass: 'text-[12.5px] text-muted-foreground',
+      cell: (row) => {
+        const items = row.tags ?? []
+        if (!items.length) return '--'
+        return h(
+          'div',
+          { class: 'flex flex-wrap gap-1 py-0.5' },
+          items.map((tagItem) => h(ProblemTagBadge, { key: tagItem.id, tag: tagItem })),
+        )
+      },
     })
   }
 
