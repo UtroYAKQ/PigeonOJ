@@ -115,7 +115,13 @@ const columns = computed<AppTableColumn<TeamProblemSummary>[]>(() => {
     {
       key: 'title',
       title: t('problems.list.name'),
-      cell: (row) => h('span', { class: 'font-medium text-[13.5px]' }, row.title),
+      cell: (row) =>
+        h('div', { class: 'flex flex-wrap items-center gap-2 py-0.5' }, [
+          h('span', { class: 'font-medium text-[13.5px]' }, row.title),
+          row.visibility === 'admin_visible'
+            ? h(ToneBadge, { tone: 'warning', label: t('problems.visibility.admin_visible') })
+            : null,
+        ]),
     },
   ]
 
@@ -126,16 +132,7 @@ const columns = computed<AppTableColumn<TeamProblemSummary>[]>(() => {
       width: '120px',
       cell: (row) => h(ToneBadge, { tone: verifyTone(row), label: verifyLabel(row) }),
     })
-    cols.push({
-      key: 'visibility',
-      title: t('problems.list.visibility'),
-      width: '100px',
-      cell: (row) =>
-        h(ToneBadge, {
-          tone: row.visibility === 'team_visible' ? 'info' : 'warning',
-          label: t(`problems.visibility.${row.visibility}`),
-        }),
-    })
+
   }
 
   cols.push(

@@ -9,7 +9,7 @@ import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import RefreshButton from '@/components/common/RefreshButton.vue'
 import SearchFilterBar from '@/components/common/SearchFilterBar.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
-import ProblemSetVisibilityBadge from '@/components/problemsets/ProblemSetVisibilityBadge.vue'
+
 import RowActions from '@/components/teams/RowActions.vue'
 import type { RowAction } from '@/components/teams/types'
 import { Button } from '@/components/ui/button'
@@ -117,12 +117,7 @@ const columns = computed<AppTableColumn<ProblemSetSummary>[]>(() => {
 
   if (props.isAdmin) {
     cols.push({
-      key: 'visibility',
-      title: t('problems.list.visibility'),
-      width: '100px',
-      cell: (row) => h(ProblemSetVisibilityBadge, { visibility: row.visibility }),
-    })
-    cols.push({
+
       key: 'ops',
       width: '56px',
       align: 'right',

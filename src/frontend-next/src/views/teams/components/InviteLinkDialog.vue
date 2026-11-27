@@ -83,7 +83,7 @@ async function copyInviteLink(): Promise<void> {
 
 <template>
   <Dialog :open="props.open" @update:open="emit('update:open', $event)">
-    <DialogContent class="w-full max-w-[420px] gap-4">
+    <DialogContent class="w-full max-w-[360px] gap-3 p-4 sm:max-w-[400px] sm:gap-4 sm:p-6">
       <DialogTitle class="text-[15px] font-semibold">
         {{ t('teams.settings.inviteTitle') }}
       </DialogTitle>
@@ -101,7 +101,7 @@ async function copyInviteLink(): Promise<void> {
             v-if="qrDataUrl"
             :src="qrDataUrl"
             :alt="t('teams.settings.inviteTitle')"
-            class="size-[200px] rounded-md border border-border bg-white p-2"
+            class="size-[160px] rounded-md border border-border bg-white p-2 sm:size-[200px]"
           />
         </div>
         <div class="flex items-center gap-2">

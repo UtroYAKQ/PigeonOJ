@@ -78,20 +78,10 @@ const columns = computed<AppTableColumn<TeamSummary>[]>(() => [
       h('div', { class: 'flex min-w-0 items-center gap-2.5 py-0.5' }, [
         h(BaseAvatar, { src: row.avatar_url, name: row.name, size: 30, round: false, radius: 8 }),
         h('span', { class: 'truncate font-medium', title: row.name }, row.name),
+        row.visibility === 'private'
+          ? h(ToneBadge, { tone: 'danger', label: t('teams.settings.visibilityPrivate') })
+          : null,
       ]),
-  },
-  {
-    key: 'visibility',
-    title: t('teams.settings.visibility'),
-    width: '110px',
-    cell: (row) =>
-      h(ToneBadge, {
-        tone: row.visibility === 'public' ? 'success' : 'default',
-        label:
-          row.visibility === 'public'
-            ? t('teams.settings.visibilityPublic')
-            : t('teams.settings.visibilityPrivate'),
-      }),
   },
   {
     key: 'member_count',

@@ -11,7 +11,7 @@ import SearchFilterBar from '@/components/common/SearchFilterBar.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
-import ProblemSetVisibilityBadge from '@/components/problemsets/ProblemSetVisibilityBadge.vue'
+
 import { usePagination } from '@/composables/usePagination'
 import { useUserStore } from '@/stores/user'
 import { message } from '@/utils/feedback'
@@ -78,12 +78,7 @@ const columns = computed<AppTableColumn<ProblemSetSummary>[]>(() => [
       ]),
   },
   {
-    key: 'visibility',
-    title: t('problemSets.list.visibility'),
-    width: '96px',
-    cell: (row) => h(ProblemSetVisibilityBadge, { visibility: row.visibility }),
-  },
-  {
+
     key: 'item_count',
     title: t('problemSets.detail.problems'),
     width: '110px',

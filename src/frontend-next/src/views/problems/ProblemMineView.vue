@@ -161,7 +161,16 @@ const columns = computed<AppTableColumn<ProblemSummary>[]>(() => [
   {
     key: 'title',
     title: t('problems.list.name'),
-    cell: (row) => h('strong', { class: 'text-[13.5px] font-medium' }, row.title),
+    cell: (row) =>
+      h('div', { class: 'flex flex-wrap items-center gap-2 py-0.5' }, [
+        h('strong', { class: 'text-[13.5px] font-medium' }, row.title),
+        row.visibility === 'private'
+          ? h(ToneBadge, { tone: 'danger', label: t('problems.visibility.private') })
+          : null,
+        row.visibility === 'admin_visible'
+          ? h(ToneBadge, { tone: 'warning', label: t('problems.visibility.admin_visible') })
+          : null,
+      ]),
   },
   {
     key: 'status',
@@ -174,16 +183,7 @@ const columns = computed<AppTableColumn<ProblemSummary>[]>(() => [
       }),
   },
   {
-    key: 'visibility',
-    title: t('problems.list.visibility'),
-    width: '88px',
-    cell: (row) =>
-      h(ToneBadge, {
-        tone: row.visibility === 'private' ? 'danger' : 'info',
-        label: t(`problems.visibility.${row.visibility ?? 'public'}`),
-      }),
-  },
-  {
+
     key: 'source',
     title: t('problems.list.source'),
     width: '88px',

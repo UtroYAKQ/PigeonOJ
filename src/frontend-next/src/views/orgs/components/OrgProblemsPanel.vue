@@ -131,16 +131,7 @@ const columns = computed<AppTableColumn<TeamProblemSummary>[]>(() => {
       cell: (row) => h(ToneBadge, { tone: verifyTone(row), label: verifyLabel(row) }),
     },
     {
-      key: 'visibility',
-      title: t('problems.list.visibility'),
-      width: '110px',
-      cell: (row) =>
-        h(ToneBadge, {
-          tone: 'info',
-          label: t(`problems.visibility.${row.visibility}`),
-        }),
-    },
-    {
+
       key: 'difficulty',
       title: t('problems.list.difficulty'),
       width: '80px',

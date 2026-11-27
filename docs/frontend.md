@@ -46,7 +46,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 - 列表工具条：`SearchFilterBar` 搜索框窄屏 `w-full`，≥640 才使用传入的 `searchWidth`；工具条整体允许换行
 - 团队 / 组织详情：摘要卡文本列至少 200px 宽，操作按钮组窄屏独占一行；功能导航窄屏横排、可横向滚动（`scrollbar-none`），按钮高 40px
 
-- 代码编辑器：窄屏 `SplitPane` 上下堆叠，右栏必须给**确定高度**（`h-[min(70vh,640px)]` + `min-h-[360px]`，≥900px 再切 `h-full`）；只写 `h-full` 时上层为 auto 高度，Monaco 宿主的 `height:100%` 会解析为 auto 而塌成 0（只剩边框）；控制台控制条允许换行，必须保证「提交代码」始终可见；Monaco 在 ≤640px 自动 `wordWrap: 'on'`。Monaco 字体偏好变更必须按「显式 `document.fonts.load` 等字体 → `remeasureFonts()` 清度量缓存 → `updateOptions`」顺序应用，否则字符宽度误差会累积成光标/文本偏移；容器不设 `padding`、隐藏横向滚动条；keep-alive 返回与容器尺寸变化都要 `layout()`
+- 代码编辑器：窄屏 `SplitPane` 上下堆叠，右栏用自然高度 `min-h-[360px]`，编辑器宿主用 `h-[clamp(220px,42vh,300px)]` 给 Monaco 确定高度；≥900px 右栏切 `h-full`、编辑器宿主 `flex-1`（自测控制台可覆盖编辑区）；只写 `h-full` 时上层为 auto 高度，Monaco 宿主的 `height:100%` 会解析为 auto 而塌成 0（只剩边框）；控制台控制条允许换行，必须保证「提交代码」始终可见；Monaco 在 ≤640px 自动 `wordWrap: 'on'`。Monaco 字体偏好变更必须按「显式 `document.fonts.load` 等字体 → `remeasureFonts()` 清度量缓存 → `updateOptions`」顺序应用，否则字符宽度误差会累积成光标/文本偏移；容器不设 `padding`、隐藏横向滚动条；keep-alive 返回与容器尺寸变化都要 `layout()`
 - 主区滚动容器使用 `overscroll-contain`，避免移动端滚到底触发页面回弹；触控目标不低于 32px，导航 / 主操作按钮优先 40px
 - 图片：站内 `/api/v1/files/` 地址统一经 `utils/image.ts` 的 `siteImageUrl` / `avatarImageUrl` 改写成 `?w=` 缩略档（96/192/384/640/960/1280，后端按档生成 WebP）；头像按 2x 取档、题面/评论插图 960、轮播桌面 1280 / 窄屏 960；Markdown 图片与列表图统一 `loading="lazy" decoding="async"`，轮播窄屏只预取当前 + 下一张。外链原样不改写
 
@@ -78,6 +78,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 
 - 页面结构：`WorkbenchShell` → `#toolbar` 放 `SearchFilterBar`，列表筛选条件（状态 / 类型等）统一用 `ui/select` 下拉并与搜索框同行，**不再用 Tabs 做筛选**（Tabs 仅用于详情页内容分区）→ `LineList`（表格列表经 `PaginatedTable`）或 `PaginatedCardGrid`；前台题库列表（`views/problems/ProblemListView.vue`）同样走 `PaginatedTable`，保留筛选、标签显隐、分页与空 / 加载态
 - 列表列定义：`AppTableColumn<T>`（`key/title/width/align/cell`）；`ColumnLineList` 基于 shadcn `ui/table` 由列定义生成表头 / 行（含勾选、行点击、骨架），表头统一 40px 高且用 `bg-surface`；`PaginatedTable` = `ColumnLineList` + 分页开关；无分页的列驱动列表直接用 `ColumnLineList`，自由插槽列表用 `LineList` 的 `#item` 插槽；旧的 `DataTable.vue` 已移除，禁止各页手写原生 `<table>` 或 `divide-y` 列表壳，统一经 `ColumnLineList` / `PaginatedTable` / `LineList`
+- 前台列表可见性展示：不单独占用「可见性」列；题库「我的题目」与团队题目列表仅对 `private` / `admin_visible` 在名称旁打小 tag，组织团队列表仅对 `private` 打 tag；组织题库、团队引用题目与题单列表不打 tag。后台管理列表仍保留独立可见性列
 - 卡片列表：`PaginatedCardGrid` 负责响应式网格（1 / 2 / 3 / 4 列）、骨架、空态与分页；领域卡片用 `EntityCard` 作为整卡可点击外壳（支持 Enter / Space 与可见焦点环），卡片内展示头像、标题、状态徽标、简介与 1–2 行元信息
 - 比赛卡片与代码分享卡片保持极简：头像 / 图标 + 标题 + 两行简介 + 纯文本元信息；比赛的起止时间单独一行，赛制 / 题数 / 报名人数另起一行，代码卡片是语言 / 作者 / 更新时间一行；只在确有必要时保留一个状态徽标，不用信息栏、箭头、多个彩色徽标或图标行堆砌，hover 只轻微描边
 - 首页沿用旧版的全屏气势：内容铺满主区宽度，上半部为主视觉（桌面高 `52dvh`，`min 340px` / `max 580px`，海报轮播 / 品牌横幅 2fr + 公告 1fr，最小 260px），下半部入口磁贴与小贴士按内容自然高度排布；内容超出视口时由主区滚动，不用 flex 拉伸压缩卡片，避免卡片重叠；窄屏同样自然高度滚动，不收窄成中间栏
@@ -100,8 +101,8 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 ### 「题面 + 编辑器」双栏工作台
 
 - `components/common/SplitPane.vue`：桌面端左右独立滚动、分隔条可拖拽且比例持久化（双击复位）；<900px 自动上下堆叠
-- `components/problem/ProblemWorkbench.vue`：左题面（`ProblemMetaBar` + `ProblemStatement`），右编辑器 + 自测控制台（右栏窄屏 `h-[min(70vh,640px)]`、≥900px `h-full`，保证内部 `CodeEditor` 的百分比高度链有确定基准）；上方工具行「语言」靠左、「我的提交 / 题解」靠右，「自测运行 / 提交」放进下方控制台标题行，避免顶部拥挤
-- 自测控制台常驻编辑器下方，形态对齐旧 UI（naive-ui 版）：面板顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 仍视为单击；方向键 / Home 微调与复位），默认展开 520px、拖拽下限 140px（展开时按 360px 可读下限兜底，方便输入样例），收起态只留约 47px 控制条；点击当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」，运行后自动切到结果并展开；展开态拖得过小视为取消并还原高度；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`（兼容旧键 `pigeonoj.problems.consoleHeight`）；结果含状态、耗时、内存与输出/报错
+- `components/problem/ProblemWorkbench.vue`：左题面（`ProblemMetaBar` + `ProblemStatement`），右编辑器 + 自测控制台（窄屏右栏用自然高度 `min-h-[360px]`、编辑器宿主固定 `h-[clamp(220px,42vh,300px)]` 保证 Monaco 高度链有确定基准；≥900px 右栏 `h-full`、编辑器宿主 `flex-1`）；上方工具行「语言」靠左、「我的提交 / 题解」靠右，「自测运行 / 提交」放进下方控制台标题行，避免顶部拥挤
+- 自测控制台常驻编辑器下方，形态对齐旧 UI（naive-ui 版）：面板顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 仍视为单击；方向键 / Home 微调与复位），默认展开 520px、拖拽下限 140px（展开时按 360px 可读下限兜底，方便输入样例）；拖动上限为右栏可用高度，控制台可完全覆盖代码编辑区（桌面编辑器允许压缩为 0，不再预留最小高度），窄屏右栏随控制台增高、整页滚动且按视口高度封顶；收起态只留约 47px 控制条；点击当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」，运行后自动切到结果并展开；展开态拖得过小视为取消并还原高度；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`（兼容旧键 `pigeonoj.problems.consoleHeight`）；结果含状态、耗时、内存与输出/报错
 - 提交历史经 `components/problem/MySubmissionsDialog.vue` 懒加载分页（弹窗 `sm:max-w-[760px]`、高 `min(72vh, 520px)`，保留完整列），行点击进入上下文内评测结果页
 
 ### 可访问性

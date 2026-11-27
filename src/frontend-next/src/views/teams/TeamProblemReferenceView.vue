@@ -13,7 +13,7 @@ import ErrorState from '@/components/common/ErrorState.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import RefreshButton from '@/components/common/RefreshButton.vue'
 import SearchFilterBar from '@/components/common/SearchFilterBar.vue'
-import ToneBadge from '@/components/common/ToneBadge.vue'
+
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
 import { Button } from '@/components/ui/button'
@@ -104,15 +104,7 @@ const columns = computed<AppTableColumn<TeamProblemSummary>[]>(() => [
     cell: (row) => h('span', { class: 'font-medium text-[13.5px]' }, row.title),
   },
   {
-    key: 'visibility',
-    title: t('problems.list.visibility'),
-    width: '100px',
-    cell: (row) =>
-      (row.visibility as string) === 'public'
-        ? h(ToneBadge, { tone: 'success', label: t('problems.visibility.public') })
-        : h(ToneBadge, { tone: 'default', label: t('problems.visibility.private') }),
-  },
-  {
+
     key: 'difficulty',
     title: t('problems.list.difficulty'),
     width: '80px',

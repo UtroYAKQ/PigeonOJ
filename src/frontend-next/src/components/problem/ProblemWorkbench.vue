@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useEventListener, useResizeObserver } from '@vueuse/core'
+import { useEventListener, useMediaQuery, useResizeObserver } from '@vueuse/core'
 import { BookOpen, ChevronDown, History, Loader2 } from '@lucide/vue'
 
 import CodeEditor from '@/components/common/CodeEditor.vue'
@@ -46,7 +46,7 @@ const router = useRouter()
 /**
  * 自测控制台常驻底部：常态只露控制条（自测 / 提交按钮都在这一行），
  * 拖动上方分隔条可自由调整高度，双击复位。高度按 px 持久化，
- * 下限保证可读，上限给编辑器留出最小空间。
+ * 下限保证可读；上限为右栏可用高度，允许完全覆盖代码编辑区。
  */
 // 默认展开高度按样例输入可读性调高；下限保留 140px 便于手动压缩，展开时不低于可读下限
 const CONSOLE_HEIGHT_KEY = 'pigeonoj.problems.consoleHeight.v2'
@@ -54,12 +54,13 @@ const LEGACY_CONSOLE_HEIGHT_KEY = 'pigeonoj.problems.consoleHeight'
 const CONSOLE_HEIGHT_DEFAULT = 520
 const CONSOLE_HEIGHT_MIN = 140
 const CONSOLE_HEIGHT_OPEN_MIN = 360
-const EDITOR_MIN_HEIGHT = 220
+
+const isCompact = useMediaQuery('(max-width: 899px)')
 
 function loadConsoleHeight(): number {
   for (const key of [CONSOLE_HEIGHT_KEY, LEGACY_CONSOLE_HEIGHT_KEY]) {
     const raw = Number(localStorage.getItem(key))
-    if (Number.isFinite(raw) && raw >= CONSOLE_HEIGHT_MIN && raw <= 720) return raw
+    if (Number.isFinite(raw) && raw >= CONSOLE_HEIGHT_MIN) return raw
   }
   return CONSOLE_HEIGHT_DEFAULT
 }
@@ -87,13 +88,12 @@ const consoleStyle = computed(() =>
 )
 
 function clampConsoleHeight(value: number): number {
-  const available = rightRef.value?.clientHeight ?? 0
-  // 按工具栏实际高度预留空间：换行变高时也不会让编辑器盖住控制台
-  const editorMin =
-    (editorRef.value && parseFloat(getComputedStyle(editorRef.value).minHeight)) ||
-    EDITOR_MIN_HEIGHT
-  const reserved = (toolbarRef.value?.offsetHeight ?? 0) + editorMin
-  const max = Math.max(CONSOLE_HEIGHT_MIN, Math.floor(available - reserved))
+  // 上限 = 右栏可用高度（控制台可将编辑器完全覆盖）；窄屏右栏自然增高，按视口高度封顶
+  const toolbarHeight = toolbarRef.value?.offsetHeight ?? 0
+  const available = isCompact.value
+    ? window.innerHeight - toolbarHeight
+    : (rightRef.value?.clientHeight ?? 0) - toolbarHeight
+  const max = Math.max(CONSOLE_HEIGHT_MIN, Math.floor(available))
   return Math.min(max, Math.max(CONSOLE_HEIGHT_MIN, value))
 }
 
@@ -267,7 +267,7 @@ function runSelfTest(): void {
     <template #right>
       <section
         ref="rightRef"
-        class="code-surface flex h-[min(70vh,640px)] min-h-[360px] flex-col min-[900px]:h-full min-[900px]:min-h-[420px]"
+        class="code-surface flex min-h-[360px] flex-col min-[900px]:h-full min-[900px]:min-h-[420px]"
       >
         <div ref="toolbarRef" class="flex shrink-0 flex-wrap items-center gap-2 pb-2">
           <LanguageSelect v-model="language" />
@@ -288,7 +288,10 @@ function runSelfTest(): void {
           </div>
         </div>
 
-        <div ref="editorRef" class="min-h-[220px] flex-1 lg:min-h-[260px]">
+        <div
+          ref="editorRef"
+          class="h-[clamp(220px,42vh,300px)] shrink-0 min-[900px]:h-auto min-[900px]:flex-1"
+        >
           <CodeEditor v-model="code" :language="language" />
         </div>
 
