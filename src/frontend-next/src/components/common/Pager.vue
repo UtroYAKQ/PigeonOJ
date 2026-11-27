@@ -56,16 +56,19 @@ const pageValue = computed({
 </script>
 
 <template>
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div class="flex items-center gap-2 text-xs text-muted-foreground">
+  <div class="flex items-center justify-between gap-2 sm:gap-3">
+    <div class="hidden min-[400px]:flex items-center gap-2 text-xs text-muted-foreground">
       <slot name="left">
         <span class="tabular-nums">{{ t('app.totalItems', { count: total }) }}</span>
       </slot>
     </div>
 
-    <div class="flex min-w-0 max-w-full flex-wrap items-center gap-3">
-      <div v-if="showSizePicker" class="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <span>{{ t('app.perPage') }}</span>
+    <div class="ml-auto flex min-w-0 flex-nowrap items-center gap-2 sm:gap-3">
+      <div
+        v-if="showSizePicker"
+        class="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
+      >
+        <span class="hidden min-[400px]:inline">{{ t('app.perPage') }}</span>
         <Select v-model="sizeValue">
           <SelectTrigger size="sm" class="h-8 w-[74px]">
             <SelectValue />
@@ -83,8 +86,8 @@ const pageValue = computed({
         :total="total"
         :items-per-page="pageSize"
         :sibling-count="isNarrow ? 0 : 1"
-        show-edges
-        class="w-auto justify-end"
+        :show-edges="!isNarrow"
+        class="w-auto shrink-0 justify-end"
       >
         <PaginationContent v-slot="{ items }">
           <PaginationPrevious :aria-label="t('action.prevPage')">

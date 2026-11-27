@@ -59,7 +59,7 @@ const EDITOR_MIN_HEIGHT = 220
 function loadConsoleHeight(): number {
   for (const key of [CONSOLE_HEIGHT_KEY, LEGACY_CONSOLE_HEIGHT_KEY]) {
     const raw = Number(localStorage.getItem(key))
-    if (Number.isFinite(raw) && raw >= CONSOLE_HEIGHT_MIN && raw <= 720) return raw
+    if (Number.isFinite(raw) && raw >= CONSOLE_HEIGHT_MIN) return raw
   }
   return CONSOLE_HEIGHT_DEFAULT
 }
@@ -69,8 +69,8 @@ const consoleHeight = ref(loadConsoleHeight())
 const activeTab = ref<'result' | 'input'>('result')
 const rightRef = ref<HTMLElement>()
 const toolbarRef = ref<HTMLElement>()
-const editorRef = ref<HTMLElement>()
 const consoleRef = ref<HTMLElement>()
+
 
 let resizing = false
 let tracking = false
@@ -86,12 +86,10 @@ const consoleStyle = computed(() =>
   consoleCollapsed.value ? undefined : { height: `${consoleHeight.value}px` },
 )
 
-function clampConsoleHeight(value: number): number {
+function clampConsoleHeight(value: number, allowCover = false): number {
   const available = rightRef.value?.clientHeight ?? 0
-  // 按工具栏实际高度预留空间：换行变高时也不会让编辑器盖住控制台
-  const editorMin =
-    (editorRef.value && parseFloat(getComputedStyle(editorRef.value).minHeight)) ||
-    EDITOR_MIN_HEIGHT
+  // 拖拽 / 键盘拉伸允许覆盖整个编辑器；其他场景保留编辑器最小高度
+  const editorMin = allowCover ? 0 : EDITOR_MIN_HEIGHT
   const reserved = (toolbarRef.value?.offsetHeight ?? 0) + editorMin
   const max = Math.max(CONSOLE_HEIGHT_MIN, Math.floor(available - reserved))
   return Math.min(max, Math.max(CONSOLE_HEIGHT_MIN, value))
@@ -108,7 +106,7 @@ function persistConsoleHeight(): void {
 function applyResize(): void {
   resizeFrame = undefined
   if (!resizing) return
-  consoleHeight.value = clampConsoleHeight(startHeight + startY - pendingY)
+  consoleHeight.value = clampConsoleHeight(startHeight + startY - pendingY, true)
   consoleCollapsed.value = false
 }
 
@@ -182,7 +180,7 @@ function onResizeEnd(): void {
     consoleCollapsed.value = true
     consoleHeight.value = startHeight
   } else {
-    consoleHeight.value = clampConsoleHeight(consoleHeight.value)
+    consoleHeight.value = clampConsoleHeight(consoleHeight.value, true)
   }
   persistConsoleHeight()
 }
@@ -199,9 +197,10 @@ function onTabClick(value: 'result' | 'input'): void {
 
 function onResizeKeydown(event: KeyboardEvent): void {
   const step = event.shiftKey ? 64 : 24
-  if (event.key === 'ArrowUp') consoleHeight.value = clampConsoleHeight(consoleHeight.value + step)
+  if (event.key === 'ArrowUp')
+    consoleHeight.value = clampConsoleHeight(consoleHeight.value + step, true)
   else if (event.key === 'ArrowDown')
-    consoleHeight.value = clampConsoleHeight(consoleHeight.value - step)
+    consoleHeight.value = clampConsoleHeight(consoleHeight.value - step, true)
   else if (event.key === 'Home') consoleHeight.value = clampConsoleHeight(CONSOLE_HEIGHT_DEFAULT)
   else return
   event.preventDefault()
@@ -258,7 +257,10 @@ function runSelfTest(): void {
     </template>
 
     <template #right>
-      <section ref="rightRef" class="code-surface flex h-full min-h-[360px] flex-col gap-0 lg:min-h-[420px]">
+      <section
+      ref="rightRef"
+      class="code-surface flex h-[min(70vh,640px)] min-h-[360px] flex-col gap-0 min-[900px]:h-full min-[900px]:min-h-[420px]"
+    >
         <div ref="toolbarRef" class="flex shrink-0 flex-wrap items-center gap-2 pb-2">
 
           <LanguageSelect v-model="language" />
@@ -279,10 +281,7 @@ function runSelfTest(): void {
           </div>
         </div>
 
-        <div
-          ref="editorRef"
-          class="min-h-[220px] flex-1 [&>.code-surface]:border-b-0 lg:min-h-[260px]"
-        >
+        <div class="min-h-0 flex-1 [&>.code-surface]:border-b-0">
           <CodeEditor v-model="code" :language="language" />
         </div>
 
