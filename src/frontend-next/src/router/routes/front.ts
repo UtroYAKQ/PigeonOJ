@@ -82,7 +82,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           titleKey: 'problemSets.detail.title',
           hidden: true,
           contextPage: true,
-          keepAlive: true,
         },
       },
       {
@@ -97,7 +96,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
-          keepAlive: true,
           breadcrumbParent: {
             titleKey: 'problemSets.detail.title',
             path: (route) => `/problem-sets/${String(route.params.setId)}`,
@@ -162,7 +160,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           titleKey: 'contests.detail.title',
           hidden: true,
           contextPage: true,
-          keepAlive: true,
         },
       },
       {
@@ -177,7 +174,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
-          keepAlive: true,
           breadcrumbParent: {
             titleKey: 'contests.detail.title',
             path: (route) => `/contests/${String(route.params.cid)}`,
@@ -279,7 +275,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
-          keepAlive: true,
           breadcrumbParent: { titleKey: 'nav.teams', path: '/teams/mine' },
         },
       },
@@ -393,7 +388,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
-          keepAlive: true,
           breadcrumbParent: {
             titleKey: 'teams.detail.title',
             path: (route) => `/teams/${String(route.params.teamId)}`,
@@ -411,7 +405,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
-          keepAlive: true,
           breadcrumbParent: [
             {
               titleKey: 'teams.detail.title',
@@ -509,7 +502,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
-          keepAlive: true,
           breadcrumbParent: {
             titleKey: 'teams.detail.title',
             path: (route) => `/teams/${String(route.params.teamId)}`,
@@ -527,7 +519,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
-          keepAlive: true,
           breadcrumbParent: [
             {
               titleKey: 'teams.detail.title',
@@ -633,7 +624,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
-          keepAlive: true,
           breadcrumbParent: {
             titleKey: 'teams.detail.title',
             path: (route) => `/teams/${String(route.params.teamId)}`,
@@ -717,7 +707,6 @@ export const frontRoutes: RouteRecordRaw[] = [
               titleKey: 'codes.detailTitle',
               hidden: true,
               contextPage: true,
-              keepAlive: true,
               breadcrumbParent: { titleKey: 'nav.codePlaza', path: '/codes' },
             },
           },
@@ -872,7 +861,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
-          keepAlive: true,
           breadcrumbParent: {
             titleKey: 'orgs.detail.title',
             path: (route) => `/orgs/${String(route.params.orgId)}`,
@@ -889,7 +877,6 @@ export const frontRoutes: RouteRecordRaw[] = [
           requiresAuth: true,
           hidden: true,
           contextPage: true,
-          keepAlive: true,
         },
       },
     ],

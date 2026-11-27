@@ -69,7 +69,6 @@ export function buildSolutionRoutes(def: SolutionContextDef): RouteRecordRaw[] {
         requiresAuth: true,
         hidden: true,
         contextPage: true,
-        keepAlive: true,
         breadcrumbParent: [
           ...parents,
           { titleKey: 'problems.solutions.title', path: solutionsPath },

@@ -4,7 +4,7 @@
  * 左栏 Markdown 说明，右栏题目列表（拖拽 / 上移 / 下移 / 移除即时保存，「添加题目」打开选择器）。
  * 团队上下文（route.params.teamId）走团队题单端点 + arrangeable 候选源。
  */
-import { computed, onActivated, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Loader2, Plus } from '@lucide/vue'
@@ -56,10 +56,7 @@ async function load(): Promise<void> {
 }
 
 onMounted(load)
-// 管理端题单详情为 keepAlive 页面：从编辑信息页返回时重拉，避免标题 / 介绍过期
-onActivated(() => {
-  if (detail.value) void load()
-})
+
 
 /** 行内编排落库：以当前列表全量替换（含 sort_order），成功后刷新基线 */
 async function persistItems(items: ProblemSetItem[]): Promise<void> {

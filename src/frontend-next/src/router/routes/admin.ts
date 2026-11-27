@@ -208,7 +208,6 @@ export const adminRoutes: RouteRecordRaw[] = [
               requiresAuth: true,
               hidden: true,
               contextPage: true,
-              keepAlive: true,
             },
           },
           {
@@ -337,7 +336,6 @@ export const adminRoutes: RouteRecordRaw[] = [
               requiresAuth: true,
               hidden: true,
               contextPage: true,
-              keepAlive: true,
             },
           },
         ],
@@ -376,7 +374,6 @@ export const adminRoutes: RouteRecordRaw[] = [
               requiresAuth: true,
               hidden: true,
               contextPage: true,
-              keepAlive: true,
             },
           },
         ],
@@ -427,7 +424,6 @@ export const adminRoutes: RouteRecordRaw[] = [
           titleKey: 'nav.homeConfig',
           icon: 'Picture',
           roles: ['admin'],
-          keepAlive: true,
         },
       },
       {

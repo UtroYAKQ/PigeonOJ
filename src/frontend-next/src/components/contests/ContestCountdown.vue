@@ -11,7 +11,7 @@ const props = defineProps<{
   startTime: string
   endTime: string
   status: ContestStatusType
-  /** 父级每秒推进的当前时间戳，KeepAlive 暂停恢复由父级控制 */
+  /** 父级每秒推进的当前时间戳 */
   now: number
 }>()
 

@@ -4,9 +4,9 @@
  * 主页（公告 + 时间安排 + 说明）/ 题目 / 榜单 / 提交记录四个 tab。
  * 题目进入比赛上下文写题页；榜单封榜展示冻结快照，进行中 15s 轮询；
  * 提交记录比赛期间仅管理角色可见，赛后对所有登录用户开放。
- * 页面级 KeepAlive：切走暂停时钟与榜单轮询，返回时恢复并重拉详情。
+ * 时钟与榜单轮询随组件挂载启动、卸载停止。
  */
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
@@ -150,10 +150,10 @@ async function register(): Promise<void> {
   }
 }
 
-// ---- 倒计时时钟：KeepAlive 切走时停表，返回时恢复 ----
+// ---- 倒计时时钟 ----
 const nowTick = ref(Date.now())
 let clockTimer: number | null = null
-const pageActive = ref(true)
+const pageActive = true
 
 function startClock(): void {
   if (clockTimer !== null) return
@@ -174,16 +174,6 @@ onMounted(() => {
   startClock()
 })
 
-onActivated(() => {
-  pageActive.value = true
-  startClock()
-  if (detail.value) void load()
-})
-
-onDeactivated(() => {
-  pageActive.value = false
-  stopClock()
-})
 
 onBeforeUnmount(stopClock)
 </script>

@@ -21,13 +21,11 @@ import { Card } from '@/components/ui/card'
 import BrandMark from '@/layout/BrandMark.vue'
 import HomeCarousel from '@/views/home/HomeCarousel.vue'
 import { useAppStore } from '@/stores/app'
-import { useUserStore } from '@/stores/user'
 import type { SiteBanner } from '@/types'
 
 const router = useRouter()
 const { t } = useI18n()
 const appStore = useAppStore()
-const userStore = useUserStore()
 
 const banners = computed<SiteBanner[]>(() =>
   (appStore.siteConfig.banners ?? []).filter((b) => !!b.image),
@@ -79,18 +77,6 @@ function openBanner(banner: SiteBanner): void {
   <div
     class="mx-auto flex w-full max-w-[1920px] flex-col px-4 pb-6 pt-4 sm:px-6 lg:min-h-full"
   >
-    <header
-      v-if="!userStore.isLoggedIn"
-      class="mb-4 flex shrink-0 flex-wrap justify-end gap-3 lg:mb-5"
-    >
-      <Button variant="outline" size="sm" @click="router.push('/login')">
-        {{ t('user.login') }}
-      </Button>
-      <Button size="sm" @click="router.push('/register')">
-        {{ t('home.createAccount') }}
-        <ArrowRight class="size-4" />
-      </Button>
-    </header>
 
 <!-- 主视觉：左轮播海报（2fr）+ 右系统公告（1fr），两列高度由左列内容决定 -->
     <div class="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">

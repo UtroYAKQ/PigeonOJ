@@ -4,7 +4,7 @@
  * 同一组件被团队上下文复用：按 route.params.teamId 分派团队端点，
  * 题内跳转与面包屑均留在本上下文（frontend.md 路由上下文隔离）。
  */
-import { computed, onActivated, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Loader2 } from '@lucide/vue'
@@ -50,11 +50,7 @@ async function load(): Promise<void> {
 }
 
 onMounted(load)
-// keepAlive 页面：从编排页返回时命中缓存实例（onMounted 不再执行），
-// onActivated 强制重拉，保证题单内容与服务器一致
-onActivated(() => {
-  if (detail.value) void load()
-})
+
 
 /** 完成进度：当前用户 AC 题数 / 题单题数（匿名=0） */
 const solvedCount = computed(

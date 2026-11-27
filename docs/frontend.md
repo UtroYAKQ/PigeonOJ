@@ -203,14 +203,15 @@ src/frontend-next/
 - 路由标题 / 菜单标题设 `meta.titleKey`，由 i18n 生成；无 `titleKey` 的路由不得进导航目录
 - 浏览器标签「页面标题 · 站点名」，favicon 取 `site.logo`
 
-### 页面实例缓存（面包屑链式缓存）
+### 页面实例缓存（列表状态保留）
 
-`AppLayout.vue` 对 `router-view` 采用插槽分流：声明 `meta.keepAlive: true` 的页面进入 `<KeepAlive>`（实例 key 为 `route.fullPath`），从深层页面沿面包屑返回时保留筛选、页码、题面、滚动位置；`:max=8` LRU 兜底；缓存 key 绑定当前登录用户 id，登出 / 换号后整体作废。
+`AppLayout.vue` 对 `router-view` 采用插槽分流：声明 `meta.keepAlive: true` 的页面进入 `<KeepAlive>`（实例 key 为 `route.fullPath`），从上下文页返回时保留筛选、页码和已加载数据；`:max=8` LRU 兜底；缓存 key 绑定当前登录用户 id，登出 / 换号后整体作废。滚动容器是 `main`，每次导航由 `AppLayout` 重置到顶部，滚动位置不保留。
 
-- 缓存范围（`meta.keepAlive: true`）：题库 / 题单 / 比赛 / 团队列表与详情、上下文写题页、各类提交列表与评测结果、管理后台列表与题单 / 团队详情、会话管理
-- 不缓存：写题向导各步、题目预览、邀请页、个人资料 / 安全设置等带表单页面
-- 轮询 / 计时页面（评测结果 ×3、比赛详情、在线用户）必须实现 `onDeactivated` 暂停 + `onActivated` 恢复
-- 面包屑层级解析收敛于 `router/crumbs.ts` 的 `buildCrumbs`；新增上下文页只需声明 `meta.keepAlive`（带表单页面禁止声明）
+- 缓存范围（`meta.keepAlive: true`）：各列表 / 工作台（题库、题单、比赛、团队、组织、代码广场、管理后台列表与在线用户），以及评测结果页
+- 不缓存：所有详情页、编辑页、上下文写题页、题目预览、邀请页、个人资料 / 安全设置等；进入即重新拉取，避免旧数据
+- 写题代码不依赖页面缓存：按「用户 + 题目 + 语言」经 `useCodeDraft` 持久化到 localStorage，离开 / 刷新均可恢复
+- 评测结果页的轮询必须在 `onDeactivated` 暂停、`onActivated` 恢复；在线用户列表同理
+- 面包屑层级解析收敛于 `router/crumbs.ts` 的 `buildCrumbs`；新增页面默认不缓存，仅列表 / 工作台可声明 `meta.keepAlive`
 - 数据时效由各列表页刷新按钮兜底；退出 / 解散团队经 `stores/teams` 脏标记在列表页 `onActivated` 重拉
 
 ### 路由上下文隔离（契约级规范）
