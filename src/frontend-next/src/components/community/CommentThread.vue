@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ImagePlus, Loader2, MessageSquare, Send, Smile } from '@lucide/vue'
+import { ImagePlus, Loader2, MessageSquare, Send, Smile, X } from '@lucide/vue'
 
 
 import { uploadImage } from '@/api/files'
@@ -84,6 +84,31 @@ function insertText(text: string): void {
     const pos = start + text.length
     el.setSelectionRange(pos, pos)
   })
+}
+
+const SITE_IMAGE_MARKDOWN = /!\[([^\]]*)\]\((\/api\/v1\/files\/[^\s)]+)\)/g
+
+/** 输入框内已插入的站内图片：给出缩略图，避免只看到 Markdown 源码 */
+const attachedImages = computed(() => {
+  const images: Array<{ alt: string; url: string; markdown: string }> = []
+  for (const match of content.value.matchAll(SITE_IMAGE_MARKDOWN))
+    images.push({ alt: match[1], url: match[2], markdown: match[0] })
+  return images
+})
+
+function removeImage(markdown: string): void {
+  const index = content.value.indexOf(markdown)
+  if (index < 0) return
+  content.value = content.value.slice(0, index) + content.value.slice(index + markdown.length)
+}
+
+function onPaste(event: ClipboardEvent): void {
+  const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
+    IMAGE_ACCEPT.includes(file.type),
+  )
+  if (!files.length) return
+  event.preventDefault()
+  void uploadFiles(files)
 }
 
 function onEmojiSelect(emoji: string): void {
@@ -474,7 +499,31 @@ onMounted(load)
                 ? t('community.comment.replyPlaceholder', { name: replyTo.name })
                 : t('community.comment.placeholder')
             "
+            @paste="onPaste"
           />
+          <div v-if="attachedImages.length" class="flex flex-wrap gap-2 px-2 pb-1.5">
+            <div
+              v-for="(image, index) in attachedImages"
+              :key="`${image.url}-${index}`"
+              class="relative"
+            >
+              <img
+                :src="image.url"
+                :alt="image.alt"
+                class="size-12 rounded-md border border-border object-cover"
+                loading="lazy"
+              />
+              <button
+                type="button"
+                class="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-foreground text-background shadow"
+                :title="t('community.comment.removeImage')"
+                :aria-label="t('community.comment.removeImage')"
+                @click="removeImage(image.markdown)"
+              >
+                <X class="size-2.5" />
+              </button>
+            </div>
+          </div>
           <div class="flex items-center justify-between gap-2 border-t border-border/60 px-2 py-1">
             <div class="flex items-center gap-0.5">
               <Popover v-model:open="emojiOpen">

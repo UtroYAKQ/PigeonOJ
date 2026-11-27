@@ -154,7 +154,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 | `components/submission/SubmissionResult.vue` | 评测结果页统一展示（统计 / 代码 / 测试点） |
 | `components/problemsets/ProblemPicker.vue` | 题库选择弹窗（默认仅本人；loader 支持团队候选源） |
 | `components/contests/*` / `components/teams/*` | 比赛 / 团队领域共享展示组件 |
-| `components/community/CommentThread.vue` / `ReportDialog.vue` | 评论（含回复 / 举报 / 管理恢复）与举报弹窗 |
+| `components/community/CommentThread.vue` / `ReportDialog.vue` | 评论（含回复 / 粘贴图片上传与缩略图移除 / 举报 / 管理恢复）与举报弹窗 |
 | `views/orgs/*` / `views/community/*` | 组织空间与社区页面 |
 | `layout/*` | 应用壳、侧栏、顶栏、命令面板、面包屑、语言 / 主题 / 用户菜单 |
 

@@ -21,6 +21,7 @@ export default {
       emptyText: 'No comments yet — say something',
       emoji: 'Emoji',
       image: 'Image',
+      removeImage: 'Remove image',
     },
     report: {
       title: 'Report',

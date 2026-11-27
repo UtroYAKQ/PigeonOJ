@@ -21,6 +21,7 @@ export default {
       emptyText: '还没有评论，来说点什么吧',
       emoji: '表情',
       image: '图片',
+      removeImage: '移除图片',
     },
     report: {
       title: '举报',
