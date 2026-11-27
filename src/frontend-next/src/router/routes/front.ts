@@ -704,8 +704,6 @@ export const frontRoutes: RouteRecordRaw[] = [
         path: ':id',
         component: () => import('@/views/community/CodeShareDetailLayout.vue'),
         meta: {
-          title: '代码分享详情',
-          titleKey: 'codes.detailTitle',
           hidden: true,
           contextPage: true,
         },
@@ -733,7 +731,13 @@ export const frontRoutes: RouteRecordRaw[] = [
               requiresAuth: true,
               hidden: true,
               contextPage: true,
-              breadcrumbParent: { titleKey: 'nav.codePlaza', path: '/codes' },
+              breadcrumbParent: [
+                {
+                  titleKey: 'codes.detailTitle',
+                  path: (route) => `/codes/${route.params.id}`,
+                },
+                { titleKey: 'nav.codePlaza', path: '/codes' },
+              ],
             },
           },
         ],

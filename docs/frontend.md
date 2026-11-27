@@ -112,7 +112,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 
 - **组织中心**：`/orgs/mine` 列表 + `/orgs/:orgId` 详情（成员 / 组织团队 / 组织题库 / 设置）；组织管理员可拉人、授管理员、建团队、维护组织题库；组织题目路由固定为 `/orgs/:orgId/problems/...`，读题 / 交题 / 自测全部留在组织上下文
 - **团队创建**：唯一入口为组织详情「创建团队」（`POST /orgs/{orgId}/teams`）；团队题目只来自组织题库 / 全站公开的引用快照，团队中心仅浏览与申请
-- **社区**：题解页随题目上下文挂载（题库 / 题单 / 比赛 / 组织各自 `/solutions/*` 路由），官方题解收口题解页 Tab；题解分享列表采用 `LineList` 无框横线列表（作者头像 + 标题 + 摘要 + 作者/日期 + 评论数，行间 `divide-y` 横线，非表格）；代码广场 `/codes` 列表 / 分享 / 详情，编辑 `/codes/:id/edit` 为详情的下级路由（面包屑：代码广场 / 代码分享详情 / 编辑分享）；评论与举报统一 `components/community/CommentThread.vue` / `ReportDialog.vue`
+- **社区**：题解页随题目上下文挂载（题库 / 题单 / 比赛 / 组织各自 `/solutions/*` 路由），官方题解收口题解页 Tab；题解分享列表采用 `LineList` 无框横线列表（作者头像 + 标题 + 摘要 + 作者/日期 + 评论数，行间 `divide-y` 横线，非表格）；代码广场 `/codes` 列表 / 分享 / 详情，编辑 `/codes/:id/edit` 为详情的下级路由（面包屑：代码广场 / 代码分享详情 / 编辑分享，其中详情项链接回 `/codes/:id`）；评论与举报统一 `components/community/CommentThread.vue` / `ReportDialog.vue`
 - **管理治理**：`/admin/orgs`、`/admin/solutions`、`/admin/codes` 分别负责组织、题解、代码分享；题解预览弹窗内可直接治理评论
 
 ## Markdown 渲染
