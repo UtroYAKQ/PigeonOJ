@@ -74,7 +74,7 @@ onMounted(load)
 </script>
 
 <template>
-  <PageShell>
+  <PageShell :fill="!share">
     <div v-if="loading" class="list-empty">
       <Loader2 class="size-6 animate-spin text-muted-foreground" />
     </div>

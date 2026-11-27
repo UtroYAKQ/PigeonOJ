@@ -72,7 +72,7 @@ onMounted(load)
 </script>
 
 <template>
-  <PageShell width="narrow">
+  <PageShell width="narrow" :fill="!solution">
 
     <div v-if="loading" class="list-empty">
       <Loader2 class="size-6 animate-spin text-muted-foreground" />

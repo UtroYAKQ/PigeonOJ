@@ -1,14 +1,25 @@
 <script setup lang="ts">
-defineProps<{
-  title?: string
-  description?: string
-  width?: 'default' | 'narrow'
-}>()
+withDefaults(
+  defineProps<{
+    title?: string
+    description?: string
+    width?: 'default' | 'narrow'
+    /** 内容区撑满主可视高度，供整页空态/加载态垂直居中 */
+    fill?: boolean
+  }>(),
+  { fill: false },
+)
 </script>
 
 <template>
-  <div class="mx-auto w-full" :class="width === 'narrow' ? 'max-w-[1160px]' : 'max-w-[1360px]'">
-    <div class="px-4 pb-16 pt-4 sm:px-6">
+  <div
+    class="mx-auto w-full"
+    :class="[
+      width === 'narrow' ? 'max-w-[1160px]' : 'max-w-[1360px]',
+      fill ? 'flex h-full min-h-0 flex-col' : '',
+    ]"
+  >
+    <div class="px-4 sm:px-6" :class="fill ? 'flex min-h-0 flex-1 flex-col py-4' : 'pb-16 pt-4'">
       <header
         v-if="title || $slots.actions || $slots.title"
         class="flex flex-col gap-2 pb-4 md:flex-row md:items-end md:justify-between"

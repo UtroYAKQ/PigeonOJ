@@ -26,8 +26,9 @@ const { t } = useI18n()
   <PageShell
     :title="t('problems.submission.title')"
     :description="t('problems.submission.description')"
+    :fill="!submission"
   >
-    <div v-if="loading && !submission" class="grid min-h-[320px] place-items-center">
+    <div v-if="loading && !submission" class="grid min-h-[320px] flex-1 place-items-center">
       <Loader2 class="size-6 animate-spin text-muted-foreground" />
     </div>
 
@@ -45,7 +46,7 @@ const { t } = useI18n()
       </template>
     </SubmissionResult>
 
-    <div v-else class="grid min-h-[320px] place-items-center">
+    <div v-else class="grid min-h-[320px] flex-1 place-items-center">
       <EmptyState :text="t('common.noData')" />
     </div>
   </PageShell>
