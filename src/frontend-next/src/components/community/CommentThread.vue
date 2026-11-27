@@ -77,8 +77,8 @@ const uploading = ref(false)
 const editor = useEditor({
   content: '',
   extensions: [
-    StarterKit.configure({ heading: false, horizontalRule: false }),
-    Image.configure({ inline: false, allowBase64: false }),
+    StarterKit.configure({ heading: false, horizontalRule: false, gapcursor: false }),
+    Image.configure({ inline: true, allowBase64: false }),
     Placeholder.configure({ placeholder: () => t('community.comment.placeholder') }),
     Markdown.configure({
       html: false,
@@ -188,10 +188,8 @@ function authorName(node: CommentNode): string {
 
 function beginReply(node: CommentNode): void {
   replyTo.value = { id: node.parent_id ?? node.id, name: authorName(node) }
-  void nextTick(() => {
-    editor.value?.commands.focus()
-    editorHost.value?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  })
+  // 只聚焦输入框；不要 scrollIntoView，避免把上方评论列表滚出视口
+  void nextTick(() => editor.value?.commands.focus())
 }
 
 function cancelReply(): void {
@@ -571,6 +569,7 @@ onMounted(load)
   border: 1px solid var(--border);
   border-radius: 4px;
   object-fit: contain;
+  vertical-align: middle;
 }
 
 .comment-editor :deep(.tiptap ul),
