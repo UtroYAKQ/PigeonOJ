@@ -74,6 +74,10 @@ function onPageChange(value: number): void {
 }
 
 function openShare(share: CodeShareSummary): void {
+  // 与路由跳转并行预热语法高亮，避免详情页的代码块先以纯文本出现
+  void import('@/components/ui/code-block/highlighter')
+    .then(({ preloadCodeHighlighting }) => preloadCodeHighlighting([share.language]))
+    .catch(() => {})
   void router.push(`/codes/${share.id}`)
 }
 

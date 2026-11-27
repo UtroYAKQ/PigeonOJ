@@ -669,6 +669,12 @@ export const frontRoutes: RouteRecordRaw[] = [
   {
     path: 'codes',
     meta: { title: '代码广场', titleKey: 'nav.codePlaza', icon: 'Code' },
+    // 进入代码广场/代码详情时提前预热语法高亮，避免代码块先以纯文本渲染
+    beforeEnter: () => {
+      void import('@/components/ui/code-block/highlighter')
+        .then(({ preloadCodeHighlighting }) => preloadCodeHighlighting())
+        .catch(() => {})
+    },
     children: [
       {
         path: '',

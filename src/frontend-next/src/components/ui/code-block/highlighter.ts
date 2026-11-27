@@ -7,6 +7,14 @@ export interface HighlightedToken {
   htmlStyle?: Record<string, string>
 }
 
+export interface Highlighter {
+  /** Tokenizes code, optionally continuing from a previous grammar state. */
+  highlight: (
+    code: string,
+    state?: GrammarState,
+  ) => { lines: HighlightedToken[][], state: GrammarState | undefined }
+}
+
 // Add the languages you need. Each one loads the first time it is used.
 const languages = {
   bash: () => import("shiki/langs/shellscript.mjs"),
@@ -56,6 +64,9 @@ function getHighlighter() {
     ],
     langs: [],
     engine: createJavaScriptRegexEngine({ forgiving: true }),
+  }).catch((error) => {
+    highlighter = undefined
+    throw error
   })
 
   return highlighter
@@ -75,49 +86,75 @@ function getLanguage(language: string) {
 
 // Loads a language and returns a highlighter for it, or null for a language
 // that is not listed.
-export async function loadHighlighter(language: string) {
+const languageLoads = new Map<string, Promise<Highlighter | null>>()
+
+function createHighlighter(lang: keyof typeof languages | "ansi"): Promise<Highlighter> {
+  return getHighlighter().then(async (shiki) => {
+    if (lang !== "ansi" && !shiki.getLoadedLanguages().includes(lang))
+      await shiki.loadLanguage(languages[lang])
+
+    return {
+      // Returns the tokens of each line, and the grammar state after the last
+      // line. Pass that state back to continue where the code left off.
+      highlight(code: string, state?: GrammarState) {
+        const tokenize = (text: string) =>
+          shiki.codeToTokens(text, {
+            lang,
+            themes: { light: "github-light", dark: "github-dark" },
+            defaultColor: false,
+            grammarState: state,
+          }).tokens
+
+        // ANSI has no grammar state, so each line is tokenized on its own and
+        // gets the same colors whether it arrives in one piece or streams.
+        const tokens = lang === "ansi"
+          ? code.split("\n").flatMap(line => tokenize(line))
+          : tokenize(code)
+
+        return {
+          lines: tokens.map(line =>
+            line.map((token): HighlightedToken => ({
+              content: token.content,
+              htmlStyle: token.htmlStyle as Record<string, string> | undefined,
+            })),
+          ),
+          state: shiki.getLastGrammarState(tokens),
+        }
+      },
+    }
+  })
+}
+
+export function loadHighlighter(language: string): Promise<Highlighter | null> {
   const lang = getLanguage(language)
 
   if (!lang)
-    return null
+    return Promise.resolve(null)
 
-  const shiki = await getHighlighter()
+  const cached = languageLoads.get(lang)
+  if (cached)
+    return cached
 
-  if (lang !== "ansi" && !shiki.getLoadedLanguages().includes(lang))
-    await shiki.loadLanguage(languages[lang])
+  const load = createHighlighter(lang).catch((error) => {
+    languageLoads.delete(lang)
+    throw error
+  })
+  languageLoads.set(lang, load)
 
-  return {
-    // Returns the tokens of each line, and the grammar state after the last
-    // line. Pass that state back to continue where the code left off.
-    highlight(code: string, state?: GrammarState) {
-      const tokenize = (text: string) =>
-        shiki.codeToTokens(text, {
-          lang,
-          themes: { light: "github-light", dark: "github-dark" },
-          defaultColor: false,
-          grammarState: state,
-        }).tokens
-
-      // ANSI has no grammar state, so each line is tokenized on its own and
-      // gets the same colors whether it arrives in one piece or streams.
-      const tokens = lang === "ansi"
-        ? code.split("\n").flatMap(line => tokenize(line))
-        : tokenize(code)
-
-      return {
-        lines: tokens.map(line =>
-          line.map((token): HighlightedToken => ({
-            content: token.content,
-            htmlStyle: token.htmlStyle as Record<string, string> | undefined,
-          })),
-        ),
-        state: shiki.getLastGrammarState(tokens),
-      }
-    },
-  }
+  return load
 }
 
-export type Highlighter = NonNullable<Awaited<ReturnType<typeof loadHighlighter>>>
+/**
+ * Warms up the highlighter ahead of the first code block so syntax colors are
+ * already available when the page renders.
+ */
+export function preloadCodeHighlighting(
+  languages: readonly string[] = ["cpp", "python", "java"],
+): void {
+  for (const language of languages)
+    void loadHighlighter(language).catch(() => {})
+}
+
 
 // Returns the tokens of each line, or null for a language that is not listed.
 export async function highlightCode(code: string, language: string) {

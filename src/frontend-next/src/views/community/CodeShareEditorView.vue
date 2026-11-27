@@ -149,9 +149,7 @@ onMounted(loadExisting)
           {{ t('codes.codeLabel') }}
           <span class="text-destructive" aria-hidden="true">*</span>
         </Label>
-        <div class="h-[360px]">
-          <CodeEditor v-model="form.code" :language="form.language" />
-        </div>
+        <CodeEditor v-model="form.code" :language="form.language" auto-height />
       </div>
     </div>
   </PageShell>

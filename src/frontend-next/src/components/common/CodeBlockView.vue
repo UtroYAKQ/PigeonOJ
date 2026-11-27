@@ -22,7 +22,7 @@ const props = withDefaults(
     title?: string
     maxHeight?: string
   }>(),
-  { title: '', maxHeight: 'max-h-[520px]' },
+  { title: '', maxHeight: '' },
 )
 
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -51,7 +51,7 @@ const lines = useHighlightedCode(
         <CodeBlockCopyButton :value="code" />
       </CodeBlockActions>
     </CodeBlockHeader>
-    <CodeBlockContent :class="maxHeight" line-numbers>
+    <CodeBlockContent :class="maxHeight || undefined" line-numbers>
       <CodeBlockLine v-for="(line, index) in lines" :key="index">
         <CodeBlockToken v-for="(token, tokenIndex) in line" :key="tokenIndex" :token="token" />
       </CodeBlockLine>

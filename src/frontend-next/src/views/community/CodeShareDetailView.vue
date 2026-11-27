@@ -141,12 +141,7 @@ onMounted(load)
         <section>
           <h2 class="text-lg font-medium">{{ t('codes.codeLabel') }}</h2>
           <div class="my-5 h-px bg-border" role="separator" />
-          <CodeBlockView
-            :code="share.code"
-            :language="share.language"
-            :title="languageLabel"
-            max-height="max-h-[520px]"
-          />
+          <CodeBlockView :code="share.code" :language="share.language" :title="languageLabel" />
         </section>
 
         <CommentThread target-type="code_share" :target-id="share.id" :disabled="removed" flat />

@@ -8,12 +8,35 @@ import { registerProblemCompletions } from '@/monaco/completions'
 import { definePigeonThemes, pigeonThemeName } from '@/monaco/theme'
 import { useUserStore } from '@/stores/user'
 
-const props = defineProps<{ modelValue: string; language: ProblemLanguage; readOnly?: boolean }>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: string
+    language: ProblemLanguage
+    readOnly?: boolean
+    /** 高度随内容自适应，不在编辑器内部产生滚动条 */
+    autoHeight?: boolean
+  }>(),
+  { readOnly: false, autoHeight: false },
+)
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const userStore = useUserStore()
 const host = ref<HTMLElement>()
 let editor: monaco.editor.IStandaloneCodeEditor | undefined
 let themeObserver: MutationObserver | undefined
+let contentSizeListener: monaco.IDisposable | undefined
+
+/** 自适应高度时的最小可视高度，空代码也保留可编辑区域 */
+const AUTO_HEIGHT_MIN = 360
+const hostStyle = ref<Record<string, string> | undefined>(
+  props.autoHeight ? { height: `${AUTO_HEIGHT_MIN}px` } : undefined,
+)
+
+function syncAutoHeight(): void {
+  if (!props.autoHeight || !editor) return
+  hostStyle.value = {
+    height: `${Math.max(editor.getContentHeight(), AUTO_HEIGHT_MIN)}px`,
+  }
+}
 
 const monacoLanguage: Record<ProblemLanguage, string> = {
   cpp17: 'cpp',
@@ -68,6 +91,7 @@ async function applyFontPrefs(): Promise<void> {
     fontLigatures: false,
   })
   relayout()
+  syncAutoHeight()
 }
 
 onMounted(() => {
@@ -81,7 +105,9 @@ onMounted(() => {
     automaticLayout: true,
     minimap: { enabled: false },
     // 控制台拖拽时容器高频重排，避免可见的横向滚动条被误触发
-    scrollbar: { horizontal: 'hidden' },
+    scrollbar: props.autoHeight
+      ? { horizontal: 'hidden', vertical: 'hidden', alwaysConsumeMouseWheel: false }
+      : { horizontal: 'hidden' },
     wordWrap: isNarrow.value ? 'on' : 'off',
     fontSize: fontSize.value,
     fontFamily: fontOption.value.stack,
@@ -95,6 +121,12 @@ onMounted(() => {
     lineDecorationsWidth: 4,
   })
   editor.onDidChangeModelContent(() => emit('update:modelValue', editor?.getValue() ?? ''))
+  if (props.autoHeight) {
+    contentSizeListener = editor.onDidContentSizeChange((event) => {
+      if (event.contentHeightChanged) syncAutoHeight()
+    })
+    syncAutoHeight()
+  }
   themeObserver = new MutationObserver(() => {
     monaco.editor.setTheme(currentTheme())
   })
@@ -143,6 +175,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  contentSizeListener?.dispose()
   themeObserver?.disconnect()
   editor?.dispose()
 })
@@ -151,6 +184,8 @@ onBeforeUnmount(() => {
 <template>
   <div
     ref="host"
-    class="code-surface h-full min-h-0 w-full overflow-hidden rounded-lg border border-border"
+    class="code-surface w-full overflow-hidden rounded-lg border border-border"
+    :class="autoHeight ? undefined : 'h-full min-h-0'"
+    :style="hostStyle"
   />
 </template>
