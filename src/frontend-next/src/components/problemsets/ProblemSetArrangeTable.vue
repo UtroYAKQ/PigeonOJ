@@ -82,7 +82,7 @@ function difficulty(item: ProblemSetItem): string {
   <LineList :items="items" :empty-text="emptyText || t('problemSets.detail.empty')">
     <template #header>
       <div
-        class="grid items-center gap-3 px-3 pb-2 text-xs font-medium text-muted-foreground"
+        class="grid min-h-10 items-center gap-3 px-3 py-2 text-xs font-medium text-muted-foreground"
         style="grid-template-columns: 60px minmax(0, 1fr) 80px 150px 124px"
       >
         <span>{{ t('problemSets.detail.orderLabel') }}</span>

@@ -128,7 +128,7 @@ function colWidth(column: AppTableColumn<any>): string | undefined {
           <col v-for="column in columns" :key="column.key" :style="{ width: colWidth(column) }" />
         </colgroup>
 
-        <TableHeader class="sticky top-0 z-10 bg-background">
+        <TableHeader class="sticky top-0 z-10 bg-surface">
           <TableRow class="hover:bg-transparent">
             <TableHead v-if="selectable" class="w-10">
               <Checkbox

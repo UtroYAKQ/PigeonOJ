@@ -44,7 +44,7 @@ const { t } = useI18n()
           <slot name="raw" />
         </template>
         <template v-else>
-          <div v-if="$slots.header" class="sticky top-0 z-10 border-b border-border bg-background">
+          <div v-if="$slots.header" class="sticky top-0 z-10 border-b border-border bg-surface">
             <slot name="header" />
           </div>
 

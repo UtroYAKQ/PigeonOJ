@@ -15,10 +15,12 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 - 已补齐并按 shadcn 默认外观落地的组件：`Card`（卡片）、`Table`（表格）、`Skeleton`（骨架）、`Checkbox` / `RadioGroup`（勾选 / 单选）、`Avatar`（头像）、`Pagination`（分页）、`Breadcrumb`（面包屑）、`Command`（命令面板）、`AlertDialog`、`Collapsible`、`ScrollArea`、`Popover`、`Sonner` 等
 - 共享组件已切换底层实现（对外 props / emits 不变）：`BaseAvatar`→`Avatar`、`FilterCheckbox`→`Checkbox`、`ColumnLineList` / `PaginatedTable`→`Table`、`LineList` / `PaginatedCardGrid` 骨架→`Skeleton`、`EntityCard`→`Card`、`Pager`→`Pagination`、`CrumbsBar`→`Breadcrumb`、`CommandPalette`→`Command`、`ConfirmDialogHost`→`AlertDialog`、`App.vue` Toaster→`Sonner`、`CollapsibleEditor`→`Collapsible`、角色 / 举报处理单选→`RadioGroup`、`ContestCountdown` 时间详情→`Popover`、侧栏导航滚动→`ScrollArea`
 - 外观以 shadcn 默认为准：卡片统一 `rounded-md border bg-card`、**无阴影**（对齐旧 UI 的简约观感，`Card.vue` 已去掉 `shadow`），表格表头 / 行分隔线 / hover 采用 `ui/table` 默认样式，浮层 / 分页 / 面包屑采用组件库默认样式。浮层（Dialog / Popover / Dropdown）保留阴影以示层级；仅自由插槽的 `LineList` 行列表保留无框横线结构
+- 列表表头统一 `bg-surface`（`--surface` 令牌，与 Markdown 表头同一表面层），不随所在卡片 / 弹窗背景漂移；表头高度统一 40px（`ColumnLineList` 用 `TableHead` 的 `h-10`，`LineList` 的 `#header` 内容用 `min-h-10`）
 
 ### 色板与令牌
 
 - 中性 shadcn 基调：浅色 `#ffffff / #0d0d0d`，深色 `#212121 / #ececec`；1px `--border` 描边；卡片保持无阴影的平面感，浮层（Dialog / Popover / Dropdown）保留 shadcn 默认阴影
+- `--surface`（浅色 `#f7f7f8` / 深色 `#2f2f2f`）用于内嵌表面：Markdown 表头、列表表头、次级面板与占位块；深色下与卡片 / 浮层同色，避免表头出现比容器更黑的条带
 - 品牌橙 `--brand`（浅色 `#d9480f` / 深色 `#f08a5d`）只用于强调：链接 hover、选中态点缀、Markdown 链接；主按钮为近黑中性色；Logo 保持透明底、原色显示，不加品牌色块或描边遮盖
 - 语义色：success 绿 / warning 琥珀 / info 蓝 / destructive 红，经 `components/common/tone.ts` 统一映射，由 `StatusTag`、`ToneBadge` 消费；禁止页面各自硬编码
 - 令牌唯一来源：`src/frontend-next/src/assets/main.css` 的 `:root` 与 `.dark`（含 shadcn token）；组件只允许引用 token，禁止硬编码色值，也不再保留 `--app-*` 旧别名
@@ -74,7 +76,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 ### 列表工作台
 
 - 页面结构：`WorkbenchShell` → `#toolbar` 放 `SearchFilterBar`，列表筛选条件（状态 / 类型等）统一用 `ui/select` 下拉并与搜索框同行，**不再用 Tabs 做筛选**（Tabs 仅用于详情页内容分区）→ `LineList`（表格列表经 `PaginatedTable`）或 `PaginatedCardGrid`；前台题库列表（`views/problems/ProblemListView.vue`）同样走 `PaginatedTable`，保留筛选、标签显隐、分页与空 / 加载态
-- 列表列定义：`AppTableColumn<T>`（`key/title/width/align/cell`）；`ColumnLineList` 基于 shadcn `ui/table` 由列定义生成表头 / 行（含勾选、行点击、骨架），`PaginatedTable` = `ColumnLineList` + 分页开关；无分页的列驱动列表直接用 `ColumnLineList`，自由插槽列表用 `LineList` 的 `#item` 插槽；旧的 `DataTable.vue` 已移除，禁止各页手写原生 `<table>` 或 `divide-y` 列表壳，统一经 `ColumnLineList` / `PaginatedTable` / `LineList`
+- 列表列定义：`AppTableColumn<T>`（`key/title/width/align/cell`）；`ColumnLineList` 基于 shadcn `ui/table` 由列定义生成表头 / 行（含勾选、行点击、骨架），表头统一 40px 高且用 `bg-surface`；`PaginatedTable` = `ColumnLineList` + 分页开关；无分页的列驱动列表直接用 `ColumnLineList`，自由插槽列表用 `LineList` 的 `#item` 插槽；旧的 `DataTable.vue` 已移除，禁止各页手写原生 `<table>` 或 `divide-y` 列表壳，统一经 `ColumnLineList` / `PaginatedTable` / `LineList`
 - 卡片列表：`PaginatedCardGrid` 负责响应式网格（1 / 2 / 3 / 4 列）、骨架、空态与分页；领域卡片用 `EntityCard` 作为整卡可点击外壳（支持 Enter / Space 与可见焦点环），卡片内展示头像、标题、状态徽标、简介与 1–2 行元信息
 - 比赛卡片与代码分享卡片保持极简：头像 / 图标 + 标题 + 两行简介 + 纯文本元信息；比赛的起止时间单独一行，赛制 / 题数 / 报名人数另起一行，代码卡片是语言 / 作者 / 更新时间一行；只在确有必要时保留一个状态徽标，不用信息栏、箭头、多个彩色徽标或图标行堆砌，hover 只轻微描边
 - 首页沿用旧版的全屏气势：内容铺满主区宽度，上半部为主视觉（桌面高 `52dvh`，`min 340px` / `max 580px`，海报轮播 / 品牌横幅 2fr + 公告 1fr，最小 260px），下半部入口磁贴与小贴士按内容自然高度排布；内容超出视口时由主区滚动，不用 flex 拉伸压缩卡片，避免卡片重叠；窄屏同样自然高度滚动，不收窄成中间栏
