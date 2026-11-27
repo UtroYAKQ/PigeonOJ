@@ -5,6 +5,7 @@ import defaultContestAvatar from '@/assets/avatars/default-contest.svg'
 import defaultTeamAvatar from '@/assets/avatars/default-team.svg'
 import defaultUserAvatar from '@/assets/avatars/default-user.svg'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { avatarImageUrl } from '@/utils/image'
 
 type AvatarKind = 'user' | 'team' | 'contest'
 
@@ -43,6 +44,8 @@ const DEFAULT_AVATARS: Record<AvatarKind, string> = {
 }
 
 const radiusStyle = computed(() => (props.round ? undefined : `${props.radius}px`))
+/** 站内头像按显示尺寸取缩略图，避免列表里 36px 头像下载 512px 原图 */
+const imageSrc = computed(() => avatarImageUrl(props.src, props.size))
 </script>
 
 <template>
@@ -55,9 +58,11 @@ const radiusStyle = computed(() => (props.round ? undefined : `${props.radius}px
   >
     <AvatarImage
       v-if="src"
-      :src="src"
+      :src="imageSrc"
       :alt="name ?? ''"
       class="size-full object-cover"
+      loading="lazy"
+      decoding="async"
     />
     <AvatarFallback class="size-full">
       <img :src="DEFAULT_AVATARS[kind]" alt="" class="size-full object-cover" />

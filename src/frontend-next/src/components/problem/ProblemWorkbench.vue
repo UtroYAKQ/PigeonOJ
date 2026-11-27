@@ -257,7 +257,10 @@ function runSelfTest(): void {
     </template>
 
     <template #right>
-      <section ref="rightRef" class="code-surface flex h-full min-h-[360px] flex-col lg:min-h-[420px]">
+      <section
+        ref="rightRef"
+        class="code-surface flex h-[min(70vh,640px)] min-h-[360px] flex-col min-[900px]:h-full min-[900px]:min-h-[420px]"
+      >
         <div ref="toolbarRef" class="flex shrink-0 flex-wrap items-center gap-2 pb-2">
           <LanguageSelect v-model="language" />
           <div class="ml-auto flex items-center gap-2">

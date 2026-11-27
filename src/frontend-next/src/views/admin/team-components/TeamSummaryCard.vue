@@ -42,6 +42,9 @@ const isActive = computed(() => props.detail.status === 'active')
           :tone="isActive ? 'success' : 'danger'"
           :label="t(isActive ? 'admin.teams.statusActive' : 'admin.teams.statusDisbanded')"
         />
+        <div v-if="$slots.actions" class="ml-auto flex items-center gap-2">
+          <slot name="actions" />
+        </div>
       </div>
 
       <p

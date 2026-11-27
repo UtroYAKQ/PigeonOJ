@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useIntervalFn } from '@vueuse/core'
+import { useIntervalFn, useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 
 import type { SiteBanner } from '@/types'
+import { siteImageUrl } from '@/utils/image'
 
 const props = withDefaults(defineProps<{ banners: SiteBanner[]; interval?: number }>(), {
   interval: 5000,
@@ -16,6 +17,8 @@ const current = ref(0)
 const count = computed(() => props.banners.length)
 /** 已经加载过的图片保持挂载，避免切回时重新解码导致空窗 */
 const loaded = ref(new Set<number>())
+/** 手机内存与流量更紧张：只预取当前 + 下一张，桌面保留左右预取 */
+const isNarrow = useMediaQuery('(max-width: 640px)')
 
 const { pause, resume } = useIntervalFn(
   () => {
@@ -43,11 +46,14 @@ watch(
   { immediate: true },
 )
 
-/** 首次只解码当前与相邻海报；加载过的保留挂载，切回不会闪空白 */
+/** 首屏只解码必要海报；切过的图保持挂载，切回不会闪空白 */
 function shouldLoad(index: number): boolean {
-  if (count.value <= 2 || loaded.value.has(index)) return true
+  if (loaded.value.has(index) || index === current.value) return true
+  if (count.value <= 1) return false
+  if (isNarrow.value) return index === (current.value + 1) % count.value
+  if (count.value <= 2) return true
   const diff = Math.abs(index - current.value)
-  return diff === 0 || diff === 1 || diff === count.value - 1
+  return diff === 1 || diff === count.value - 1
 }
 
 function markLoaded(index: number): void {
@@ -81,7 +87,7 @@ function select(index: number): void {
           >
             <img
               v-if="shouldLoad(index)"
-              :src="banner.image"
+              :src="siteImageUrl(banner.image, isNarrow ? 960 : 1280)"
               :alt="banner.title"
               class="h-full w-full object-contain lg:object-cover"
               decoding="async"

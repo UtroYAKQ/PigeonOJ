@@ -3,7 +3,7 @@ import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
-import { adminAssignTeamOrg, adminListOrgs, adminListTeams } from '@/api/admin'
+import { adminAssignTeamOrg, adminDisbandTeam, adminListOrgs, adminListTeams } from '@/api/admin'
 import BaseAvatar from '@/components/common/BaseAvatar.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import RefreshButton from '@/components/common/RefreshButton.vue'
@@ -12,6 +12,7 @@ import ToneBadge from '@/components/common/ToneBadge.vue'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
 import RowActions from '@/components/teams/RowActions.vue'
+import type { RowAction } from '@/components/teams/types'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -29,7 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { usePagination } from '@/composables/usePagination'
-import { message } from '@/utils/feedback'
+import { confirmDialog, message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
 import type { OrgDetail, TeamAdminSummary } from '@/types'
 
@@ -111,6 +112,42 @@ async function submitAssign(): Promise<void> {
 }
 
 
+// ---------------- 解散团队 ----------------
+async function onDisband(row: TeamAdminSummary): Promise<void> {
+  const ok = await confirmDialog({
+    title: t('admin.teams.disbandTitle'),
+    content: t('admin.teams.disbandConfirm'),
+    positiveText: t('admin.teams.disband'),
+    negativeText: t('action.cancel'),
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await adminDisbandTeam(row.id)
+    message.success(t('admin.teams.disbandSuccess'))
+    await load()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
+  }
+}
+
+function actionsFor(row: TeamAdminSummary): RowAction[] {
+  const actions: RowAction[] = [{ key: 'assignOrg', label: t('admin.teams.assignOrg') }]
+  if (row.status === 'active') {
+    actions.push({ key: 'disband', label: t('admin.teams.disband'), destructive: true })
+  }
+  return actions
+}
+
+function onRowAction(row: TeamAdminSummary, key: string): void {
+  if (key === 'disband') {
+    void onDisband(row)
+    return
+  }
+  openAssign(row)
+}
+
+
 const columns = computed<AppTableColumn<TeamAdminSummary>[]>(() => [
   {
     key: 'avatar_url',
@@ -188,9 +225,9 @@ const columns = computed<AppTableColumn<TeamAdminSummary>[]>(() => [
     cellClass: 'overflow-visible text-clip px-1',
     cell: (row) =>
       h(RowActions, {
-        actions: [{ key: 'assignOrg', label: t('admin.teams.assignOrg') }],
+        actions: actionsFor(row),
         label: t('action.more'),
-        onSelect: () => openAssign(row),
+        onSelect: (key: string) => onRowAction(row, key),
       }),
   },
 ])

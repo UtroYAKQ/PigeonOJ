@@ -1,16 +1,14 @@
 """通用文件上传路由（统一前缀 /api/v1）。"""
 from __future__ import annotations
 
-import hashlib
-
-from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
 
 from app.api.deps import FileServiceDep, get_current_admin, get_current_user
 from app.models.user import User
 from app.schemas.file import AvatarUploadResult, ImageUploadResult
 from app.core.exceptions import APIError, RESOURCE_NOT_FOUND
 from app.utils.response import ApiResponse, ok
-from app.core.storage import S3Error, get_storage
+from app.core.storage import S3Error
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -50,24 +48,27 @@ async def upload_site_logo(
 
 
 @router.get("/{object_key:path}")
-async def read_file(object_key: str, request: Request):
+async def read_file(
+    object_key: str,
+    request: Request,
+    service: FileServiceDep,
+    w: int | None = Query(None, ge=32, le=1920, description="缩略图宽度档位"),
+):
     """读取用户头像等公开展示文件；判题测试点不使用此接口。
 
     对象 key 含 uuid 且内容不可变，返回长缓存头（immutable）+ ETag；
     命中 If-None-Match 时回 304，避免重复回源 MinIO 拉整图。
+    `?w=` 命中固定档位（THUMB_WIDTHS）时返回 WebP 缩略图：首次生成后写入对象存储，
+    后续请求直接命中缩略图；GIF 与无法转码的图片回退原图。
     """
     if not object_key.startswith(_PUBLIC_FILE_PREFIXES):
         raise APIError(RESOURCE_NOT_FOUND, "文件不存在", 404)
     try:
-        content, content_type = await get_storage().get_bytes(object_key)
+        content, content_type, etag = await service.read_public_file(object_key, w)
     except (OSError, S3Error) as exc:
         raise APIError(RESOURCE_NOT_FOUND, "文件不存在", 404) from exc
-    etag = f'"{hashlib.sha256(object_key.encode()).hexdigest()[:16]}-{len(content):x}"'
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": _CACHE_CONTROL})
-    # 内容已在内存（MinIO get_bytes），用 Response 而非 FileResponse：
-    # starlette 1.0 的 FileResponse 仅接受 path（0.38~0.4x 的 content= 参数已移除），
-    # Response 全版本兼容且语义正确
     return Response(
         content=content,
         media_type=content_type,

@@ -18,6 +18,10 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           const path = id.replaceAll('\\', '/')
+          // Vite 注入的 preload helper 是虚拟模块（\0vite/preload-helper）：
+          // 不单独拆出时会被 Rollup 分配进 monaco chunk，入口（有路由懒加载）随即
+          // 静态 import 该 chunk，最终 3MB 的 monaco 被首屏 modulepreload 全量加载
+          if (path.includes('vite/preload-helper')) return 'preload-helper'
           if (!path.includes('node_modules')) return undefined
           if (path.includes('monaco-editor')) return 'monaco-editor'
           if (path.includes('/katex/')) return 'katex'

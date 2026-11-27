@@ -30,17 +30,20 @@ describe('utils/markdown（渲染 + 净化）', () => {
     expect(html).not.toContain('<script')
   })
 
-  it('图片与链接属性保留', () => {
+  it('图片与链接属性保留，站内图片走缩略图并延迟加载', () => {
     const html = renderMarkdown('[t](https://a.b) ![p](/api/v1/files/x)')
     expect(html).toContain('href="https://a.b"')
-    expect(html).toContain('src="/api/v1/files/x"')
+    expect(html).toContain('src="/api/v1/files/x?w=960"')
+    expect(html).toContain('loading="lazy"')
+    expect(html).toContain('decoding="async"')
   })
 })
 describe('utils/markdown（评论渲染）', () => {
   it('站内图片保留并带评论样式类', () => {
     const html = renderCommentMarkdown('![p](/api/v1/files/2026/11/a.png)')
-    expect(html).toContain('src="/api/v1/files/2026/11/a.png"')
+    expect(html).toContain('src="/api/v1/files/2026/11/a.png?w=960"')
     expect(html).toContain('class="comment-image"')
+    expect(html).toContain('loading="lazy"')
   })
 
   it('外部图片退回 alt 文本，不渲染 img', () => {

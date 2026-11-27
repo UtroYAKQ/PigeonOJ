@@ -187,7 +187,9 @@ async function submit(): Promise<void> {
         </template>
 
         <template #right>
-          <section class="flex h-full min-h-[420px] flex-col gap-2">
+          <section
+            class="flex h-[min(70vh,640px)] min-h-[420px] flex-col gap-2 min-[900px]:h-full"
+          >
             <template v-if="!userStore.isLoggedIn">
               <InlineNotice tone="warning">
                 {{ t('problems.verify.loginRequired') }}

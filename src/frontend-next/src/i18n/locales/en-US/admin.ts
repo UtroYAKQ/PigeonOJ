@@ -212,6 +212,11 @@
         'Assign an organization to a legacy team (migration); only then can it reference org problems.',
       assignOrgSuccess: 'Organization assigned',
       assignOrgRequired: 'Select an organization',
+      disband: 'Disband team',
+      disbandTitle: 'Disband team',
+      disbandConfirm:
+        'Once disbanded, the team cannot be restored and all members will lose their membership. Disband anyway?',
+      disbandSuccess: 'Team disbanded',
       search: 'Search by team name',
       avatar: 'Avatar',
       team: 'Team',

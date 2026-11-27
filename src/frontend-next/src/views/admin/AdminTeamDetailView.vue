@@ -4,11 +4,11 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Loader2 } from '@lucide/vue'
 
-import { adminGetTeam } from '@/api/admin'
+import { adminDisbandTeam, adminGetTeam } from '@/api/admin'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { message } from '@/utils/feedback'
+import { confirmDialog, message } from '@/utils/feedback'
 import TeamSummaryCard from './team-components/TeamSummaryCard.vue'
 import TeamContestsTable from './team-components/TeamContestsTable.vue'
 import TeamMembersTable from './team-components/TeamMembersTable.vue'
@@ -45,6 +45,24 @@ async function load(): Promise<void> {
 
 onMounted(load)
 
+async function onDisband(): Promise<void> {
+  const ok = await confirmDialog({
+    title: t('admin.teams.disbandTitle'),
+    content: t('admin.teams.disbandConfirm'),
+    positiveText: t('admin.teams.disband'),
+    negativeText: t('action.cancel'),
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await adminDisbandTeam(teamId)
+    message.success(t('admin.teams.disbandSuccess'))
+    await load()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : t('common.operationFailed'))
+  }
+}
+
 // 模块 tab 懒加载：首次切到才挂载，之后常驻（切换不重置分页 / 筛选）
 const activeModule = ref<TeamModule>('members')
 const visited = reactive<Record<TeamModule, boolean>>({
@@ -72,7 +90,18 @@ function onModuleChange(value: string | number): void {
     </div>
 
     <template v-else-if="detail">
-      <TeamSummaryCard :detail="detail" />
+      <TeamSummaryCard :detail="detail">
+        <template v-if="detail.status === 'active'" #actions>
+          <Button
+            variant="outline"
+            size="sm"
+            class="text-destructive hover:text-destructive"
+            @click="onDisband"
+          >
+            {{ t('admin.teams.disband') }}
+          </Button>
+        </template>
+      </TeamSummaryCard>
 
       <Tabs
         :model-value="activeModule"

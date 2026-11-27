@@ -46,8 +46,9 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 - 列表工具条：`SearchFilterBar` 搜索框窄屏 `w-full`，≥640 才使用传入的 `searchWidth`；工具条整体允许换行
 - 团队 / 组织详情：摘要卡文本列至少 200px 宽，操作按钮组窄屏独占一行；功能导航窄屏横排、可横向滚动（`scrollbar-none`），按钮高 40px
 
-- 代码编辑器：窄屏 `SplitPane` 上下堆叠，右栏最小 360px；控制台控制条允许换行，必须保证「提交代码」始终可见；Monaco 在 ≤640px 自动 `wordWrap: 'on'`。Monaco 字体偏好变更必须按「显式 `document.fonts.load` 等字体 → `remeasureFonts()` 清度量缓存 → `updateOptions`」顺序应用，否则字符宽度误差会累积成光标/文本偏移；容器不设 `padding`、隐藏横向滚动条；keep-alive 返回与容器尺寸变化都要 `layout()`
+- 代码编辑器：窄屏 `SplitPane` 上下堆叠，右栏必须给**确定高度**（`h-[min(70vh,640px)]` + `min-h-[360px]`，≥900px 再切 `h-full`）；只写 `h-full` 时上层为 auto 高度，Monaco 宿主的 `height:100%` 会解析为 auto 而塌成 0（只剩边框）；控制台控制条允许换行，必须保证「提交代码」始终可见；Monaco 在 ≤640px 自动 `wordWrap: 'on'`。Monaco 字体偏好变更必须按「显式 `document.fonts.load` 等字体 → `remeasureFonts()` 清度量缓存 → `updateOptions`」顺序应用，否则字符宽度误差会累积成光标/文本偏移；容器不设 `padding`、隐藏横向滚动条；keep-alive 返回与容器尺寸变化都要 `layout()`
 - 主区滚动容器使用 `overscroll-contain`，避免移动端滚到底触发页面回弹；触控目标不低于 32px，导航 / 主操作按钮优先 40px
+- 图片：站内 `/api/v1/files/` 地址统一经 `utils/image.ts` 的 `siteImageUrl` / `avatarImageUrl` 改写成 `?w=` 缩略档（96/192/384/640/960/1280，后端按档生成 WebP）；头像按 2x 取档、题面/评论插图 960、轮播桌面 1280 / 窄屏 960；Markdown 图片与列表图统一 `loading="lazy" decoding="async"`，轮播窄屏只预取当前 + 下一张。外链原样不改写
 
 ### 交互习惯
 
@@ -99,7 +100,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 ### 「题面 + 编辑器」双栏工作台
 
 - `components/common/SplitPane.vue`：桌面端左右独立滚动、分隔条可拖拽且比例持久化（双击复位）；<900px 自动上下堆叠
-- `components/problem/ProblemWorkbench.vue`：左题面（`ProblemMetaBar` + `ProblemStatement`），右编辑器 + 自测控制台；上方工具行「语言」靠左、「我的提交 / 题解」靠右，「自测运行 / 提交」放进下方控制台标题行，避免顶部拥挤
+- `components/problem/ProblemWorkbench.vue`：左题面（`ProblemMetaBar` + `ProblemStatement`），右编辑器 + 自测控制台（右栏窄屏 `h-[min(70vh,640px)]`、≥900px `h-full`，保证内部 `CodeEditor` 的百分比高度链有确定基准）；上方工具行「语言」靠左、「我的提交 / 题解」靠右，「自测运行 / 提交」放进下方控制台标题行，避免顶部拥挤
 - 自测控制台常驻编辑器下方，形态对齐旧 UI（naive-ui 版）：面板顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 仍视为单击；方向键 / Home 微调与复位），默认展开 440px、下限 140px，收起态只留约 47px 控制条；点击当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」，运行后自动切到结果并展开；展开态拖得过小视为取消并还原高度；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`（兼容旧键 `pigeonoj.problems.consoleHeight`）；结果含状态、耗时、内存与输出/报错
 - 提交历史经 `components/problem/MySubmissionsDialog.vue` 懒加载分页（弹窗 `sm:max-w-[760px]`、高 `min(72vh, 520px)`，保留完整列），行点击进入上下文内评测结果页
 

@@ -18,11 +18,21 @@ def _png_bytes(width: int, height: int) -> bytes:
 PNG_BYTES = _png_bytes(64, 32)
 
 
-def _png_dimensions(content: bytes) -> tuple[int, int]:
-    # PNG IHDR：宽高分别位于第 16-19 / 20-23 字节（大端）
-    width = int.from_bytes(content[16:20], "big")
-    height = int.from_bytes(content[20:24], "big")
-    return width, height
+def _image_size(content: bytes) -> tuple[int, int]:
+    """用 Pillow 解析尺寸（上传已统一转 WebP，不再按 PNG IHDR 偏移取宽高）。"""
+    from PIL import Image
+
+    with Image.open(io.BytesIO(content)) as img:
+        return img.width, img.height
+
+
+def _gif_bytes(width: int, height: int) -> bytes:
+    from PIL import Image
+
+    img = Image.new("P", (width, height), 0)
+    buf = io.BytesIO()
+    img.save(buf, format="GIF")
+    return buf.getvalue()
 
 
 async def test_upload_image_requires_auth(client: httpx.AsyncClient):
@@ -45,14 +55,15 @@ async def test_upload_image_success_and_read_back(client, user_headers, fake_sto
     data = body["data"]
     assert data["url"].startswith("/api/v1/files/users/")
     assert "/images/" in data["url"]
-    assert data["content_type"] == "image/png"
-    assert data["size"] == len(PNG_BYTES)
+    # 非 GIF 图片统一转 WebP 存储（PNG 原图在手机上动辄数百 KB~数 MB）
+    assert data["content_type"] == "image/webp"
 
     # 上传对象可经公开读取接口读回（users/ 前缀白名单）
     read = await client.get(data["url"])
     assert read.status_code == 200
-    assert read.content == PNG_BYTES
-    assert read.headers["content-type"].startswith("image/png")
+    assert read.headers["content-type"].startswith("image/webp")
+    assert data["size"] == len(read.content)
+    assert _image_size(read.content) == (64, 32)
     # 对象 key 含 uuid、内容不可变：长缓存 + ETag（首页轮播大图不重复回源）
     assert read.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert "etag" in read.headers
@@ -98,14 +109,13 @@ async def test_upload_image_downsamples_overwide(client, user_headers, fake_stor
     url = resp.json()["data"]["url"]
     read = await client.get(url)
     assert read.status_code == 200
-    assert read.headers["content-type"] == "image/png"
-    width, height = _png_dimensions(read.content)
-    assert (width, height) == (1920, 812)  # 6340 * 1920 / 15000 ≈ 811（round 后 812）
+    assert read.headers["content-type"].startswith("image/webp")
+    assert _image_size(read.content) == (1920, 812)  # 6340 * 1920 / 15000 ≈ 811（round 后 812）
     assert len(read.content) < len(big_png)
 
 
-async def test_upload_image_keeps_small_image_untouched(client, user_headers, fake_storage):
-    """未超宽的小图逐字节原样存储（不引入重编码损耗）。"""
+async def test_upload_image_does_not_inflate_small_file(client, user_headers, fake_storage):
+    """小图转 WebP 体积不降时保留原图（不做负优化），尺寸保持不变。"""
     small_png = _png_bytes(800, 600)
     resp = await client.post(
         "/api/v1/files/upload/image",
@@ -114,7 +124,8 @@ async def test_upload_image_keeps_small_image_untouched(client, user_headers, fa
     )
     assert resp.json()["code"] == 0, resp.text
     read = await client.get(resp.json()["data"]["url"])
-    assert read.content == small_png
+    assert len(read.content) <= len(small_png)
+    assert _image_size(read.content) == (800, 600)
 
 
 async def test_upload_site_logo_requires_admin(client, user_headers):
@@ -145,14 +156,14 @@ async def test_upload_site_logo_success_and_read_back(client, admin_headers, fak
     assert body["code"] == 0
     data = body["data"]
     assert data["url"].startswith("/api/v1/files/site/logo/")
-    assert data["content_type"] == "image/png"
-    assert data["size"] == len(PNG_BYTES)
+    assert data["content_type"] in {"image/webp", "image/png"}
+    assert data["size"] > 0
 
     # site/logo/ 前缀经公开读取白名单可读回
     read = await client.get(data["url"])
     assert read.status_code == 200
-    assert read.content == PNG_BYTES
-    assert read.headers["content-type"].startswith("image/png")
+    assert read.headers["content-type"] == data["content_type"]
+    assert _image_size(read.content) == (64, 32)
 
 
 async def test_upload_site_logo_rejects_non_image(client, admin_headers):
@@ -187,10 +198,11 @@ async def test_upload_avatar_store_full_site_url_and_read_back(client, user_head
     assert upd.status_code == 200, upd.text
     assert upd.json()["data"]["avatar_url"] == data["url"]
 
-    # 存储的完整 URL 可原样读回
+    # 存储的完整 URL 可原样读回（内容为转码后的图片，尺寸不变）
     read = await client.get(data["url"])
     assert read.status_code == 200
-    assert read.content == PNG_BYTES
+    assert read.headers["content-type"] == data["content_type"]
+    assert _image_size(read.content) == (64, 32)
 
 
 async def test_upload_avatar_rate_limited(client, user_headers, fake_storage):
@@ -263,3 +275,58 @@ async def test_old_site_avatar_deleted_on_replace(client, user_headers, fake_sto
     )
     assert resp.json()["code"] == 0
     assert key1 not in fake_storage.store  # 站内旧头像换成外链后同样清理
+
+async def test_thumb_generated_cached_and_reused(client, user_headers, fake_storage):
+    """?w= 缩略图：首次等比生成 WebP 并写回对象存储，第二次直接命中缩略图。"""
+    png = _png_bytes(800, 600)
+    resp = await client.post(
+        "/api/v1/files/upload/image",
+        headers=user_headers,
+        files={"file": ("a.png", png, "image/png")},
+    )
+    assert resp.json()["code"] == 0, resp.text
+    url = resp.json()["data"]["url"]
+    key = url.removeprefix("/api/v1/files/")
+
+    read = await client.get(url, params={"w": 96})
+    assert read.status_code == 200, read.text
+    assert read.headers["content-type"].startswith("image/webp")
+    assert _image_size(read.content) == (96, 72)
+    assert f"{key}@w96.webp" in fake_storage.store
+    assert "etag" in read.headers
+
+    # 第二次请求命中派生对象（尺寸与内容一致，且复用同一 ETag）
+    again = await client.get(url, params={"w": 96})
+    assert again.status_code == 200
+    assert again.content == read.content
+    assert again.headers["etag"] == read.headers["etag"]
+
+
+async def test_thumb_rejects_unknown_width(client, user_headers, fake_storage):
+    """缩略宽度只接受固定档位，避免任意 w 生成无限派生对象。"""
+    resp = await client.post(
+        "/api/v1/files/upload/image",
+        headers=user_headers,
+        files={"file": ("a.png", PNG_BYTES, "image/png")},
+    )
+    url = resp.json()["data"]["url"]
+    bad = await client.get(url, params={"w": 100})
+    assert bad.status_code == 400
+    assert bad.json()["code"] == 1001
+
+
+async def test_thumb_keeps_gif_original(client, user_headers, fake_storage):
+    """GIF 不做缩略（动图逐帧重采样易破坏语义），原样返回。"""
+    gif = _gif_bytes(64, 32)
+    resp = await client.post(
+        "/api/v1/files/upload/image",
+        headers=user_headers,
+        files={"file": ("a.gif", gif, "image/gif")},
+    )
+    assert resp.json()["code"] == 0, resp.text
+    url = resp.json()["data"]["url"]
+    read = await client.get(url, params={"w": 96})
+    assert read.status_code == 200
+    assert read.headers["content-type"].startswith("image/gif")
+    assert read.content == gif
+    assert f"{url.removeprefix('/api/v1/files/')}@w96.webp" not in fake_storage.store

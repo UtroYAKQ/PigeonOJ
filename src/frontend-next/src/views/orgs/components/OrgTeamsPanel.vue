@@ -19,7 +19,10 @@ import { message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
 import type { TeamSummary } from '@/types'
 
-const props = defineProps<{ orgId: string; canManage: boolean }>()
+const props = withDefaults(
+  defineProps<{ orgId: string; canManage: boolean; adminMode?: boolean }>(),
+  { adminMode: false },
+)
 
 const router = useRouter()
 const { t } = useI18n()
@@ -144,7 +147,9 @@ onMounted(load)
       :page-sizes="[20, 50, 100]"
       show-size-picker
       :empty-text="t('orgs.teams.empty')"
-      :row-click="(row) => router.push(`/teams/${row.id}`)"
+      :row-click="
+        (row) => router.push(props.adminMode ? `/admin/teams/${row.id}` : `/teams/${row.id}`)
+      "
       @update:page="onPageChange"
     />
 

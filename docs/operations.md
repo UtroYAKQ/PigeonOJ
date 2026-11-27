@@ -173,10 +173,13 @@ TOML 分段拍平为下划线字段（`[minio] endpoint` → `MINIO_ENDPOINT`）
 | `problems/{problem_id}/cases/{case_id}/output` | 判题测试点期望输出 |
 | `submissions/{submission_id}/cases/{case_id}/output` | 提交运行输出 |
 | `users/{user_id}/avatar` | 用户头像 |
-| `teams/{team_id}/avatar` | 团队头像 |
+| `users/{user_id}/avatar/{uuid}@w{width}.webp` | 头像缩略图（`GET /files/{key}?w=` 首次生成，width ∈ 96/192/384/640/960/1280） |
+| `users/{user_id}/images/{uuid}@w{width}.webp` | 公共图片缩略图（题面插图等，规则同上） |
 | `site/logo/{uuid}` | 站点 Logo（系统配置 `site.logo`，经 `POST /files/upload/site-logo` 上传） |
 
 上传方式：经 `POST /files/upload` 后端校验后转存 MinIO，对象 key 由服务端生成并回填 ossId。**判题节点不访问 MinIO**：经网关按 `data_version` 流式拉取到节点本地缓存。测试点不向前端签发预签名 URL。
+
+图片链路：非 GIF 上传即转 WebP（质量 82，宽超限先等比缩放），前端按展示尺寸请求 `?w=` 缩略图（派生对象写回 MinIO）；`GET /api/v1/files/*` 带 `immutable` 长缓存 + ETag，且前端 nginx 对 `/api/v1/files/` 做 30 天边缘缓存（`proxy_cache`），冷对象只回源一次。
 
 ## 可观测性
 

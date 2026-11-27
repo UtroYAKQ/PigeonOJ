@@ -1,7 +1,8 @@
-"""文件模块 Service：校验、降采样并写入 MinIO。"""
+"""文件模块 Service：校验、转码、缩略图与写入 MinIO。"""
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import uuid
 from io import BytesIO
 from typing import TypeVar
@@ -27,6 +28,23 @@ _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 # GIF 不缩帧（动图逐帧重采样开销大且语义易破坏），PNG/JPEG/WEBP 等比缩宽。
 _MAX_IMAGE_WIDTH = 1920
 _MAX_AVATAR_WIDTH = 512
+
+_GIF_TYPE = "image/gif"
+_WEBP_TYPE = "image/webp"
+# 统一转 WebP：非 GIF 图片上传即重编码（PNG 原图在手机上动辄数百 KB~数 MB），
+# 质量 82 时体积通常降 50%~80%；转码后反而更大的小图保留原图。
+_WEBP_QUALITY = 82
+# 缩略图只接受固定宽度档位：前端按展示尺寸就近取档，任意 w 会生成无限派生对象
+THUMB_WIDTHS = (96, 192, 384, 640, 960, 1280)
+
+
+def thumb_object_key(object_key: str, width: int) -> str:
+    """缩略图派生对象 key（与原图同前缀，仍在公开读取白名单内）。"""
+    return f"{object_key}@w{width}.webp"
+
+
+def _etag(key: str, size: int) -> str:
+    return f'"{hashlib.sha256(key.encode()).hexdigest()[:16]}-{size:x}"'
 
 # 上传频控（docs/security.md「上传与文件安全」）：按用户 Redis 固定窗口计数，
 # 防止循环上传垃圾对象耗尽对象存储；仅通过类型/大小校验、即将写入存储的请求消耗配额
@@ -90,6 +108,12 @@ class FileService:
         object_key = f"site/logo/{uuid.uuid4().hex}"
         return await _store_image(object_key, content_type, content, ImageUploadResult)
 
+    async def read_public_file(self, object_key: str, width: int | None) -> tuple[bytes, str, str]:
+        """读取公开文件；width 命中固定档位时返回缩略图（实现见 _read_public_file）。"""
+        if width is not None and width not in THUMB_WIDTHS:
+            raise APIError(PARAM_FORMAT_INVALID, "不支持的缩略图宽度", 400)
+        return await _read_public_file(object_key, width)
+
 
 async def _validate_image(
     file: UploadFile,
@@ -100,7 +124,7 @@ async def _validate_image(
     size_error: str,
     empty_error: str,
 ) -> tuple[str, bytes]:
-    """读取并校验图片；超宽的非 GIF 图等比降采样到 max_width（原地重编码）。"""
+    """读取并校验图片；非 GIF 图转 WebP（宽度超过 max_width 时先等比缩宽）。"""
     content_type = (file.content_type or "").lower()
     if content_type not in _ALLOWED_IMAGE_TYPES:
         raise APIError(PARAM_FORMAT_INVALID, type_error, 400)
@@ -109,43 +133,75 @@ async def _validate_image(
         raise APIError(PARAM_FORMAT_INVALID, size_error, 400)
     if not content:
         raise APIError(PARAM_FORMAT_INVALID, empty_error, 400)
-    if content_type != "image/gif" and max_width > 0:
+    if content_type == _GIF_TYPE or max_width <= 0:
+        return content_type, content
+    try:
+        encoded, converted = await asyncio.to_thread(_encode_webp, content, max_width)
+    except Exception as exc:
+        # 像素炸弹（Image.MAX_IMAGE_PIXELS）/ 解码失败 / 格式伪装
+        raise APIError(PARAM_FORMAT_INVALID, "图片尺寸或内容无效", 400) from exc
+    return (_WEBP_TYPE if converted else content_type), encoded
+
+
+def _encode_webp(content: bytes, max_width: int) -> tuple[bytes, bool]:
+    """PNG/JPEG/WEBP 重编码为 WebP，返回 (内容, 是否已转码)。
+
+    动图（多帧）保留原格式；编码失败或转码后体积不降时回退原图。
+    """
+    with Image.open(BytesIO(content)) as img:
+        img.load()
+        if getattr(img, "is_animated", False):
+            return content, False
+        resized = False
+        if max_width > 0 and img.width > max_width:
+            height = max(1, round(img.height * max_width / img.width))
+            img = img.resize((max_width, height), Image.LANCZOS)
+            resized = True
+        has_alpha = img.mode in ("RGBA", "LA") or (
+            img.mode == "P" and "transparency" in img.info
+        )
+        target = img.convert("RGBA" if has_alpha else "RGB")
+    try:
+        buf = BytesIO()
+        target.save(buf, format="WEBP", quality=_WEBP_QUALITY, method=4)
+    except Exception:
+        return content, False
+    encoded = buf.getvalue()
+    if not resized and len(encoded) >= len(content):
+        return content, False
+    return encoded, True
+
+
+async def _read_public_file(object_key: str, width: int | None) -> tuple[bytes, str, str]:
+    """读取公开文件；width 命中白名单时返回 WebP 缩略图（首次生成后写回存储）。
+
+    返回 (内容, content-type, ETag)。缩略图对象与原图同前缀、内容不可变，
+    因此同样适用长缓存 + 304；GIF 与无法转码的图片直接回退原图。
+    """
+    if width is not None:
+        thumb_key = thumb_object_key(object_key, width)
         try:
-            # 像素炸弹校验在 open()（仅解析头）即触发，超过 MAX_IMAGE_PIXELS 两倍直接拒绝
-            with Image.open(BytesIO(content)):
-                pass
-        except Exception as exc:
-            raise APIError(PARAM_FORMAT_INVALID, "图片尺寸或内容无效", 400) from exc
-        content = await _downsample(content, content_type, max_width)
-    return content_type, content
-
-
-async def _downsample(content: bytes, content_type: str, max_width: int) -> bytes:
-    """宽度超过 max_width 时等比缩宽并按原格式重编码；异常时回退原图。"""
-
-    def _resize() -> bytes | None:
-        try:
-            with Image.open(BytesIO(content)) as img:
-                if img.width <= max_width:
-                    return None
-                height = max(1, round(img.height * max_width / img.width))
-                resized = img.resize((max_width, height), Image.LANCZOS)
-                save_kwargs: dict = {}
-                if content_type == "image/jpeg":
-                    resized = resized.convert("RGB")
-                    save_kwargs["quality"] = 88
-                buf = BytesIO()
-                resized.save(buf, format=_PIL_FORMATS[content_type], **save_kwargs)
-                return buf.getvalue()
-        except Exception:
-            # 图片损坏 / 格式伪装等：回退原图，由展示端兜底
-            return None
-
-    resized = await asyncio.to_thread(_resize)
-    return resized if resized is not None else content
-
-
-_PIL_FORMATS = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}
+            thumb, thumb_type = await get_storage().get_bytes(thumb_key)
+        except (OSError, S3Error):
+            pass
+        else:
+            return thumb, thumb_type, _etag(thumb_key, len(thumb))
+    content, content_type = await get_storage().get_bytes(object_key)
+    etag = _etag(object_key, len(content))
+    if width is None or content_type == _GIF_TYPE:
+        return content, content_type, etag
+    try:
+        encoded, converted = await asyncio.to_thread(_encode_webp, content, width)
+    except Exception:
+        return content, content_type, etag
+    if not converted:
+        return content, content_type, etag
+    thumb_key = thumb_object_key(object_key, width)
+    try:
+        await get_storage().put_bytes(thumb_key, encoded, _WEBP_TYPE)
+    except (OSError, S3Error):
+        pass
+    return encoded, _WEBP_TYPE, _etag(thumb_key, len(encoded))
 
 
 async def _store_image(object_key: str, content_type: str, content: bytes, result_cls: type[R]) -> R:

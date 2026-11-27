@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useMediaQuery, useResizeObserver } from '@vueuse/core'
+// 随编辑器组件按需加载：放 main.ts 会让 monaco 样式进首屏
+import '@/assets/monaco.css'
 import * as monaco from '@/monaco/setup'
 import type { ProblemLanguage } from '@/types'
 import { editorFontOption } from '@/constants/editorFonts'

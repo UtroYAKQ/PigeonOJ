@@ -7,13 +7,36 @@ import DOMPurify from 'dompurify'
 import MarkdownIt from 'markdown-it'
 import katexPlugin from '@vscode/markdown-it-katex'
 
+import { siteImageUrl } from './image'
+
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false }).use(katexPlugin)
+
+interface ImageToken {
+  attrGet(name: string): unknown
+  attrSet(name: string, value: string): void
+}
+
+/** 站内插图走 960 档缩略图，并延迟解码，避免长题面里的图片阻塞首屏渲染 */
+function applyImageAttrs(token: ImageToken): void {
+  const src = token.attrGet('src')
+  if (src) token.attrSet('src', siteImageUrl(String(src), 960))
+  token.attrSet('loading', 'lazy')
+  token.attrSet('decoding', 'async')
+}
+
+const defaultMdImage = md.renderer.rules.image
+  ?? ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options))
+
+md.renderer.rules.image = (tokens, idx, options, env, self) => {
+  applyImageAttrs(tokens[idx])
+  return defaultMdImage(tokens, idx, options, env, self)
+}
 
 export function renderMarkdown(source: string | null | undefined): string {
   if (!source) return ''
   return DOMPurify.sanitize(md.render(source), {
     // style / aria-hidden / encoding 为 KaTeX 输出所需（html:false 下输出标签均来自可信插件）
-    ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'class', 'style', 'aria-hidden', 'encoding'],
+    ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'class', 'style', 'aria-hidden', 'encoding', 'loading', 'decoding'],
     FORBID_TAGS: ['style', 'form', 'input', 'iframe', 'script'],
   })
 }
@@ -43,6 +66,7 @@ commentMd.renderer.rules.image = (tokens, idx, options, env, self) => {
   if (!SITE_IMAGE_RE.test(src))
     return escapeHtml(String(token.content))
   token.attrSet('class', 'comment-image')
+  applyImageAttrs(token)
   return defaultImage(tokens, idx, options, env, self)
 }
 
@@ -58,7 +82,7 @@ commentMd.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 export function renderCommentMarkdown(source: string | null | undefined): string {
   if (!source) return ''
   return DOMPurify.sanitize(commentMd.render(source), {
-    ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'class', 'target', 'rel'],
+    ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'class', 'target', 'rel', 'loading', 'decoding'],
     FORBID_TAGS: ['style', 'form', 'input', 'iframe', 'script'],
   })
 }

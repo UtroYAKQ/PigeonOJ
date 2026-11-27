@@ -129,6 +129,11 @@ export function adminListTeamProblemSets(
   )
 }
 
+/** POST /admin/teams/:id/disband — 站点 admin 代解散团队（治理逃生门；软解散，清理授权与成员状态） */
+export function adminDisbandTeam(teamId: string) {
+  return apiRequest<null>('POST', `/admin/teams/${teamId}/disband`)
+}
+
 /** GET /admin/teams/:id/contests — 团队比赛列表（admin 管理视图：全部状态） */
 export function adminListTeamContests(
   teamId: string,

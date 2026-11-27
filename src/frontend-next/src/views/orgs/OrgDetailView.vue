@@ -248,6 +248,7 @@ onMounted(load)
               v-show="activeTab === 'teams'"
               :org-id="org.id"
               :can-manage="canWrite"
+              :admin-mode="adminMode"
             />
             <OrgProblemsPanel
               v-if="visited.problems"
