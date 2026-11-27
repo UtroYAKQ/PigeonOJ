@@ -18,16 +18,16 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div class="grid gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)]">
-    <Card class="overflow-hidden">
-      <header class="border-b border-border/70 px-4 py-2.5 text-[13px] font-semibold">
+  <div class="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)]">
+    <Card class="flex min-h-0 flex-col overflow-hidden">
+      <header class="shrink-0 border-b border-border/70 px-4 py-2.5 text-[13px] font-semibold">
         {{ t('problemSets.list.descLabel') }}
       </header>
-      <div class="px-4 py-4">
+      <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <MarkdownView v-if="detail.description" :source="detail.description" />
         <div
           v-else
-          class="flex min-h-[220px] flex-col items-center justify-center gap-2 text-muted-foreground"
+          class="flex h-full min-h-[220px] flex-col items-center justify-center gap-2 text-muted-foreground"
         >
           <FileText class="size-7" :stroke-width="1.5" />
           <p class="text-sm">{{ t('problemSets.detail.noDescription') }}</p>
@@ -35,12 +35,12 @@ const { t } = useI18n()
       </div>
     </Card>
 
-    <Card class="self-start overflow-hidden">
-      <header class="border-b border-border/70 px-4 py-2.5 text-[13px] font-semibold">
+    <Card class="flex min-h-0 flex-col overflow-hidden">
+      <header class="shrink-0 border-b border-border/70 px-4 py-2.5 text-[13px] font-semibold">
         {{ t('problemSets.detail.infoTitle') }}
       </header>
 
-      <dl class="divide-y divide-border/70 px-4 text-[13px]">
+      <dl class="shrink-0 divide-y divide-border/70 px-4 text-[13px]">
         <div class="flex items-center justify-between gap-3 py-2.5">
           <dt class="shrink-0 text-muted-foreground">
             {{ t('problemSets.detail.ownerLabelPlain') }}
@@ -53,7 +53,7 @@ const { t } = useI18n()
         </div>
       </dl>
 
-      <div class="border-t border-border/70 px-4 pb-4 pt-3">
+      <div class="mt-auto shrink-0 border-t border-border/70 px-4 pb-4 pt-3">
         <div class="flex items-center justify-between pb-2 text-[12px] text-muted-foreground">
           <span>{{ t('problemSets.detail.progressTitle') }}</span>
           <span class="tabular-nums">{{ percent }}%</span>

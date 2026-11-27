@@ -131,7 +131,7 @@ function openProblem(item: ProblemSetItem): void {
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent value="info" class="min-h-0 overflow-y-auto">
+      <TabsContent value="info" class="flex min-h-0 flex-col">
         <ProblemSetOverview
           :detail="detail"
           :solved="solvedCount"

@@ -247,7 +247,7 @@ const columns = computed<AppTableColumn<OrgMemberItem>[]>(() => {
       cellClass: 'text-[12.5px] text-muted-foreground',
     },
   ]
-  if (props.canManage) {
+  if (props.canManage && !props.adminMode) {
     cols.push({
       key: 'ops',
       width: '56px',
