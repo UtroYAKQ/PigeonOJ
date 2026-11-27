@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Loader2 } from '@lucide/vue'
+import { Loader2 } from '@lucide/vue'
 
 import { createSolution, getSolution, updateSolution } from '@/api/community'
 import InlineNotice from '@/components/common/InlineNotice.vue'
@@ -88,10 +88,7 @@ onMounted(loadExisting)
       </h1>
     </template>
     <template #actions>
-      <Button variant="outline" size="sm" @click="router.push(solutionsBase)">
-        <ArrowLeft class="size-4" />
-        {{ t('problems.solutions.backToList') }}
-      </Button>
+
       <Button size="sm" :disabled="saving || loading || removed" @click="submit">
         <Loader2 v-if="saving" class="size-4 animate-spin" />
         {{ t('problems.solutions.publish') }}
