@@ -52,8 +52,6 @@ function reset(): void {
   localStorage.setItem(props.storageKey, '0.5')
 }
 
-const leftCollapsed = computed(() => isDesktop.value && ratio.value <= 0)
-
 const gridStyle = computed(() => {
   if (!isDesktop.value) return {}
   const ratioPercent = ratio.value * 100

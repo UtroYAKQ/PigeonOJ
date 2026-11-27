@@ -119,8 +119,9 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 
 - 题面 / 公告 / 题解统一 `components/common/MarkdownView.vue`（markdown-it `html:false` + DOMPurify 白名单 + KaTeX）
 - 编辑统一 `components/common/MarkdownEditor.vue`（textarea + 工具栏 + 写/预览切换 + 粘贴/选择图片上传）；存储仍为纯 Markdown
+- 评论输入框使用 Tiptap 所见即所得（`@tiptap/vue-3` + `tiptap-markdown`）：图片直接内联在文字流中，粘贴/选择图片走 `/files/upload/image`，提交仍输出 Markdown；评论展示统一 `renderCommentMarkdown`（Markdown 渲染，图片仅允许站内 `/api/v1/files/`，外部图床退回 alt）
 - 插图：`POST /files/upload/image`（登录用户，≤5MB，JPG/PNG/WEBP/GIF），题面展示限宽 50%
-- 禁止对用户可控内容直接 `v-html`（仅 MarkdownView 内部经白名单渲染）
+- 禁止对用户可控内容直接 `v-html`（仅 `MarkdownView` / `renderCommentMarkdown` 内部经白名单渲染）
 
 ## 国际化
 
@@ -154,7 +155,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 | `components/submission/SubmissionResult.vue` | 评测结果页统一展示（统计 / 代码 / 测试点） |
 | `components/problemsets/ProblemPicker.vue` | 题库选择弹窗（默认仅本人；loader 支持团队候选源） |
 | `components/contests/*` / `components/teams/*` | 比赛 / 团队领域共享展示组件 |
-| `components/community/CommentThread.vue` / `ReportDialog.vue` | 评论（含回复 / 粘贴图片上传与缩略图移除 / 举报 / 管理恢复）与举报弹窗 |
+| `components/community/CommentThread.vue` / `ReportDialog.vue` | 评论（Tiptap 所见即所得 / 图片内联 / 粘贴上传 / 回复 / 举报 / 管理恢复）与举报弹窗 |
 | `views/orgs/*` / `views/community/*` | 组织空间与社区页面 |
 | `layout/*` | 应用壳、侧栏、顶栏、命令面板、面包屑、语言 / 主题 / 用户菜单 |
 

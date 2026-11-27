@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ImagePlus, Loader2, MessageSquare, Send, Smile, X } from '@lucide/vue'
+import { ImagePlus, Loader2, MessageSquare, Send, Smile } from '@lucide/vue'
+import { EditorContent, useEditor } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+import Image from '@tiptap/extension-image'
+import Placeholder from '@tiptap/extension-placeholder'
+import { Markdown } from 'tiptap-markdown'
 
 
 import { uploadImage } from '@/api/files'
@@ -11,11 +16,12 @@ import LineList from '@/components/common/LineList.vue'
 import ReportDialog from '@/components/community/ReportDialog.vue'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { InputGroup, InputGroupTextarea } from '@/components/ui/input-group'
+import { InputGroup } from '@/components/ui/input-group'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useUserStore } from '@/stores/user'
 import { confirmDialog, message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
+import { renderCommentMarkdown } from '@/utils/markdown'
 import type { CommentNode, CommentTargetType } from '@/types'
 
 const props = withDefaults(
@@ -40,6 +46,7 @@ const pageSize = 10
 const total = ref(0)
 
 const content = ref('')
+
 const submitting = ref(false)
 const replyTo = ref<{ id: string; name: string } | null>(null)
 
@@ -61,45 +68,36 @@ const BASIC_EMOJIS = [
 ]
 const IMAGE_ACCEPT = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
-const composerRef = ref<{ $el?: HTMLTextAreaElement }>()
+const editorHost = ref<HTMLElement>()
 const fileInput = ref<HTMLInputElement>()
 const emojiOpen = ref(false)
 const uploading = ref(false)
 
-function composerElement(): HTMLTextAreaElement | undefined {
-  return (composerRef.value as { $el?: HTMLTextAreaElement } | undefined)?.$el
-}
-
-function insertText(text: string): void {
-  const el = composerElement()
-  if (!el) {
-    content.value += text
-    return
-  }
-  const start = el.selectionStart ?? content.value.length
-  const end = el.selectionEnd ?? content.value.length
-  content.value = content.value.slice(0, start) + text + content.value.slice(end)
-  void nextTick(() => {
-    el.focus()
-    const pos = start + text.length
-    el.setSelectionRange(pos, pos)
-  })
-}
-
-const SITE_IMAGE_MARKDOWN = /!\[([^\]]*)\]\((\/api\/v1\/files\/[^\s)]+)\)/g
-
-/** 输入框内已插入的站内图片：给出缩略图，避免只看到 Markdown 源码 */
-const attachedImages = computed(() => {
-  const images: Array<{ alt: string; url: string; markdown: string }> = []
-  for (const match of content.value.matchAll(SITE_IMAGE_MARKDOWN))
-    images.push({ alt: match[1], url: match[2], markdown: match[0] })
-  return images
+/** 评论编辑器：所见即所得，图片直接内联在文字流中 */
+const editor = useEditor({
+  content: '',
+  extensions: [
+    StarterKit.configure({ heading: false, horizontalRule: false }),
+    Image.configure({ inline: false, allowBase64: false }),
+    Placeholder.configure({ placeholder: () => t('community.comment.placeholder') }),
+    Markdown.configure({
+      html: false,
+      breaks: true,
+      transformPastedText: false,
+      transformCopiedText: false,
+    }),
+  ],
+  editorProps: {
+    attributes: { class: 'comment-prose' },
+  },
+  onUpdate: ({ editor: current }) => {
+    content.value =
+      (current.storage as { markdown?: { getMarkdown(): string } }).markdown?.getMarkdown() ?? ''
+  },
 })
 
-function removeImage(markdown: string): void {
-  const index = content.value.indexOf(markdown)
-  if (index < 0) return
-  content.value = content.value.slice(0, index) + content.value.slice(index + markdown.length)
+function imageAlt(name: string): string {
+  return name.replace(/[[\]()]/g, '').trim() || 'image'
 }
 
 function onPaste(event: ClipboardEvent): void {
@@ -108,11 +106,12 @@ function onPaste(event: ClipboardEvent): void {
   )
   if (!files.length) return
   event.preventDefault()
+  event.stopPropagation()
   void uploadFiles(files)
 }
 
 function onEmojiSelect(emoji: string): void {
-  insertText(emoji)
+  editor.value?.chain().focus().insertContent(emoji).run()
   emojiOpen.value = false
 }
 
@@ -143,7 +142,11 @@ async function uploadFiles(files: File[]): Promise<void> {
       }
       try {
         const result = await uploadImage(file)
-        insertText(`\n![${file.name}](${result.url})\n`)
+        editor.value
+          ?.chain()
+          .focus()
+          .setImage({ src: result.url, alt: imageAlt(file.name) })
+          .run()
       } catch (error) {
         message.error(error instanceof Error ? error.message : t('common.imageUploadFailed'))
       }
@@ -152,23 +155,6 @@ async function uploadFiles(files: File[]): Promise<void> {
     tip.destroy()
     uploading.value = false
   }
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-/** 评论内容渲染：全部 HTML 转义，仅放行本站上传图片的 Markdown 语法 */
-function renderContent(text: string): string {
-  return escapeHtml(text).replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (match, alt, url) => {
-    if (!/^\/api\/v1\/files\/[A-Za-z0-9_./-]+$/.test(url)) return match
-    return `<img src="${url}" alt="${alt}" loading="lazy" class="mt-1 max-h-[240px] max-w-full border border-border object-contain" />`
-  })
 }
 
 async function load(): Promise<void> {
@@ -203,9 +189,8 @@ function authorName(node: CommentNode): string {
 function beginReply(node: CommentNode): void {
   replyTo.value = { id: node.parent_id ?? node.id, name: authorName(node) }
   void nextTick(() => {
-    const el = composerElement()
-    el?.focus()
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    editor.value?.commands.focus()
+    editorHost.value?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   })
 }
 
@@ -214,12 +199,12 @@ function cancelReply(): void {
 }
 
 async function submit(): Promise<void> {
-  const text = content.value.trim()
-  if (!text) {
+  const payload = content.value.trim()
+  if (!payload) {
     message.warning(t('community.comment.empty'))
     return
   }
-  if (text.length > 2000) {
+  if (payload.length > 2000) {
     message.warning(t('community.comment.tooLong'))
     return
   }
@@ -229,10 +214,11 @@ async function submit(): Promise<void> {
       target_type: props.targetType,
       target_id: props.targetId,
       parent_id: replyTo.value?.id,
-      content: text,
+      content: payload,
     })
     message.success(t('community.comment.sent'))
     content.value = ''
+    editor.value?.commands.clearContent(true)
     replyTo.value = null
     await load()
   } catch (error) {
@@ -350,8 +336,8 @@ onMounted(load)
                 </div>
                 <div
                   v-if="node.content != null"
-                  class="mt-1 whitespace-pre-wrap break-words text-[13px] leading-6"
-                  v-html="renderContent(node.content)"
+                  class="comment-body mt-1 break-words text-[13px] leading-6"
+                  v-html="renderCommentMarkdown(node.content)"
                 />
                 <p v-else class="mt-1 text-[13px] italic text-muted-foreground">
                   {{ t('community.comment.deletedContent') }}
@@ -431,8 +417,8 @@ onMounted(load)
                         </div>
                         <div
                           v-if="reply.content != null"
-                          class="mt-0.5 whitespace-pre-wrap break-words leading-5"
-                          v-html="renderContent(reply.content)"
+                          class="comment-body mt-0.5 break-words leading-5"
+                          v-html="renderCommentMarkdown(reply.content)"
                         />
                         <p v-else class="mt-0.5 italic text-muted-foreground">
                           {{ t('community.comment.deletedContent') }}
@@ -489,40 +475,8 @@ onMounted(load)
         </button>
       </div>
       <InputGroup class="min-w-0 flex-1 flex-col items-stretch">
-          <InputGroupTextarea
-            ref="composerRef"
-            v-model="content"
-            rows="2"
-            maxlength="2000"
-            :placeholder="
-              replyTo
-                ? t('community.comment.replyPlaceholder', { name: replyTo.name })
-                : t('community.comment.placeholder')
-            "
-            @paste="onPaste"
-          />
-          <div v-if="attachedImages.length" class="flex flex-wrap gap-2 px-2 pb-1.5">
-            <div
-              v-for="(image, index) in attachedImages"
-              :key="`${image.url}-${index}`"
-              class="relative"
-            >
-              <img
-                :src="image.url"
-                :alt="image.alt"
-                class="size-12 rounded-md border border-border object-cover"
-                loading="lazy"
-              />
-              <button
-                type="button"
-                class="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-foreground text-background shadow"
-                :title="t('community.comment.removeImage')"
-                :aria-label="t('community.comment.removeImage')"
-                @click="removeImage(image.markdown)"
-              >
-                <X class="size-2.5" />
-              </button>
-            </div>
+          <div ref="editorHost" class="comment-editor" @paste.capture="onPaste">
+            <EditorContent v-if="editor" :editor="editor" />
           </div>
           <div class="flex items-center justify-between gap-2 border-t border-border/60 px-2 py-1">
             <div class="flex items-center gap-0.5">
@@ -591,3 +545,135 @@ onMounted(load)
     <ReportDialog v-model:open="reportOpen" target-type="comment" :target-id="reportTargetId" />
   </component>
 </template>
+<style scoped>
+.comment-editor :deep(.tiptap) {
+  min-height: 64px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 24px;
+  outline: none;
+}
+
+.comment-editor :deep(.tiptap p) {
+  margin: 0;
+}
+
+.comment-editor :deep(.tiptap p + p) {
+  margin-top: 4px;
+}
+
+.comment-editor :deep(.tiptap img) {
+  max-width: 100%;
+  max-height: 200px;
+  margin: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.comment-editor :deep(.tiptap ul),
+.comment-editor :deep(.tiptap ol) {
+  margin: 4px 0;
+  padding-left: 1.25rem;
+}
+
+.comment-editor :deep(.tiptap ul) {
+  list-style: disc;
+}
+
+.comment-editor :deep(.tiptap ol) {
+  list-style: decimal;
+}
+
+.comment-editor :deep(.tiptap blockquote) {
+  margin: 4px 0;
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+  color: var(--muted-foreground);
+}
+
+.comment-editor :deep(.tiptap pre) {
+  margin: 4px 0;
+  overflow-x: auto;
+  border-radius: 4px;
+  background: var(--muted);
+  padding: 8px;
+  font-size: 12px;
+}
+
+.comment-editor :deep(.tiptap code) {
+  border-radius: 3px;
+  background: var(--muted);
+  padding: 0 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.comment-editor :deep(.tiptap p.is-editor-empty:first-child::before) {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
+.comment-body :deep(p) {
+  margin: 0;
+}
+
+.comment-body :deep(p + p) {
+  margin-top: 4px;
+}
+
+.comment-body :deep(.comment-image) {
+  max-width: 100%;
+  max-height: 240px;
+  margin: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.comment-body :deep(a) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.comment-body :deep(ul),
+.comment-body :deep(ol) {
+  margin: 4px 0;
+  padding-left: 1.25rem;
+}
+
+.comment-body :deep(ul) {
+  list-style: disc;
+}
+
+.comment-body :deep(ol) {
+  list-style: decimal;
+}
+
+.comment-body :deep(blockquote) {
+  margin: 4px 0;
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+  color: var(--muted-foreground);
+}
+
+.comment-body :deep(pre) {
+  margin: 4px 0;
+  overflow-x: auto;
+  border-radius: 4px;
+  background: var(--muted);
+  padding: 8px;
+  font-size: 12px;
+}
+
+.comment-body :deep(code) {
+  border-radius: 3px;
+  background: var(--muted);
+  padding: 0 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+</style>

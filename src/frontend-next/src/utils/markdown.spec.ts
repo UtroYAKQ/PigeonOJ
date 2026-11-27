@@ -1,6 +1,6 @@
 ﻿import { describe, expect, it } from 'vitest'
 
-import { renderMarkdown } from './markdown'
+import { renderCommentMarkdown, renderMarkdown } from './markdown'
 
 describe('utils/markdown（渲染 + 净化）', () => {
   it('行内公式渲染为 KaTeX', () => {
@@ -34,5 +34,30 @@ describe('utils/markdown（渲染 + 净化）', () => {
     const html = renderMarkdown('[t](https://a.b) ![p](/api/v1/files/x)')
     expect(html).toContain('href="https://a.b"')
     expect(html).toContain('src="/api/v1/files/x"')
+  })
+})
+describe('utils/markdown（评论渲染）', () => {
+  it('站内图片保留并带评论样式类', () => {
+    const html = renderCommentMarkdown('![p](/api/v1/files/2026/11/a.png)')
+    expect(html).toContain('src="/api/v1/files/2026/11/a.png"')
+    expect(html).toContain('class="comment-image"')
+  })
+
+  it('外部图片退回 alt 文本，不渲染 img', () => {
+    const html = renderCommentMarkdown('![外部图](https://evil.test/a.png)')
+    expect(html).not.toContain('<img')
+    expect(html).toContain('外部图')
+  })
+
+  it('基础 Markdown 渲染与链接加固', () => {
+    const html = renderCommentMarkdown('**粗体** [链接](https://a.b)')
+    expect(html).toContain('<strong>粗体</strong>')
+    expect(html).toContain('target="_blank"')
+    expect(html).toContain('rel="noopener noreferrer nofollow"')
+  })
+
+  it('脚本不会注入', () => {
+    const html = renderCommentMarkdown('<script>alert(1)</script>')
+    expect(html).not.toContain('<script')
   })
 })

@@ -17,3 +17,48 @@ export function renderMarkdown(source: string | null | undefined): string {
     FORBID_TAGS: ['style', 'form', 'input', 'iframe', 'script'],
   })
 }
+/**
+ * 评论内容渲染：完整 Markdown（与所见即所得编辑器一致），但图片只允许本站上传地址，
+ * 外部图床一律退回 alt 文本，避免渲染不可信资源。
+ */
+const SITE_IMAGE_RE = /^\/api\/v1\/files\/[A-Za-z0-9_./-]+$/
+
+const commentMd = new MarkdownIt({ html: false, linkify: true, breaks: true })
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+const defaultImage = commentMd.renderer.rules.image
+  ?? ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options))
+
+commentMd.renderer.rules.image = (tokens, idx, options, env, self) => {
+  const token = tokens[idx]
+  const src = String(token.attrGet('src') ?? '')
+  if (!SITE_IMAGE_RE.test(src))
+    return escapeHtml(String(token.content))
+  token.attrSet('class', 'comment-image')
+  return defaultImage(tokens, idx, options, env, self)
+}
+
+const defaultLinkOpen = commentMd.renderer.rules.link_open
+  ?? ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options))
+
+commentMd.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  tokens[idx].attrSet('target', '_blank')
+  tokens[idx].attrSet('rel', 'noopener noreferrer nofollow')
+  return defaultLinkOpen(tokens, idx, options, env, self)
+}
+
+export function renderCommentMarkdown(source: string | null | undefined): string {
+  if (!source) return ''
+  return DOMPurify.sanitize(commentMd.render(source), {
+    ALLOWED_ATTR: ['href', 'title', 'alt', 'src', 'class', 'target', 'rel'],
+    FORBID_TAGS: ['style', 'form', 'input', 'iframe', 'script'],
+  })
+}
