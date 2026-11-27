@@ -81,6 +81,26 @@ let startHeight = 0
 
 let resizeFrame: number | undefined
 let pendingY = 0
+let lastRightHeight = 0
+
+/** 控制台输入区内有焦点时冻结高度：移动端软键盘弹出会改变可视视口，不能再触发任何自动约束 */
+const consoleFocused = ref(false)
+
+function onConsoleFocusIn(event: FocusEvent): void {
+  const el = event.target as HTMLElement | null
+  consoleFocused.value = el?.tagName === 'TEXTAREA' || el?.tagName === 'INPUT'
+}
+
+function onConsoleFocusOut(): void {
+  requestAnimationFrame(() => {
+    const el = document.activeElement as HTMLElement | null
+    consoleFocused.value = Boolean(
+      el &&
+        consoleRef.value?.contains(el) &&
+        (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT'),
+    )
+  })
+}
 
 const consoleStyle = computed(() =>
   consoleCollapsed.value ? undefined : { height: `${consoleHeight.value}px` },
@@ -220,7 +240,16 @@ useEventListener(window, 'pointercancel', onResizeEnd)
 useEventListener(window, 'blur', onResizeEnd)
 // 容器尺寸变化（窗口缩放 / 左右分栏拖动导致工具栏换行）后重新约束高度
 useResizeObserver(rightRef, () => {
-  if (!resizing) consoleHeight.value = clampConsoleHeight(consoleHeight.value)
+  // 输入区聚焦（移动端键盘弹起）或拖拽中：保持用户当前高度，不做任何自动约束
+  if (resizing || consoleFocused.value) return
+  const height = rightRef.value?.clientHeight ?? 0
+  // 右栏变矮（输入法 / 视口收缩）时不回退用户已调好的高度，只在变高时重新约束
+  if (height <= lastRightHeight) {
+    lastRightHeight = height
+    return
+  }
+  lastRightHeight = height
+  consoleHeight.value = clampConsoleHeight(consoleHeight.value)
 })
 onBeforeUnmount(() => {
   if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame)
@@ -267,7 +296,7 @@ function runSelfTest(): void {
     <template #right>
       <section
         ref="rightRef"
-        class="code-surface flex h-[min(70vh,640px)] min-h-[360px] flex-col min-[900px]:h-full min-[900px]:min-h-[420px]"
+        class="code-surface flex h-[min(70lvh,640px)] min-h-[360px] flex-col min-[900px]:h-full min-[900px]:min-h-[420px]"
       >
         <div ref="toolbarRef" class="flex shrink-0 flex-wrap items-center gap-2 pb-2">
           <LanguageSelect v-model="language" />
@@ -296,6 +325,8 @@ function runSelfTest(): void {
           ref="consoleRef"
           class="relative z-10 flex shrink-0 flex-col overflow-visible rounded-xl border border-border bg-card"
           :style="consoleStyle"
+          @focusin="onConsoleFocusIn"
+          @focusout="onConsoleFocusOut"
         >
           <button
             type="button"

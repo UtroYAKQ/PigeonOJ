@@ -32,8 +32,17 @@ export function useSelfTest(
       }
       selfTestResult.value = await (options.runner ? options.runner(full) : runProblemCode(full))
     } catch (error) {
-      // 后端错误消息已按 Accept-Language 本地化，直接透出；仅兜底网络层文案
-      message.error(error instanceof Error ? error.message : t('problems.detail.selfTestFailed'))
+      // 后端错误消息已按 Accept-Language 本地化，直接透出；仅兜底网络层文案。
+      // 同时合成一条 system_error 结果写入控制台，避免冷却 / 无在线节点等提示只在 toast 一闪而过
+      const text = error instanceof Error ? error.message : t('problems.detail.selfTestFailed')
+      message.error(text)
+      selfTestResult.value = {
+        status: 'system_error',
+        output: '',
+        error_message: text,
+        time_used_ms: 0,
+        memory_used_kb: null,
+      }
     } finally {
       selfTesting.value = false
     }

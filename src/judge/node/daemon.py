@@ -473,7 +473,8 @@ class NodeDaemon:
         res = await asyncio.to_thread(_run_case_sync)
         error_message = ""
         if res.status in ("compile_error", "runtime_error", "system_error"):
-            error_message = res.stderr.decode("utf-8", errors="replace")[:8000]
+            # 编译诊断通常写 stderr；个别编译器把失败信息写 stdout，兜底合并避免控制台无提示
+            error_message = (res.stderr or res.stdout).decode("utf-8", errors="replace")[:8000]
         return {
             "request_id": job.request_id, "status": res.status,
             "output": res.stdout, "error_message": error_message,

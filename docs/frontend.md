@@ -102,8 +102,8 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 ### 「题面 + 编辑器」双栏工作台
 
 - `components/common/SplitPane.vue`：桌面端左右独立滚动、分隔条可拖拽且比例持久化（双击复位）；<900px 自动上下堆叠
-- `components/problem/ProblemWorkbench.vue`：左题面（`ProblemMetaBar` + `ProblemStatement`），右编辑器 + 自测控制台（右栏高度固定：窄屏 `h-[min(70vh,640px)]`、≥900px `h-full`；编辑器宿主 `min-h-0 flex-1`，Monaco 高度链在固定区域内闭合。窄屏不要用自然高度，否则拖控制台会让页面越拉越长）；上方工具行「语言」靠左、「我的提交 / 题解」靠右，「自测运行 / 提交」放进下方控制台标题行，避免顶部拥挤
-- 自测控制台常驻编辑器下方，形态对齐旧 UI（naive-ui 版）：面板顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 仍视为单击；方向键 / Home 微调与复位），默认展开 520px、拖拽下限 140px（展开时按 360px 可读下限兜底，方便输入样例）；控制台上限为「右栏可用高度 − 工具栏」：拖拽与键盘上下键 `allowCover=true` 时不保留编辑器最小高度、可覆盖整个编辑区并拖到最顶，展开 / 切 tab / 运行自测仍保留编辑器最小高度 220px；右栏固定高度下拖拽只改变控制台占比，页面长度不变；收起态只留约 47px 控制条；点击当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」，运行后自动切到结果并展开；展开态拖得过小视为取消并还原高度；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`（兼容旧键 `pigeonoj.problems.consoleHeight`）；结果含状态、耗时、内存与输出/报错
+- `components/problem/ProblemWorkbench.vue`：左题面（`ProblemMetaBar` + `ProblemStatement`），右编辑器 + 自测控制台（右栏高度固定：窄屏 `h-[min(70lvh,640px)]`（`lvh` 取大视口，软键盘弹出不改变高度；控制台输入区聚焦期间冻结高度、不做自动重算）、≥900px `h-full`；编辑器宿主 `min-h-0 flex-1`，Monaco 高度链在固定区域内闭合。窄屏不要用自然高度，否则拖控制台会让页面越拉越长）；上方工具行「语言」靠左、「我的提交 / 题解」靠右，「自测运行 / 提交」放进下方控制台标题行，避免顶部拥挤
+- 自测控制台常驻编辑器下方，形态对齐旧 UI（naive-ui 版）：面板顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 仍视为单击；方向键 / Home 微调与复位），默认展开 520px、拖拽下限 140px（展开时按 360px 可读下限兜底，方便输入样例）；控制台上限为「右栏可用高度 − 工具栏」：拖拽与键盘上下键 `allowCover=true` 时不保留编辑器最小高度、可覆盖整个编辑区并拖到最顶，展开 / 切 tab / 运行自测仍保留编辑器最小高度 220px；右栏固定高度下拖拽只改变控制台占比，页面长度不变；控制台输入区聚焦（移动端软键盘弹出）期间冻结高度，不做任何自动约束；收起态只留约 47px 控制条；点击当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」，运行后自动切到结果并展开；展开态拖得过小视为取消并还原高度；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`（兼容旧键 `pigeonoj.problems.consoleHeight`）；结果含状态、耗时、内存与输出/报错
 - 提交历史经 `components/problem/MySubmissionsDialog.vue` 懒加载分页（弹窗 `sm:max-w-[760px]`、高 `min(72vh, 520px)`，保留完整列），行点击进入上下文内评测结果页
 
 ### 可访问性
