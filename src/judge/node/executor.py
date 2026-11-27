@@ -12,7 +12,7 @@ import sys
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -830,24 +830,47 @@ def _run_cases_parallel(
     max_workers: int,
     cancel_event: threading.Event | None,
 ) -> list[ExecutionResult]:
+    """同作业多测试点持续并发：固定 max_workers 个在途，完成一个补一个。
+
+    旧实现按 max_workers 分批（整批 as_completed 后才进下一批），任一长尾
+    测试点都会拖住整批；持续补位让总耗时接近「总工作量 / 并发度」。
+    compile_error / system_error 后停止补位，仅让在途点跑完并记录结果；
+    cancel_event 在当前在途点结束后生效（契约：批次边界取消）。
+    """
+    if cancel_event is not None and cancel_event.is_set():
+        return []
     ordered: list[ExecutionResult | None] = [None] * len(cases)
     stop_more = False
+    next_index = 0
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        for start in range(0, len(cases), max_workers):
-            if stop_more or (cancel_event is not None and cancel_event.is_set()):
-                break
-            batch = list(enumerate(cases[start:start + max_workers], start=start))
-            futs = {
-                pool.submit(
-                    _run_one_case, submission, index, case, spj=spj, spj_limits=spj_limits
-                ): index
-                for index, case in batch
-            }
-            for fut in as_completed(futs):
-                index = futs[fut]
+        inflight: dict[Future, int] = {}
+
+        def submit_next() -> None:
+            nonlocal next_index
+            if next_index >= len(cases):
+                return
+            index = next_index
+            next_index += 1
+            inflight[pool.submit(
+                _run_one_case, submission, index, cases[index], spj=spj, spj_limits=spj_limits
+            )] = index
+
+        for _ in range(min(max_workers, len(cases))):
+            submit_next()
+
+        while inflight:
+            done, _ = wait(inflight, return_when=FIRST_COMPLETED)
+            for fut in done:
+                index = inflight.pop(fut)
                 ordered[index] = fut.result()
                 if ordered[index] is not None and ordered[index].status in _FATAL_CASE_STATUSES:
                     stop_more = True
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            if not stop_more:
+                for _ in range(len(done)):
+                    submit_next()
     return [item for item in ordered if item is not None]
 
 

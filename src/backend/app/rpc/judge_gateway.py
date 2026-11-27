@@ -46,8 +46,7 @@ _RUN_TIMEOUT_SECONDS = 120
 # 心跳指标钳制边界（节点上报 0-100 百分比，越界值写 Redis 前收敛）
 _METRIC_PERCENT_MIN = 0
 _METRIC_PERCENT_MAX = 100
-# 巡检滞留判定倍数：连续 N 个扫描周期无更新才纳入巡检候选（避免误判在途提交）
-_STALE_SCAN_MULTIPLIER = 2
+
 # FetchProblemData 的认证 metadata 键（与判题节点 daemon 约定一致）
 _NODE_TOKEN_METADATA_KEY = "x-node-token"
 # 心跳状态值（写 Redis 供管理后台沙箱页展示）
@@ -55,9 +54,9 @@ _NODE_STATUS_ONLINE = "online"
 _CHANNEL_GATEWAY = "gateway"
 # 维护循环重派互斥锁键前缀（docs/operations.md Redis 约定）
 # 重派锁 TTL：派发成功后在途保护（与 judging 判死阈值一致，防长作业被频繁重置）；
-# 派发失败仅短 TTL 冷却（一个扫描周期量级），不冻结积压
+# 派发失败仅短 TTL 冷却（秒级），节点腾出容量后的踢醒可立即重试，不冻结积压
 _REQUEUE_LOCK_TTL_SECONDS = _JUDGING_STALE_SECONDS
-_REQUEUE_RETRY_TTL_SECONDS = 60
+_REQUEUE_RETRY_TTL_SECONDS = 5
 # 回收重派次数上限（断线 / judging 超时）；超过转 system_error（契约「超过阈值转 system_error」）
 _MAX_REQUEUE_ATTEMPTS = 3
 _ATTEMPT_TTL_SECONDS = 3600
@@ -75,6 +74,15 @@ _GRPC_SERVER_OPTIONS = (
 # 节点注册/重连踢醒事件：巡检循环立即消化积压，免等扫描周期
 # （断线→重连后积压提交秒级重派，修复「节点上线了题还在排队」）
 _MAINTENANCE_KICK = asyncio.Event()
+
+
+def notify_capacity_released() -> None:
+    """节点腾出执行容量（判题 / 自测完成）后踢醒巡检立即派发 pending。
+
+    修复「节点已空闲但积压提交仍要等巡检周期」：派发是事件驱动的，容量
+    释放即消化积压，巡检周期只作兜底。
+    """
+    _MAINTENANCE_KICK.set()
 
 
 async def active_judge_count() -> int:
@@ -265,13 +273,17 @@ def _to_outcome(result: judge_pb2.JudgeResult) -> jobs.JudgeOutcome:
 
 async def _handle_result(result: judge_pb2.JudgeResult) -> None:
     storage = get_storage()
-    async with SessionLocal() as db:
-        applied = await jobs.apply_job_result(db, _to_outcome(result), storage=storage)
-        if not applied:
-            logger.warning("忽略过期判题结果 submission=%s", result.submission_id)
-    conn = _find_conn_by_submission(result.submission_id)
-    if conn is not None:
-        conn.inflight.discard(result.submission_id)
+    try:
+        async with SessionLocal() as db:
+            applied = await jobs.apply_job_result(db, _to_outcome(result), storage=storage)
+            if not applied:
+                logger.warning("忽略过期判题结果 submission=%s", result.submission_id)
+    finally:
+        # 落库失败也必须释放 in-flight：否则节点被网关认为满载，直到 5 分钟判死才恢复
+        conn = _find_conn_by_submission(result.submission_id)
+        if conn is not None:
+            conn.inflight.discard(result.submission_id)
+        notify_capacity_released()
 
 
 def _find_conn_by_submission(submission_id: str) -> NodeConnection | None:
@@ -294,11 +306,14 @@ def _to_run_outcome(result: judge_pb2.RunCodeResult) -> jobs.RunCodeOutcome:
 
 async def _handle_run_code_result(result: judge_pb2.RunCodeResult) -> None:
     """按 request_id 关联唤醒等待方；无人认领（等待已超时/断开）则静默丢弃。"""
-    for conn in REGISTRY.list_nodes():
-        fut = conn.pending_runs.get(result.request_id)
-        if fut is not None and not fut.done():
-            fut.set_result(_to_run_outcome(result))
-            return
+    try:
+        for conn in REGISTRY.list_nodes():
+            fut = conn.pending_runs.get(result.request_id)
+            if fut is not None and not fut.done():
+                fut.set_result(_to_run_outcome(result))
+                return
+    finally:
+        notify_capacity_released()
 
 
 class JudgeGatewayService(judge_pb2_grpc.JudgeGatewayServicer):
@@ -451,7 +466,14 @@ async def send_job(node_id: str, submission_id: uuid.UUID) -> bool:
         return True
 
 
-async def _reset_to_pending(submission_ids: set[str], *, reason: str) -> None:
+async def _reset_to_pending(
+    submission_ids: set[str], *, reason: str, release_dispatch_lock: bool = True
+) -> None:
+    """重置为 pending 并（默认）释放本轮派发锁、踢醒巡检。
+
+    release_dispatch_lock=False 供维护循环内部使用：该路径已持有短锁，
+    重置后紧接派发，避免刚释放的锁被其他轮次重复处理。
+    """
     if not submission_ids:
         return
     r = get_redis()
@@ -470,14 +492,23 @@ async def _reset_to_pending(submission_ids: set[str], *, reason: str) -> None:
             logger.warning("提交 %s 重派超过 %s 次，转 system_error（%s）", raw, _MAX_REQUEUE_ATTEMPTS, reason)
         else:
             retry_ok.append(sid)
-    if retry_ok:
-        async with SessionLocal() as db:
-            await db.execute(
-                update(Submission)
-                .where(Submission.id.in_(retry_ok), Submission.status == SubmissionStatus.JUDGING)
-                .values(status=SubmissionStatus.PENDING, updated_at=datetime.now(timezone.utc))
-            )
-            await db.commit()
+    if not retry_ok:
+        return
+    async with SessionLocal() as db:
+        await db.execute(
+            update(Submission)
+            .where(Submission.id.in_(retry_ok), Submission.status == SubmissionStatus.JUDGING)
+            .values(status=SubmissionStatus.PENDING, updated_at=datetime.now(timezone.utc))
+        )
+        await db.commit()
+    if release_dispatch_lock:
+        # 断线 / 判死路径不持有本轮短锁：残留的 300s 在途锁会把重派挡回队列，
+        # 必须主动释放并踢醒巡检，回收的提交才能立即被消化
+        async with r.pipeline(transaction=False) as pipe:
+            for sid in retry_ok:
+                pipe.delete(f"{JUDGE_REQUEUE_KEY_PREFIX}{sid}")
+            await pipe.execute()
+        notify_capacity_released()
     logger.info("回收 %s 个 in-flight 提交（%s）", len(submission_ids), reason)
 
 
@@ -491,43 +522,60 @@ def _send_cancel(submission_id: str) -> None:
 
 
 async def maintenance_once(scan_interval: int, now: datetime | None = None) -> None:
-    """单轮巡检（maintenance_loop 循环体，独立成函数便于测试注入）：
-    重置超时未完成的 judging、重派滞留的 pending / judging 提交。"""
-    stale_after = timedelta(seconds=scan_interval * _STALE_SCAN_MULTIPLIER)
+    """单轮巡检（maintenance_loop 循环体，独立成函数便于测试注入）。
+
+    - pending：不再设置滞留门槛，只要有可用节点就派发（容量释放事件即时
+      踢醒巡检；scan_interval 仅作兜底周期，不参与候选判定）；
+    - judging：超过 _JUDGING_STALE_SECONDS 才取消并复位，避免误伤长作业。
+
+    两类候选分开查询，积压的 pending 不会把判死回收饿死。
+    """
     now = now or datetime.now(timezone.utc)
+    judging_deadline = now - timedelta(seconds=_JUDGING_STALE_SECONDS)
     r = get_redis()
     async with SessionLocal() as db:
-        stale = (
-            await db.execute(
-                select(Submission).where(
-                    Submission.status.in_([SubmissionStatus.PENDING, SubmissionStatus.JUDGING]),
-                    Submission.updated_at < now - stale_after,
-                ).limit(_MAINTENANCE_SCAN_LIMIT)
+        stale_judging = list(
+            (
+                await db.execute(
+                    select(Submission).where(
+                        Submission.status == SubmissionStatus.JUDGING,
+                        Submission.updated_at < judging_deadline,
+                    ).order_by(Submission.updated_at, Submission.id).limit(_MAINTENANCE_SCAN_LIMIT)
+                )
+            ).scalars().all()
+        )
+        pending = list(
+            (
+                await db.execute(
+                    select(Submission).where(
+                        Submission.status == SubmissionStatus.PENDING,
+                    ).order_by(Submission.updated_at, Submission.id).limit(_MAINTENANCE_SCAN_LIMIT)
+                )
+            ).scalars().all()
+        )
+    # 判死回收优先，随后按提交时间消化 pending（积压时先到先派，避免新提交反复抢占）
+    candidates = [(row, True) for row in stale_judging] + [(row, False) for row in pending]
+    for submission, expired in candidates:
+        lock_key = f"{JUDGE_REQUEUE_KEY_PREFIX}{submission.id}"
+        # 先以短 TTL 上锁防同轮 / 并发轮次重复处理；派发成功后再升级为在途保护窗。
+        # 失败（无在线节点、满载）只冷却数秒，容量释放踢醒后即可立即重试。
+        if not await r.set(lock_key, "1", nx=True, ex=_REQUEUE_RETRY_TTL_SECONDS):
+            continue
+        if expired:
+            _send_cancel(str(submission.id))
+            # 已持有本轮短锁：重置时不释放，随后派发成功再升级为在途保护
+            await _reset_to_pending(
+                {str(submission.id)}, reason="judging stale", release_dispatch_lock=False
             )
-        ).scalars().all()
-        for submission in stale:
-            lock_key = f"{JUDGE_REQUEUE_KEY_PREFIX}{submission.id}"
-            # 先以短 TTL 上锁防同轮重复处理；派发成功后再升级为在途保护窗。
-            # 失败（无在线节点等）只冷却一个扫描周期量级——不冻结积压，
-            # 节点恢复后下一轮即可重派（修复断线期烧锁导致恢复后仍长时间排队）
-            if not await r.set(lock_key, "1", nx=True, ex=_REQUEUE_RETRY_TTL_SECONDS):
-                continue
-            if (
-                submission.status == SubmissionStatus.JUDGING
-                and submission.updated_at < now - timedelta(seconds=_JUDGING_STALE_SECONDS)
-            ):
-                _send_cancel(str(submission.id))
-                await _reset_to_pending({str(submission.id)}, reason="judging stale")
-            # 本会话只做过 select（无写操作），不需要提交；重派走 dispatch_submission 自建会话
-            if await dispatch_submission(submission.id):
-                logger.info("巡检重派提交 %s", submission.id)
-                await r.set(lock_key, "1", ex=_REQUEUE_LOCK_TTL_SECONDS)
+        if await dispatch_submission(submission.id):
+            logger.info("巡检重派提交 %s", submission.id)
+            await r.set(lock_key, "1", ex=_REQUEUE_LOCK_TTL_SECONDS)
 
 
 async def maintenance_loop(interval: int | None = None) -> None:
-    """周期巡检：pending 超时未派发 / judging 超时未完成 → 重置并重派。
+    """周期兜底巡检：pending 有空位即派；judging 超时未完成 → 重置并重派。
 
-    节点注册（含断线重连）会 set 踢醒事件，积压立即消化、不等扫描周期。
+    节点容量释放、注册（含断线重连）均会 set 踢醒事件，积压立即消化、不等扫描周期。
     """
     scan_interval = _PENDING_RESCAN_SECONDS if interval is None else max(0, interval)
     while True:

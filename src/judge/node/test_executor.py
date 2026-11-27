@@ -140,3 +140,71 @@ def test_execute_cases_cancel_stops_later_serial(tmp_path):
         [_py_case(), _py_case(), _py_case()], stop_on_failure=True, cancel_event=ev
     )
     assert len(results) == 1
+
+
+def test_execute_cases_parallel_refills_instead_of_batching(tmp_path):
+    """回归（长尾阻塞）：短测试点完成后应立即补位，不等同批最慢点结束。
+
+    旧实现按批 as_completed（整批结束才进下一批），一个慢点拖住整批；
+    这里 case0 阻塞在门闩上，断言 case4 在门闩释放前已开始执行。
+    """
+    import threading
+    import time
+
+    from executor import ExecutionResult, JudgeCase, JudgeWorker, ResourceLimits
+
+    gate = threading.Event()
+    started: set[bytes] = set()
+    lock = threading.Lock()
+
+    class FakeExecutor:
+        def run(self, _command, **kwargs):
+            tag = kwargs["stdin"]
+            with lock:
+                started.add(tag)
+            if tag == b"\x00":
+                gate.wait(2)
+            return ExecutionResult("ok", tag, b"", 1, 10, 0)
+
+    cases = [
+        JudgeCase(
+            "python3.12", b"print(1)", stdin=bytes([i]), expected_stdout=bytes([i]),
+            limits=ResourceLimits(),
+        )
+        for i in range(8)
+    ]
+
+    def run() -> None:
+        JudgeWorker(FakeExecutor(), str(tmp_path)).execute_cases(cases, max_parallel=4)
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        deadline = time.time() + 1
+        while b"\x04" not in started and time.time() < deadline:
+            time.sleep(0.01)
+        assert b"\x04" in started
+    finally:
+        gate.set()
+        worker.join(timeout=5)
+
+
+def test_execute_cases_parallel_honors_pre_set_cancel(tmp_path):
+    """取消事件已置位时不再启动任何测试点（与旧批次边界语义一致）。"""
+    import threading
+
+    from executor import ExecutionResult, JudgeWorker
+
+    calls = {"n": 0}
+
+    class FakeExecutor:
+        def run(self, _command, **_kwargs):
+            calls["n"] += 1
+            return ExecutionResult("ok", b"1\n", b"", 1, 10, 0)
+
+    ev = threading.Event()
+    ev.set()
+    results = JudgeWorker(FakeExecutor(), str(tmp_path)).execute_cases(
+        [_py_case(), _py_case()], stop_on_failure=False, cancel_event=ev, max_parallel=2
+    )
+    assert results == [] and calls["n"] == 0

@@ -193,19 +193,20 @@ CHECK (
   → dispatch_submission：只选 `task_count < capacity` 的活节点，任务数最少优先；
     全部满载或无在线节点 → 保持 pending（自测满载仍 4002）；
     build_job_bundle 原子认领（UPDATE ... WHERE status='pending'）后经 gRPC 流推送 SubmitJob
-  → 无在线节点 / 节点满载：保持 pending，网关维护循环每 30s 重扫派发；**节点注册 / 重连即踢醒巡检**，
-    断线期间滞留的 pending 秒级重派（不等扫描周期）
+  → 无在线节点 / 节点满载：保持 pending；**节点腾出容量（判题 / 自测完成）或注册 / 重连即踢醒巡检**，
+    pending 秒级重派；30s 巡检周期仅作兜底
 节点（pigeonoj/judge-node 容器，privileged，出站连接后端 :50051；可选本机管理页见 operations.md）
   → 数据缓存未命中时 FetchProblemData 拉取测试点（data_version 缓存于容器 /cache；单文件可分片追加）
   → 按 sandbox_configs 比例换算有效限制（时间 ×time_ratio；内存 max(×memory_ratio, memory_min_mb)）
-  → nsjail 原生编译一次后运行测试点：ACM `stop_on_failure` 串行短路；IOI/练习/验题默认同作业最多 4 点并行，
-    写 submission_test_case_results（输出落 MinIO）
+  → nsjail 原生编译一次后运行测试点：ACM `stop_on_failure` 串行短路；IOI/练习/验题默认同作业最多 4 点
+    持续并发（完成一个补一个，不等整批结束），写 submission_test_case_results（输出落 MinIO）
   → 回传 JudgeResult；汇总写 submissions；练习/比赛终态回写 problem_counters 通过率计数
     （口径见下方要点）；验题提交回写 verification 与 problems.is_verified
-维护循环兜底：滞留判定以 `submissions.updated_at`（状态变更时刻，认领 / 回收时显式刷新）为基准——
-pending>60s / judging>5min 重置重派（judging 超时先下发 CancelJob）；
-Redis SETNX 防同轮重复投递：失败 60s 冷却、成功后 300s 在途保护。
-断线 / 超时回收计入 `judge:attempts:<sid>`，满 3 次转 `system_error`（`judge retry exhausted`）
+维护循环兜底：pending 不设滞留门槛，有空位即派（滞留判定以 `submissions.updated_at` 为基准，
+认领 / 回收时显式刷新）；judging>5min 重置重派（先下发 CancelJob）；
+Redis SETNX 防同轮 / 并发轮次重复投递：失败 5s 冷却、成功后 300s 在途保护。
+断线 / 超时回收计入 `judge:attempts:<sid>`，满 3 次转 `system_error`（`judge retry exhausted`）；
+回收同时释放重派锁并踢醒巡检，避免残留在途锁挡住重派
 ```
 
 ### 节点网关协议
@@ -216,7 +217,7 @@ Redis SETNX 防同轮重复投递：失败 60s 冷却、成功后 300s 在途保
 - `Connect(stream NodeMessage) returns (stream ServerMessage)`：节点生命周期主通道。
   首条 Register 携带令牌（后端 `JUDGE_GATEWAY_TOKENS` 其一），不符即 UNAUTHENTICATED；
   上行 Heartbeat / JudgeResult / RunCodeResult，下行 SubmitJob / RunCodeJob / CancelJob
-  （judging 超时回收时下发；节点在测试点批次边界停跑且不回传结果，迟到结果按非 judging 忽略）。
+  （judging 超时回收时下发；节点在当前在途测试点结束后停跑且不回传结果，迟到结果按非 judging 忽略）。
   Heartbeat 携带 `running_tasks`（`load` 由服务端按 `capacity` 计算）与宿主指标
   `cpu_usage` / `memory_usage`（0-100，节点采集自 `/proc/stat` / `/proc/meminfo`；非 Linux 或无数据为 0）。
   Register 携带能力位 `supports_spj`：true = 节点支持编译并运行 SPJ 特判程序；
@@ -247,7 +248,7 @@ Redis SETNX 防同轮重复投递：失败 60s 冷却、成功后 300s 在途保
 
 ### Judge Worker 边界
 
-Judge 节点为长驻容器（`src/judge/Dockerfile` 多阶段构建），执行核心与消息仅以 `submission_id` 为业务关联键。它经网关获取作业描述（代码内联、限制已换算、测试点仅元数据），通过 FetchProblemData 拉取数据文件到本地缓存；对 C++/Java 在编译阶段调用一次 nsjail 生成产物，随后每个测试点独立调用 nsjail 运行（按点懒加载 `.in/.out`；ACM `stop_on_failure` 串行短路，IOI/练习/验题默认同作业最多 4 点并行）；Python 无编译阶段。每次 nsjail 只 bind 本作业目录到 `/workspace`。节点将程序输出随结果回传，服务端存入 `submissions/{submission_id}/cases/{case_id}/output`，把测试点结果持久化到 `submission_test_case_results`，最后汇总更新 `submissions`。节点采集 stdout、stderr、退出码和资源数据，并在任务结束后清理临时目录。测试点期望输出只在判题节点与服务端内部流转，不进入公开响应；不接受用户可控 URL 或内联测试点 payload。
+Judge 节点为长驻容器（`src/judge/Dockerfile` 多阶段构建），执行核心与消息仅以 `submission_id` 为业务关联键。它经网关获取作业描述（代码内联、限制已换算、测试点仅元数据），通过 FetchProblemData 拉取数据文件到本地缓存；对 C++/Java 在编译阶段调用一次 nsjail 生成产物，随后每个测试点独立调用 nsjail 运行（按点懒加载 `.in/.out`；ACM `stop_on_failure` 串行短路，IOI/练习/验题默认同作业最多 4 点持续并发）；Python 无编译阶段。每次 nsjail 只 bind 本作业目录到 `/workspace`。节点将程序输出随结果回传，服务端存入 `submissions/{submission_id}/cases/{case_id}/output`，把测试点结果持久化到 `submission_test_case_results`，最后汇总更新 `submissions`。节点采集 stdout、stderr、退出码和资源数据，并在任务结束后清理临时目录。测试点期望输出只在判题节点与服务端内部流转，不进入公开响应；不接受用户可控 URL 或内联测试点 payload。
 
 
 要点：

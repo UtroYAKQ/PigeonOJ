@@ -545,3 +545,96 @@ async def test_stream_problem_data_includes_spj_file(client, admin_headers, fake
     manifest_plain = json.loads(chunks_plain["manifest.json"])
     assert manifest_plain["spj"] is False
     assert "spj.cpp" not in chunks_plain
+
+
+# ---- 排队延迟（pending 无滞留门槛 / 容量释放即派发 / 回收释放锁） ----
+
+
+@pytest.mark.asyncio
+async def test_maintenance_dispatches_fresh_pending_immediately(client, admin_headers, fake_storage):
+    """回归（排队下限）：新提交不再等 60s 滞留窗口。
+
+    旧实现巡检候选要求 `updated_at < now-60s`，满载期间新提交至少排队 60s；
+    现在 pending 只要节点有空位就派发。
+    """
+    pid = await _seed_problem_with_case(fake_storage)
+    conn = _add_node("fresh-node")
+    sid = await _submit(client, admin_headers, pid)
+    await asyncio.wait_for(conn.outbox.get(), timeout=5)
+
+    # 模拟「节点满载期间提交滞留」：状态回退 pending，updated_at 保持当前时刻
+    async with SessionLocal() as db:
+        row = await db.get(Submission, uuid_mod.UUID(sid))
+        row.status = "pending"
+        row.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+    conn.inflight.discard(sid)
+    await get_redis().delete(f"judge:requeue:{sid}")
+
+    await maintenance_once(30)
+    msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+    assert msg.job.submission_id == sid
+
+
+@pytest.mark.asyncio
+async def test_capacity_release_kick_dispatches_pending(client, admin_headers, fake_storage):
+    """回归（容量释放即派发）：节点判完腾出容量后踢醒巡检，积压 pending 秒级消化，
+    不再等满 30s 扫描周期。"""
+    from app.rpc import judge_gateway as gw
+
+    gw._MAINTENANCE_KICK.clear()
+    pid = await _seed_problem_with_case(fake_storage)
+    sid = await _submit(client, admin_headers, pid)  # 提交时无节点 → pending
+    conn = _add_node("release-node")
+
+    task = asyncio.create_task(gw.maintenance_loop(interval=30))
+    try:
+        await asyncio.sleep(0)  # 让循环进入事件等待
+        gw.notify_capacity_released()
+        msg = await asyncio.wait_for(conn.outbox.get(), timeout=2)
+        assert msg.job.submission_id == sid
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_reset_to_pending_releases_dispatch_lock(client, admin_headers, fake_storage):
+    """回归（回收重派）：断线 / 判死回收必须清掉 300s 在途锁，
+    否则重置后的 pending 会被残留锁挡回队列。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    conn = _add_node("relock-node")
+    sid = await _submit(client, admin_headers, pid)
+    await asyncio.wait_for(conn.outbox.get(), timeout=5)
+
+    lock_key = f"judge:requeue:{sid}"
+    await get_redis().set(lock_key, "1", ex=300)
+    assert await get_redis().exists(lock_key) == 1
+
+    await _reset_to_pending({sid}, reason="node offline")
+    assert await get_redis().exists(lock_key) == 0
+    async with SessionLocal() as db:
+        assert (await db.get(Submission, uuid_mod.UUID(sid))).status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_result_persist_failure_still_releases_capacity(monkeypatch, fake_storage):
+    """回归（容量泄漏）：结果落库异常也必须释放 in-flight 并踢醒巡检，
+    否则节点会被网关误判满载，直到 5 分钟判死才恢复。"""
+    from app.rpc import judge_gateway as gw
+
+    conn = _add_node("persist-fail", capacity=1)
+    sid = str(uuid_mod.uuid4())
+    conn.inflight.add(sid)
+    gw._MAINTENANCE_KICK.clear()
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("storage down")
+
+    monkeypatch.setattr(gw.jobs, "apply_job_result", boom)
+    with pytest.raises(RuntimeError):
+        await gw._handle_result(judge_pb2.JudgeResult(submission_id=sid, status="accepted"))
+
+    assert sid not in conn.inflight
+    assert gw._MAINTENANCE_KICK.is_set()
