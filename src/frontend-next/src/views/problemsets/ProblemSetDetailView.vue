@@ -123,7 +123,7 @@ function openProblem(item: ProblemSetItem): void {
           {{ t('problemSets.detail.tabInfo') }}
         </TabsTrigger>
         <TabsTrigger value="problems" class="px-3 text-[12px]">
-          {{ t('problemSets.detail.problems') }} · {{ totalCount }}
+          {{ t('problemSets.detail.problems') }}
         </TabsTrigger>
       </TabsList>
 

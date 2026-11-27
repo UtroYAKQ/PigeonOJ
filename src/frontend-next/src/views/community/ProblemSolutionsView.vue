@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, MessageSquare, PenLine } from '@lucide/vue'
+import { MessageSquare, PenLine } from '@lucide/vue'
 
 import { getEditorial, listSolutions } from '@/api/community'
 import BaseAvatar from '@/components/common/BaseAvatar.vue'
@@ -38,7 +38,7 @@ import { useSolutionContext } from './useSolutionContext'
 const router = useRouter()
 const { t } = useI18n()
 const userStore = useUserStore()
-const { problemId, problemBase, solutionsBase } = useSolutionContext()
+const { problemId, solutionsBase } = useSolutionContext()
 const activeTab = ref<'official' | 'share'>('official')
 
 const editorial = ref<EditorialView | null>(null)
@@ -114,10 +114,7 @@ onMounted(() => {
 <template>
   <WorkbenchShell :title="t('problems.solutions.title')">
     <template #actions>
-      <Button variant="outline" size="sm" @click="router.push(problemBase)">
-        <ArrowLeft class="size-4" />
-        {{ t('problems.solutions.backToProblem') }}
-      </Button>
+
       <RefreshButton
         :loading="loading || editorialLoading"
         :label="t('action.refresh')"
