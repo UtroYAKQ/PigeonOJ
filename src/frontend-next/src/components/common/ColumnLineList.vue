@@ -196,7 +196,7 @@ function colWidth(column: AppTableColumn<any>): string | undefined {
 
       <div
         v-if="!loading && !items.length"
-        class="grid min-h-[240px] flex-1 place-items-center px-4"
+        class="list-empty"
       >
         <slot name="empty">
           <EmptyState :text="emptyText ?? t('common.noData')" />

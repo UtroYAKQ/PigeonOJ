@@ -166,6 +166,15 @@ async def test_admin_online_users(client: httpx.AsyncClient, admin_headers: dict
     times = [it["last_active_at"] for it in data["items"]]
     assert times == sorted(times, reverse=True)
 
+    # keyword 按昵称 / 邮箱模糊过滤
+    resp = await client.get(
+        "/api/v1/admin/users/online", params={"keyword": "surfer"}, headers=admin_headers
+    )
+    assert resp.json()["code"] == 0, resp.text
+    filtered = resp.json()["data"]
+    assert [it["email"] for it in filtered["items"]] == ["surfer@pigeonoj.dev"]
+    assert filtered["total"] == 1
+
     # 非管理员访问 → 2003
     user_headers = {"Authorization": f"Bearer {token}"}
     resp = await client.get("/api/v1/admin/users/online", headers=user_headers)

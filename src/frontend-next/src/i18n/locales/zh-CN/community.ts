@@ -19,6 +19,8 @@ export default {
       deletedContent: '该评论已删除',
       viewAllReplies: '查看全部 {count} 条回复',
       emptyText: '还没有评论，来说点什么吧',
+      emoji: '表情',
+      image: '图片',
     },
     report: {
       title: '举报',

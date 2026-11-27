@@ -88,6 +88,7 @@
     },
     online: {
       summary: '当前在线 {count}',
+      search: '搜索昵称 / 邮箱',
       avatar: '头像',
       user: '用户',
       device: '设备',

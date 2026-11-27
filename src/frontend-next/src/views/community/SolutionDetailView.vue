@@ -2,14 +2,15 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Loader2, PenLine, Trash2 } from '@lucide/vue'
+import { FileQuestion, Loader2, PenLine, Trash2 } from '@lucide/vue'
 
 import { deleteSolution, getSolution } from '@/api/community'
 import CommentThread from '@/components/community/CommentThread.vue'
 import ReportDialog from '@/components/community/ReportDialog.vue'
+import BaseAvatar from '@/components/common/BaseAvatar.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import InlineNotice from '@/components/common/InlineNotice.vue'
 import MarkdownView from '@/components/common/MarkdownView.vue'
-import { Card } from '@/components/ui/card'
 import PageShell from '@/components/common/PageShell.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
 import { Button } from '@/components/ui/button'
@@ -72,35 +73,38 @@ onMounted(load)
 
 <template>
   <PageShell width="narrow">
-    <template #actions>
-      <Button variant="outline" size="sm" @click="router.push(solutionsBase)">
-        <ArrowLeft class="size-4" />
-        {{ t('problems.solutions.backToList') }}
-      </Button>
-    </template>
 
-    <div v-if="loading" class="grid min-h-[320px] place-items-center">
+    <div v-if="loading" class="list-empty">
       <Loader2 class="size-6 animate-spin text-muted-foreground" />
     </div>
 
     <template v-else-if="solution">
-      <Card class="overflow-hidden">
-        <header class="border-b border-border px-5 py-4">
+      <article>
+        <header class="border-b border-border pb-5">
           <div class="flex flex-wrap items-start justify-between gap-3">
-            <div class="min-w-0">
-              <h1 class="text-[20px] font-semibold leading-tight tracking-tight">
-                {{ solution.title }}
-              </h1>
-              <p class="mt-2 flex flex-wrap items-center gap-2 text-[12.5px] text-muted-foreground">
-                <span>{{ solution.author.nickname }}</span>
-                <span aria-hidden="true">·</span>
-                <span>{{ t('problems.solutions.editedAt', { time: formatDateTime(solution.updated_at) }) }}</span>
-                <ToneBadge
-                  v-if="removed"
-                  tone="default"
-                  :label="t('problems.solutions.status.removed')"
-                />
-              </p>
+            <div class="flex min-w-0 items-start gap-3">
+              <BaseAvatar
+                kind="user"
+                :src="solution.author.avatar_url"
+                :name="solution.author.nickname"
+                :size="40"
+                class="mt-0.5"
+              />
+              <div class="min-w-0">
+                <h1 class="text-[20px] font-semibold leading-tight tracking-tight">
+                  {{ solution.title }}
+                </h1>
+                <p class="mt-2 flex flex-wrap items-center gap-2 text-[12.5px] text-muted-foreground">
+                  <span>{{ solution.author.nickname }}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{{ t('problems.solutions.editedAt', { time: formatDateTime(solution.updated_at) }) }}</span>
+                  <ToneBadge
+                    v-if="removed"
+                    tone="default"
+                    :label="t('problems.solutions.status.removed')"
+                  />
+                </p>
+              </div>
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <Button v-if="userStore.isLoggedIn && !isOwner && !removed" variant="outline" size="sm" @click="reportOpen = true">
@@ -117,27 +121,29 @@ onMounted(load)
             </div>
           </div>
         </header>
-        <div class="px-5 py-4">
+
+        <div class="py-6">
           <InlineNotice v-if="removed" tone="warning" class="mb-4">
             {{ t('problems.solutions.removedLocked') }}
           </InlineNotice>
           <MarkdownView :source="solution.content" />
         </div>
-      </Card>
+      </article>
 
-      <div class="mt-4">
+      <section class="border-t border-border">
         <CommentThread
           target-type="solution"
           :target-id="solution.id"
           :disabled="removed"
+          flat
         />
-      </div>
+      </section>
 
       <ReportDialog v-model:open="reportOpen" target-type="solution" :target-id="solution.id" />
     </template>
 
-    <Card v-else class="grid min-h-[320px] place-items-center">
-      <p class="text-[13px] text-muted-foreground">{{ t('admin.solutions.previewNotFound') }}</p>
-    </Card>
+    <div v-else class="list-empty">
+      <EmptyState :icon="FileQuestion" :text="t('admin.solutions.previewNotFound')" />
+    </div>
   </PageShell>
 </template>

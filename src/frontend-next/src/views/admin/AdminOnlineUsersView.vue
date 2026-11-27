@@ -20,13 +20,19 @@ const { t } = useI18n()
 
 const loading = ref(false)
 const rows = ref<OnlineUser[]>([])
-const { page, pageSize, total, changePage, changeSize, beginLoad, isCurrent } = usePagination()
+const keyword = ref('')
+const { page, pageSize, total, changePage, changeSize, resetPage, beginLoad, isCurrent } =
+  usePagination()
 
 async function load(options: { silent?: boolean } = {}): Promise<void> {
   const seq = beginLoad()
   if (!options.silent) loading.value = true
   try {
-    const result = await adminListOnlineUsers({ page: page.value, page_size: pageSize.value })
+    const result = await adminListOnlineUsers({
+      page: page.value,
+      page_size: pageSize.value,
+      keyword: keyword.value.trim() || undefined,
+    })
     if (!isCurrent(seq)) return
     rows.value = result.items
     total.value = result.total
@@ -36,6 +42,11 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
   } finally {
     if (isCurrent(seq)) loading.value = false
   }
+}
+
+function onSearch(): void {
+  resetPage()
+  void load()
 }
 
 // 15s 轮询；页面隐藏时跳过，KeepAlive 失活（切到其他页）时暂停、激活后恢复。
@@ -158,7 +169,13 @@ const columns = computed<AppTableColumn<OnlineUser>[]>(() => [
 <template>
   <WorkbenchShell :title="t('nav.onlineUsers')">
     <template #toolbar>
-      <SearchFilterBar :show-search="false">
+      <SearchFilterBar
+        :keyword="keyword"
+        :placeholder="t('admin.online.search')"
+        @update:keyword="keyword = $event"
+        @search="onSearch"
+        @reset="onSearch"
+      >
         <template #actions>
           <ToneBadge tone="success" :label="t('admin.online.summary', { count: total })" />
           <RefreshButton :loading="loading" :label="t('action.refresh')" @click="load()" />

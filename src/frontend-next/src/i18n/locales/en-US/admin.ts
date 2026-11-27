@@ -92,6 +92,7 @@
     },
     online: {
       summary: '{count} online now',
+      search: 'Search nickname / email',
       avatar: 'Avatar',
       user: 'User',
       device: 'Device',

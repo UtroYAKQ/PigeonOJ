@@ -42,7 +42,9 @@ export function adminLookupUser(email: string) {
 }
 
 /** GET /admin/users/online — 在线用户面板（10 分钟窗口内有活跃回写的有效会话） */
-export function adminListOnlineUsers(query: { page?: number; page_size?: number } = {}) {
+export function adminListOnlineUsers(
+  query: { page?: number; page_size?: number; keyword?: string } = {},
+) {
   return apiRequest<PageResult<OnlineUser>>('GET', `/admin/users/online${buildQuery(query)}`)
 }
 

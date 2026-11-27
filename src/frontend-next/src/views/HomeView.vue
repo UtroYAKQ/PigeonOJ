@@ -92,17 +92,18 @@ function openBanner(banner: SiteBanner): void {
       </Button>
     </header>
 
-    <!-- 主视觉：桌面沿用约半屏的尺度（上限收住）；移动端轮播按 16:9 完整展示海报 -->
-    <div
-      class="grid gap-4 lg:h-[460px] lg:shrink-0 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)] xl:h-[520px]"
-    >
-      <div class="lg:h-full">
-        <div v-if="banners.length" class="aspect-video lg:aspect-auto lg:h-full">
+<!-- 主视觉：左轮播海报（2fr）+ 右系统公告（1fr），两列高度由左列内容决定 -->
+    <div class="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+      <div class="min-w-0">
+        <div
+          v-if="banners.length"
+          class="aspect-video lg:aspect-auto lg:h-[clamp(320px,46vh,520px)]"
+        >
           <HomeCarousel :banners="banners" @open="openBanner" />
         </div>
         <div
           v-else
-          class="relative flex h-[clamp(280px,42vh,420px)] flex-col justify-center overflow-hidden rounded-xl border border-border bg-surface px-8 py-10 sm:px-12 lg:h-full"
+          class="relative flex min-h-[clamp(280px,42vh,420px)] flex-col justify-center overflow-hidden rounded-xl border border-border bg-surface px-8 py-10 sm:px-12"
         >
           <div class="dot-grid pointer-events-none absolute inset-0 opacity-40" />
           <div
@@ -116,7 +117,7 @@ function openBanner(banner: SiteBanner): void {
               </span>
             </div>
             <h2
-              class="mt-6 text-balance text-[clamp(30px,3.8vw,56px)] font-semibold leading-[1.15] tracking-tight"
+              class="mt-6 text-balance text-[clamp(22px,3.8vw,56px)] font-semibold leading-[1.15] tracking-tight"
             >
               {{ t('home.intro') }}
             </h2>
@@ -128,19 +129,20 @@ function openBanner(banner: SiteBanner): void {
         </div>
       </div>
 
-      <Card
-        class="flex h-[280px] flex-col overflow-hidden lg:h-full"
-      >
-        <header class="flex shrink-0 items-center gap-2.5 border-b border-border px-5 py-4">
-          <Megaphone class="size-[18px] text-brand" />
-          <h2 class="text-[15px] font-semibold">{{ t('home.announcement') }}</h2>
-        </header>
-        <div class="min-h-0 flex-1 overflow-auto px-5 py-4">
-          <MarkdownView v-if="announcement" :source="announcement" />
-          <p v-else class="text-[13px] text-muted-foreground">{{ t('home.noAnnouncement') }}</p>
-        </div>
-      </Card>
+      <div class="relative min-h-[280px] lg:min-h-0">
+        <Card class="flex h-full flex-col overflow-hidden lg:absolute lg:inset-0 lg:h-auto">
+          <header class="flex shrink-0 items-center gap-2.5 border-b border-border px-5 py-4">
+            <Megaphone class="size-[18px] text-brand" />
+            <h2 class="text-[15px] font-semibold">{{ t('home.announcement') }}</h2>
+          </header>
+          <div class="min-h-0 flex-1 overflow-auto px-5 py-4">
+            <MarkdownView v-if="announcement" :source="announcement" />
+            <p v-else class="text-[13px] text-muted-foreground">{{ t('home.noAnnouncement') }}</p>
+          </div>
+        </Card>
+      </div>
     </div>
+
 
     <!-- 下方区块吃满剩余高度：入口磁贴 + 小贴士不再挤在窄栏里 -->
     <div class="mt-4 flex flex-col gap-4">

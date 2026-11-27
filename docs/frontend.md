@@ -66,7 +66,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 - 题单新建 / 编辑（`views/admin/AdminProblemSetFormView.vue`）与团队题单创建（`views/teams/TeamSetCreateView.vue`）改为同一无框表单：基础信息 / 题单说明分段，字段下方提示，底部左对齐保存与取消；页面结构与新建题目页（`ProblemStatementView`）一致——`max-w-1200` 全宽平铺，不用 WorkbenchShell 固定块、不做 960px 收窄；`components/common/WizardShell.vue` 已无引用并移除
 - 系统配置（`views/admin/AdminConfigsView.vue`）与首页配置（`views/admin/AdminHomeView.vue`）同为 shadcn 设置页风格：分类导航无卡片外框，配置行只保留分隔线，海报行去卡片化，页面底部左对齐保存按钮；编辑弹窗沿用 `ui/dialog`，标题与控件尺寸与表单统一。首页轮播（`site.banners`）与系统公告（`site.announcement`）由 `/admin/home` 独立维护，系统配置的站点分类不再重复展示这两项
 - 选择成员 / 初始管理员统一用 `components/common/UserEmailPicker.vue`：输入完整邮箱手动查询（按钮 / 回车），结果行点击添加、已选以标签展示可移除；查询函数由宿主注入（组织成员候选 / 管理员用户查找），不回退到手输用户 UUID
-- 空态、加载、错误三态必须覆盖；列驱动列表由 `ColumnLineList` 基于 `ui/table` 渲染骨架 / 空态 / 分页，`LineList` 继续为自由插槽行列表提供骨架 / 空态 / 分页；独立面板使用 `EmptyState` / `ErrorState`
+- 空态、加载、错误三态必须覆盖；列驱动列表由 `ColumnLineList` 基于 `ui/table` 渲染骨架 / 空态 / 分页，`LineList` 继续为自由插槽行列表提供骨架 / 空态 / 分页；独立面板使用 `EmptyState` / `ErrorState`；列表空态容器统一用 `.list-empty`（`main.css`：`flex:1` 撑满剩余高度 + 双向居中），禁止各页另写 `grid place-items-center` 或不同高度，避免空态位置漂移
 - 前台实体卡片（团队 / 组织 / 比赛 / 代码广场）沿用旧 UI 的简约范式：单行头部（头像 + 名称 + 角色 / 状态点标）、描述最多两行截断、底部两行（元信息行：成员数 / 题数 / 语言；`border-t` 细分隔线；时间行：创建 / 更新时间，11px `tabular-nums`）；不放「查看 / 申请加入」行动文案、右箭头或重复徽标，整卡点击即交互；卡片 `rounded-md border bg-card`、无阴影
 - 编辑器字号 / 字体偏好来自用户资料（`editor_font_size` / `editor_font_family`），`CodeEditor` 统一消费，个人资料页保存后即时生效
 - `CodeEditor` 自身不设最小高度（`min-h-0`），由父容器给定高度；需要最小高度时在父级 `min-h-*` 声明，避免嵌套最小高度叠加导致相邻面板溢出
@@ -110,7 +110,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 
 - **组织中心**：`/orgs/mine` 列表 + `/orgs/:orgId` 详情（成员 / 组织团队 / 组织题库 / 设置）；组织管理员可拉人、授管理员、建团队、维护组织题库；组织题目路由固定为 `/orgs/:orgId/problems/...`，读题 / 交题 / 自测全部留在组织上下文
 - **团队创建**：唯一入口为组织详情「创建团队」（`POST /orgs/{orgId}/teams`）；团队题目只来自组织题库 / 全站公开的引用快照，团队中心仅浏览与申请
-- **社区**：题解页随题目上下文挂载（题库 / 题单 / 比赛 / 组织各自 `/solutions/*` 路由），官方题解收口题解页 Tab；题解分享列表采用 shadcn `ui/item` 论坛式列表（作者头像 + 标题 + 摘要 + 作者/日期 + 评论数，条目间 `ItemSeparator`，非表格）；代码广场 `/codes` 列表 / 分享 / 详情；评论与举报统一 `components/community/CommentThread.vue` / `ReportDialog.vue`
+- **社区**：题解页随题目上下文挂载（题库 / 题单 / 比赛 / 组织各自 `/solutions/*` 路由），官方题解收口题解页 Tab；题解分享列表采用 `LineList` 无框横线列表（作者头像 + 标题 + 摘要 + 作者/日期 + 评论数，行间 `divide-y` 横线，非表格）；代码广场 `/codes` 列表 / 分享 / 详情；评论与举报统一 `components/community/CommentThread.vue` / `ReportDialog.vue`
 - **管理治理**：`/admin/orgs`、`/admin/solutions`、`/admin/codes` 分别负责组织、题解、代码分享；题解预览弹窗内可直接治理评论
 
 ## Markdown 渲染
@@ -131,7 +131,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 | 组件 | 用途 |
 | --- | --- |
 | `components/common/BaseAvatar.vue` | 头像 / Logo：空值或加载失败回退默认图（user/team/contest） |
-| `components/common/LineList.vue` | 自由插槽的无框横线列表壳：表头 / 逐行分隔线 / 骨架 / 空态 / 可选分页，支持 `#item` 行插槽 |
+| `components/common/LineList.vue` | 自由插槽的无框横线列表壳：表头 / 逐行分隔线 / 骨架 / `.list-empty` 空态 / 可选分页，支持 `#item` 行插槽 |
 | `components/common/ColumnLineList.vue` + `table-types.ts` | 列驱动的 shadcn 表格：由 `AppTableColumn` 生成 `ui/table` 表头 / 行 / 勾选 |
 | `components/common/PaginatedTable.vue` | `ColumnLineList` + 分页开关，供所有分页列表使用 |
 | `components/common/PaginatedCardGrid.vue` + `EntityCard.vue` | 统一卡片列表壳（响应式网格 / 骨架 / 空态 / 分页）与整卡可点击外壳 |

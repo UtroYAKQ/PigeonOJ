@@ -276,7 +276,6 @@ onMounted(load)
           </Select>
 
           <template #actions>
-            <RefreshButton :loading="loading" :label="t('action.refresh')" @click="load" />
             <Button variant="outline" size="toolbar" @click="fpsOpen = true">
               <FileArchive class="size-4" />
               {{ t('problems.importFps.button') }}
@@ -285,6 +284,7 @@ onMounted(load)
               <Plus class="size-4" />
               {{ t('problems.list.create') }}
             </Button>
+            <RefreshButton :loading="loading" :label="t('action.refresh')" @click="load" />
           </template>
         <Select
             :model-value="query.status || 'all'"

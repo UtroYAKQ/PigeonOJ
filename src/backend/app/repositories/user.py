@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, func, select, update, String
+from sqlalchemy import delete, func, or_, select, update, String
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -134,7 +134,7 @@ class SessionRepository:
         return list((await self.db.execute(stmt)).scalars().all())
 
     async def list_online_sessions(
-        self, window_seconds: int, page: int, page_size: int
+        self, window_seconds: int, page: int, page_size: int, keyword: str | None = None
     ) -> tuple[list[tuple[UserSession, User]], int]:
         """在线用户（管理端）：每用户每设备最近活跃会话（last_active_at 在窗口内且会话有效）。
 
@@ -143,6 +143,7 @@ class SessionRepository:
         展示层在此收敛，保证「每行 = 一台在线设备」（admin.md 在线用户面板）。
         device_info 为 NULL（UA 无法识别）不参与去重，与登录侧语义一致：各自成行。
         返回 (会话, 用户) 行按活跃时间倒序分页；total 为去重后的在线设备数。
+        keyword 非空时按昵称 / 邮箱模糊过滤。
         """
         deadline = datetime.now() - timedelta(seconds=window_seconds)
         conditions = [
@@ -150,6 +151,9 @@ class SessionRepository:
             UserSession.expires_at > datetime.now(),
             UserSession.last_active_at > deadline,
         ]
+        if keyword:
+            kw = f"%{keyword}%"
+            conditions.append(or_(User.nickname.ilike(kw), User.email.ilike(kw)))
         # NULL 设备标识须以会话 id 充当分组键：PostgreSQL 窗口分区把 NULL 视为同组，
         # 直接按 device_info 分区会把所有「未知设备」会话错误合并成一行
         device_key = func.coalesce(UserSession.device_info, func.cast(UserSession.id, String))

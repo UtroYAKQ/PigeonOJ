@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.enums import CommentTargetType, SolutionStatus
 
-# 评论目标白名单（community.md comments：一期仅 solution 开放；代码广场不设评论）
-CommentTargetTypeLiteral = Literal["solution"]
+# 评论目标白名单（community.md comments：一期开放 solution / code_share）
+CommentTargetTypeLiteral = Literal["solution", "code_share"]
 
 CODE_SHARE_LANGUAGES = ("cpp17", "python3.12", "java21")
 CodeShareLanguageLiteral = Literal["cpp17", "python3.12", "java21"]
@@ -125,7 +125,7 @@ class CommentCreate(BaseModel):
     @field_validator("target_type")
     @classmethod
     def supported_target(cls, value: str) -> str:
-        if value != CommentTargetType.SOLUTION:
+        if value not in (CommentTargetType.SOLUTION, CommentTargetType.CODE_SHARE):
             raise ValueError("暂不支持该评论目标")
         return value
 
@@ -197,6 +197,45 @@ class CodeShareCreate(BaseModel):
     @field_validator("code")
     @classmethod
     def validate_code(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("代码内容不能为空白")
+        if len(value.encode("utf-8")) > SOLUTION_CONTENT_MAX_BYTES:
+            raise ValueError("代码内容不能超过 64KB")
+        return value
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if len(value.encode("utf-8")) > SOLUTION_CONTENT_MAX_BYTES:
+            raise ValueError("说明不能超过 64KB")
+        return value
+
+
+class CodeShareUpdate(BaseModel):
+    """编辑代码分享（owner）：字段可选；removed 态由服务层拒绝。"""
+
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    language: CodeShareLanguageLiteral | None = None
+    code: str | None = Field(default=None, min_length=1)
+    description: str | None = None
+
+    @field_validator("title")
+    @classmethod
+    def strip_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        title = value.strip()
+        if not title:
+            raise ValueError("标题不能为空白")
+        return title
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         if not value.strip():
             raise ValueError("代码内容不能为空白")
         if len(value.encode("utf-8")) > SOLUTION_CONTENT_MAX_BYTES:

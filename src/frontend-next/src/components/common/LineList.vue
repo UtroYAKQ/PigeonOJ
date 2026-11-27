@@ -71,7 +71,7 @@ const { t } = useI18n()
             </div>
           </div>
 
-          <div v-else class="grid min-h-[240px] flex-1 place-items-center">
+          <div v-else class="list-empty">
             <slot name="empty">
               <EmptyState :text="emptyText ?? t('common.noData')" />
             </slot>

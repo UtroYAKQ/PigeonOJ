@@ -69,7 +69,7 @@ const { t } = useI18n()
         <slot v-for="(item, index) in items" :key="index" :item="item" :index="index" />
       </div>
 
-      <div v-else class="flex min-h-[280px] flex-1 items-center justify-center">
+      <div v-else class="list-empty">
         <slot name="empty">
           <EmptyState :text="emptyText ?? t('common.noData')" />
         </slot>

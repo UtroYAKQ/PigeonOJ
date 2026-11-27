@@ -19,6 +19,8 @@ export default {
       deletedContent: 'This comment has been deleted',
       viewAllReplies: 'View all {count} replies',
       emptyText: 'No comments yet — say something',
+      emoji: 'Emoji',
+      image: 'Image',
     },
     report: {
       title: 'Report',

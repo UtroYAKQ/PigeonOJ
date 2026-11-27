@@ -1,5 +1,5 @@
-"""代码广场集成测试：分享生命周期、管理端点、功能开关与评论目标拒绝
-（docs/contracts/community.md「代码广场」；分享不关联题目、不设评论）。"""
+"""代码广场集成测试：分享生命周期、管理端点、功能开关与评论
+（docs/contracts/community.md「代码广场」；分享不关联题目，评论挂 code_share 目标）。"""
 from __future__ import annotations
 
 import pytest
@@ -109,13 +109,16 @@ async def test_code_share_lifecycle(client, admin_headers, user_headers):
     resp = await client.get("/api/v1/admin/codes", headers=user_headers)
     assert resp.json()["code"] == 2003
 
-    # 分享不设评论：code_share 目标一律 1001
+    # 代码分享支持评论：published 目标可发表、可读取
     resp = await client.post(
         "/api/v1/comments",
         json={"target_type": "code_share", "target_id": sid, "content": "收藏了"},
         headers=user_headers,
     )
-    assert resp.json()["code"] == 1001
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get(f"/api/v1/comments?target_type=code_share&target_id={sid}")
+    assert resp.json()["data"]["total"] == 1
+    assert resp.json()["data"]["items"][0]["content"] == "收藏了"
 
     # 举报目标存在性：code_share 可举报、重复 3003；admin 举报列表摘要回填
     resp = await client.post(
@@ -149,9 +152,116 @@ async def test_code_share_feature_switch(client, admin_headers, user_headers):
     assert resp.json()["code"] == 3002
     resp = await client.get("/api/v1/codes")
     assert resp.json()["code"] == 0
+    resp = await client.put(
+        f"/api/v1/codes/{share['id']}", json={"title": "开关关闭编辑"}, headers=admin_headers
+    )
+    assert resp.json()["code"] == 3002
     resp = await client.delete(f"/api/v1/codes/{share['id']}", headers=admin_headers)
     assert resp.json()["code"] == 3002
 
     await _set_switch(codes=True)
     resp = await client.delete(f"/api/v1/codes/{share['id']}", headers=admin_headers)
     assert resp.json()["code"] == 0
+
+@pytest.mark.asyncio
+async def test_code_share_comments_blocked_when_removed(client, admin_headers, user_headers):
+    """代码分享下架后评论随内容隐藏且不可再评（作者 / admin 仍可读）。"""
+    share = await _create_share(client, user_headers)
+    sid = share["id"]
+
+    resp = await client.post(
+        "/api/v1/comments",
+        json={"target_type": "code_share", "target_id": sid, "content": "先占个楼"},
+        headers=user_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    resp = await client.delete(f"/api/v1/codes/{sid}", headers=user_headers)
+    assert resp.json()["code"] == 0
+
+    # 匿名 / 他人：不可读、不可评（3001，不泄漏存在性）
+    resp = await client.get(f"/api/v1/comments?target_type=code_share&target_id={sid}")
+    assert resp.json()["code"] == 3001
+    other = await _user_headers(client, "coder2@pigeonoj.dev")
+    resp = await client.get(
+        f"/api/v1/comments?target_type=code_share&target_id={sid}", headers=other
+    )
+    assert resp.json()["code"] == 3001
+    resp = await client.post(
+        "/api/v1/comments",
+        json={"target_type": "code_share", "target_id": sid, "content": "下架了还评"},
+        headers=other,
+    )
+    assert resp.json()["code"] == 3001
+
+    # 作者 / admin：可读，但 removed 态不可再评（3002）
+    resp = await client.get(
+        f"/api/v1/comments?target_type=code_share&target_id={sid}", headers=user_headers
+    )
+    assert resp.json()["data"]["total"] == 1
+    resp = await client.post(
+        "/api/v1/comments",
+        json={"target_type": "code_share", "target_id": sid, "content": "作者补充"},
+        headers=user_headers,
+    )
+    assert resp.json()["code"] == 3002
+    resp = await client.get(
+        f"/api/v1/comments?target_type=code_share&target_id={sid}", headers=admin_headers
+    )
+    assert resp.json()["code"] == 0
+
+@pytest.mark.asyncio
+async def test_code_share_update(client, admin_headers, user_headers):
+    """owner 编辑分享：字段可选；非 owner / removed / 非法内容按契约拒绝。"""
+    share = await _create_share(client, user_headers)
+    sid = share["id"]
+
+    resp = await client.put(
+        f"/api/v1/codes/{sid}",
+        json={
+            "title": "  改个标题  ",
+            "language": "python3.12",
+            "code": "print(2)",
+            "description": "",
+        },
+        headers=user_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+    data = resp.json()["data"]
+    assert data["title"] == "改个标题"
+    assert data["language"] == "python3.12"
+    assert data["code"] == "print(2)"
+    assert data["description"] is None
+
+    # 只改一个字段：其余保持
+    resp = await client.put(
+        f"/api/v1/codes/{sid}", json={"description": "补充说明"}, headers=user_headers
+    )
+    data = resp.json()["data"]
+    assert data["title"] == "改个标题"
+    assert data["description"] == "补充说明"
+
+    # 非法语言 / 空白代码 1001
+    resp = await client.put(
+        f"/api/v1/codes/{sid}", json={"language": "rust"}, headers=user_headers
+    )
+    assert resp.json()["code"] == 1001
+    resp = await client.put(f"/api/v1/codes/{sid}", json={"code": "   "}, headers=user_headers)
+    assert resp.json()["code"] == 1001
+
+    # 非 owner（含 admin）2003
+    other = await _user_headers(client, "coder2@pigeonoj.dev")
+    resp = await client.put(f"/api/v1/codes/{sid}", json={"title": "别人改"}, headers=other)
+    assert resp.json()["code"] == 2003
+    resp = await client.put(
+        f"/api/v1/codes/{sid}", json={"title": "admin 改"}, headers=admin_headers
+    )
+    assert resp.json()["code"] == 2003
+
+    # removed 态不可编辑 3002
+    resp = await client.delete(f"/api/v1/codes/{sid}", headers=user_headers)
+    assert resp.json()["code"] == 0
+    resp = await client.put(
+        f"/api/v1/codes/{sid}", json={"title": "下架后改"}, headers=user_headers
+    )
+    assert resp.json()["code"] == 3002

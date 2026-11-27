@@ -173,9 +173,6 @@ onMounted(load)
 
 <template>
   <WorkbenchShell :title="t('nav.logs')">
-    <template #actions>
-      <RefreshButton :loading="loading" :label="t('action.refresh')" @click="load" />
-    </template>
 
     <template #toolbar>
       <SearchFilterBar
@@ -243,6 +240,7 @@ onMounted(load)
           >
             {{ t('admin.logs.clearAction') }}
           </Button>
+          <RefreshButton :loading="loading" :label="t('action.refresh')" @click="load" />
         </template>
       </SearchFilterBar>
     </template>

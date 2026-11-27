@@ -2,17 +2,18 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Loader2, Trash2 } from '@lucide/vue'
+import { FileQuestion, Loader2, PenLine, Trash2 } from '@lucide/vue'
 
 import { deleteCodeShare, getCodeShare } from '@/api/community'
-import CommentThread from '@/components/community/CommentThread.vue'
-import ReportDialog from '@/components/community/ReportDialog.vue'
+import BaseAvatar from '@/components/common/BaseAvatar.vue'
 import CodeBlockView from '@/components/common/CodeBlockView.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import InlineNotice from '@/components/common/InlineNotice.vue'
 import MarkdownView from '@/components/common/MarkdownView.vue'
-import { Card } from '@/components/ui/card'
 import PageShell from '@/components/common/PageShell.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
+import CommentThread from '@/components/community/CommentThread.vue'
+import ReportDialog from '@/components/community/ReportDialog.vue'
 import { Button } from '@/components/ui/button'
 import { languageOptions } from '@/constants/languages'
 import { useUserStore } from '@/stores/user'
@@ -73,22 +74,22 @@ onMounted(load)
 </script>
 
 <template>
-  <PageShell width="narrow">
-    <template #actions>
-      <Button variant="outline" size="sm" @click="router.push('/codes')">
-        <ArrowLeft class="size-4" />
-        {{ t('codes.backToList') }}
-      </Button>
-    </template>
-
-    <div v-if="loading" class="grid min-h-[320px] place-items-center">
+  <PageShell>
+    <div v-if="loading" class="list-empty">
       <Loader2 class="size-6 animate-spin text-muted-foreground" />
     </div>
 
     <template v-else-if="share">
-      <Card class="overflow-hidden">
-        <header class="border-b border-border px-5 py-4">
-          <div class="flex flex-wrap items-start justify-between gap-3">
+      <div class="space-y-8">
+        <header class="flex flex-wrap items-start justify-between gap-3">
+          <div class="flex min-w-0 items-start gap-3">
+            <BaseAvatar
+              kind="user"
+              :src="share.author.avatar_url"
+              :name="share.author.nickname"
+              :size="40"
+              class="mt-0.5"
+            />
             <div class="min-w-0">
               <h1 class="text-[20px] font-semibold leading-tight tracking-tight">
                 {{ share.title }}
@@ -98,50 +99,64 @@ onMounted(load)
                 <span aria-hidden="true">·</span>
                 <span>{{ formatDateTime(share.updated_at) }}</span>
                 <ToneBadge tone="info" :label="languageLabel" />
-                <ToneBadge
-                  v-if="removed"
-                  tone="default"
-                  :label="t('codes.statusRemoved')"
-                />
+                <ToneBadge v-if="removed" tone="default" :label="t('codes.statusRemoved')" />
               </p>
             </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <Button v-if="userStore.isLoggedIn && !isOwner && !removed" variant="outline" size="sm" @click="reportOpen = true">
-                {{ t('community.report.short') }}
-              </Button>
-              <Button v-if="canManage" variant="destructive" size="sm" @click="remove">
-                <Trash2 class="size-4" />
-                {{ t('codes.deleteTitle') }}
-              </Button>
-            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <Button
+              v-if="isOwner && !removed"
+              variant="outline"
+              size="sm"
+              @click="router.push(`/codes/${share.id}/edit`)"
+            >
+              <PenLine class="size-4" />
+              {{ t('codes.edit') }}
+            </Button>
+            <Button
+              v-if="userStore.isLoggedIn && !isOwner && !removed"
+              variant="outline"
+              size="sm"
+              @click="reportOpen = true"
+            >
+              {{ t('community.report.short') }}
+            </Button>
+            <Button v-if="canManage" variant="destructive" size="sm" @click="remove">
+              <Trash2 class="size-4" />
+              {{ t('codes.deleteTitle') }}
+            </Button>
           </div>
         </header>
 
-        <div class="space-y-4 px-5 py-4">
-          <InlineNotice v-if="removed" tone="warning">
-            {{ t('codes.deleteConfirm') }}
-          </InlineNotice>
+        <InlineNotice v-if="removed" tone="warning">
+          {{ t('codes.deleteConfirm') }}
+        </InlineNotice>
 
-          <MarkdownView v-if="share.description" :source="share.description" />
+        <section v-if="share.description">
+          <h2 class="text-lg font-medium">{{ t('codes.description') }}</h2>
+          <div class="my-5 h-px bg-border" role="separator" />
+          <MarkdownView :source="share.description" />
+        </section>
 
+        <section>
+          <h2 class="text-lg font-medium">{{ t('codes.codeLabel') }}</h2>
+          <div class="my-5 h-px bg-border" role="separator" />
           <CodeBlockView
             :code="share.code"
             :language="share.language"
             :title="languageLabel"
             max-height="max-h-[520px]"
           />
-        </div>
-      </Card>
+        </section>
 
-      <div class="mt-4">
-        <CommentThread target-type="code_share" :target-id="share.id" :disabled="removed" />
+        <CommentThread target-type="code_share" :target-id="share.id" :disabled="removed" flat />
       </div>
 
       <ReportDialog v-model:open="reportOpen" target-type="code_share" :target-id="share.id" />
     </template>
 
-    <Card v-else class="grid min-h-[320px] place-items-center">
-      <p class="text-[13px] text-muted-foreground">{{ t('admin.codes.previewNotFound') }}</p>
-    </Card>
+    <div v-else class="list-empty">
+      <EmptyState :icon="FileQuestion" :text="t('admin.codes.previewNotFound')" />
+    </div>
   </PageShell>
 </template>

@@ -105,12 +105,14 @@ async def list_online_users(
     admin: User = _admin,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=64),
 ) -> ApiResponse[PaginatedResponse[OnlineUserOut]]:
     """在线用户面板：10 分钟窗口内有活跃回写的有效会话（活跃时间倒序分页）。
 
     同设备去重下每行 = 一台在线设备（一个用户可多台设备同时在线，分行展示）。
+    keyword 模糊匹配昵称 / 邮箱。
     """
-    return ok(await service.admin_list_online_users(page, page_size))
+    return ok(await service.admin_list_online_users(page, page_size, keyword))
 
 
 @router.get(

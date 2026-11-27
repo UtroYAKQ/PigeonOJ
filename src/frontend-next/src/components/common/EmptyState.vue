@@ -7,7 +7,7 @@ withDefaults(defineProps<{ text: string; icon?: Component }>(), { icon: () => In
 
 <template>
   <div class="flex flex-col items-center justify-center gap-2 text-center text-muted-foreground">
-    <component :is="icon" class="size-7" :stroke-width="1.5" aria-hidden="true" />
+    <component :is="icon" class="block size-7 shrink-0" :stroke-width="1.5" aria-hidden="true" />
     <p class="text-sm">{{ text }}</p>
     <slot />
   </div>

@@ -154,14 +154,15 @@ class UserService:
     # ---------------- 在线用户（admin 面板） ----------------
 
     async def admin_list_online_users(
-        self, page: int, page_size: int
+        self, page: int, page_size: int, keyword: str | None = None
     ) -> PaginatedResponse[OnlineUserOut]:
         """在线用户面板：窗口内有活跃回写的有效会话（窗口 = 活跃节流 + 在线判定缓冲）。
 
         同设备去重后每会话即一台在线设备（一个用户可同时在线多台设备，分行展示）。
+        keyword 非空时按昵称 / 邮箱模糊过滤。
         """
         rows, total = await self.sessions.list_online_sessions(
-            ONLINE_WINDOW_SECONDS, page, page_size
+            ONLINE_WINDOW_SECONDS, page, page_size, keyword
         )
         role_map = await self.roles.get_global_role_codes_for_users([u.id for _s, u in rows])
         items = [

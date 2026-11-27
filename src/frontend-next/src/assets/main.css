@@ -481,3 +481,14 @@ body.is-console-resizing {
 .rounded-xs {
   border-radius: 0;
 }
+/* 列表空态统一容器：撑满剩余高度并双向居中，避免各列表空态位置不一致 */
+.list-empty {
+  display: flex;
+  flex: 1 1 0%;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 240px;
+  padding-inline: 1rem;
+}
+

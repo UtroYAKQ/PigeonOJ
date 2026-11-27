@@ -105,6 +105,13 @@ export function getCodeShare(id: string): Promise<CodeShareDetail> {
   return apiRequest('GET', `/codes/${id}`)
 }
 
+export function updateCodeShare(
+  id: string,
+  payload: Partial<CodeSharePayload>,
+): Promise<CodeShareDetail> {
+  return apiRequest('PUT', `/codes/${id}`, payload)
+}
+
 export function deleteCodeShare(id: string): Promise<void> {
   return apiRequest('DELETE', `/codes/${id}`)
 }

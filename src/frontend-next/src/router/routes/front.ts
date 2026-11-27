@@ -707,6 +707,19 @@ export const frontRoutes: RouteRecordRaw[] = [
           breadcrumbParent: { titleKey: 'nav.codePlaza', path: '/codes' },
         },
       },
+      {
+        path: ':id/edit',
+        name: 'code-share-edit',
+        component: () => import('@/views/community/CodeShareEditorView.vue'),
+        meta: {
+          title: '编辑分享',
+          titleKey: 'codes.editTitle',
+          requiresAuth: true,
+          hidden: true,
+          contextPage: true,
+          breadcrumbParent: { titleKey: 'nav.codePlaza', path: '/codes' },
+        },
+      },
     ],
   },
   {

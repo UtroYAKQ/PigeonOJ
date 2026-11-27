@@ -152,8 +152,12 @@ CHECK：`target_type IN ('solution','code_share','problem','post','submission')`
 ## 代码广场行为要点
 
 - 发布无草稿态，直接 `published`；60s 冷却（4002）；
+- owner 可编辑标题 / 语言 / 代码 / 说明（仅 `published` 态，`updated_at` 同步；`removed` 不可改，
+  恢复走 admin 端点）；
 - 关联题目（`problem_id` 非空）被进行中比赛引用时：创建 3002、详情 3002、**列表过滤**；
-- `removed` 态仅作者与 admin 可读（404 不泄漏存在性），恢复仅经 admin 端点。
+- `removed` 态仅作者与 admin 可读（404 不泄漏存在性），恢复仅经 admin 端点；
+- 评论挂 `code_share` 目标（`target_type=code_share`），支持两级回复；`removed` 后评论随
+  分享一起对外隐藏且不可再评（作者 / admin 仍可读）。
 
 ## 数据所有权
 
@@ -192,6 +196,7 @@ CHECK：`target_type IN ('solution','code_share','problem','post','submission')`
 | GET | /codes | public | 分享分页（published；`mine=true` 返回本人全部状态，需登录） | 分页/keyword（标题+说明模糊）/language/mine | codeShareSummary[]（含作者） |
 | POST | /codes | auth | 发布分享；开关关闭 3002；关联题比赛进行中 3002；60s 频控 4002 | title, language(`cpp17`\|`python3.12`\|`java21`), code(≤64KB), description?, problem_id? | codeShareDetail |
 | GET | /codes/{id} | published→所有人；removed→作者或 admin；关联题比赛进行中 3002 | 分享详情（含代码原文） | - | codeShareDetail |
+| PUT | /codes/{id} | owner | 编辑标题 / 语言 / 代码 / 说明（`removed` 态不可改 3002，恢复走 admin 端点） | title?, language?, code?, description? | codeShareDetail |
 | DELETE | /codes/{id} | owner / admin | 下架（`removed`，软删；幂等） | - | - |
 
 ### 评论
@@ -199,7 +204,7 @@ CHECK：`target_type IN ('solution','code_share','problem','post','submission')`
 | 方法 | 路径 | 权限 | 说明 | 关键入参 | 关键出参 |
 | --- | --- | --- | --- | --- | --- |
 | GET | /comments | 题目可见者 / 分享可见者 | 一级评论分页（created_at 升序），每条附前 2 条回复 + `reply_count`；`parent_id=` 取单条评论的回复分页；admin 专有 `include_deleted=true` 含软删行 | target_type(`solution`\|`code_share`)/target_id/分页/parent_id?/include_deleted? | comment[] |
-| POST | /comments | auth | 发表评论 / 回复；开关关闭 / 目标不可评（题解已下架、父评论已删、父评论非一级）3002；10s 频控 4002 | target_type, target_id, parent_id?, content(≤2000) | comment |
+| POST | /comments | auth | 发表评论 / 回复；开关关闭 / 目标不可评（题解已下架、父评论已删、父评论非一级）3002；3s 频控（按评论目标 / 父评论隔离）4002 | target_type, target_id, parent_id?, content(≤2000) | comment |
 | DELETE | /comments/{id} | owner / admin | 软删（`is_deleted=true`；幂等） | - | - |
 
 ### 举报
@@ -232,7 +237,7 @@ CHECK：`target_type IN ('solution','code_share','problem','post','submission')`
 | 3002 | 409 | 状态冲突：比赛进行中门禁、功能开关关闭、目标已下架 / 不可评、removed 态编辑 |
 | 3003 | 409 | 重复举报（同用户同目标 pending 中） |
 | 4001 | 429 | 发送过频 |
-| 4002 | 429 | 触发限流（题解 60s / 评论 10s / 举报 60s 冷却，Redis 固定窗口） |
+| 4002 | 429 | 触发限流（题解 60s / 评论 3s（按目标、父评论隔离）/ 举报 60s 冷却，Redis 固定窗口） |
 
 ## 关键流程 / 验收条件
 
@@ -240,8 +245,8 @@ CHECK：`target_type IN ('solution','code_share','problem','post','submission')`
 2. **题解生命周期**：作者创建（直接 `published`，无草稿态）→ `PUT` 编辑标题 / 正文 →
    `DELETE` 下架（对外消失，作者与 admin 仍可读）→ admin 可恢复（`published`）；
    作者对 `removed` 态无编辑权（防与治理对抗），内容仍可读可复制。
-3. **评论 / 回复**：评论挂 `solution`（一级）或挂一级评论（`parent_id`，仅两级）；
-   软删评论有未删回复时返回占位行；题解 `removed` 后其评论随内容一起对外隐藏且不可再评。
+3. **评论 / 回复**：评论挂 `solution` / `code_share`（一级）或挂一级评论（`parent_id`，仅两级）；
+   软删评论有未删回复时返回占位行；题解 / 分享 `removed` 后其评论随内容一起对外隐藏且不可再评。
 4. **题目可见性继承**：组织题 / 私密题的题解与评论对无权用户一律 2003（含枚举不存在时同样回包，
    不泄漏资源存在性）。
 5. **比赛门禁**：进行中比赛引用的题目，题解 / 评论读写全部 3002，比赛结束自动恢复。
@@ -257,4 +262,4 @@ CHECK：`target_type IN ('solution','code_share','problem','post','submission')`
 - 评论站内通知（随 `notifications` 模块落地，P2）
 - 团队快照题的题解 / 评论（团队上下文封闭，团队题目为快照复制题，见 teams.md）
 - 独立管理后台评论列表页（评论治理从题解管理预览下钻 + 举报定位）
-- 代码广场评论与题目关联（分享即贴代码，讨论在题解侧）
+- 代码分享评论关联题目（评论只挂分享本身，不回填题目上下文）

@@ -49,6 +49,7 @@ from app.schemas.community import (
     CodeShareCreate,
     CodeShareDetail,
     CodeShareSummary,
+    CodeShareUpdate,
     CommentAdminOut,
     CommentCreate,
     CommentOut,
@@ -67,7 +68,7 @@ from app.utils.pagination import PaginatedResponse
 
 # 冷却窗口（秒）与内容上限（community.md「端点」节）
 SOLUTION_CREATE_COOLDOWN_SECONDS = 60
-COMMENT_CREATE_COOLDOWN_SECONDS = 10
+COMMENT_CREATE_COOLDOWN_SECONDS = 3
 REPORT_CREATE_COOLDOWN_SECONDS = 60
 CODE_SHARE_CREATE_COOLDOWN_SECONDS = 60
 EXCERPT_MAX_CHARS = 200
@@ -78,9 +79,14 @@ COOLDOWN_KEY_PREFIX = "community:cooldown:"
 _UNKNOWN_AUTHOR_NICKNAME = "未知用户"
 
 
-async def _claim_cooldown(kind: str, user_id: uuid.UUID, window_seconds: int) -> None:
-    """认领冷却槽（SETNX + TTL）；冷却中抛 4002（窗口内重复请求不重置 TTL）。"""
-    key = f"{COOLDOWN_KEY_PREFIX}{kind}:{user_id}"
+async def _claim_cooldown(
+    kind: str, user_id: uuid.UUID, window_seconds: int, scope: str = ""
+) -> None:
+    """认领冷却槽（SETNX + TTL）；冷却中抛 4002（窗口内重复请求不重置 TTL）。
+
+    scope 用于把冷却隔离到具体目标（如同一题解 / 同一父评论），避免跨场景误伤。
+    """
+    key = f"{COOLDOWN_KEY_PREFIX}{kind}:{user_id}{scope}"
     claimed = await get_redis().set(key, "1", nx=True, ex=max(1, window_seconds))
     if not claimed:
         raise APIError(RATE_LIMITED, "操作过于频繁，请稍后再试", 429)
@@ -321,7 +327,7 @@ class CommunityService:
         self, target_type: str, target_id: uuid.UUID, user: User | None
     ) -> Solution | CodeShare:
         """评论目标可见性门控：题解继承题目可见性；代码分享 published 公开 /
-        removed 仅作者与 admin；关联题目同样走题目门控 + 比赛门禁。"""
+        removed 仅作者与 admin（removed 可读但不可评，见 create_comment）。"""
         if target_type == CommentTargetType.SOLUTION:
             row: Solution | CodeShare = await self.solutions.get_by_id(target_id)
             if row is None:
@@ -329,6 +335,12 @@ class CommunityService:
             await self._require_problem_readable(row.problem_id, user)
             await self._require_solution_readable(row, user)  # type: ignore[arg-type]
             return row
+        if target_type == CommentTargetType.CODE_SHARE:
+            share = await self.code_shares.get_by_id(target_id)
+            if share is None:
+                raise APIError(RESOURCE_NOT_FOUND, "评论目标不存在", 404)
+            await self._require_code_share_readable(share, user)
+            return share
         raise APIError(PARAM_FORMAT_INVALID, "暂不支持该评论目标", 400)
 
     async def list_comments(
@@ -386,7 +398,7 @@ class CommunityService:
     async def create_comment(self, user: User, body: CommentCreate) -> CommentOut:
         await self._require_comments_enabled()
         target = await self._require_comment_target(body.target_type, body.target_id, user)
-        if target.status != SolutionStatus.PUBLISHED:
+        if target.status != "published":
             raise APIError(RESOURCE_STATE_CONFLICT, "评论目标当前不可评论", 409)
         if body.parent_id is not None:
             parent = await self.comments.get_by_id(body.parent_id)
@@ -399,7 +411,12 @@ class CommunityService:
                 raise APIError(RESOURCE_STATE_CONFLICT, "回复的评论不存在", 409)
             if parent.is_deleted:
                 raise APIError(RESOURCE_STATE_CONFLICT, "回复的评论已删除", 409)
-        await _claim_cooldown("comment", user.id, COMMENT_CREATE_COOLDOWN_SECONDS)
+        await _claim_cooldown(
+            "comment",
+            user.id,
+            COMMENT_CREATE_COOLDOWN_SECONDS,
+            f":{body.target_type}:{body.target_id}:{body.parent_id or 'top'}",
+        )
         comment = await self.comments.create(
             Comment(
                 user_id=user.id,
@@ -544,6 +561,28 @@ class CommunityService:
                 code=body.code,
             )
         )
+        return await self._code_share_detail_out(row, AuthorBrief.model_validate(user))
+
+    async def update_code_share(
+        self, share_id: uuid.UUID, user: User, body: CodeShareUpdate
+    ) -> CodeShareDetail:
+        """owner 编辑；admin 不经此端点改内容（治理走 admin status 端点）。"""
+        await self._require_codes_enabled()
+        row = await self._require_code_share(share_id)
+        if row.user_id != user.id:
+            raise APIError(AUTH_FORBIDDEN, "无权限操作他人分享", 403)
+        if row.status == CodeShareStatus.REMOVED:
+            raise APIError(RESOURCE_STATE_CONFLICT, "分享已下架，不可编辑", 409)
+        if body.title is not None:
+            row.title = body.title
+        if body.language is not None:
+            row.language = CodeShareLanguage(body.language)
+        if body.code is not None:
+            row.code = body.code
+        if body.description is not None:
+            row.description = body.description or None
+        row.updated_at = datetime.now()
+        await self.db.flush()
         return await self._code_share_detail_out(row, AuthorBrief.model_validate(user))
 
     async def remove_code_share(self, share_id: uuid.UUID, user: User) -> None:

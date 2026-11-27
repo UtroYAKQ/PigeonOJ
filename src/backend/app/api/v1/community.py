@@ -20,6 +20,7 @@ from app.schemas.community import (
     CodeShareCreate,
     CodeShareDetail,
     CodeShareSummary,
+    CodeShareUpdate,
     CommentCreate,
     CommentOut,
     EditorialOut,
@@ -208,6 +209,19 @@ async def get_code_share(
     user: User | None = Depends(get_optional_user),
 ) -> ApiResponse[CodeShareDetail]:
     return ok(await service.get_code_share(share_id, user))
+
+
+@router.put("/codes/{share_id}", response_model=ApiResponse[CodeShareDetail])
+async def update_code_share(
+    share_id: uuid.UUID,
+    body: CodeShareUpdate,
+    service: CommunityServiceDep,
+    db: SessionDep,
+    user: User = Depends(get_current_user),
+) -> ApiResponse[CodeShareDetail]:
+    detail = await service.update_code_share(share_id, user, body)
+    await db.commit()
+    return ok(detail)
 
 
 @router.delete("/codes/{share_id}", response_model=ApiResponse[None])

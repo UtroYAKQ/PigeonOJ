@@ -115,7 +115,7 @@ ORDER BY r.created_at DESC, r.id DESC
 | --- | --- | --- | --- | --- | --- |
 | GET | /admin/users | admin | 用户列表 | 分页/关键字/状态 | user[] |
 | GET | /admin/users/lookup | admin | 按邮箱精确查找用户（创建组织选择初始管理员；仅 active；非法邮箱 1001；返回最小公开字段） | email | userLookup[]（id / email / nickname / avatar_url） |
-| GET | /admin/users/online | admin | **在线用户面板**：10 分钟窗口内有活跃回写的有效会话（活跃回写节流 5min + 在线判定缓冲；活跃时间倒序分页）；**同设备去重**：同 `user_id + device_info` 只展示最近活跃一行（收敛登录竞态可能残留的同设备双会话；UA 无法识别的会话不参与去重、各自成行），每行 = 一台在线设备，total 为去重后的设备数 | 分页 | onlineUser[]（用户 / 角色 / 状态 / 设备 / IP·归属地 / 登录与最近活跃时间） |
+| GET | /admin/users/online | admin | **在线用户面板**：10 分钟窗口内有活跃回写的有效会话（活跃回写节流 5min + 在线判定缓冲；活跃时间倒序分页）；**同设备去重**：同 `user_id + device_info` 只展示最近活跃一行（收敛登录竞态可能残留的同设备双会话；UA 无法识别的会话不参与去重、各自成行），每行 = 一台在线设备，total 为去重后的设备数（keyword 模糊匹配昵称 / 邮箱，可与去重分页叠加） | 分页/keyword | onlineUser[]（用户 / 角色 / 状态 / 设备 / IP·归属地 / 登录与最近活跃时间） |
 | GET | /admin/submissions | admin | **全站提交面板**：跨题目 / 跨用户提交列表，提交时间倒序分页；行内含题目标题（submit_type / user_id / problem_id / status / language 精确过滤，keyword 模糊匹配提交人昵称；前端「查看题目」与「评测结果」分别经 `/admin/submissions/preview/{problem_id}` 与 `/admin/submissions/problems/{problem_id}/submissions/{sid}` 只读查看，返回与面包屑留在提交查看上下文、不入题目管理动线） | 分页/submit_type/user_id/problem_id/status/language/keyword | submission[]（含 problem_title / nickname） |
 | PUT | /admin/users/{id}/roles | admin | 全局角色授权（**单一角色模型**：整体替换该用户唯一全局角色，写 `user_roles` scope='global'） | role_id | - |
 | POST | /admin/users/{id}/ban | admin | 封禁（违规 / 异常，仅可人工解封） | reason | - |
