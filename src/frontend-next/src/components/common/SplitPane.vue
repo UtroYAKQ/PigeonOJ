@@ -7,8 +7,10 @@ const props = withDefaults(
     storageKey?: string
     min?: number
     max?: number
+    /** 隐藏左栏纵向滚动条（仍可滚动），如写题页题面 */
+    hideLeftScrollbar?: boolean
   }>(),
-  { storageKey: 'pigeonoj.split.ratio', min: 0.25, max: 0.75 },
+  { storageKey: 'pigeonoj.split.ratio', min: 0.25, max: 0.75, hideLeftScrollbar: false },
 )
 
 const isDesktop = useMediaQuery('(min-width: 900px)')
@@ -71,7 +73,10 @@ onBeforeUnmount(() => document.body.classList.remove('is-splitting'))
     class="block min-[900px]:grid min-[900px]:h-full min-[900px]:items-stretch"
     :style="gridStyle"
   >
-    <section class="min-h-0 min-w-0 min-[900px]:overflow-y-auto min-[900px]:pr-1">
+    <section
+      class="min-h-0 min-w-0 min-[900px]:overflow-y-auto min-[900px]:pr-1"
+      :class="{ 'scrollbar-none': hideLeftScrollbar }"
+    >
       <slot name="left" />
     </section>
 

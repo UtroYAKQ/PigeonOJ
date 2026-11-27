@@ -43,7 +43,6 @@ const selfTestInput = defineModel<string>('self-test-input', { default: '' })
 const { t } = useI18n()
 const router = useRouter()
 
-
 /**
  * 自测控制台常驻底部：常态只露控制条（自测 / 提交按钮都在这一行），
  * 拖动上方分隔条可自由调整高度，双击复位。高度按 px 持久化，
@@ -59,7 +58,7 @@ const EDITOR_MIN_HEIGHT = 220
 function loadConsoleHeight(): number {
   for (const key of [CONSOLE_HEIGHT_KEY, LEGACY_CONSOLE_HEIGHT_KEY]) {
     const raw = Number(localStorage.getItem(key))
-    if (Number.isFinite(raw) && raw >= CONSOLE_HEIGHT_MIN) return raw
+    if (Number.isFinite(raw) && raw >= CONSOLE_HEIGHT_MIN && raw <= 720) return raw
   }
   return CONSOLE_HEIGHT_DEFAULT
 }
@@ -69,8 +68,8 @@ const consoleHeight = ref(loadConsoleHeight())
 const activeTab = ref<'result' | 'input'>('result')
 const rightRef = ref<HTMLElement>()
 const toolbarRef = ref<HTMLElement>()
+const editorRef = ref<HTMLElement>()
 const consoleRef = ref<HTMLElement>()
-
 
 let resizing = false
 let tracking = false
@@ -86,10 +85,12 @@ const consoleStyle = computed(() =>
   consoleCollapsed.value ? undefined : { height: `${consoleHeight.value}px` },
 )
 
-function clampConsoleHeight(value: number, allowCover = false): number {
+function clampConsoleHeight(value: number): number {
   const available = rightRef.value?.clientHeight ?? 0
-  // 拖拽 / 键盘拉伸允许覆盖整个编辑器；其他场景保留编辑器最小高度
-  const editorMin = allowCover ? 0 : EDITOR_MIN_HEIGHT
+  // 按工具栏实际高度预留空间：换行变高时也不会让编辑器盖住控制台
+  const editorMin =
+    (editorRef.value && parseFloat(getComputedStyle(editorRef.value).minHeight)) ||
+    EDITOR_MIN_HEIGHT
   const reserved = (toolbarRef.value?.offsetHeight ?? 0) + editorMin
   const max = Math.max(CONSOLE_HEIGHT_MIN, Math.floor(available - reserved))
   return Math.min(max, Math.max(CONSOLE_HEIGHT_MIN, value))
@@ -106,7 +107,7 @@ function persistConsoleHeight(): void {
 function applyResize(): void {
   resizeFrame = undefined
   if (!resizing) return
-  consoleHeight.value = clampConsoleHeight(startHeight + startY - pendingY, true)
+  consoleHeight.value = clampConsoleHeight(startHeight + startY - pendingY)
   consoleCollapsed.value = false
 }
 
@@ -180,7 +181,7 @@ function onResizeEnd(): void {
     consoleCollapsed.value = true
     consoleHeight.value = startHeight
   } else {
-    consoleHeight.value = clampConsoleHeight(consoleHeight.value, true)
+    consoleHeight.value = clampConsoleHeight(consoleHeight.value)
   }
   persistConsoleHeight()
 }
@@ -197,10 +198,9 @@ function onTabClick(value: 'result' | 'input'): void {
 
 function onResizeKeydown(event: KeyboardEvent): void {
   const step = event.shiftKey ? 64 : 24
-  if (event.key === 'ArrowUp')
-    consoleHeight.value = clampConsoleHeight(consoleHeight.value + step, true)
+  if (event.key === 'ArrowUp') consoleHeight.value = clampConsoleHeight(consoleHeight.value + step)
   else if (event.key === 'ArrowDown')
-    consoleHeight.value = clampConsoleHeight(consoleHeight.value - step, true)
+    consoleHeight.value = clampConsoleHeight(consoleHeight.value - step)
   else if (event.key === 'Home') consoleHeight.value = clampConsoleHeight(CONSOLE_HEIGHT_DEFAULT)
   else return
   event.preventDefault()
@@ -240,7 +240,7 @@ function runSelfTest(): void {
 </script>
 
 <template>
-  <SplitPane storage-key="pigeonoj.problems.split">
+  <SplitPane storage-key="pigeonoj.problems.split" hide-left-scrollbar>
     <template #left>
       <Card class="min-h-full overflow-hidden">
         <div class="border-b border-border px-4 py-3.5">
@@ -257,12 +257,8 @@ function runSelfTest(): void {
     </template>
 
     <template #right>
-      <section
-      ref="rightRef"
-      class="code-surface flex h-[min(70vh,640px)] min-h-[360px] flex-col gap-0 min-[900px]:h-full min-[900px]:min-h-[420px]"
-    >
+      <section ref="rightRef" class="code-surface flex h-full min-h-[360px] flex-col lg:min-h-[420px]">
         <div ref="toolbarRef" class="flex shrink-0 flex-wrap items-center gap-2 pb-2">
-
           <LanguageSelect v-model="language" />
           <div class="ml-auto flex items-center gap-2">
             <Button variant="outline" size="sm" @click="emit('show-submissions')">
@@ -281,7 +277,7 @@ function runSelfTest(): void {
           </div>
         </div>
 
-        <div class="min-h-0 flex-1 [&>.code-surface]:border-b-0">
+        <div ref="editorRef" class="min-h-[220px] flex-1 lg:min-h-[260px]">
           <CodeEditor v-model="code" :language="language" />
         </div>
 
@@ -293,7 +289,7 @@ function runSelfTest(): void {
           <button
             type="button"
             data-slot="console-handle"
-            class="absolute -top-3.5 left-1/2 z-20 flex h-3.5 w-16 -translate-x-1/2 cursor-pointer touch-none items-center justify-center rounded-t-[8px] border border-b-0 border-border bg-card text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            class="absolute -top-3.5 left-1/2 z-20 flex h-3.5 w-16 -translate-x-1/2 cursor-pointer touch-none items-center justify-center rounded-t-lg border border-b-0 border-border bg-card text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             :aria-label="
               consoleCollapsed
                 ? t('problems.detail.selfTestExpand')

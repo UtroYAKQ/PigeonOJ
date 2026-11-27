@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { MessageSquare, PenLine } from '@lucide/vue'
+import { BookOpen, MessageSquare, PenLine } from '@lucide/vue'
 
 import { getEditorial, listSolutions } from '@/api/community'
 import BaseAvatar from '@/components/common/BaseAvatar.vue'
@@ -137,15 +137,18 @@ onMounted(() => {
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent value="official" class="min-h-0 overflow-y-auto">
-        <div v-if="editorialLoading" class="grid h-40 place-items-center">
+      <TabsContent value="official" class="flex min-h-0 flex-col overflow-y-auto">
+        <div v-if="editorialLoading" class="grid flex-1 place-items-center">
           <span class="text-[13px] text-muted-foreground">{{ t('common.loading') }}</span>
         </div>
-        <Card v-else class="px-5 py-4">
+        <Card v-else class="flex min-h-0 flex-1 flex-col px-5 py-4">
           <MarkdownView v-if="editorial?.solution" :source="editorial.solution" />
-          <p v-else class="py-8 text-center text-[13px] text-muted-foreground">
-            {{ t('problems.solutions.officialEmpty') }}
-          </p>
+          <div v-else class="grid min-h-0 flex-1 place-items-center">
+            <EmptyState
+              :icon="BookOpen"
+              :text="t('problems.solutions.officialEmpty')"
+            />
+          </div>
           <p
             v-if="editorial?.can_manage"
             class="mt-4 border-t border-border pt-3 text-[12px] text-muted-foreground"
