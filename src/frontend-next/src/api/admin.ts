@@ -31,9 +31,15 @@ import type {
   TeamMemberItem,
   TeamProblemSummary,
   User,
+  UserLookupItem,
 } from '@/types'
 
 // ---------------- 管理列表（单一所有权模型：admin 全量、tutor 等仅本人创建） ----------------
+
+/** GET /admin/users/lookup — 按邮箱精确查找用户（创建组织选择初始管理员） */
+export function adminLookupUser(email: string) {
+  return apiRequest<UserLookupItem[]>('GET', `/admin/users/lookup${buildQuery({ email })}`)
+}
 
 /** GET /admin/users/online — 在线用户面板（10 分钟窗口内有活跃回写的有效会话） */
 export function adminListOnlineUsers(query: { page?: number; page_size?: number } = {}) {

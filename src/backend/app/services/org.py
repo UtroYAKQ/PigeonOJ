@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
@@ -45,6 +45,7 @@ from app.schemas.org import (
     OrgCreate,
     OrgDetail,
     OrgMemberAdd,
+    OrgMemberCandidateOut,
     OrgMemberNote,
     OrgMemberOut,
     OrgSummary,
@@ -52,6 +53,7 @@ from app.schemas.org import (
     OrgUpdate,
 )
 from app.schemas.team import TeamCreate, TeamSummary
+from app.utils.validation import validate_email
 from app.core.dependency import get_user_role_codes
 from app.services.team import summarize_teams  # 团队列表装配复用，避免同构循环
 
@@ -357,6 +359,34 @@ class OrgService:
             )
             for member, member_user in rows
         ], total
+
+    async def lookup_member_candidate(
+        self, user: User, org_id: uuid.UUID, email: str
+    ) -> list[OrgMemberCandidateOut]:
+        """按邮箱精确查找可添加的组织成员（org_admin / 站点 admin；仅 active 用户）。
+
+        只做邮箱精确匹配并返回最小公开字段，避免变成可枚举的模糊用户搜索。
+        """
+        org = await self._active_org_or_error(org_id)
+        await self._require_org_roles(user, org.id, level="admin")
+        normalized = validate_email(email)
+        stmt = select(User).where(
+            func.lower(User.email) == normalized,
+            User.status == UserStatus.ACTIVE,
+        )
+        target = (await self.db.execute(stmt)).scalar_one_or_none()
+        if target is None:
+            return []
+        member = await self.orgs.get_active_member(org.id, target.id)
+        return [
+            OrgMemberCandidateOut(
+                id=target.id,
+                email=target.email,
+                nickname=target.nickname,
+                avatar_url=target.avatar_url,
+                is_member=member is not None,
+            )
+        ]
 
     async def add_members(self, user: User, org_id: uuid.UUID, body: OrgMemberAdd) -> None:
         """直接添加成员（org_admin 拉人，可批量；已在册跳过；激活组织成员授权）。"""

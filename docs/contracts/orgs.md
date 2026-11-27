@@ -71,6 +71,7 @@
 | PUT | /orgs/{id} | org_admin | 编辑组织信息 | name?/description?/avatar_url? | org |
 | DELETE | /orgs/{id} | admin | 解散组织（软解散；清理 org 授权与成员状态，题库题目归档，名下团队级联软解散） | - | - |
 | GET | /orgs/{id}/members | org 角色 | 成员列表 | 分页/keyword（昵称模糊） | member[] |
+| GET | /orgs/{id}/member-candidates | org_admin / admin | 按邮箱精确查找可添加成员（仅 active；大小写不敏感；非法邮箱 1001；带 `is_member`，不提供模糊搜索） | email | candidate[]（id / email / nickname / avatar_url / is_member） |
 | POST | /orgs/{id}/members | org_admin | 直接添加成员（可批量；已在册跳过） | user_ids[] | - |
 | DELETE | /orgs/{id}/members/{uid} | org_admin | 移出成员（同步清授权；最后一名 org_admin 3004，最后一名成员 3005） | - | - |
 | PUT | /orgs/{id}/members/{uid}/admin | org_admin / admin | 授予 / 撤销组织管理员（最后一名 3004；org_admin 不可撤销自己，需其他管理员或站点 admin 代执行） | is_admin | - |

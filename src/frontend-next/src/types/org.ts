@@ -2,6 +2,7 @@
  * 组织模块类型（docs/contracts/orgs.md）。
  * 组织是多机构共用一个 OJ 的租户单元；组织角色经 user_roles（scope='org'）授权。
  */
+import type { UserLookupItem } from './user'
 
 /** 组织内我的角色：admin / member；非成员视图为 null */
 export type OrgRoleType = 'admin' | 'member'
@@ -33,6 +34,11 @@ export interface OrgMemberItem {
   joined_at: string
   is_admin: boolean
   note: string | null
+}
+
+/** 组织成员候选（GET /orgs/{id}/member-candidates；is_member = 已在册） */
+export interface OrgMemberCandidate extends UserLookupItem {
+  is_member: boolean
 }
 
 export interface OrgCreatePayload {

@@ -9,6 +9,7 @@ import type {
   OrgCreatePayload,
   OrgDetail,
   OrgListQuery,
+  OrgMemberCandidate,
   OrgMemberItem,
   OrgMemberListQuery,
   OrgProblemListQuery,
@@ -55,6 +56,14 @@ export function listOrgMembers(
 
 export function addOrgMembers(id: string, userIds: string[]): Promise<null> {
   return apiRequest('POST', `/orgs/${id}/members`, { user_ids: userIds })
+}
+
+/** 按邮箱精确查找可添加的组织成员（org_admin / 站点 admin；仅 active） */
+export function lookupOrgMemberCandidates(
+  id: string,
+  email: string,
+): Promise<OrgMemberCandidate[]> {
+  return apiRequest('GET', `/orgs/${id}/member-candidates${buildQuery({ email })}`)
 }
 
 export function removeOrgMember(id: string, userId: string): Promise<null> {

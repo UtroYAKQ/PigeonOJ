@@ -4,13 +4,14 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Loader2, Plus } from '@lucide/vue'
 
-import { adminListOrgs } from '@/api/admin'
+import { adminListOrgs, adminLookupUser } from '@/api/admin'
 import { createOrg, disbandOrg } from '@/api/orgs'
 import BaseAvatar from '@/components/common/BaseAvatar.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import RefreshButton from '@/components/common/RefreshButton.vue'
 import SearchFilterBar from '@/components/common/SearchFilterBar.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
+import UserEmailPicker from '@/components/common/UserEmailPicker.vue'
 import WorkbenchShell from '@/components/common/WorkbenchShell.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
 import RowActions from '@/components/teams/RowActions.vue'
@@ -37,7 +38,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { usePagination } from '@/composables/usePagination'
 import { confirmDialog, message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
-import type { OrgDetail } from '@/types'
+import type { OrgDetail, UserCandidate } from '@/types'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -79,13 +80,18 @@ function onSearch(): void {
 
 const createOpen = ref(false)
 const creating = ref(false)
-const form = reactive({ name: '', description: '', adminIds: '' })
+const form = reactive({ name: '', description: '' })
+const adminUsers = ref<UserCandidate[]>([])
 
 function openCreate(): void {
   form.name = ''
   form.description = ''
-  form.adminIds = ''
+  adminUsers.value = []
   createOpen.value = true
+}
+
+async function searchAdmins(email: string): Promise<UserCandidate[]> {
+  return adminLookupUser(email)
 }
 
 async function submitCreate(): Promise<void> {
@@ -95,7 +101,7 @@ async function submitCreate(): Promise<void> {
   }
   creating.value = true
   try {
-    const adminIds = [...new Set(form.adminIds.split(/\s+/).filter(Boolean))]
+    const adminIds = adminUsers.value.map((item) => item.id)
     const org = await createOrg({
       name: form.name.trim(),
       description: form.description.trim() || undefined,
@@ -297,12 +303,11 @@ onMounted(load)
           </div>
           <div class="grid gap-1.5">
             <Label for="admin-org-admins" class="text-[13px]">{{ t('orgs.create.adminIds') }}</Label>
-            <Textarea
+            <UserEmailPicker
               id="admin-org-admins"
-              v-model="form.adminIds"
-              rows="3"
-              class="min-h-[84px] font-mono text-[12.5px]"
-              :placeholder="t('orgs.create.adminIdsPlaceholder')"
+              v-model="adminUsers"
+              :search="searchAdmins"
+              :placeholder="t('orgs.create.adminEmailPlaceholder')"
             />
             <p class="text-[12px] leading-5 text-muted-foreground">
               {{ t('orgs.create.adminIdsHint') }}

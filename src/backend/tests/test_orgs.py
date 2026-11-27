@@ -122,6 +122,39 @@ async def test_create_org_permissions(client: httpx.AsyncClient) -> None:
     assert resp.json()["code"] == 2003  # 未被拉入
 
 
+async def test_lookup_member_candidates(client: httpx.AsyncClient) -> None:
+    """按邮箱精确查找成员候选：org_admin 门、大小写不敏感、仅 active、已在册标记。"""
+    mentor, org_id = await _make_org_admin(client, "lookup-boss@pigeonoj.dev")
+    member_headers, member_uid = await _extra_user_headers(client, "lookup-member@pigeonoj.dev")
+    url = f"/api/v1/orgs/{org_id}/member-candidates"
+
+    resp = await client.get(url, params={"email": "LOOKUP-MEMBER@pigeonoj.dev"}, headers=mentor)
+    assert resp.json()["code"] == 0, resp.text
+    items = resp.json()["data"]
+    assert len(items) == 1
+    assert items[0]["id"] == member_uid
+    assert items[0]["email"] == "lookup-member@pigeonoj.dev"
+    assert items[0]["is_member"] is False
+
+    # 模糊邮箱不命中；非法邮箱 1001（精确匹配，不做模糊用户搜索）
+    resp = await client.get(url, params={"email": "lookup-mem@pigeonoj.dev"}, headers=mentor)
+    assert resp.json()["data"] == []
+    resp = await client.get(url, params={"email": "not-an-email"}, headers=mentor)
+    assert resp.json()["code"] == 1001
+
+    # 加入组织后 is_member 置位；普通成员无权查询
+    resp = await client.post(
+        f"/api/v1/orgs/{org_id}/members", json={"user_ids": [member_uid]}, headers=mentor
+    )
+    assert resp.json()["code"] == 0, resp.text
+    resp = await client.get(url, params={"email": "lookup-member@pigeonoj.dev"}, headers=mentor)
+    assert resp.json()["data"][0]["is_member"] is True
+    resp = await client.get(
+        url, params={"email": "lookup-member@pigeonoj.dev"}, headers=member_headers
+    )
+    assert resp.json()["code"] == 2003
+
+
 async def test_member_lifecycle_and_last_admin_guard(client: httpx.AsyncClient) -> None:
     """拉人 → 授管理员 → 移出：org_admin 门；最后一名 org_admin 不可撤销 / 移出（3004）。"""
     mentor, org_id = await _make_org_admin(client, "boss@pigeonoj.dev")

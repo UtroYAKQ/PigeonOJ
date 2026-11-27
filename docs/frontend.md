@@ -64,6 +64,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 - 出题向导三页（`views/problems/ProblemStatementView.vue`、`ProblemCasesView.vue`、`ProblemVerifyView.vue`）同样去掉 `WizardShell`：页面直接写标题 + `WizardSteps` 步骤条 + 细分隔线，题面 / 样例测试点 / 验题分区保留各自说明，操作按钮统一放到页面底部左对齐
 - 题单新建 / 编辑（`views/admin/AdminProblemSetFormView.vue`）与团队题单创建（`views/teams/TeamSetCreateView.vue`）改为同一无框表单：基础信息 / 题单说明分段，字段下方提示，底部左对齐保存与取消；页面结构与新建题目页（`ProblemStatementView`）一致——`max-w-1200` 全宽平铺，不用 WorkbenchShell 固定块、不做 960px 收窄；`components/common/WizardShell.vue` 已无引用并移除
 - 系统配置（`views/admin/AdminConfigsView.vue`）与首页配置（`views/admin/AdminHomeView.vue`）同为 shadcn 设置页风格：分类导航无卡片外框，配置行只保留分隔线，海报行去卡片化，页面底部左对齐保存按钮；编辑弹窗沿用 `ui/dialog`，标题与控件尺寸与表单统一。首页轮播（`site.banners`）与系统公告（`site.announcement`）由 `/admin/home` 独立维护，系统配置的站点分类不再重复展示这两项
+- 选择成员 / 初始管理员统一用 `components/common/UserEmailPicker.vue`：输入完整邮箱手动查询（按钮 / 回车），结果行点击添加、已选以标签展示可移除；查询函数由宿主注入（组织成员候选 / 管理员用户查找），不回退到手输用户 UUID
 - 空态、加载、错误三态必须覆盖；列驱动列表由 `ColumnLineList` 基于 `ui/table` 渲染骨架 / 空态 / 分页，`LineList` 继续为自由插槽行列表提供骨架 / 空态 / 分页；独立面板使用 `EmptyState` / `ErrorState`
 - 前台实体卡片（团队 / 组织 / 比赛 / 代码广场）沿用旧 UI 的简约范式：单行头部（头像 + 名称 + 角色 / 状态点标）、描述最多两行截断、底部两行（元信息行：成员数 / 题数 / 语言；`border-t` 细分隔线；时间行：创建 / 更新时间，11px `tabular-nums`）；不放「查看 / 申请加入」行动文案、右箭头或重复徽标，整卡点击即交互；卡片 `rounded-md border bg-card`、无阴影
 - 编辑器字号 / 字体偏好来自用户资料（`editor_font_size` / `editor_font_family`），`CodeEditor` 统一消费，个人资料页保存后即时生效

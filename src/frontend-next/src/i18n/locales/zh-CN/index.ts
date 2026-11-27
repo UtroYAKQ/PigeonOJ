@@ -10,6 +10,7 @@ import teams from './teams'
 import orgs from './orgs'
 import community from './community'
 import codes from './codes'
+import userEmailPicker from './userEmailPicker'
 
 export default {
   ...app,
@@ -22,6 +23,7 @@ export default {
   ...orgs,
   ...community,
   ...codes,
+  ...userEmailPicker,
   ...admin,
   ...placeholder,
 }

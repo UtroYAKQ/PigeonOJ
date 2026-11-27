@@ -7,6 +7,7 @@ import { adminListOrgMembers } from '@/api/admin'
 import {
   addOrgMembers,
   listOrgMembers,
+  lookupOrgMemberCandidates,
   removeOrgMember,
   setOrgMemberAdmin,
   setOrgMemberNote,
@@ -16,6 +17,7 @@ import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import RefreshButton from '@/components/common/RefreshButton.vue'
 import SearchFilterBar from '@/components/common/SearchFilterBar.vue'
 import ToneBadge from '@/components/common/ToneBadge.vue'
+import UserEmailPicker from '@/components/common/UserEmailPicker.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
 import RowActions from '@/components/teams/RowActions.vue'
 import type { RowAction } from '@/components/teams/types'
@@ -29,13 +31,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
+
 import { usePagination } from '@/composables/usePagination'
 import { useUserStore } from '@/stores/user'
 import { confirmAsyncDialog, message } from '@/utils/feedback'
 import { formatDateTime } from '@/utils/format'
-import type { OrgMemberItem } from '@/types'
+import type { OrgMemberItem, UserCandidate } from '@/types'
 
 const props = defineProps<{ orgId: string; canManage: boolean; adminMode?: boolean }>()
 
@@ -83,22 +84,30 @@ function onPageChange(value: number): void {
 // ---------------- 添加成员 ----------------
 
 const addOpen = ref(false)
-const addInput = ref('')
+const selectedUsers = ref<UserCandidate[]>([])
 const adding = ref(false)
 
 function openAdd(): void {
-  addInput.value = ''
+  selectedUsers.value = []
   addOpen.value = true
 }
 
-function parseIds(): string[] {
-  return [...new Set(addInput.value.split(/\s+/).filter(Boolean))]
+async function searchUsers(email: string): Promise<UserCandidate[]> {
+  const rows = await lookupOrgMemberCandidates(props.orgId, email)
+  return rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    nickname: row.nickname,
+    avatar_url: row.avatar_url,
+    disabled: row.is_member,
+    note: row.is_member ? t('orgs.members.alreadyMember') : undefined,
+  }))
 }
 
 async function submitAdd(): Promise<void> {
-  const ids = parseIds()
+  const ids = selectedUsers.value.map((item) => item.id)
   if (!ids.length) {
-    message.warning(t('orgs.members.userIdPlaceholder'))
+    message.warning(t('orgs.members.selectRequired'))
     return
   }
   adding.value = true
@@ -292,17 +301,13 @@ onMounted(load)
       <DialogContent class="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>{{ t('orgs.members.addTitle') }}</DialogTitle>
-          <DialogDescription>{{ t('orgs.members.batchIds') }}</DialogDescription>
+          <DialogDescription>{{ t('orgs.members.addHint') }}</DialogDescription>
         </DialogHeader>
-        <div class="grid gap-1.5">
-          <Label class="text-[13px]">{{ t('orgs.members.userId') }}</Label>
-          <Textarea
-            v-model="addInput"
-            rows="5"
-            class="min-h-[110px] font-mono text-[12.5px]"
-            :placeholder="t('orgs.members.batchPlaceholder')"
-          />
-        </div>
+        <UserEmailPicker
+          v-model="selectedUsers"
+          :search="searchUsers"
+          :placeholder="t('orgs.members.emailPlaceholder')"
+        />
         <DialogFooter>
           <Button variant="outline" size="sm" :disabled="adding" @click="addOpen = false">
             {{ t('action.cancel') }}

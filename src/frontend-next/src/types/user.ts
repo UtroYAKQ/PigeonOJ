@@ -34,6 +34,20 @@ export interface User {
   roles?: GlobalRoleCode[]
 }
 
+/** 按邮箱精确查找的用户摘要（成员 / 管理员选择器，后端仅返回最小公开字段） */
+export interface UserLookupItem {
+  id: string
+  email: string
+  nickname: string
+  avatar_url: string | null
+}
+
+/** 选择器候选：disabled / note 用于提示不可添加原因（如已在组织成员中） */
+export interface UserCandidate extends UserLookupItem {
+  disabled?: boolean
+  note?: string
+}
+
 export interface UserSession {
   id: string
   device_info: string | null

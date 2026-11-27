@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pydantic import BaseModel
@@ -30,6 +31,7 @@ from app.schemas.user import (
     RegisterRequest,
     ResetPasswordRequest,
     SessionOut,
+    UserLookupOut,
     UserPublic,
 )
 from app.schemas.admin import OnlineUserOut, SMTPConfig
@@ -300,6 +302,25 @@ class UserService:
         await redis_delete(f"{SESSION_KEY_PREFIX}{session.token}")
 
     # ---------------- 用户管理（admin 调用） ----------------
+
+    async def lookup_by_email(self, email: str) -> list[UserLookupOut]:
+        """按邮箱精确查找 active 用户（admin 创建组织选择初始管理员用）。"""
+        normalized = validate_email(email)
+        stmt = select(User).where(
+            func.lower(User.email) == normalized,
+            User.status == UserStatus.ACTIVE,
+        )
+        target = (await self.db.execute(stmt)).scalar_one_or_none()
+        if target is None:
+            return []
+        return [
+            UserLookupOut(
+                id=target.id,
+                email=target.email,
+                nickname=target.nickname,
+                avatar_url=target.avatar_url,
+            )
+        ]
 
     async def admin_list_users(
         self, page: int, page_size: int, keyword: str | None, status: str | None

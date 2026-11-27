@@ -24,6 +24,7 @@ from app.schemas.org import (
     OrgCreate,
     OrgDetail,
     OrgMemberAdd,
+    OrgMemberCandidateOut,
     OrgMemberNote,
     OrgMemberOut,
     OrgSummary,
@@ -113,6 +114,20 @@ async def list_members(
     """组织成员列表（组织任意角色可查；keyword 模糊匹配昵称）。"""
     items, total = await service.list_members(user, org_id, status, page, page_size, keyword)
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.get(
+    "/{org_id}/member-candidates",
+    response_model=ApiResponse[list[OrgMemberCandidateOut]],
+)
+async def lookup_member_candidate(
+    org_id: uuid.UUID,
+    service: OrgServiceDep,
+    email: str = Query(..., min_length=3, max_length=254),
+    user: User = Depends(get_current_user),
+) -> ApiResponse[list[OrgMemberCandidateOut]]:
+    """按邮箱精确查找可添加的组织成员（org_admin / 站点 admin；仅 active）。"""
+    return ok(await service.lookup_member_candidate(user, org_id, email))
 
 
 @router.post("/{org_id}/members")

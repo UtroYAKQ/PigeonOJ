@@ -65,7 +65,7 @@ from app.schemas.problem import (
 from app.schemas.problem_set import ProblemSetSummary
 from app.schemas.org import OrgAdminDetail, OrgAdminSummary, OrgMemberOut, OrgTeamAssign
 from app.schemas.team import TeamAdminDetail, TeamAdminSummary, TeamMemberOut
-from app.schemas.user import UserPublic
+from app.schemas.user import UserLookupOut, UserPublic
 from app.core.exceptions import APIError, PARAM_FORMAT_INVALID
 from app.utils.pagination import PaginatedResponse
 from app.utils.response import ApiResponse, ok
@@ -87,6 +87,16 @@ async def list_users(
     status: str | None = None,
 ) -> ApiResponse[PaginatedResponse[UserPublic]]:
     return ok(await service.admin_list_users(page, page_size, keyword, status))
+
+
+@router.get("/users/lookup", response_model=ApiResponse[list[UserLookupOut]])
+async def lookup_user(
+    service: UserServiceDep,
+    admin: User = _admin,
+    email: str = Query(..., min_length=3, max_length=254),
+) -> ApiResponse[list[UserLookupOut]]:
+    """按邮箱精确查找用户（admin；创建组织选择初始管理员用）。"""
+    return ok(await service.lookup_by_email(email))
 
 
 @router.get("/users/online", response_model=ApiResponse[PaginatedResponse[OnlineUserOut]])

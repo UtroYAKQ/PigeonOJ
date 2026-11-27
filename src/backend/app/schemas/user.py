@@ -37,6 +37,15 @@ class UserPublic(BaseModel):
     roles: list[str] = []
 
 
+class UserLookupOut(BaseModel):
+    """按邮箱精确查找的用户摘要（成员 / 管理员选择器，仅返回最小公开字段）。"""
+
+    id: uuid.UUID
+    email: str
+    nickname: str
+    avatar_url: str | None = None
+
+
 class LoginResult(BaseModel):
     """登录成功响应：会话 token + 用户公开信息。"""
 

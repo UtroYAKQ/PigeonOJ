@@ -45,6 +45,47 @@ async def test_admin_list_users(client: httpx.AsyncClient, admin_headers: dict[s
     assert items and all("admin" in u["email"] or "admin" in u["nickname"] for u in items)
 
 
+async def test_admin_lookup_user_by_email(
+    client: httpx.AsyncClient, admin_headers: dict[str, str]
+) -> None:
+    """按邮箱精确查找用户：大小写不敏感、仅 active、非法邮箱 1001。"""
+    resp = await client.get(
+        "/api/v1/admin/users/lookup",
+        params={"email": "User@pigeonoj.dev"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0
+    items = resp.json()["data"]
+    assert len(items) == 1
+    assert items[0]["email"] == "user@pigeonoj.dev"
+    assert items[0]["nickname"] == "普通用户"
+
+    resp = await client.get(
+        "/api/v1/admin/users/lookup",
+        params={"email": "nobody@pigeonoj.dev"},
+        headers=admin_headers,
+    )
+    assert resp.json()["data"] == []
+
+    resp = await client.get(
+        "/api/v1/admin/users/lookup",
+        params={"email": "not-an-email"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 1001
+
+
+async def test_admin_lookup_requires_admin(
+    client: httpx.AsyncClient, user_headers: dict[str, str]
+) -> None:
+    resp = await client.get(
+        "/api/v1/admin/users/lookup",
+        params={"email": "user@pigeonoj.dev"},
+        headers=user_headers,
+    )
+    assert resp.json()["code"] == 2003
+
+
 async def test_admin_set_roles(client: httpx.AsyncClient, admin_headers: dict[str, str]) -> None:
     await register_user(client, "roles@pigeonoj.dev")
     users = (await client.get("/api/v1/admin/users?keyword=roles@pigeonoj.dev", headers=admin_headers)).json()["data"]["items"]

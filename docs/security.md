@@ -66,6 +66,7 @@
 - 团队资源查询必须带 `WHERE team_id = ?`（用户所在团队）
 - 提交 `contest_id` 由服务端从请求上下文推导，不信任客户端传入
 - `submit_type=verify` 须校验 `verification` 记录的 `verifier_id` 与当前用户一致
+- 按邮箱查找用户仅限 `org_admin` / 站点 `admin`（组织成员候选、创建组织初始管理员），必须完整邮箱精确匹配，只返回 id / email / nickname / avatar_url 等最小公开字段，不提供模糊用户搜索
 - 返回用户对象必须排除 `password` 字段
 
 ## 沙箱安全

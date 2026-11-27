@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.enums import OrgMemberStatus, OrgStatus
+from app.schemas.user import UserLookupOut
 from app.utils.validation import validate_nickname
 
 
@@ -96,6 +97,12 @@ class OrgMemberAdd(BaseModel):
     """直接添加成员（org_admin 拉人，可批量；已在册跳过）。"""
 
     user_ids: list[uuid.UUID] = Field(min_length=1)
+
+
+class OrgMemberCandidateOut(UserLookupOut):
+    """组织成员候选（按邮箱精确查找，仅 active 用户；is_member = 已在册）。"""
+
+    is_member: bool = False
 
 
 class OrgMemberNote(BaseModel):
