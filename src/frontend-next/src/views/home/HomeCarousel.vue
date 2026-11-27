@@ -83,7 +83,7 @@ function select(index: number): void {
               v-if="shouldLoad(index)"
               :src="banner.image"
               :alt="banner.title"
-              class="h-full w-full object-cover"
+              class="h-full w-full object-contain lg:object-cover"
               decoding="async"
               @load="markLoaded(index)"
             />

@@ -20,6 +20,7 @@ os.environ.setdefault("ENVIRONMENT", "development")
 import uuid
 
 import httpx
+import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
@@ -92,12 +93,17 @@ CONFIG_SEEDS = [
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def prepare_db():
+async def prepare_db(request: pytest.FixtureRequest):
     """每个用例重建表结构 + 种子（用例级隔离；async fixture 使用函数级事件循环）。
+
+    标记 ``no_db`` 的纯单元测试不触碰数据库 / Redis，直接跳过准备与清理。
 
     前后各 engine.dispose()：pytest-asyncio 每用例新建事件循环，asyncpg 连接绑定
     创建时的 loop——丢弃全部池连接，保证连接生命周期与当前 loop 一致（防跨 loop 复用）。
     """
+    if request.node.get_closest_marker("no_db") is not None:
+        yield
+        return
     await engine.dispose()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -204,8 +210,9 @@ async def register_user(client: httpx.AsyncClient, email: str, password: str = "
     """验证码固定错误路径使用；正确验证码无法从测试侧获取（开发期打印在日志）。
     本助手通过直接调注册接口 + 直接写 Redis 验证码的方式完成注册闭环。"""
     from app.core.redis import redis_set_json
+    from app.utils.validation import normalize_email
 
-    await redis_set_json(f"email:code:{email}:register", {"code": "123456", "attempts": 0}, 600)
+    await redis_set_json(f"email:code:{normalize_email(email)}:register", {"code": "123456", "attempts": 0}, 600)
     resp = await client.post(
         "/api/v1/auth/register",
         json={"email": email, "code": "123456", "password": password, "nickname": nickname},

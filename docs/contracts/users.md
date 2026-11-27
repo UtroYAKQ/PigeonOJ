@@ -28,11 +28,18 @@
 - UNIQUE(`email`)
 - INDEX(`status`)
 
+### 邮箱格式规则
+
+- 所有接收邮箱的入口（`/auth/email-code`、`/auth/register`、`/auth/reset-password`、`/auth/change-email`）统一校验，非法格式返回 `1001`
+- 规则（RFC 5321/5322 实用子集）：总长 ≤ 254；local ≤ 64 且为点分 atom（不允许首尾点 / 连续点）；domain ≥ 2 个标签，每标签 1–63 位且不以 `-` 开头结尾；TLD 为 2–63 位字母
+- 不接受 IP 字面量、引号地址、含空白 / 控制字符（含 CRLF）或非 ASCII 字符的地址，避免脏地址进入落库 / 发信链路
+- 大小写不敏感：邮箱去空白后统一小写，用于校验、查重、落库、验证码 Redis key 与登录查询
+
 ### 邮箱验证码（存 Redis，不落库）
 
 验证码是短时效数据，不建数据库表，由 Redis 存储：
 
-- 验证码 key：`email:code:<email>:<purpose>`（存验证码与错误计数），TTL = 配置的 `email.code.expire_seconds`
+- 验证码 key：`email:code:<email>:<purpose>`（`<email>` 为规范化小写邮箱；存验证码与错误计数），TTL = 配置的 `email.code.expire_seconds`
 - 重发间隔计数：`email:resend:<email>:<purpose>`，TTL = 配置的 `email.code.resend_seconds`
 - 一次性使用：校验通过后删除 `email:code:*` key；错误超次删除并触发频控（Key 约定见 `docs/operations.md` Redis 约定）
 - 安全策略（有效期 / 重发间隔 / 最大尝试）配置见 `docs/contracts/admin.md` 的 `auth_email` 配置域

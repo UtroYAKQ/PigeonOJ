@@ -1,5 +1,5 @@
 /**
- * 系统配置编辑器元数据：编辑器类型判定 / 值摘要 / 下拉选项 / 废弃键。
+ * 系统配置编辑器元数据：编辑器类型判定 / 值摘要 / 下拉选项 / 列表隐藏键。
  * 由旧 AdminConfigsView（610 行单文件）拆分而来，保持后端契约与展示口径不变。
  */
 import { i18n } from '@/i18n'
@@ -22,6 +22,9 @@ export const EMAIL_PREVIEW_CODE = '123456'
 /** 已废弃的配置键（后端仅向后兼容读取，管理界面不再展示，避免与 smtp_mode 混淆） */
 const DEPRECATED_KEYS = new Set(['email.smtp.use_ssl'])
 
+/** 首页专属配置：由「首页配置」（/admin/home）独立维护，不在系统配置列表重复展示 */
+const HOME_CONFIG_KEYS = new Set([BANNERS_KEY, ANNOUNCEMENT_KEY])
+
 /** 多行 / 富文本类配置键（用 textarea 编辑，避免单行输入框吞掉换行） */
 const MULTILINE_KEYS = new Set([EMAIL_TEMPLATE_KEY, ANNOUNCEMENT_KEY])
 
@@ -35,6 +38,11 @@ const t: Translate = (key, params) =>
 
 export function isDeprecatedConfig(configKey: string): boolean {
   return DEPRECATED_KEYS.has(configKey)
+}
+
+/** 系统配置通用列表是否隐藏该键（已废弃 + 由独立页面维护的首页专属配置） */
+export function isHiddenConfig(configKey: string): boolean {
+  return isDeprecatedConfig(configKey) || HOME_CONFIG_KEYS.has(configKey)
 }
 
 /** 敏感配置（*.password，服务端掩码为 ******）用密码框编辑 */

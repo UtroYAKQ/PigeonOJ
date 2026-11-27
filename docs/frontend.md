@@ -63,7 +63,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 - 管理后台比赛创建向导两页（`views/admin/AdminContestBasicView.vue`、`views/admin/AdminContestArrangeView.vue`）都不再使用 `WizardShell` 卡片外壳，直接写成无卡片页面（标题 + 步骤标识 + 细分隔线分区，底部左对齐操作按钮）
 - 出题向导三页（`views/problems/ProblemStatementView.vue`、`ProblemCasesView.vue`、`ProblemVerifyView.vue`）同样去掉 `WizardShell`：页面直接写标题 + `WizardSteps` 步骤条 + 细分隔线，题面 / 样例测试点 / 验题分区保留各自说明，操作按钮统一放到页面底部左对齐
 - 题单新建 / 编辑（`views/admin/AdminProblemSetFormView.vue`）与团队题单创建（`views/teams/TeamSetCreateView.vue`）改为同一无框表单：基础信息 / 题单说明分段，字段下方提示，底部左对齐保存与取消；页面结构与新建题目页（`ProblemStatementView`）一致——`max-w-1200` 全宽平铺，不用 WorkbenchShell 固定块、不做 960px 收窄；`components/common/WizardShell.vue` 已无引用并移除
-- 系统配置（`views/admin/AdminConfigsView.vue`）与首页配置（`views/admin/AdminHomeView.vue`）同为 shadcn 设置页风格：分类导航无卡片外框，配置行只保留分隔线，海报行去卡片化，页面底部左对齐保存按钮；编辑弹窗沿用 `ui/dialog`，标题与控件尺寸与表单统一
+- 系统配置（`views/admin/AdminConfigsView.vue`）与首页配置（`views/admin/AdminHomeView.vue`）同为 shadcn 设置页风格：分类导航无卡片外框，配置行只保留分隔线，海报行去卡片化，页面底部左对齐保存按钮；编辑弹窗沿用 `ui/dialog`，标题与控件尺寸与表单统一。首页轮播（`site.banners`）与系统公告（`site.announcement`）由 `/admin/home` 独立维护，系统配置的站点分类不再重复展示这两项
 - 空态、加载、错误三态必须覆盖；列驱动列表由 `ColumnLineList` 基于 `ui/table` 渲染骨架 / 空态 / 分页，`LineList` 继续为自由插槽行列表提供骨架 / 空态 / 分页；独立面板使用 `EmptyState` / `ErrorState`
 - 前台实体卡片（团队 / 组织 / 比赛 / 代码广场）沿用旧 UI 的简约范式：单行头部（头像 + 名称 + 角色 / 状态点标）、描述最多两行截断、底部两行（元信息行：成员数 / 题数 / 语言；`border-t` 细分隔线；时间行：创建 / 更新时间，11px `tabular-nums`）；不放「查看 / 申请加入」行动文案、右箭头或重复徽标，整卡点击即交互；卡片 `rounded-md border bg-card`、无阴影
 - 编辑器字号 / 字体偏好来自用户资料（`editor_font_size` / `editor_font_family`），`CodeEditor` 统一消费，个人资料页保存后即时生效
@@ -76,7 +76,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 - 卡片列表：`PaginatedCardGrid` 负责响应式网格（1 / 2 / 3 / 4 列）、骨架、空态与分页；领域卡片用 `EntityCard` 作为整卡可点击外壳（支持 Enter / Space 与可见焦点环），卡片内展示头像、标题、状态徽标、简介与 1–2 行元信息
 - 比赛卡片与代码分享卡片保持极简：头像 / 图标 + 标题 + 两行简介 + 纯文本元信息；比赛的起止时间单独一行，赛制 / 题数 / 报名人数另起一行，代码卡片是语言 / 作者 / 更新时间一行；只在确有必要时保留一个状态徽标，不用信息栏、箭头、多个彩色徽标或图标行堆砌，hover 只轻微描边
 - 首页沿用旧版的全屏气势：内容铺满主区宽度，上半部为主视觉（桌面高 `52dvh`，`min 340px` / `max 580px`，海报轮播 / 品牌横幅 2fr + 公告 1fr，最小 260px），下半部入口磁贴与小贴士按内容自然高度排布；内容超出视口时由主区滚动，不用 flex 拉伸压缩卡片，避免卡片重叠；窄屏同样自然高度滚动，不收窄成中间栏
-- `views/home/HomeCarousel.vue`：自动播放间隔 5s，海报异步加载后自动启动；不渲染左右箭头，只保留底部圆点切图；鼠标悬停不暂停；手动点圆点后重置计时；切换用 420ms 交叉淡入淡出，加载过的图片保持挂载避免空窗
+- `views/home/HomeCarousel.vue`：自动播放间隔 5s，海报异步加载后自动启动；不渲染左右箭头，只保留底部圆点切图；鼠标悬停不暂停；手动点圆点后重置计时；切换用 420ms 交叉淡入淡出，加载过的图片保持挂载避免空窗；移动端容器固定 `aspect-video` 且图片 `object-contain`，保证海报完整可见（桌面仍 `object-cover` 满铺）
 - 列表形态选择：列驱动列表（管理后台列表、提交、日志、测试点 / 比赛单元格明细等）统一由 `ColumnLineList` / `PaginatedTable` 基于 `ui/table` 渲染 shadcn 表格；自由插槽的「一行一条」列表继续用 `LineList` 无框横线壳；网格浏览型实体（团队 / 组织 / 比赛 / 代码广场）继续用 `PaginatedCardGrid`
 - 搜索统一手动触发：输入只同步关键词，点击「查询」或回车才发起；清空（X）立即按空关键词重查
 - 题库列表的标签列可在工具条勾选显示 / 隐藏，偏好写入 localStorage（`pigeonoj.problems.showTags`），切换不重新请求

@@ -59,7 +59,7 @@ from app.core.redis import (
     redis_set_model,
 )
 from app.utils.security import generate_token, hash_password, hash_token, verify_password
-from app.utils.validation import validate_email, validate_nickname, validate_password
+from app.utils.validation import normalize_email, validate_email, validate_nickname, validate_password
 from app.services.system_config import ConfigService
 from app.settings.config import get_settings
 from app.core.storage import get_storage
@@ -407,17 +407,17 @@ class AuthService:
             raise APIError(SYSTEM_UPSTREAM_FAILURE, "邮件发送失败，请稍后重试", 502) from exc
 
     async def send_email_code(self, req: EmailCodeRequest, ip: str | None, user_agent: str | None) -> None:
-        validate_email(req.email)
+        email = validate_email(req.email)
         policy = await self.config.get_email_code_policy()
-        resend_key = f"{EMAIL_RESEND_KEY_PREFIX}{req.email}:{req.purpose}"
+        resend_key = f"{EMAIL_RESEND_KEY_PREFIX}{email}:{req.purpose}"
         if await redis_get(resend_key) is not None:
             raise APIError(RATE_SEND_TOO_FREQUENT, "发送过于频繁，请稍后再试", 429)
 
         code = f"{secrets.randbelow(1_000_000):06d}"
-        code_key = f"{EMAIL_CODE_KEY_PREFIX}{req.email}:{req.purpose}"
+        code_key = f"{EMAIL_CODE_KEY_PREFIX}{email}:{req.purpose}"
         await redis_set_model(code_key, EmailCodePayload(code=code), policy.expire_seconds)
         await redis_set(resend_key, "1", policy.resend_seconds)
-        await self._send_email_code(req.email, req.purpose, code)
+        await self._send_email_code(email, req.purpose, code)
 
     async def _verify_code(self, email: str, purpose: str, code: str, max_attempts: int) -> None:
         """校验验证码：一次性使用；错误超次删除并触发频控（users.md 安全策略）。"""
@@ -440,7 +440,7 @@ class AuthService:
         # 站点注册开关（system_configs site.register_enabled）：关闭时直接拒绝，不消耗验证码
         if not await self.config.get_value("site", "site.register_enabled", True):
             raise APIError(REGISTER_DISABLED, "当前站点未开放注册", 403)
-        validate_email(req.email)
+        email = validate_email(req.email)
         validate_password(req.password)
         validate_nickname(req.nickname)
         # 邮箱验证开关（email.verify_enabled）：开启时校验验证码，关闭时跳过
@@ -448,21 +448,21 @@ class AuthService:
             if not req.code:
                 raise APIError(PARAM_MISSING_REQUIRED, "请输入邮箱验证码", 400)
             policy = await self.config.get_email_code_policy()
-            await self._verify_code(req.email, "register", req.code, policy.max_attempts)
+            await self._verify_code(email, "register", req.code, policy.max_attempts)
 
-        if await self.users.get_by_email(req.email) is not None:
-            await write_login_log(self.db, LoginAction.REGISTER, False, email=req.email, ip_address=ip,
+        if await self.users.get_by_email(email) is not None:
+            await write_login_log(self.db, LoginAction.REGISTER, False, email=email, ip_address=ip,
                                   user_agent=user_agent, reason="邮箱已注册")
             raise APIError(RESOURCE_STATE_CONFLICT, "邮箱已注册", 409)
 
         password_hash = await asyncio.to_thread(hash_password, req.password)
-        user = await self.users.create(req.email, password_hash, req.nickname.strip())
+        user = await self.users.create(email, password_hash, req.nickname.strip())
         # 默认角色 user
         user_role = await self.roles.get_by_code(RoleCode.USER)
         if user_role is not None:
             self.db.add(UserRole(user_id=user.id, role_id=user_role.id, scope=UserRoleScope.GLOBAL, object_id=None))
         await self.db.flush()
-        await write_login_log(self.db, LoginAction.REGISTER, True, user_id=user.id, email=req.email,
+        await write_login_log(self.db, LoginAction.REGISTER, True, user_id=user.id, email=email,
                               ip_address=ip, user_agent=user_agent)
 
     # ---------------- 登录 / 登出 ----------------
@@ -478,6 +478,8 @@ class AuthService:
         raise error
 
     async def login(self, req: LoginRequest, ip: str | None, user_agent: str | None) -> LoginResult:
+        # 邮箱大小写不敏感：查库 / 失败计数 / 审计日志统一用规范化形式
+        req.email = normalize_email(req.email)
         user = await self.users.get_by_email(req.email)
         fail_key = f"{LOGIN_FAIL_KEY_PREFIX}{req.email}"
 
@@ -578,17 +580,17 @@ class AuthService:
     # ---------------- 找回密码 ----------------
 
     async def reset_password(self, req: ResetPasswordRequest, ip: str | None, user_agent: str | None) -> None:
-        validate_email(req.email)
+        email = validate_email(req.email)
         validate_password(req.new_password)
         policy = await self.config.get_email_code_policy()
-        await self._verify_code(req.email, "reset_password", req.code, policy.max_attempts)
+        await self._verify_code(email, "reset_password", req.code, policy.max_attempts)
 
-        user = await self.users.get_by_email(req.email)
+        user = await self.users.get_by_email(email)
         if user is None or user.status == UserStatus.DELETED:
             raise APIError(RESOURCE_NOT_FOUND, "用户不存在", 404)
         user.password = await asyncio.to_thread(hash_password, req.new_password)
         await self.db.flush()
-        await write_login_log(self.db, LoginAction.RESET_PASSWORD, True, user_id=user.id, email=req.email,
+        await write_login_log(self.db, LoginAction.RESET_PASSWORD, True, user_id=user.id, email=email,
                               ip_address=ip, user_agent=user_agent)
 
     # ---------------- 修改密码 / 换绑邮箱（登录态） ----------------
@@ -601,14 +603,14 @@ class AuthService:
         await self.db.flush()
 
     async def change_email(self, user: User, req: ChangeEmailRequest, ip: str | None, user_agent: str | None) -> None:
-        validate_email(req.new_email)
+        new_email = validate_email(req.new_email)
         policy = await self.config.get_email_code_policy()
-        await self._verify_code(req.new_email, "change_email", req.code, policy.max_attempts)
-        existing = await self.users.get_by_email(req.new_email)
+        await self._verify_code(new_email, "change_email", req.code, policy.max_attempts)
+        existing = await self.users.get_by_email(new_email)
         if existing is not None and existing.id != user.id:
             raise APIError(RESOURCE_STATE_CONFLICT, "该邮箱已被使用", 409)
-        user.email = req.new_email
+        user.email = new_email
         user.email_verified = True
         await self.db.flush()
-        await write_login_log(self.db, LoginAction.CHANGE_EMAIL, True, user_id=user.id, email=req.new_email,
+        await write_login_log(self.db, LoginAction.CHANGE_EMAIL, True, user_id=user.id, email=new_email,
                               ip_address=ip, user_agent=user_agent)

@@ -57,8 +57,41 @@ async def test_login_success_and_wrong_password(client: httpx.AsyncClient) -> No
     assert data["user"]["email"] == "user@pigeonoj.dev"
     assert "password" not in data["user"]
 
+    # 邮箱大小写不敏感：大小写变体同样登录到同一账号
+    resp = await client.post("/api/v1/auth/login", json={"email": "USER@PigeonOJ.dev", "password": "User@123"})
+    assert resp.json()["code"] == 0
+    assert resp.json()["data"]["user"]["email"] == "user@pigeonoj.dev"
+
     resp = await client.post("/api/v1/auth/login", json={"email": "user@pigeonoj.dev", "password": "wrong"})
     assert resp.json()["code"] == 2004
+
+
+async def test_register_rejects_invalid_email(client: httpx.AsyncClient) -> None:
+    """非法邮箱格式 / 超长地址在注册入口即拒绝（1001），不进入验证码与落库链路。"""
+    for email in ["plainaddress", "a@b.c", "a@-bad.com", "a@b..com", f"{'a' * 250}@b.com"]:
+        resp = await client.post(
+            "/api/v1/auth/register",
+            json={"email": email, "code": "123456", "password": PASSWORD, "nickname": "非法邮箱"},
+        )
+        assert resp.json()["code"] == 1001, email
+
+    resp = await client.post("/api/v1/auth/email-code", json={"email": "a@b", "purpose": "register"})
+    assert resp.json()["code"] == 1001
+
+
+async def test_register_normalizes_email_case(client: httpx.AsyncClient) -> None:
+    """注册邮箱统一小写落库；大小写变体视为同一邮箱（不能重复注册）。"""
+    await register_user(client, "Mixed.Case@pigeonoj.dev")
+    async with SessionLocal() as db:
+        row = (await db.execute(select(User).where(User.email == "mixed.case@pigeonoj.dev"))).scalar_one()
+        assert row.email == "mixed.case@pigeonoj.dev"
+
+    await redis_set_json("email:code:mixed.case@pigeonoj.dev:register", {"code": "123456", "attempts": 0}, 600)
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "MIXED.CASE@pigeonoj.dev", "code": "123456", "password": PASSWORD, "nickname": "重复"},
+    )
+    assert resp.json()["code"] == 3002
 
 
 async def test_login_failures_trigger_temporary_freeze(client: httpx.AsyncClient) -> None:

@@ -20,7 +20,7 @@ import type { ConfigCategory, SystemConfigItem } from '@/types'
 import ConfigCategoryNav from './config-components/ConfigCategoryNav.vue'
 import ConfigEditorDialog from './config-components/ConfigEditorDialog.vue'
 import ConfigItemRow from './config-components/ConfigItemRow.vue'
-import { isDeprecatedConfig } from './config-components/config-meta'
+import { isHiddenConfig } from './config-components/config-meta'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -44,7 +44,7 @@ async function load(): Promise<void> {
   try {
     const rows = await adminApi.adminListConfigs(activeCategory.value)
     if (seq !== loadSeq) return
-    items.value = rows.filter((row) => !isDeprecatedConfig(row.config_key))
+    items.value = rows.filter((row) => !isHiddenConfig(row.config_key))
   } catch (error) {
     if (seq !== loadSeq) return
     items.value = []

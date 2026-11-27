@@ -92,15 +92,17 @@ function openBanner(banner: SiteBanner): void {
       </Button>
     </header>
 
-    <!-- 主视觉：沿用旧版约半屏的尺度（上限收住），海报为主、公告收窄 -->
+    <!-- 主视觉：桌面沿用约半屏的尺度（上限收住）；移动端轮播按 16:9 完整展示海报 -->
     <div
       class="grid gap-4 lg:h-[460px] lg:shrink-0 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)] xl:h-[520px]"
     >
-      <div class="h-[clamp(280px,42vh,420px)] lg:h-full">
-        <HomeCarousel v-if="banners.length" :banners="banners" @open="openBanner" />
+      <div class="lg:h-full">
+        <div v-if="banners.length" class="aspect-video lg:aspect-auto lg:h-full">
+          <HomeCarousel :banners="banners" @open="openBanner" />
+        </div>
         <div
           v-else
-          class="relative flex h-full flex-col justify-center overflow-hidden rounded-xl border border-border bg-surface px-8 py-10 sm:px-12"
+          class="relative flex h-[clamp(280px,42vh,420px)] flex-col justify-center overflow-hidden rounded-xl border border-border bg-surface px-8 py-10 sm:px-12 lg:h-full"
         >
           <div class="dot-grid pointer-events-none absolute inset-0 opacity-40" />
           <div
