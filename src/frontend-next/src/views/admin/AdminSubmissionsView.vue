@@ -164,24 +164,7 @@ const columns = computed<AppTableColumn<AdminSubmission>[]>(() => [
     cell: (row) => h('span', { class: 'font-medium' }, row.problem_title ?? '—'),
   },
   {
-    key: 'actions',
-    title: t('action.view'),
-    width: '96px',
-    cell: (row) =>
-      h(
-        Button,
-        {
-          variant: 'ghost',
-          size: 'xs',
-          onClick: (event: MouseEvent) => {
-            event.stopPropagation()
-            goProblem(row)
-          },
-        },
-        { default: () => t('admin.submissions.viewProblem') },
-      ),
-  },
-  {
+
     key: 'nickname',
     title: t('admin.submissions.submitter'),
     width: '140px',
@@ -234,6 +217,24 @@ const columns = computed<AppTableColumn<AdminSubmission>[]>(() => [
     width: '160px',
     cell: (row) => formatDateTime(row.created_at),
     cellClass: 'text-[12.5px] text-muted-foreground',
+  },
+  {
+    key: 'actions',
+    title: t('action.view'),
+    width: '96px',
+    cell: (row) =>
+      h(
+        Button,
+        {
+          variant: 'ghost',
+          size: 'xs',
+          onClick: (event: MouseEvent) => {
+            event.stopPropagation()
+            goProblem(row)
+          },
+        },
+        { default: () => t('admin.submissions.viewProblem') },
+      ),
   },
 ])
 

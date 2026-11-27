@@ -4,8 +4,7 @@
  * 经比赛统一入口端点读取（比赛期间所有人不可见，赛后开放），不跳出比赛上下文。
  */
 import { computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 
 import { getContestSubmission } from '@/api/contests'
 import { getTeamContestSubmission } from '@/api/teams'
@@ -14,8 +13,6 @@ import { useSubmissionPolling } from '@/composables/useSubmissionPolling'
 import type { Submission } from '@/types'
 
 const route = useRoute()
-const router = useRouter()
-const { t } = useI18n()
 
 const contestId = computed(() => String(route.params.cid))
 const teamId = computed(() => (route.params.teamId ? String(route.params.teamId) : null))
@@ -36,16 +33,6 @@ const displaySubmission = computed<Submission | null>(() => {
   return current
 })
 
-const backLabel = computed(() => t('contests.submissions.backToContest'))
-
-function back(): void {
-  void router.push(
-    teamId.value
-      ? `/teams/${teamId.value}/contests/${contestId.value}`
-      : `/contests/${contestId.value}`,
-  )
-}
-
 onMounted(() => {
   void load()
 })
@@ -56,9 +43,7 @@ onMounted(() => {
     :submission="displaySubmission"
     :loading="loading"
     :polling-stopped="pollingStopped"
-    :back-label="backLabel"
     :refreshing="loading"
     @refresh="refreshNow"
-    @back="back"
   />
 </template>

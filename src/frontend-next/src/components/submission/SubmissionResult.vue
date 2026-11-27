@@ -97,6 +97,9 @@ const caseColumns = computed<AppTableColumn<any>[]>(() => [
           tone="warning"
           :label="t('problems.submission.verifyType')"
         />
+        <div v-if="$slots['status-actions']" class="ml-auto">
+          <slot name="status-actions" />
+        </div>
       </div>
 
       <div class="my-5 h-px bg-border" role="separator" />
