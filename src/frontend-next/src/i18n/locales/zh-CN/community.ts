@@ -3,8 +3,8 @@ export default {
     comment: {
       title: '评论',
       placeholder: '写下你的评论…',
-      replyPlaceholder: '回复 @{name}…',
-      replyingTo: '回复 @{name}',
+      replyPlaceholder: '回复 {\'@\'}{name}…',
+      replyingTo: '回复 {\'@\'}{name}',
       submit: '发表',
       empty: '评论内容不能为空',
       tooLong: '评论不能超过 2000 字符',

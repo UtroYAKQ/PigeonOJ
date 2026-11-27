@@ -3,8 +3,8 @@ export default {
     comment: {
       title: 'Comments',
       placeholder: 'Write a comment…',
-      replyPlaceholder: 'Reply to @{name}…',
-      replyingTo: 'Replying to @{name}',
+      replyPlaceholder: 'Reply to {\'@\'}{name}…',
+      replyingTo: 'Replying to {\'@\'}{name}',
       submit: 'Post',
       empty: 'Comment cannot be empty',
       tooLong: 'Comment cannot exceed 2000 characters',

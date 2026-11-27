@@ -186,10 +186,19 @@ function authorName(node: CommentNode): string {
   return node.author?.nickname ?? t('community.comment.deletedAuthor')
 }
 
+function focusComposer(): void {
+  const current = editor.value
+  if (!current) return
+  // Tiptap 的 focus 命令会调用 view.focus()，浏览器会把页面滚到底部编辑器，
+  // 导致上方评论列表滚出视口；这里用 preventScroll 只聚焦不滚动。
+  const dom = current.view.dom as HTMLElement
+  dom.focus({ preventScroll: true })
+  current.commands.setTextSelection(current.state.doc.content.size)
+}
+
 function beginReply(node: CommentNode): void {
   replyTo.value = { id: node.parent_id ?? node.id, name: authorName(node) }
-  // 只聚焦输入框；不要 scrollIntoView，避免把上方评论列表滚出视口
-  void nextTick(() => editor.value?.commands.focus())
+  void nextTick(focusComposer)
 }
 
 function cancelReply(): void {
