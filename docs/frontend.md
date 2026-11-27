@@ -102,7 +102,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 
 - `components/common/SplitPane.vue`：桌面端左右独立滚动、分隔条可拖拽且比例持久化（双击复位）；<900px 自动上下堆叠
 - `components/problem/ProblemWorkbench.vue`：左题面（`ProblemMetaBar` + `ProblemStatement`），右编辑器 + 自测控制台（窄屏右栏用自然高度 `min-h-[360px]`、编辑器宿主固定 `h-[clamp(220px,42vh,300px)]` 保证 Monaco 高度链有确定基准；≥900px 右栏 `h-full`、编辑器宿主 `flex-1`）；上方工具行「语言」靠左、「我的提交 / 题解」靠右，「自测运行 / 提交」放进下方控制台标题行，避免顶部拥挤
-- 自测控制台常驻编辑器下方，形态对齐旧 UI（naive-ui 版）：面板顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 仍视为单击；方向键 / Home 微调与复位），默认展开 520px、拖拽下限 140px（展开时按 360px 可读下限兜底，方便输入样例）；拖动上限为右栏可用高度，控制台可完全覆盖代码编辑区（桌面编辑器允许压缩为 0，不再预留最小高度），窄屏右栏随控制台增高、整页滚动且按视口高度封顶；收起态只留约 47px 控制条；点击当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」，运行后自动切到结果并展开；展开态拖得过小视为取消并还原高度；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`（兼容旧键 `pigeonoj.problems.consoleHeight`）；结果含状态、耗时、内存与输出/报错
+- 自测控制台常驻编辑器下方，形态对齐旧 UI（naive-ui 版）：面板顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 仍视为单击；方向键 / Home 微调与复位），默认展开 520px、拖拽下限 140px（展开时按 360px 可读下限兜底，方便输入样例）；窄屏默认上限约 60% 视口（560px）、右栏随内容增长、整页滚动；拖拽与键盘上下键拉伸时 `allowCover=true`，可覆盖整个编辑器并拖到最顶，松手不回弹；展开 / 切 tab / 运行自测等非拖拽场景仍保留编辑器最小高度（桌面 220px）；收起态只留约 47px 控制条；点击当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」，运行后自动切到结果并展开；展开态拖得过小视为取消并还原高度；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`（兼容旧键 `pigeonoj.problems.consoleHeight`）；结果含状态、耗时、内存与输出/报错
 - 提交历史经 `components/problem/MySubmissionsDialog.vue` 懒加载分页（弹窗 `sm:max-w-[760px]`、高 `min(72vh, 520px)`，保留完整列），行点击进入上下文内评测结果页
 
 ### 可访问性
@@ -135,7 +135,7 @@ Vue 3 · Vue Router 4 · Pinia · shadcn-vue（reka-ui 无头组件）· Tailwin
 
 | 组件 | 用途 |
 | --- | --- |
-| `components/common/BaseAvatar.vue` | 头像 / Logo：空值或加载失败回退默认图（user/team/contest） |
+| `components/common/BaseAvatar.vue` | 头像 / Logo：空值或加载失败回退默认图（user/team/contest）；团队 / 比赛 Logo 固定浅色底（`#f4f4f5`），不随站点深浅主题改色 |
 | `components/common/LineList.vue` | 自由插槽的无框横线列表壳：表头 / 逐行分隔线 / 骨架 / `.list-empty` 空态 / 可选分页，支持 `#item` 行插槽 |
 | `components/common/ColumnLineList.vue` + `table-types.ts` | 列驱动的 shadcn 表格：由 `AppTableColumn` 生成 `ui/table` 表头 / 行 / 勾选 |
 | `components/common/PaginatedTable.vue` | `ColumnLineList` + 分页开关，供所有分页列表使用 |

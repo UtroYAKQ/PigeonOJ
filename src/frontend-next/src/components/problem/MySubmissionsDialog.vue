@@ -7,7 +7,7 @@ import { listSubmissions } from '@/api/judge'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import StatusTag from '@/components/common/StatusTag.vue'
 import type { AppTableColumn } from '@/components/common/table-types'
-import { Button } from '@/components/ui/button'
+
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { usePagination } from '@/composables/usePagination'
 import { formatDateTime } from '@/utils/format'
@@ -126,11 +126,6 @@ defineExpose({ load, reset: resetPage })
         />
       </div>
 
-      <div class="flex justify-end border-t border-border px-4 py-2.5">
-        <Button variant="outline" size="sm" @click="open = false">
-          {{ t('action.close') }}
-        </Button>
-      </div>
     </DialogContent>
   </Dialog>
 </template>

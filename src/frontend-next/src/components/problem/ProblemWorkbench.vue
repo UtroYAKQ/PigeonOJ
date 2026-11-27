@@ -46,7 +46,7 @@ const router = useRouter()
 /**
  * 自测控制台常驻底部：常态只露控制条（自测 / 提交按钮都在这一行），
  * 拖动上方分隔条可自由调整高度，双击复位。高度按 px 持久化，
- * 下限保证可读；上限为右栏可用高度，允许完全覆盖代码编辑区。
+ * 下限保证可读；拖拽 / 键盘拉伸允许覆盖整个编辑器，其他场景保留编辑器最小高度。
  */
 // 默认展开高度按样例输入可读性调高；下限保留 140px 便于手动压缩，展开时不低于可读下限
 const CONSOLE_HEIGHT_KEY = 'pigeonoj.problems.consoleHeight.v2'
@@ -54,6 +54,9 @@ const LEGACY_CONSOLE_HEIGHT_KEY = 'pigeonoj.problems.consoleHeight'
 const CONSOLE_HEIGHT_DEFAULT = 520
 const CONSOLE_HEIGHT_MIN = 140
 const CONSOLE_HEIGHT_OPEN_MIN = 360
+/** 窄屏默认可拖上限：约 60% 视口，最高 560px（右栏自然增高、整页滚动） */
+const CONSOLE_HEIGHT_MAX_COMPACT = 560
+const EDITOR_MIN_HEIGHT = 220
 
 const isCompact = useMediaQuery('(max-width: 899px)')
 
@@ -87,13 +90,25 @@ const consoleStyle = computed(() =>
   consoleCollapsed.value ? undefined : { height: `${consoleHeight.value}px` },
 )
 
-function clampConsoleHeight(value: number): number {
-  // 上限 = 右栏可用高度（控制台可将编辑器完全覆盖）；窄屏右栏自然增高，按视口高度封顶
-  const toolbarHeight = toolbarRef.value?.offsetHeight ?? 0
-  const available = isCompact.value
-    ? window.innerHeight - toolbarHeight
-    : (rightRef.value?.clientHeight ?? 0) - toolbarHeight
-  const max = Math.max(CONSOLE_HEIGHT_MIN, Math.floor(available))
+function clampConsoleHeight(value: number, allowCover = false): number {
+  if (isCompact.value) {
+    // 窄屏右栏自然增高、整页滚动：拖拽 / 键盘拉伸可覆盖整屏，其他场景保留约 60% 视口上限
+    const max = allowCover
+      ? Math.max(
+          CONSOLE_HEIGHT_MIN,
+          Math.round(window.innerHeight - (toolbarRef.value?.offsetHeight ?? 0)),
+        )
+      : Math.max(
+          CONSOLE_HEIGHT_OPEN_MIN,
+          Math.min(CONSOLE_HEIGHT_MAX_COMPACT, Math.round(window.innerHeight * 0.6)),
+        )
+    return Math.min(max, Math.max(CONSOLE_HEIGHT_MIN, value))
+  }
+  const available = rightRef.value?.clientHeight ?? 0
+  // 拖拽 / 键盘拉伸允许覆盖整个编辑器；其他场景保留编辑器最小高度
+  const editorMin = allowCover ? 0 : EDITOR_MIN_HEIGHT
+  const reserved = (toolbarRef.value?.offsetHeight ?? 0) + editorMin
+  const max = Math.max(CONSOLE_HEIGHT_MIN, Math.floor(available - reserved))
   return Math.min(max, Math.max(CONSOLE_HEIGHT_MIN, value))
 }
 
@@ -108,7 +123,7 @@ function persistConsoleHeight(): void {
 function applyResize(): void {
   resizeFrame = undefined
   if (!resizing) return
-  consoleHeight.value = clampConsoleHeight(startHeight + startY - pendingY)
+  consoleHeight.value = clampConsoleHeight(startHeight + startY - pendingY, true)
   consoleCollapsed.value = false
 }
 
@@ -184,7 +199,7 @@ function onResizeEnd(): void {
     consoleCollapsed.value = true
     consoleHeight.value = startHeight
   } else {
-    consoleHeight.value = clampConsoleHeight(consoleHeight.value)
+    consoleHeight.value = clampConsoleHeight(consoleHeight.value, true)
   }
   persistConsoleHeight()
 }
@@ -204,9 +219,10 @@ function onTabClick(value: 'result' | 'input'): void {
 
 function onResizeKeydown(event: KeyboardEvent): void {
   const step = event.shiftKey ? 64 : 24
-  if (event.key === 'ArrowUp') consoleHeight.value = clampConsoleHeight(consoleHeight.value + step)
+  if (event.key === 'ArrowUp')
+    consoleHeight.value = clampConsoleHeight(consoleHeight.value + step, true)
   else if (event.key === 'ArrowDown')
-    consoleHeight.value = clampConsoleHeight(consoleHeight.value - step)
+    consoleHeight.value = clampConsoleHeight(consoleHeight.value - step, true)
   else if (event.key === 'Home') consoleHeight.value = clampConsoleHeight(CONSOLE_HEIGHT_DEFAULT)
   else return
   event.preventDefault()
@@ -218,9 +234,11 @@ useEventListener(window, 'pointermove', onResizeMove)
 useEventListener(window, 'pointerup', onResizeEnd)
 useEventListener(window, 'pointercancel', onResizeEnd)
 useEventListener(window, 'blur', onResizeEnd)
-// 容器尺寸变化（窗口缩放 / 左右分栏拖动导致工具栏换行）后重新约束高度
+// 容器尺寸变化（窗口缩放 / 左右分栏拖动导致工具栏换行）后重新约束高度；
+// 拖拽结束时不要回弹：窄屏允许覆盖（视口上限），桌面右栏固定高度本就不会触发
 useResizeObserver(rightRef, () => {
-  if (!resizing) consoleHeight.value = clampConsoleHeight(consoleHeight.value)
+  if (resizing) return
+  consoleHeight.value = clampConsoleHeight(consoleHeight.value, isCompact.value)
 })
 onBeforeUnmount(() => {
   if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame)
@@ -290,7 +308,7 @@ function runSelfTest(): void {
 
         <div
           ref="editorRef"
-          class="h-[clamp(220px,42vh,300px)] shrink-0 min-[900px]:h-auto min-[900px]:flex-1"
+          class="h-[clamp(220px,42vh,300px)] shrink-0 min-[900px]:h-auto min-[900px]:min-h-0 min-[900px]:flex-1"
         >
           <CodeEditor v-model="code" :language="language" />
         </div>

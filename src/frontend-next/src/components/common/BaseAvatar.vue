@@ -44,6 +44,8 @@ const DEFAULT_AVATARS: Record<AvatarKind, string> = {
 }
 
 const radiusStyle = computed(() => (props.round ? undefined : `${props.radius}px`))
+/** 实体 logo（团队 / 比赛）固定浅色底：不随站点深浅主题改变色调 */
+const logoBackdrop = computed(() => props.kind === 'team' || props.kind === 'contest')
 /** 站内头像按显示尺寸取缩略图，避免列表里 36px 头像下载 512px 原图 */
 const imageSrc = computed(() => avatarImageUrl(props.src, props.size))
 </script>
@@ -52,7 +54,7 @@ const imageSrc = computed(() => avatarImageUrl(props.src, props.size))
   <Avatar
     :shape="round ? 'circle' : 'square'"
     class="align-middle"
-    :class="{ 'border border-border': bordered }"
+    :class="{ 'border border-border': bordered, 'bg-[#f4f4f5]': logoBackdrop }"
     :style="{ width: `${size}px`, height: `${size}px`, borderRadius: radiusStyle }"
     :aria-hidden="name ? undefined : 'true'"
   >
