@@ -106,6 +106,8 @@ onMounted(() => {
     theme: currentTheme(),
     automaticLayout: true,
     minimap: { enabled: false },
+    // 关闭顶部粘性代码块，编辑区只保留代码本体
+    stickyScroll: { enabled: false },
     // 控制台拖拽时容器高频重排，避免可见的横向滚动条被误触发
     scrollbar: props.autoHeight
       ? { horizontal: 'hidden', vertical: 'hidden', alwaysConsumeMouseWheel: false }

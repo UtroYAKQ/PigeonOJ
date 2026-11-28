@@ -94,7 +94,7 @@ Vue 3 · Vue Router 4 · Pinia · **shadcn-vue**（reka-ui 无头组件）· Tai
 - 只读代码统一 `ui/code-block`（`CodeBlockView.vue` 封装：语言标签 + Shiki 高亮 + 行号 + 复制）；Markdown 里的 fenced code 由 `MarkdownView` 渲染后补高亮。语言映射 `cpp17 → cpp`、`python3.12 → python`、`java21 → java`，新增语言须在 `ui/code-block/highlighter.ts` 注册
 - 编辑器字号 / 字体偏好来自用户资料（`editor_font_size` / `editor_font_family`），`CodeEditor` 统一消费，保存后即时生效
 - `CodeEditor` 自身不设最小高度（`min-h-0`），由父容器给定；需要时在父级 `min-h-*` 声明，避免嵌套最小高度叠加导致相邻面板溢出
-- Monaco 字体偏好变更必须按「显式 `document.fonts.load` 等字体 → `remeasureFonts()` 清度量缓存 → `updateOptions`」顺序应用，否则字符宽度误差会累积成光标 / 文本偏移；容器不设 `padding`、隐藏横向滚动条；keep-alive 返回与容器尺寸变化都要 `layout()`
+- Monaco 字体偏好变更必须按「显式 `document.fonts.load` 等字体 → `remeasureFonts()` 清度量缓存 → `updateOptions`」顺序应用，否则字符宽度误差会累积成光标 / 文本偏移；容器不设 `padding`、隐藏横向滚动条；keep-alive 返回与容器尺寸变化都要 `layout()`；关闭 `minimap` 与 `stickyScroll`（顶部粘性代码块），编辑区只保留代码本体
 
 ### 3.5 「题面 + 编辑器」双栏工作台
 
@@ -103,7 +103,7 @@ Vue 3 · Vue Router 4 · Pinia · **shadcn-vue**（reka-ui 无头组件）· Tai
   - **右栏高度固定**：窄屏 `h-[min(70lvh,640px)]`（`lvh` 取大视口，软键盘弹出不改变高度）、≥900px `h-full`；编辑器宿主 `min-h-0 flex-1`，Monaco 高度链在固定区域内闭合。窄屏**不要**用自然高度，否则拖控制台会让页面越拉越长
   - 编辑器宿主窄屏用 `h-[clamp(220px,42vh,300px)]` 给 Monaco 确定高度；只写 `h-full` 时上层为 auto，Monaco 的 `height:100%` 会塌成 0（只剩边框）
   - 工具行：「语言」靠左、「我的提交 / 题解」靠右；「自测运行 / 提交」放进下方控制台标题行
-  - 自测控制台常驻编辑器下方：顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 视为单击；方向键 / Home 微调与复位），默认展开 520px、拖拽下限 140px（展开时按 360px 可读下限兜底）；上限为「右栏可用高度 − 工具栏」，`allowCover=true` 时可覆盖整个编辑区；收起态只留约 47px 控制条；点当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」**必须始终可见**（控制条允许换行）；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`；控制台输入区聚焦（移动端软键盘）期间冻结高度
+  - 自测控制台常驻编辑器下方：顶部中央 64×14 凹口把手（单击开合、按住拖拽调高，位移 <3px 视为单击；方向键 / Home 微调与复位），默认展开 520px、拖拽下限 140px（展开时沿用上次高度，含手动压缩后的较小值，不强制抬到固定下限）；上限为「右栏可用高度 − 工具栏」，`allowCover=true` 时可覆盖整个编辑区；收起态只留约 47px 控制条；点当前已展开的 tab 会收起面板；控制条内 tab 后紧接「自测运行」，右侧「提交代码」**必须始终可见**（控制条允许换行）；高度按 px 持久化到 `pigeonoj.problems.consoleHeight.v2`，拖拽 / 键盘 / 展开 / 切 tab / 自测 / 窗口自适应引起的变化都要写入，保证再次打开沿用同一高度；控制台输入区聚焦（移动端软键盘）期间冻结高度
   - Monaco 在 ≤640px 自动 `wordWrap: 'on'`
 - 提交历史经 `MySubmissionsDialog` 懒加载分页（`sm:max-w-[760px]`、高 `min(72vh,520px)`），行点击进入上下文内评测结果页
 - 题目预览与评测结果同为 `PageShell` 无框分区：标题 + 灰色说明 + 细分隔线，刷新 / 返回放页头，统计用纯文本，代码与测试点各自成段

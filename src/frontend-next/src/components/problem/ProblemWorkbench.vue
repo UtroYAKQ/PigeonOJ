@@ -48,12 +48,11 @@ const router = useRouter()
  * 拖动上方分隔条可自由调整高度，双击复位。高度按 px 持久化，
  * 下限保证可读；拖拽 / 键盘拉伸允许覆盖整个编辑器，其他场景保留编辑器最小高度。
  */
-// 默认展开高度按样例输入可读性调高；下限保留 140px 便于手动压缩，展开时不低于可读下限
+// 默认展开高度按样例输入可读性调高；下限保留 140px 便于手动压缩
 const CONSOLE_HEIGHT_KEY = 'pigeonoj.problems.consoleHeight.v2'
 const LEGACY_CONSOLE_HEIGHT_KEY = 'pigeonoj.problems.consoleHeight'
 const CONSOLE_HEIGHT_DEFAULT = 520
 const CONSOLE_HEIGHT_MIN = 140
-const CONSOLE_HEIGHT_OPEN_MIN = 360
 const EDITOR_MIN_HEIGHT = 220
 
 function loadConsoleHeight(): number {
@@ -131,15 +130,15 @@ function applyResize(): void {
   consoleCollapsed.value = false
 }
 
+/** 展开控制台：沿用上次高度（含手动压缩到较小的值），只按上下限约束，不再抬高到固定下限 */
+function openConsole(): void {
+  consoleHeight.value = clampConsoleHeight(consoleHeight.value)
+  consoleCollapsed.value = false
+}
+
 function toggleConsole(): void {
-  if (consoleCollapsed.value) {
-    consoleHeight.value = clampConsoleHeight(
-      Math.max(consoleHeight.value, CONSOLE_HEIGHT_OPEN_MIN),
-    )
-    consoleCollapsed.value = false
-  } else {
-    consoleCollapsed.value = true
-  }
+  if (consoleCollapsed.value) openConsole()
+  else consoleCollapsed.value = true
 }
 
 /** 把手单击开合：鼠标/触控的单击在 pointerup 里处理，detail=0 才是键盘触发 */
@@ -214,10 +213,7 @@ function onTabClick(value: 'result' | 'input'): void {
     return
   }
   activeTab.value = value
-  consoleHeight.value = clampConsoleHeight(
-    Math.max(consoleHeight.value, CONSOLE_HEIGHT_OPEN_MIN),
-  )
-  consoleCollapsed.value = false
+  openConsole()
 }
 
 
@@ -251,6 +247,13 @@ useResizeObserver(rightRef, () => {
   lastRightHeight = height
   consoleHeight.value = clampConsoleHeight(consoleHeight.value)
 })
+
+// 除拖拽外的所有高度变化（展开、切 tab、自测、窗口自适应）都立即落盘，保证下次打开沿用同一高度
+watch(consoleHeight, () => {
+  if (resizing) return
+  persistConsoleHeight()
+})
+
 onBeforeUnmount(() => {
   if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame)
   document.body.classList.remove('is-console-resizing')
@@ -261,17 +264,14 @@ watch(
   (value) => {
     if (!value) return
     activeTab.value = 'result'
-    consoleCollapsed.value = false
+    openConsole()
   },
 )
 
 function runSelfTest(): void {
   if (!code.value.trim() || props.selfTesting) return
   activeTab.value = 'result'
-  consoleHeight.value = clampConsoleHeight(
-    Math.max(consoleHeight.value, CONSOLE_HEIGHT_OPEN_MIN),
-  )
-  consoleCollapsed.value = false
+  openConsole()
   emit('self-test')
 }
 </script>
