@@ -92,6 +92,8 @@ TMP_ROOT = "/tmp"
 OUT_DIR = "/box/out"      # 编译产物落地目录（box 可写区，编译后拷回作业目录）
 _PROG = "/box/prog"       # 本作业目录（源码 / 编译产物 / 特判程序），只读挂载
 _DATA = "/box/data"       # 测试点 / 特判三文件目录，只读挂载（同宿主 inode，零拷贝）
+# C++ 预编译头目录：isolate 默认只读挂载 /usr，沙箱内同路径可见（见 Dockerfile）
+_CXX_PCH = "/usr/local/lib/cxx-pch"
 
 # box 目录内的相对名（宿主机 `<box>/box/<name>` 与沙箱 `/box/<name>` 同名）
 _OUT_NAME = "out"
@@ -1201,7 +1203,7 @@ def _commands(
         return "Main.py", ["/usr/bin/python3.12", f"{prog_dir}/Main.py"], None
     if language == "cpp17":
         return "Main.cpp", [f"{prog_dir}/Main"], [
-            "/usr/bin/g++", "-B/usr/bin/", "-std=c++17", "-O2", "-pipe",
+            "/usr/bin/g++", "-B/usr/bin/", f"-I{_CXX_PCH}", "-std=c++17", "-O2", "-pipe",
             "-o", f"{OUT_DIR}/Main", f"{prog_dir}/Main.cpp",
         ]
     if language == "java21":

@@ -86,6 +86,8 @@ docker compose --env-file .env.node --project-directory . -f docker/docker-compo
 - **需要 `privileged: true` 且 `cgroup: host`**（= `--cgroupns=host`）：isolate 要在 `/sys/fs/cgroup/isolate` 下建 box 子组并写 `memory.max`。私有 cgroup namespace 下容器根 cgroup 被 init 进程占用，写 `subtree_control` 报 EBUSY，isolate 随即报 `Cannot set .../cgroup.procs: Operation not supported`。宿主机需 cgroup v2（`/sys/fs/cgroup/cgroup.controllers` 存在），否则节点启动即失败而非降级。入口 `docker-entrypoint.sh` 建 `cg_root` 并在父层级与 isolate 根上委派 `memory` / `pids`。判题 gRPC 仍只出站
 - 可选本机管理页（默认 `127.0.0.1:18080`，容器内 `0.0.0.0` 但 compose 只映射宿主机回环）：改网关地址 / 令牌、TCP 探测、容量与并行度；`JUDGE_ADMIN_PORT=0` 关闭；token 掩码返回；写入 `/cache/node.runtime.toml`（挂载卷），**优先于** compose 环境变量，容器重建后保留
 - 镜像多阶段构建：`ISOLATE_VERSION` 编译 isolate 后丢弃 build-essential / git / libcap-dev；运行时仅保留 g++ / JDK / Python / libcap2
+- 镜像内置 C++ 预编译头 `/usr/local/lib/cxx-pch`（约 97MB）：isolate 默认只读挂载 `/usr`，沙箱内同路径可见，编译命令以 `-I` 命中；`bits/stdc++.h` 编译实测 1.27s → 0.27s。PCH 与 `-std=c++17 -O2` 绑定，改 C++ 编译参数须同步重建该层，否则 GCC 静默回退（只丢收益，不影响正确性）
+- GitHub 不可达时构建节点镜像需带镜像代理：`docker build --build-arg GH_MIRROR=https://gh-proxy.com/https://github.com/ -t pigeonoj/judge-node src/judge`
 - 节点参数：
 
 | 参数 | 默认 | 说明 |

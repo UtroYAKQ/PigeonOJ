@@ -41,6 +41,17 @@ RUN sed -i \
 COPY --from=isolate-build /usr/local/bin/isolate /usr/local/bin/isolate
 COPY --from=isolate-build /usr/local/etc/isolate /usr/local/etc/isolate
 
+# C++ 预编译头：bits/stdc++.h 首次全量解析约 1.2s，预编译后同一份源码降到约 0.26s。
+# PCH 必须与运行期编译参数完全一致（-std=c++17 -O2），否则 GCC 静默回退到普通编译
+# （只是丢收益，不影响正确性）。放在 /usr/local 是因为 isolate 默认只读挂载整个 /usr，
+# 沙箱内同路径可见，编译命令以 -I/usr/local/lib/cxx-pch 命中，无需额外 --dir。
+RUN mkdir -p /usr/local/lib/cxx-pch/bits \
+    && cp "$(find /usr/include -name stdc++.h | head -n 1)" /usr/local/lib/cxx-pch/bits/stdc++.h \
+    && g++ -B/usr/bin/ -std=c++17 -O2 -pipe \
+           -x c++-header /usr/local/lib/cxx-pch/bits/stdc++.h \
+           -o /usr/local/lib/cxx-pch/bits/stdc++.h.gch \
+    && test -s /usr/local/lib/cxx-pch/bits/stdc++.h.gch
+
 # isolate 需要一段专用 UID/GID 用于 box 内身份（default.cf 的 subid_user=isolate）；
 # 容器内以 root 运行、无需 setuid，box 根目录由 isolate 自管。
 # cgroup v2：默认 cg_root 是 auto:/run/isolate/cgroup（依赖 isolate-cg-keeper/systemd），
@@ -60,7 +71,9 @@ WORKDIR /opt/judge-node
 # 运行期入口：isolate 的 cg_root（/sys/fs/cgroup/isolate）必须在容器启动后创建
 # ——构建期无法创建（镜像不保留 /sys 内容），仅 privileged 容器可写。
 COPY docker-entrypoint.sh /usr/local/bin/judge-node-entrypoint
-RUN chmod 0755 /usr/local/bin/judge-node-entrypoint
+# Windows 构建机上该脚本可能是 CRLF，shebang 会变成 `#!/bin/sh\r` 导致 exec 找不到解释器
+RUN chmod 0755 /usr/local/bin/judge-node-entrypoint \
+    && sed -i 's/\r$//' /usr/local/bin/judge-node-entrypoint
 
 ENTRYPOINT ["/usr/local/bin/judge-node-entrypoint"]
 CMD ["python3.12", "daemon.py", "--config", "node.toml"]
