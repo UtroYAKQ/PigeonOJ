@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PigeonOJ">
-  <rect width="64" height="64" rx="14" fill="#d9480f" />
-  <path d="M12 39c0-11.6 9.4-21 21-21 5.2 0 10 1.8 13.7 4.8l5.3-5.3v15.7c0 11.2-9.1 20.3-20.3 20.3C21.5 53.5 12 47 12 39Z" fill="#fff" />
-  <path d="M42 18.5 52 9v13.6l-10 4.4Z" fill="#ffd7c4" />
-  <circle cx="42" cy="29" r="2.6" fill="#d9480f" />
-  <path d="M47 34.5 57 38l-10 3.5Z" fill="#ffb995" />
-</svg>

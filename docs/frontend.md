@@ -132,8 +132,8 @@ Vue 3 · Vue Router 4 · Pinia · **shadcn-vue**（reka-ui 无头组件）· Tai
 - 一级侧栏是业务区块入口；子路由激活时一级菜单保持激活
 - 对象上下文页面（创建题目、编辑、提交详情、评测结果）标记 `meta.contextPage: true` + `meta.hidden: true`；归属工作台用 `breadcrumbParent` 声明
 - 路由标题 / 菜单标题设 `meta.titleKey`，由 i18n 生成；无 `titleKey` 的路由不得进导航目录
-- 浏览器标签「页面标题 · 站点名」；`public/` 根目录提供 `favicon.ico`、`favicon.svg`、`favicon.png`、`apple-touch-icon.png`，并在 `index.html` 用绝对路径声明，后台配置 `site.logo` 时再动态覆盖
-- `nginx.conf` 对这四个图标路径做精确匹配与短缓存，缺失文件直接 404，不能回退到 `index.html`；`.ico` → `image/x-icon`，`.svg` → `image/svg+xml`
+- 浏览器标签「页面标题 · 站点名」；`public/` 根目录提供 `favicon.ico`、`favicon.png`、`apple-touch-icon.png`，并在 `index.html` 用绝对路径声明，后台配置 `site.logo` 时再动态覆盖
+- `nginx.conf` 对这三个图标路径做精确匹配与短缓存，缺失文件直接 404，不能回退到 `index.html`；`.ico` → `image/x-icon`
 
 ### 6.1 页面实例缓存
 

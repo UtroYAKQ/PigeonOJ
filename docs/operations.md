@@ -255,7 +255,7 @@ python -m scripts.crawl_loj --begin 100 --end 199         # LibreOJ 题目爬取
 - [ ] `CORS_ORIGINS` 已设为实际域名
 - [ ] 数据库迁移已执行
 - [ ] 初始管理员已创建（勿用演示账号当生产管理员）
-- [ ] HTTPS 已启用
+- [ ] HTTPS 已启用，HTTP 仅 301 跳转 HTTPS（`/.well-known/` ACME 校验除外）
 - [ ] `.env` 未提交版本控制
 - [ ] MinIO bucket 已创建且后端具备读写权限
 - [ ] 沙箱节点已注册且健康
