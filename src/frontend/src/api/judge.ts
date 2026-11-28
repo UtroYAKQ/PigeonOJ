@@ -22,7 +22,7 @@ export function getSubmission(id: string): Promise<Submission> {
   return apiRequest('GET', `/submissions/${id}`)
 }
 
-/** 用户自测：经判题节点一次性运行，仅回传 stdout（docs/contracts/judge.md「用户自测」） */
+/** 用户自测：经判题节点一次性运行，仅回传 stdout（docs/contracts.md §10.8） */
 export function runProblemCode(body: SelfTestPayload): Promise<SelfTestResult> {
   return apiRequest('POST', `/problems/${body.problem_id}/run-code`, {
     language: body.language,

@@ -1,5 +1,5 @@
 /**
- * 社区模块类型（docs/contracts/community.md）：题解 / 评论 / 举报。
+ * 社区模块类型（docs/contracts.md §11）：题解 / 评论 / 举报。
  */
 
 /** 作者摘要（题解 / 评论公共） */

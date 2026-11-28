@@ -1,5 +1,5 @@
 /**
- * 站点公开信息 API（GET /site-config，未登录可读；docs/contracts/admin.md system_configs site 域）。
+ * 站点公开信息 API（GET /site-config，未登录可读；docs/contracts.md §12.1 site 域）。
  */
 import { apiRequest } from './http'
 import type { SiteConfig } from '@/types'

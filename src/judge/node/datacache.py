@@ -54,7 +54,14 @@ class ProblemDataCache:
                 count += 1
             if count == 0 or not (tmp / "manifest.json").exists():
                 raise RuntimeError("empty or invalid problem data stream")
-            tmp.rename(target)
+            try:
+                tmp.rename(target)
+            except OSError:
+                # 并发拉取同一题目版本：另一个任务已先落盘，复用已有目录即可；
+                # 否则说明目标目录损坏（无 manifest），交回上层报错
+                if self.has(problem_id, data_version):
+                    return target
+                raise
             os.utime(target, None)
         finally:
             if tmp.exists():

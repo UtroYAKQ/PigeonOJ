@@ -12,6 +12,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+NODE_VERSION = "isolate-node-2.0"  # 注册与管理页展示，随沙箱后端变更跳动
+
 
 @dataclass
 class ServerConfig:
@@ -35,9 +37,11 @@ class PathsConfig:
 
 @dataclass
 class SandboxConfig:
-    nsjail_binary: str = "nsjail"
-    nsjail_config: str = "/etc/pigeonoj/nsjail.cfg"
-    case_parallel: int = 4          # IOI/练习同作业并行测试点数；ACM 短路仍串行
+    isolate_binary: str = "isolate"     # isolate 可执行文件（镜像内已在 PATH）
+    box_pool_size: int = 10             # 预初始化 box 数；建议 ≥ capacity×(case_parallel+1)
+    box_id_base: int = 0                # 池占用 box-id 区间起点，同机多节点进程需错开
+    case_parallel: int = 4              # IOI/练习同作业并行测试点数；ACM 短路仍串行
+    box_acquire_timeout_seconds: float = 60.0  # 等不到空闲 box 的失败时限（秒）
 
 
 @dataclass
@@ -91,6 +95,14 @@ def load_config(path: str | Path) -> JudgeNodeConfig:
         cfg.cache.gc_interval_seconds = int(gc_interval)
     if parallel := os.environ.get("JUDGE_CASE_PARALLEL"):
         cfg.sandbox.case_parallel = max(1, int(parallel))
+    if isolate_binary := os.environ.get("JUDGE_ISOLATE_BINARY"):
+        cfg.sandbox.isolate_binary = isolate_binary
+    if pool := os.environ.get("JUDGE_ISOLATE_BOX_POOL"):
+        cfg.sandbox.box_pool_size = max(1, int(pool))
+    if base := os.environ.get("JUDGE_ISOLATE_BOX_ID_BASE"):
+        cfg.sandbox.box_id_base = max(0, int(base))
+    if acquire := os.environ.get("JUDGE_ISOLATE_ACQUIRE_TIMEOUT"):
+        cfg.sandbox.box_acquire_timeout_seconds = max(1.0, float(acquire))
     if admin_bind := os.environ.get("JUDGE_ADMIN_BIND"):
         cfg.admin.bind = admin_bind
     if admin_port := os.environ.get("JUDGE_ADMIN_PORT"):
@@ -131,9 +143,11 @@ def save_config(path: str | Path, cfg: JudgeNodeConfig) -> None:
         f"gc_interval_seconds = {int(cfg.cache.gc_interval_seconds)}\n"
         "\n"
         "[sandbox]\n"
-        f"nsjail_binary = {_toml_str(cfg.sandbox.nsjail_binary)}\n"
-        f"nsjail_config = {_toml_str(cfg.sandbox.nsjail_config)}\n"
+        f"isolate_binary = {_toml_str(cfg.sandbox.isolate_binary)}\n"
+        f"box_pool_size = {max(1, int(cfg.sandbox.box_pool_size))}\n"
+        f"box_id_base = {max(0, int(cfg.sandbox.box_id_base))}\n"
         f"case_parallel = {max(1, int(cfg.sandbox.case_parallel))}\n"
+        f"box_acquire_timeout_seconds = {max(1.0, float(cfg.sandbox.box_acquire_timeout_seconds)):.1f}\n"
         "\n"
         "[admin]\n"
         f"bind = {_toml_str(cfg.admin.bind)}\n"
@@ -181,6 +195,23 @@ def apply_runtime_overlay(cfg: JudgeNodeConfig) -> None:
             cfg.sandbox.case_parallel = max(1, int(sandbox["case_parallel"]))
         except (TypeError, ValueError):
             pass
+    if "box_pool_size" in sandbox:
+        try:
+            cfg.sandbox.box_pool_size = max(1, int(sandbox["box_pool_size"]))
+        except (TypeError, ValueError):
+            pass
+    if "box_id_base" in sandbox:
+        try:
+            cfg.sandbox.box_id_base = max(0, int(sandbox["box_id_base"]))
+        except (TypeError, ValueError):
+            pass
+    if "box_acquire_timeout_seconds" in sandbox:
+        try:
+            cfg.sandbox.box_acquire_timeout_seconds = max(1.0, float(sandbox["box_acquire_timeout_seconds"]))
+        except (TypeError, ValueError):
+            pass
+    if "isolate_binary" in sandbox and sandbox["isolate_binary"]:
+        cfg.sandbox.isolate_binary = str(sandbox["isolate_binary"])
     if "max_mb" in cache:
         try:
             cfg.cache.max_mb = max(0, int(cache["max_mb"]))
@@ -202,6 +233,7 @@ def save_runtime_overlay(cfg: JudgeNodeConfig) -> None:
         f"capacity = {max(1, int(cfg.node.capacity))}\n"
         "[sandbox]\n"
         f"case_parallel = {max(1, int(cfg.sandbox.case_parallel))}\n"
+        f"box_acquire_timeout_seconds = {max(1.0, float(cfg.sandbox.box_acquire_timeout_seconds)):.1f}\n"
         "[cache]\n"
         f"max_mb = {int(cfg.cache.max_mb)}\n",
         encoding="utf-8",

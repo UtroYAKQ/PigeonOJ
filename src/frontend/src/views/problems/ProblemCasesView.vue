@@ -27,7 +27,7 @@ const cases = ref<TestCaseDraft[]>([])
 /** 展示样例（problems.samples；仅展示与自测，不参与判题；explanation 为选填样例解释） */
 const samples = ref<Array<{ input: string; output: string; explanation: string }>>([])
 
-/** SPJ 特判程序（docs/contracts/problems.md「SPJ 特判程序」）：
+/** SPJ 特判程序（docs/contracts.md §7.5）：
  * 编辑的是暂存集（验题通过后随 apply 晋升生效） */
 const spjCode = ref('')
 const spjSaving = ref(false)
@@ -68,7 +68,7 @@ function normalize() {
 async function loadExisting() {
   loading.value = true
   try {
-    // 团队题目经团队上下文端点回读（题库裸路径按可见性拦截，docs/contracts/teams.md）；
+    // 团队题目经团队上下文端点回读（题库裸路径按可见性拦截，docs/contracts.md §6）；
     // 组织题 / 全站题走题库统一端点（组织成员过权限门）
     const loaded: ProblemDetail = await (isTeam
       ? getTeamProblem(teamId!, problemId)

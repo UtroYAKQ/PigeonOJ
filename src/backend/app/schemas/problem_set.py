@@ -1,4 +1,4 @@
-"""题单模块请求 / 响应 Schema（docs/contracts/problem-sets.md）。"""
+"""题单模块请求 / 响应 Schema（docs/contracts.md §8）。"""
 from __future__ import annotations
 
 import uuid

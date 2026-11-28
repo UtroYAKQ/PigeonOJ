@@ -1,4 +1,4 @@
-"""题单模型：problem_sets / problem_set_items。表结构对应 docs/contracts/problem-sets.md。
+"""题单模型：problem_sets / problem_set_items。表结构对应 docs/contracts.md §8。
 
 团队题单（team_id 非空）随 teams 模块开放：列与 CHECK 约束先按契约落齐，
 teams 表建立后由其迁移补 FK 约束，当前应用层拒绝创建团队题单。
@@ -27,7 +27,7 @@ from app.enums import ProblemSetStatus, ProblemSetVisibility
 
 
 class ProblemSet(Base):
-    """题单（docs/contracts/problem-sets.md）。"""
+    """题单（docs/contracts.md §8）。"""
 
     __tablename__ = "problem_sets"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

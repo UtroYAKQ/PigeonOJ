@@ -24,7 +24,7 @@ bucket = "pigeonoj"
 secure = false                                 # 生产（HTTPS）环境置 true
 
 [judge]
-# 判题节点网关（docs/contracts/judge.md 节点网关协议）
+# 判题节点网关（docs/contracts.md §10.10）
 # 后端不执行任何用户代码；代码执行只发生在注册的判题节点容器内。
 gateway_tokens = ""                            # 注册令牌（逗号分隔多个）；为空则网关不启动
 grpc_host = "0.0.0.0"

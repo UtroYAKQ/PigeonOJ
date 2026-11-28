@@ -19,7 +19,7 @@ def upgrade() -> None:
     now = sa.text("now()")
     uuid = postgresql.UUID(as_uuid=True)
 
-    # ---- problems 补列（docs/contracts/problems.md） ----
+    # ---- problems 补列（docs/contracts.md §7） ----
     op.add_column("problems", sa.Column("input_description", sa.Text(), nullable=True))
     op.add_column("problems", sa.Column("output_description", sa.Text(), nullable=True))
     op.add_column("problems", sa.Column("solution", sa.Text(), nullable=True))

@@ -1,6 +1,6 @@
 """比赛仓储：Contest / ContestProblem / ContestRegistration / ContestRanking 数据访问。
 
-榜单更新全部为条件写入（WHERE is_frozen = false，docs/contracts/contests.md 第 4 条），
+榜单更新全部为条件写入（WHERE is_frozen = false，docs/contracts.md §9.4），
 行不存在时经 INSERT ON CONFLICT DO NOTHING 原子补建，避免判题并发下的重复行。
 """
 from __future__ import annotations
@@ -105,7 +105,7 @@ class ContestRepository:
         status: str | None,
         keyword: str | None = None,
     ) -> tuple[list[Contest], int]:
-        """团队比赛列表（docs/contracts/teams.md 团队空间节）：本团队全部状态比赛，开赛时间倒序。"""
+        """团队比赛列表（docs/contracts.md §6.4）：本团队全部状态比赛，开赛时间倒序。"""
         conditions: list = [Contest.contest_type == ContestType.TEAM, Contest.team_id == team_id]
         if status:
             conditions.append(Contest.status == status)
@@ -254,7 +254,7 @@ class ContestRepository:
         self, user_id: uuid.UUID, problem_ids: list[uuid.UUID],
         *, team_id: uuid.UUID | None = None,
     ) -> list[Problem]:
-        """编排候选校验：已发布且（全站公开）题目（docs/contracts/contests.md）。
+        """编排候选校验：已发布且（全站公开）题目（docs/contracts.md §9）。
 
         - 全站编排（team_id=None）：一律排除团队 / 组织封闭空间题目
           （team_id / org_id 非空）——团队与组织是封闭空间，封闭题目不得流入公开比赛

@@ -1,6 +1,6 @@
 """团队域服务：创建 / 编辑 / 邀请 / 加入审批 / 成员与团队角色授权管理。
 
-团队角色经 user_roles（scope='team'、object_id=team_id）授权（docs/contracts/teams.md）；
+团队角色经 user_roles（scope='team'、object_id=team_id）授权（docs/contracts.md §6）；
 邀请链接存 Redis `team:invite:<token>`（不可撤销、可多人使用、无一次性限制）。
 """
 from __future__ import annotations
@@ -73,7 +73,7 @@ def summarize_teams(
     member_team_ids: set[uuid.UUID] | None = None,
     default_member: bool = False,
 ) -> list[TeamSummary]:
-    """团队列表汇总装配（组织 / 我的 / 公开列表共用，docs/contracts/teams.md）。
+    """团队列表汇总装配（组织 / 我的 / 公开列表共用，docs/contracts.md §6）。
 
     - member_team_ids=None：假定全部行都是查看者的在册团队（我的团队分支）
     - member_team_ids 提供时仅其中在册团队带角色，其余 my_role=None（公开列表分支）
@@ -106,11 +106,11 @@ def summarize_teams(
 
 
 class TeamService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, *, config: ConfigService | None = None) -> None:
         self.db = db
         self.teams = TeamRepository(db)
         self.roles = RoleRepository(db)
-        self.config = ConfigService(db)
+        self.config = config or ConfigService(db)
 
     # ---------------- 权限辅助 ----------------
 
@@ -161,7 +161,7 @@ class TeamService:
 
     # ---------------- 编辑 / 详情 / 列表 ----------------
     # 团队创建已收敛到组织端点 POST /orgs/{org_id}/teams（OrgService.create_team，
-    # docs/contracts/orgs.md）——admin/tutor 全局创建门随 tutor 下线一并移除。
+    # docs/contracts.md §5）——admin/tutor 全局创建门随 tutor 下线一并移除。
 
     async def get_detail(self, user: User, team_id: uuid.UUID) -> TeamDetail:
         """团队详情（成员可见；非在册成员 2003）。"""
@@ -226,7 +226,7 @@ class TeamService:
         keyword: str | None = None,
         mine: bool = False,
     ) -> tuple[list[TeamSummary], int]:
-        """团队中心列表（docs/contracts/teams.md）。
+        """团队中心列表（docs/contracts.md §6）。
 
         - 默认：仅公开在册团队（创建时间倒序），匿名可看；私有团队不出现在任何公开列表
         - mine=true（须登录）：我在册的团队（公开 + 私有，含我创建的）——「我的团队」勾选
@@ -252,7 +252,7 @@ class TeamService:
             role_map = await self.roles.get_team_roles_for_teams(user.id, team_ids)
         return summarize_teams(rows, counts, role_map, user=user, member_team_ids=member_team_ids), total
 
-    # ---------------- 管理端视图（admin，docs/contracts/teams.md 管理端） ----------------
+    # ---------------- 管理端视图（admin，docs/contracts.md §6.5） ----------------
 
     async def admin_list_teams(
         self,
@@ -411,7 +411,7 @@ class TeamService:
         page_size: int,
         keyword: str | None = None,
     ) -> tuple[list[TeamMemberOut], int]:
-        """成员列表（团队任意角色可查，docs/contracts/teams.md；带创建者 / 管理员标记）。"""
+        """成员列表（团队任意角色可查，docs/contracts.md §6；带创建者 / 管理员标记）。"""
         team = await self._team_or_404(team_id)
         await self._require_team_roles(user, team.id, level="member")
         return await self._assemble_members(team, status, page, page_size, keyword)
@@ -467,7 +467,7 @@ class TeamService:
         """分配 / 取消团队管理员（创建者或站点 admin；分配即写授权，取消即删除）。
 
         站点 admin 兜底（治理逃生门）：创建者不可转移且不可退出，账号缺失时
-        团队将无人能任命管理员——admin 可代执行，避免孤儿团队（docs/contracts/teams.md）。
+        团队将无人能任命管理员——admin 可代执行，避免孤儿团队（docs/contracts.md §6）。
         """
         team = await self._team_or_404(team_id)
         if not await is_admin(self.db, user):

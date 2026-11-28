@@ -1,6 +1,8 @@
 """题目数据缓存：分片追加与路径校验。"""
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from datacache import ProblemDataCache
@@ -35,3 +37,21 @@ async def test_sync_rejects_path_traversal(tmp_path):
 
     with pytest.raises(RuntimeError, match="invalid problem data path"):
         await cache.sync("p", "v2", stream())
+
+@pytest.mark.asyncio
+async def test_sync_concurrent_same_version_reuses_result(tmp_path):
+    """两个任务同时拉同一题目版本：后完成者不能因 rename 冲突报 system_error。"""
+    cache = ProblemDataCache(tmp_path)
+
+    def stream():
+        async def gen():
+            yield _Chunk("manifest.json", b"{}")
+            yield _Chunk("cases/1.in", b"ab")
+        return gen()
+
+    results = await asyncio.gather(
+        cache.sync("p", "v3", stream()),
+        cache.sync("p", "v3", stream()),
+    )
+    assert all(path == tmp_path / "p-v3" for path in results)
+    assert (tmp_path / "p-v3" / "cases" / "1.in").read_bytes() == b"ab"

@@ -23,7 +23,7 @@ export function listProblems(query: ProblemListQuery = {}): Promise<PageResult<P
   return apiRequest('GET', `/problems${buildQuery(query)}`)
 }
 
-/** 题目管理视角：该题全员提交列表（创建者与管理角色，docs/contracts/judge.md）；
+/** 题目管理视角：该题全员提交列表（创建者与管理角色，docs/contracts.md §10）；
  * keyword 模糊匹配提交人昵称，language / status / submit_type 精确过滤 */
 export function listProblemSubmissions(
   id: string,
@@ -88,7 +88,7 @@ export function patchTestCases(
   return apiRequest('PATCH', `/problems/${id}/test-cases`, body)
 }
 
-/** 特判程序目标状态回读（暂存优先；仅题目管理者可读，docs/contracts/problems.md「SPJ 特判程序」） */
+/** 特判程序目标状态回读（暂存优先；仅题目管理者可读，docs/contracts.md §7.5） */
 export function getProblemSpj(id: string): Promise<ProblemSpj> {
   return apiRequest('GET', `/problems/${id}/spj`)
 }
@@ -104,7 +104,7 @@ export function deleteProblemSpj(id: string): Promise<null> {
 }
 
 /** FPS 题库一键导入（admin）：ZIP（内含 fps XML）或单个 XML，无大小限制；
- * 单次最多尝试 20 题，超出分批上传（docs/contracts/problems.md「FPS 题库导入」） */
+ * 单次最多尝试 20 题，超出分批上传（docs/contracts.md §7.8） */
 export function importFpsProblems(file: File): Promise<FpsImportResult> {
   const form = new FormData()
   form.append('file', file)

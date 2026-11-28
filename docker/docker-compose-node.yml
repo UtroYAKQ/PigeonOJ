@@ -1,15 +1,22 @@
 # 判题节点编排：在任意可出站访问后端网关的服务器上部署。
 # 配置统一来自 .env.node（模板见 .env.node.example），仓库根目录执行：
 #   docker compose --env-file .env.node --project-directory . -f docker/docker-compose-node.yml up -d --build
-# 判题 gRPC 只出站；可选管理页默认映射到宿主机 127.0.0.1:18080。privileged 仅为 nsjail 嵌套 namespace 所需。
+# 判题 gRPC 只出站；可选管理页默认映射到宿主机 127.0.0.1:18080。
+# privileged 为 isolate 创建 namespace、挂载 cgroup v2 所需（受控节点信任边界）。
 services:
   judge-node:
     build:
       context: ../src/judge
     image: pigeonoj/judge-node:latest
-    privileged: true            # nsjail 嵌套 namespace 所需（受控节点信任边界）
+    privileged: true            # isolate 建 namespace + cgroup v2 所需（受控节点信任边界）
+    # cgroupns=host 必需：私有 cgroup namespace 下容器根 cgroup 被 init 进程占用，
+    # cgroup v2 的"无内部进程"约束使控制器无法委派，isolate 建 box 会失败
+    cgroup: host
     restart: unless-stopped
-    mem_limit: 1g               # 防止编译/判题失控拖垮宿主机（单作业限额另由 sandbox_configs 下发）
+    # 容器级内存上限：必须 ≥ capacity × (case_parallel + 1) × 单题内存上限，
+    # 否则 cgroup v2 嵌套下并发 box 会把容器整体 OOM（可能连 daemon 一起杀）。
+    # 默认 4g 覆盖 2 并发 × (4 并行 + 1 编译) × 512MB 的编译/判题峰值。
+    mem_limit: ${JUDGE_NODE_MEM_LIMIT:-4g}
     # Linux 下让 SERVER_ADDRESS=host.docker.internal 指向宿主机（同机部署后端时使用）
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -22,6 +29,10 @@ services:
       JUDGE_NODE_NAME: ${JUDGE_NODE_NAME:-}
       JUDGE_NODE_CAPACITY: ${JUDGE_NODE_CAPACITY:-2}
       JUDGE_CASE_PARALLEL: ${JUDGE_CASE_PARALLEL:-4}
+      JUDGE_ISOLATE_BINARY: ${JUDGE_ISOLATE_BINARY:-isolate}
+      JUDGE_ISOLATE_BOX_POOL: ${JUDGE_ISOLATE_BOX_POOL:-10}
+      JUDGE_ISOLATE_BOX_ID_BASE: ${JUDGE_ISOLATE_BOX_ID_BASE:-0}
+      JUDGE_ISOLATE_ACQUIRE_TIMEOUT: ${JUDGE_ISOLATE_ACQUIRE_TIMEOUT:-60}
       JUDGE_CACHE_MAX_MB: ${JUDGE_CACHE_MAX_MB:-512}
       JUDGE_CACHE_GC_INTERVAL_SECONDS: ${JUDGE_CACHE_GC_INTERVAL_SECONDS:-300}
       JUDGE_ADMIN_BIND: ${JUDGE_ADMIN_BIND:-0.0.0.0}
@@ -30,7 +41,7 @@ services:
       # 只映射到宿主机回环，避免把管理页暴露到公网
       - "127.0.0.1:${JUDGE_ADMIN_PORT:-18080}:${JUDGE_ADMIN_PORT:-18080}"
     volumes:
-      # 宿主机工作区 → 容器 /workspace（每作业子目录自动创建/清理，nsjail 内唯一可写挂载）
+      # 宿主机工作区 → 容器 /workspace（每作业子目录自动创建/清理；沙箱内只读挂载为 /prog）
       - ${NODE_WORKSPACE_DIR:?请在 .env.node 设置工作区目录}:/workspace
       # 题目数据缓存 → /cache（按 data_version 复用，跨重启有效）
       - ${NODE_CACHE_DIR:?请在 .env.node 设置缓存目录}:/cache

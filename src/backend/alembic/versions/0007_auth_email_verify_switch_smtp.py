@@ -1,4 +1,4 @@
-"""auth_email 域新增注册邮箱验证开关与 SMTP 发信配置（docs/contracts/admin.md）。
+"""auth_email 域新增注册邮箱验证开关与 SMTP 发信配置（docs/contracts.md §12）。
 
 Revision ID: 0007
 Revises: 0006

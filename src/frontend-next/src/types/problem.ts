@@ -1,5 +1,5 @@
 /**
- * 题库模块类型（docs/contracts/problems.md）。
+ * 题库模块类型（docs/contracts.md §7）。
  */
 
 export type ProblemLanguage = 'python3.12' | 'cpp17' | 'java21'
@@ -74,7 +74,7 @@ export interface ProblemDetail extends ProblemSummary {
   /** 测试点集合状态缓存：empty / to_verify / to_reverify / ok */
   case_status?: string | null
   samples_updated_at?: string | null
-  /** SPJ 特判题（生效集特判程序非空，docs/contracts/judge.md「SPJ 特判」） */
+  /** SPJ 特判题（生效集特判程序非空，docs/contracts.md §10.6） */
   has_spj?: boolean
 }
 
@@ -85,7 +85,7 @@ export interface ProblemSpj {
   staged: boolean
 }
 
-/** FPS 导入单题结果（POST /admin/problems/import；docs/contracts/problems.md「FPS 题库导入」） */
+/** FPS 导入单题结果（POST /admin/problems/import；docs/contracts.md §7.8） */
 export interface FpsImportItem {
   title: string
   /** published / draft / draft_spj / duplicate / skipped_spj / failed */
@@ -171,7 +171,7 @@ export interface ProblemCreatePayload extends ProblemEditPayload {
   title: string
   background: string
   description: string
-  /** 题面要素必填（docs/contracts/problems.md） */
+  /** 题面要素必填（docs/contracts.md §7） */
   input_description: string
   output_description: string
 }

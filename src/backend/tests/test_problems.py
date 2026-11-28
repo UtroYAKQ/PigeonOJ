@@ -1,4 +1,4 @@
-"""题库模块集成测试：权限、可见性、生命周期、验题流程、提交历史（docs/contracts/problems.md）。"""
+"""题库模块集成测试：权限、可见性、生命周期、验题流程、提交历史（docs/contracts.md §7）。"""
 from __future__ import annotations
 
 import urllib.parse
@@ -88,7 +88,7 @@ async def _get_cases(client, headers, pid: str) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_org_member_manage_and_outsider_gate(client, admin_headers):
-    """组织题库所有权模型（docs/contracts/orgs.md）：组织题按组织成员资格判定管理权——
+    """组织题库所有权模型（docs/contracts.md §5）：组织题按组织成员资格判定管理权——
 
     组织成员可编辑组织内他人创建的题目（owner_id 仅署名）；组织外用户草稿 2003、
     编辑 2003；全站题创建仅 admin（普通用户 2003）。
@@ -168,7 +168,7 @@ async def test_create_problem_requires_manager_role(client, user_headers):
     )
     body = resp.json()
     assert resp.status_code == 403
-    assert body["code"] == 2003  # 越权统一 2003（docs/contracts/common.md）
+    assert body["code"] == 2003  # 越权统一 2003（docs/contracts.md §1）
 
 
 @pytest.mark.asyncio
@@ -186,7 +186,7 @@ async def test_create_defaults_and_draft_visibility(client, admin_headers):
     detail = resp.json()["data"]
     assert detail["can_manage"] is True
     assert detail["background"] == "经典入门题"
-    # 详情不再携带测试点（独立管理端点承担，docs/contracts/problems.md）
+    # 详情不再携带测试点（独立管理端点承担，docs/contracts.md §7）
     assert "test_cases" not in detail
     assert "solution" in detail
 
@@ -208,7 +208,7 @@ async def test_update_background_roundtrip(client, admin_headers):
 
 @pytest.mark.asyncio
 async def test_validation_failures_use_unified_envelope(client, admin_headers):
-    """Query / Body 校验失败（FastAPI 422）统一转 1001 信封（docs/contracts/common.md）。"""
+    """Query / Body 校验失败（FastAPI 422）统一转 1001 信封（docs/contracts.md §1）。"""
     resp = await client.get("/api/v1/problems?page=0")
     assert resp.status_code == 400
     body = resp.json()
@@ -386,7 +386,7 @@ async def test_publish_requires_verification_and_cases(client, admin_headers, fa
         headers=admin_headers,
     )
     assert resp.json()["code"] == 0
-    assert fake_storage.puts == []  # 样例只落库展示，不进对象存储（docs/contracts/problems.md）
+    assert fake_storage.puts == []  # 样例只落库展示，不进对象存储（docs/contracts.md §7）
 
     # 仅样例仍不算正式测试点
     resp = await client.post(f"/api/v1/problems/{data['id']}/publish", headers=admin_headers)
@@ -416,7 +416,7 @@ async def test_publish_requires_verification_and_cases(client, admin_headers, fa
         json={"cases": [{"name": "c", "input": "1", "expected_output": "2"}]},
         headers=admin_headers,
     )
-    assert resp.json()["code"] == 3002  # 归档后编辑统一 3002（docs/contracts/problems.md 错误码）
+    assert resp.json()["code"] == 3002  # 归档后编辑统一 3002（docs/contracts.md §7.9）
     resp = await client.put(
         f"/api/v1/problems/{data['id']}/samples",
         json={"samples": []},
@@ -494,7 +494,7 @@ async def test_samples_change_requires_reverification(client, admin_headers, fak
 
 @pytest.mark.asyncio
 async def test_note_and_sample_explanation_roundtrip(client, admin_headers):
-    """题面说明（note）与样例解释（explanation）读写链路（docs/contracts/problems.md）。"""
+    """题面说明（note）与样例解释（explanation）读写链路（docs/contracts.md §7）。"""
     resp = await client.post(
         "/api/v1/problems",
         json={
@@ -732,7 +732,7 @@ async def test_submission_history_and_detail(client, admin_headers, user_headers
 @pytest.mark.asyncio
 async def test_problem_submissions_manage_view(client, admin_headers, user_headers):
     """题目管理视角全员提交：题目管理角色可见所有人提交（含提交人昵称），
-    非管理角色 403；支持状态 / 昵称 / 语言过滤（docs/contracts/judge.md）。"""
+    非管理角色 403；支持状态 / 昵称 / 语言过滤（docs/contracts.md §10）。"""
     data = await _create_problem(client, admin_headers)
     pid = data["id"]
     async with SessionLocal() as db:
@@ -806,7 +806,7 @@ async def test_problem_submissions_manage_view(client, admin_headers, user_heade
 @pytest.mark.asyncio
 async def test_problem_submission_detail_manage_view(client, admin_headers, user_headers, fake_storage):
     """题目管理视角提交详情（统一入口）：管理权限 + 归属校验后复用判题装配；
-    非管理角色 403，跨题目归属 3001（docs/contracts/judge.md）。"""
+    非管理角色 403，跨题目归属 3001（docs/contracts.md §10）。"""
     data = await _create_problem(client, admin_headers)
     other = await _create_problem(client, admin_headers)
     pid = data["id"]
@@ -1488,7 +1488,7 @@ async def test_problem_tag_assignment_and_filter(client, admin_headers):
     assert resp.json()["data"]["total"] == 1
 
 
-# ---- SPJ 特判程序管理（docs/contracts/problems.md「SPJ 特判程序」） ----
+# ---- SPJ 特判程序管理（docs/contracts.md §7.5） ----
 
 SPJ_CODE = "#include <bits/stdc++.h>\nint main(int argc, char** argv){ return 0; }\n"
 

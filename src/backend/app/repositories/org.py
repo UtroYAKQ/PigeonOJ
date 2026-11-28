@@ -47,7 +47,7 @@ class OrgRepository:
         keyword: str | None = None,
     ) -> tuple[list[tuple[OrgMember, User]], int]:
         """成员列表（join 用户，加入时间倒序分页；status 缺省 = 在册成员；
-        keyword 模糊匹配昵称，docs/contracts/orgs.md）。"""
+        keyword 模糊匹配昵称，docs/contracts.md §5）。"""
         conditions = [OrgMember.org_id == org_id]
         if status:
             conditions.append(OrgMember.status == status)
@@ -200,7 +200,7 @@ class OrgRepository:
         status: str | None = None,
     ) -> tuple[list[tuple[Organization, str | None]], int]:
         """组织管理列表（admin 全量，创建时间倒序；keyword 模糊组织名称、status 过滤；
-        join 创建操作人带昵称，docs/contracts/orgs.md 管理端）。"""
+        join 创建操作人带昵称，docs/contracts.md §5.5）。"""
         conditions: list = []
         if keyword:
             conditions.append(Organization.name.ilike(f"%{keyword}%"))

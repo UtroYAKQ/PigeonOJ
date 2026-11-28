@@ -1,5 +1,5 @@
 /**
- * 代码编辑器字体偏好（docs/contracts/users.md）：
+ * 代码编辑器字体偏好（docs/contracts.md §4）：
  * value 与后端 EditorFontFamily 白名单一致；stack 为 CSS 字体栈；
  * ligatures 标记该字体是否启用连字（Monaco fontLigatures）。
  */

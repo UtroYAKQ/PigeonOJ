@@ -5,7 +5,7 @@ from enum import StrEnum
 
 
 class ContestType(StrEnum):
-    """比赛归属（docs/contracts/contests.md）：团队比赛随 teams 模块开放。"""
+    """比赛归属（docs/contracts.md §9）：团队比赛随 teams 模块开放。"""
 
     PUBLIC = "public"
     TEAM = "team"

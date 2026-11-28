@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from config import JudgeNodeConfig, save_config
+from config import NODE_VERSION, JudgeNodeConfig, save_config
 
 _INDEX = Path(__file__).resolve().parent / "admin.html"
 _MASK = "********"
@@ -93,6 +93,11 @@ def apply_updates(cfg: JudgeNodeConfig, payload: dict) -> str:
             cfg.sandbox.case_parallel = max(1, int(payload["case_parallel"]))
         except (TypeError, ValueError):
             return "invalid case_parallel"
+    if "box_pool_size" in payload and payload["box_pool_size"] is not None:
+        try:
+            cfg.sandbox.box_pool_size = max(1, int(payload["box_pool_size"]))
+        except (TypeError, ValueError):
+            return "invalid box_pool_size"
     if "cache_max_mb" in payload and payload["cache_max_mb"] is not None:
         try:
             cfg.cache.max_mb = max(0, int(payload["cache_max_mb"]))
@@ -214,6 +219,11 @@ def _status_payload(admin: NodeAdmin) -> dict[str, Any]:
         cache_mb = round(daemon.cache.total_size() / 1048576, 1)
     except OSError:
         pass
+    sandbox: dict[str, Any] = {}
+    try:
+        sandbox = daemon.executor.stats() or {}
+    except Exception:  # noqa: BLE001 - 管理页不因执行器故障整体 500
+        sandbox = {}
     return {
         "connected": bool(getattr(daemon, "registered", False)),
         "connection_state": getattr(daemon, "connection_state", "disconnected"),
@@ -232,7 +242,8 @@ def _status_payload(admin: NodeAdmin) -> dict[str, Any]:
         "cpu_usage": daemon._cpu_usage(),
         "memory_usage": daemon._memory_usage(),
         "heartbeat_interval": daemon.heartbeat_interval,
-        "version": "nsjail-node-1.3",
+        "version": NODE_VERSION,
+        "sandbox": sandbox,
         "admin_bind": cfg.admin.bind,
         "admin_port": cfg.admin.port,
     }

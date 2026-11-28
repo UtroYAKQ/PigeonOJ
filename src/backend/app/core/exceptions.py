@@ -1,8 +1,8 @@
 """错误码常量与业务异常。
 
-错误码段约定见 docs/contracts/common.md：
+错误码段约定见 docs/contracts.md §1：
 10xx 参数校验 · 20xx 认证 / 授权 · 30xx 资源 · 40xx 频控 · 50xx 系统。
-新增错误码必须先登记到 docs/contracts/common.md。
+新增错误码必须先登记到 docs/contracts.md §1。
 """
 import logging
 
@@ -25,14 +25,14 @@ AUTH_NOT_LOGGED_IN = 2001  # 未登录
 AUTH_SESSION_EXPIRED = 2002  # 会话过期
 AUTH_FORBIDDEN = 2003  # 无权限
 AUTH_INVALID_CREDENTIAL = 2004  # 账号或密码错误
-REGISTER_DISABLED = 2005  # 站点未开放注册（docs/contracts/users.md）
+REGISTER_DISABLED = 2005  # 站点未开放注册（docs/contracts.md §4）
 
 # ---- 30xx 资源 ----
 RESOURCE_NOT_FOUND = 3001  # 资源不存在
 RESOURCE_STATE_CONFLICT = 3002  # 状态冲突
 RESOURCE_DUPLICATE = 3003  # 资源已存在（重复）
-ORG_LAST_ADMIN = 3004  # 组织最后一名管理员不可撤销 / 移出（docs/contracts/orgs.md）
-ORG_LAST_MEMBER = 3005  # 组织最后一名成员不可移出（docs/contracts/orgs.md）
+ORG_LAST_ADMIN = 3004  # 组织最后一名管理员不可撤销 / 移出（docs/contracts.md §5）
+ORG_LAST_MEMBER = 3005  # 组织最后一名成员不可移出（docs/contracts.md §5）
 
 # ---- 40xx 频控 ----
 RATE_SEND_TOO_FREQUENT = 4001  # 发送太频繁

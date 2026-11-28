@@ -1,5 +1,5 @@
 /**
- * 认证模块 API（docs/contracts/users.md）：注册 / 登录 / 登出 / 找回密码 / 换绑邮箱。
+ * 认证模块 API（docs/contracts.md §4）：注册 / 登录 / 登出 / 找回密码 / 换绑邮箱。
  */
 import { apiRequest } from './http'
 import type { LoginResult } from '@/types'

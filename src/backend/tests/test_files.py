@@ -189,7 +189,7 @@ async def test_upload_avatar_store_full_site_url_and_read_back(client, user_head
     assert data["url"].startswith("/api/v1/files/users/")
     assert "/avatar/" in data["url"]
 
-    # 前端直接使用上传返回的 url 存库（docs/contracts/users.md）
+    # 前端直接使用上传返回的 url 存库（docs/contracts.md §4）
     upd = await client.put(
         "/api/v1/users/me",
         headers=user_headers,
@@ -206,7 +206,7 @@ async def test_upload_avatar_store_full_site_url_and_read_back(client, user_head
 
 
 async def test_upload_avatar_rate_limited(client, user_headers, fake_storage):
-    """上传频控（docs/security.md）：头像每用户窗口内 ≤10 次，超次 4002；图片配额相互独立。"""
+    """上传频控（docs/architecture.md §5）：头像每用户窗口内 ≤10 次，超次 4002；图片配额相互独立。"""
     for i in range(10):
         resp = await client.post(
             "/api/v1/files/upload/avatar",

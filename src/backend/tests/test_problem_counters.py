@@ -1,4 +1,4 @@
-"""题目难度分与通过率统计测试（docs/contracts/problems.md problem_counters）。
+"""题目难度分与通过率统计测试（docs/contracts.md §7 problem_counters）。
 
 覆盖：difficulty 创建/编辑校验与区间筛选、problem_counters 判题终态累加、
 统计口径（verify / system_error 不计入）、列表与详情计数回填。

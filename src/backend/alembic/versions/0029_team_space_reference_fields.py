@@ -5,7 +5,7 @@
 - 团队比赛为团队空间直接创建（contest_type='team'），无引用语义，不加列
 
 团队题库 / 题单 / 比赛的归属列（team_id）与可见性 CHECK 已随 0022 落库，
-本迁移仅补引用来源字段，配套端点见 docs/contracts/teams.md「团队空间」节。
+本迁移仅补引用来源字段，配套端点见 docs/contracts.md §6.4。
 
 Revision ID: 0029
 Revises: 0028

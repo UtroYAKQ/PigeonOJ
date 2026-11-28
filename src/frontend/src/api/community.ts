@@ -1,5 +1,5 @@
 /**
- * 社区模块 API（docs/contracts/community.md）：官方题解 / 用户题解 / 代码广场 / 评论 / 举报。
+ * 社区模块 API（docs/contracts.md §11）：官方题解 / 用户题解 / 代码广场 / 评论 / 举报。
  */
 import { apiRequest } from './http'
 import { buildQuery } from '@/utils/query'

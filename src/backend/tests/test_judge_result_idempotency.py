@@ -1,4 +1,4 @@
-"""判题终态回写幂等性测试（docs/contracts/judge.md apply_job_result）。
+"""判题终态回写幂等性测试（docs/contracts.md §10 apply_job_result）。
 
 覆盖：同一 submission 的结果消息重复送达（节点重连后重发）时，第二次调用
 不重复累加通过率计数 / 不重复回写状态 / 不重复触发榜单与缓存失效副作用。

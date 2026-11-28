@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 题解详情页（docs/contracts/community.md）：全文渲染 + 本人编辑 / 删除 + 举报 + 评论区。
+ * 题解详情页（docs/contracts.md §11）：全文渲染 + 本人编辑 / 删除 + 举报 + 评论区。
  * 上下文取参复用题解页口径（problemId ?? id），返回与跳转封闭在当前上下文。
  */
 import { computed, onMounted, ref } from 'vue'

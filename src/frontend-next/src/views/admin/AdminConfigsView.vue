@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 系统配置（/admin/configs）：按域（site / auth_email / team / contest / sandbox / log / community）
- * 读取并编辑 system_configs（docs/contracts/admin.md）。
+ * 读取并编辑 system_configs（docs/contracts.md §12）。
  * 旧版为单文件 610 行（naive-ui 数据表 + 单弹窗）；现按分类导航 + 行式配置列表拆分，
  * 编辑器按配置键分流到 config-components/，站点域保存后触发热更新事件。
  */

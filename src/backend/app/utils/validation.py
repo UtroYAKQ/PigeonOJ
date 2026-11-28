@@ -1,4 +1,4 @@
-"""共享参数校验（10xx 错误码，docs/contracts/common.md）。"""
+"""共享参数校验（10xx 错误码，docs/contracts.md §1）。"""
 from __future__ import annotations
 
 import re
@@ -23,7 +23,7 @@ def normalize_email(email: str) -> str:
 
 
 def validate_email(email: str) -> str:
-    """校验并返回规范化后的邮箱；非法格式抛 1001（docs/contracts/users.md）。"""
+    """校验并返回规范化后的邮箱；非法格式抛 1001（docs/contracts.md §4）。"""
     normalized = normalize_email(email)
     if not normalized or len(normalized) > EMAIL_MAX_LENGTH:
         raise APIError(PARAM_FORMAT_INVALID, "邮箱格式错误", 400)

@@ -1,4 +1,4 @@
-"""新增验证码邮件 HTML 模板配置（docs/contracts/admin.md auth_email.template）。
+"""新增验证码邮件 HTML 模板配置（docs/contracts.md §12 auth_email.template）。
 
 Revision ID: 0015
 Revises: 0014

@@ -1,5 +1,5 @@
 """社区模块集成测试：官方题解、题解生命周期、评论两级软删、比赛门禁、开关与举报
-（docs/contracts/community.md）。"""
+（docs/contracts.md §11）。"""
 from __future__ import annotations
 
 import uuid

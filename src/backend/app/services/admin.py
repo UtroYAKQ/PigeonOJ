@@ -23,6 +23,8 @@ from app.repositories.user import UserRepository
 from app.repositories.audit import LogRepository
 from app.repositories.system_config import ConfigRepository
 from app.services.system_config import invalidate_config_cache
+from app.services.team import TeamService
+from app.services.team_space import TeamSpaceService
 from app.schemas.admin import (
     ConfigItemOut,
     ConfigUpdateItem,
@@ -32,6 +34,7 @@ from app.schemas.admin import (
     RequestLogOut,
     SandboxNodeOut,
 )
+from app.schemas.team import TeamAdminDetail, TeamAdminSummary
 from app.utils.pagination import PaginatedResponse
 from app.utils.request_meta import coerce_ua_info
 from app.core.exceptions import (
@@ -68,12 +71,13 @@ class AdminConfigService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.repo = ConfigRepository(db)
+        self.users = UserRepository(db)
 
     async def list_configs(self, category: str | None) -> list[ConfigItemOut]:
         rows = await self.repo.list_by_category(category)
         # 修改人：关联 users 取昵称（updated_by 为 UUID）
         updater_ids = {r.updated_by for r in rows if r.updated_by}
-        updater_names = await UserRepository(self.db).get_nicknames(list(updater_ids))
+        updater_names = await self.users.get_nicknames(list(updater_ids))
         return [
             ConfigItemOut(
                 id=str(r.id),
@@ -183,7 +187,15 @@ class LogService:
 
 
 class SandboxService:
-    """沙箱节点状态：读 Redis 热数据（sandbox:node:<id>），无节点时返回空列表。"""
+    """沙箱节点状态：在线节点来自 gRPC 网关注册表，Redis 心跳视图用于运维面板。"""
+
+    async def list_nodes(self) -> list[SandboxNodeOut]:
+        """在线节点（与 /sandbox/health 原有语义一致：进程内注册表实时连接）。"""
+        # 延迟导入：rpc 网关模块持有引擎与注册表单例，且其依赖链会回引 services，
+        # 顶部导入会形成真实循环（docs/architecture.md 服务层导入约定）。
+        from app.rpc.judge_gateway import REGISTRY
+
+        return [conn.to_payload() for conn in REGISTRY.list_nodes()]
 
     async def status(self) -> list[SandboxNodeOut]:
         r = get_redis()
@@ -207,11 +219,17 @@ class ReportService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.repo = ReportRepository(db)
+        # 举报内容摘要回填所需的邻域聚合仓储（构造期一次性装配，方法体不自构）
+        self.users = UserRepository(db)
+        self.solutions = SolutionRepository(db)
+        self.code_shares = CodeShareRepository(db)
+        self.comments = CommentRepository(db)
+        self.problems = ProblemRepository(db)
 
     async def list(self, page: int, page_size: int, status: str | None) -> PaginatedResponse[ReportOut]:
         rows, total = await self.repo.list_page(page, page_size, status)
         reporter_ids = {r.reporter_id for r in rows}
-        nicknames = await UserRepository(self.db).get_nicknames(list(reporter_ids))
+        nicknames = await self.users.get_nicknames(list(reporter_ids))
         summaries = await self._target_summaries(rows)
         items = [
             ReportOut(
@@ -239,20 +257,20 @@ class ReportService:
         comment_ids = [r.target_id for r in rows if r.target_type == "comment"]
         problem_ids = [r.target_id for r in rows if r.target_type == "problem"]
         summaries: dict[uuid.UUID, str] = {}
-        for row in await SolutionRepository(self.db).get_by_ids(list(dict.fromkeys(solution_ids))):
+        for row in await self.solutions.get_by_ids(list(dict.fromkeys(solution_ids))):
             summaries[row.id] = row.title[:100]
-        for row in await CodeShareRepository(self.db).get_by_ids(
+        for row in await self.code_shares.get_by_ids(
             list(dict.fromkeys(code_share_ids))
         ):
             summaries[row.id] = row.title[:100]
-        for row in await CommentRepository(self.db).get_by_ids(list(dict.fromkeys(comment_ids))):
+        for row in await self.comments.get_by_ids(list(dict.fromkeys(comment_ids))):
             summaries[row.id] = row.content[:100]
-        for pid, title in (await ProblemRepository(self.db).get_titles(list(dict.fromkeys(problem_ids)))).items():
+        for pid, title in (await self.problems.get_titles(list(dict.fromkeys(problem_ids)))).items():
             summaries[pid] = title[:100]
         return summaries
 
     async def handle(self, report_id: uuid.UUID, admin: User, action: str) -> None:
-        """处理举报：handled（通过）/ ignored（驳回），见 docs/contracts/community.md。"""
+        """处理举报：handled（通过）/ ignored（驳回），见 docs/contracts.md §11。"""
         report = await self.repo.get_by_id(report_id)
         if report is None:
             raise APIError(RESOURCE_NOT_FOUND, "举报不存在", 404)
@@ -262,3 +280,35 @@ class ReportService:
         report.handled_by = admin.id
         report.handled_at = datetime.now()
         await self.db.flush()
+
+class TeamAdminService:
+    """管理后台团队视图门面：团队基础信息 + 团队空间资源计数（组合层用例服务）。"""
+
+    def __init__(self, teams: TeamService, space: TeamSpaceService) -> None:
+        self.teams = teams
+        self.space = space
+
+    async def list_teams(
+        self,
+        page: int,
+        page_size: int,
+        keyword: str | None = None,
+        status: object | None = None,
+    ) -> tuple[list[TeamAdminSummary], int]:
+        """团队管理列表（admin 全量，含已解散）：一次装配资源计数。"""
+        items, total = await self.teams.admin_list_teams(page, page_size, keyword, status)
+        await self._fill_counts(items)
+        return items, total
+
+    async def get_team(self, team_id: uuid.UUID) -> TeamAdminDetail:
+        """团队管理详情（admin 免成员校验，含已解散团队）：附资源计数。"""
+        detail = await self.teams.admin_get_detail(team_id)
+        await self._fill_counts([detail])
+        return detail
+
+    async def _fill_counts(self, items: list) -> None:
+        counts = await self.space.count_team_resources([item.id for item in items])
+        for item in items:
+            item.problem_count = counts.get(item.id, {}).get("problems", 0)
+            item.problem_set_count = counts.get(item.id, {}).get("sets", 0)
+            item.contest_count = counts.get(item.id, {}).get("contests", 0)

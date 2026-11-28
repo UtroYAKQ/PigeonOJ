@@ -1,4 +1,4 @@
-"""题库模块请求 / 响应 Schema（docs/contracts/problems.md）。"""
+"""题库模块请求 / 响应 Schema（docs/contracts.md §7）。"""
 from __future__ import annotations
 
 import uuid
@@ -11,7 +11,7 @@ from app.enums import ProblemScope, ProblemStatus, ProblemVisibility, TagStatus
 
 
 def _clean_tag_names(names: list[str]) -> list[str]:
-    """去空白、去重、保序；空白项剔除（docs/contracts/problems.md 标签节）。"""
+    """去空白、去重、保序；空白项剔除（docs/contracts.md §7.3）。"""
     cleaned: list[str] = []
     for raw in names:
         name = raw.strip()
@@ -26,7 +26,7 @@ class ProblemCreate(BaseModel):
     题面要素（题目背景 / 题面 / 输入说明 / 输出说明）均为必填；tags 为激活标签名（≤8）。
     全站题（无 org 上下文）仅 admin 可建；组织题经 /orgs/{org_id}/problems 创建，
     visibility 恒 org_visible；团队直建已移除——团队题目只来自引用快照
-    （docs/contracts/problems.md / orgs.md / teams.md）。
+    （docs/contracts.md §7 / orgs.md / teams.md）。
     """
 
     title: str = Field(min_length=1, max_length=255)
@@ -76,7 +76,7 @@ class ProblemUpdate(BaseModel):
 
 
 class ProblemQuery(BaseModel):
-    """题库列表查询（docs/contracts/common.md 分页契约）。
+    """题库列表查询（docs/contracts.md §1.3）。
 
     scope=all：题库中心，仅 published + public（组织题不进题库中心）；
     scope=mine：我的题目管理视图（须登录）——admin 见全量，其余用户见所在组织的
@@ -173,7 +173,7 @@ class SamplesUpdate(BaseModel):
     samples: list[SampleItem] = Field(default_factory=list, max_length=10)
 
 
-# ---- 标签管理（admin，docs/contracts/problems.md 标签节） ----
+# ---- 标签管理（admin，docs/contracts.md §7.3） ----
 
 
 class TagCreate(BaseModel):
@@ -316,7 +316,7 @@ class SpjOut(BaseModel):
 
 
 class FpsImportItemOut(BaseModel):
-    """FPS 导入单题结果（POST /admin/problems/import；docs/contracts/problems.md「FPS 题库导入」）。
+    """FPS 导入单题结果（POST /admin/problems/import；docs/contracts.md §7.8）。
 
     status：published（有测试点，直接可做）/ draft（无测试点）/ draft_spj（带 checker，
     暂存待验题晋升）/ duplicate（库内已有同标题）/ skipped_spj（无法重建特判程序）/ failed。

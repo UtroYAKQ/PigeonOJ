@@ -1,6 +1,6 @@
 """组织题库：problems 补 org_id 外键，可见性 CHECK 扩展为三分支
 
-- problems.org_id：归属组织（组织题库，docs/contracts/orgs.md）；与 team_id 互斥由 CHECK 兜底
+- problems.org_id：归属组织（组织题库，docs/contracts.md §5）；与 team_id 互斥由 CHECK 兜底
 - 可见性三分支：全站 private/public、组织 org_visible、团队 admin_visible/team_visible
 
 Revision ID: 0040

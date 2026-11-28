@@ -1,4 +1,4 @@
-"""判题路由（docs/contracts/judge.md 端点，统一前缀 /api/v1）。
+"""判题路由（docs/contracts.md §10 端点，统一前缀 /api/v1）。
 
 POST /problems/{id}/verify（验题提交）在本模块注册：该端点创建判题提交并派发，
 属于判题链路；保持 judge → problems 单向依赖。
@@ -13,8 +13,8 @@ from pydantic import ValidationError
 
 from app.api.deps import (
     ProblemServiceDep,
+    SandboxServiceDep,
     SelfTestServiceDep,
-    SessionDep,
     SubmissionServiceDep,
     get_current_admin,
     get_current_user,
@@ -22,10 +22,6 @@ from app.api.deps import (
 from app.core.exceptions import APIError
 from app.enums import SubmissionStatus, SubmitType
 from app.models.user import User
-from app.rpc.judge_gateway import (
-    REGISTRY,
-    commit_and_dispatch,
-)
 from app.schemas.judge import (
     ProblemSubmissionItem,
     SandboxHealthOut,
@@ -56,17 +52,10 @@ router = APIRouter(tags=["judge"])
 async def verify_problem(
     problem_id: uuid.UUID, body: VerifyRequest,
     service: SubmissionServiceDep,
-    problem_service: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SubmissionCreatedResponse | VerificationInitOut]:
-    if body.code is not None:
-        submission = await service.create_verify_submission(user, problem_id, body)
-        await commit_and_dispatch(db, submission)
-        return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
-    result = await problem_service.init_verification(user, problem_id, body.invite_expires_hours)
-    await db.commit()  # 显式提交：确保数据持久化
-    return ok(result)
+    """验题统一入口：携带代码 = 创建验题提交并派发；否则发起验题。"""
+    return ok(await service.verify_problem(user, problem_id, body))
 
 
 @router.get(
@@ -89,12 +78,9 @@ async def get_verification_invite(
 async def create_submission(
     body: SubmissionCreate,
     service: SubmissionServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SubmissionCreatedResponse]:
-    submission = await service.create(user, body)
-    await commit_and_dispatch(db, submission)
-    return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
+    return ok(await service.create_and_dispatch(user, body))
 
 
 @router.get("/submissions", response_model=ApiResponse[PaginatedResponse[SubmissionSummary]])
@@ -138,7 +124,7 @@ async def list_problem_submissions(
     submit_type: str | None = Query(default=None, max_length=32),
     user: User = Depends(get_current_user),
 ) -> ApiResponse[PaginatedResponse[ProblemSubmissionItem]]:
-    """题目全员提交（题目管理视角：创建者与管理角色可见，docs/contracts/judge.md）。
+    """题目全员提交（题目管理视角：创建者与管理角色可见，docs/contracts.md §10）。
 
     keyword 模糊匹配提交人昵称；language / status / submit_type 精确过滤。
     """
@@ -177,7 +163,7 @@ async def run_problem_code(
     service: SelfTestServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SelfTestResultOut]:
-    """用户自测：代码 + 自定义输入经判题节点一次性运行，仅回传 stdout（docs/contracts/judge.md）。"""
+    """用户自测：代码 + 自定义输入经判题节点一次性运行，仅回传 stdout（docs/contracts.md §10）。"""
     order = await service.create_order(user, problem_id, body)
     return ok(await service.run_once(order, user.id))
 
@@ -186,7 +172,8 @@ async def run_problem_code(
 
 
 @router.get("/sandbox/health", response_model=ApiResponse[SandboxHealthOut])
-async def sandbox_health(admin: User = Depends(get_current_admin)) -> ApiResponse[SandboxHealthOut]:
-    """沙箱节点健康（admin；docs/contracts/judge.md）：在线节点来自网关注册表。"""
-    nodes = [conn.to_payload() for conn in REGISTRY.list_nodes()]
-    return ok(SandboxHealthOut(nodes=nodes))
+async def sandbox_health(
+    service: SandboxServiceDep, admin: User = Depends(get_current_admin)
+) -> ApiResponse[SandboxHealthOut]:
+    """沙箱节点健康（admin；docs/contracts.md §10）：在线节点来自网关注册表。"""
+    return ok(SandboxHealthOut(nodes=await service.list_nodes()))

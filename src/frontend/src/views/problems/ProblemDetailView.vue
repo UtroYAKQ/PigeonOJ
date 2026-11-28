@@ -149,7 +149,7 @@ const {
 async function load() {
   try {
     // 统一入口：各上下文走本模块详情端点（归属 / 窗口校验），题库走题库端点；
-    // 团队比赛复用比赛端点（叠加团队门控，docs/contracts/teams.md）
+    // 团队比赛复用比赛端点（叠加团队门控，docs/contracts.md §6）
     problem.value =
       context.value === 'team-contests'
         ? await getTeamContestProblem(String(route.params.teamId), contextId.value, problemId.value)

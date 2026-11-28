@@ -1,6 +1,6 @@
 """判题模块模型：沙箱配置、提交与逐测试点结果。
 
-表结构对应 docs/contracts/judge.md；题目 / 测试点表在 problems 模块
+表结构对应 docs/contracts.md §10；题目 / 测试点表在 problems 模块
 。
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ from app.enums import SubmissionStatus, SubmitType
 
 
 class SandboxConfig(Base):
-    """沙箱语言级配置（docs/contracts/judge.md sandbox_configs）。
+    """沙箱语言级配置（docs/contracts.md §10 sandbox_configs）。
 
     题目限制为 C++ 基准；其他语言按本表比例换算有效限制（2026-08-15-language-limit-ratio）。
     """
@@ -98,7 +98,7 @@ class SubmissionTestCaseResult(Base):
     memory_used_kb: Mapped[int | None] = mapped_column(Integer)
     score: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     output: Mapped[str | None] = mapped_column(Text)
-    # SPJ 判定信息（特判程序 stdout ≤2KB；非 SPJ 提交为 NULL，docs/contracts/judge.md「SPJ 特判」）
+    # SPJ 判定信息（特判程序 stdout ≤2KB；非 SPJ 提交为 NULL，docs/contracts.md §10.6）
     message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     __table_args__ = (UniqueConstraint("submission_id", "test_case_id", name="uq_submission_case"), Index("ix_results_test_case", "test_case_id"))

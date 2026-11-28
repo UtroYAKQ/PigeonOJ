@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 系统日志（admin）：请求 / 登录 / 异常（docs/contracts/admin.md）。
+ * 系统日志（admin）：请求 / 登录 / 异常（docs/contracts.md §12）。
  * 列表统一走 WorkbenchShell + SearchFilterBar + PaginatedTable，筛选 / 导出 / 清空统一在工具栏。
  */
 import { computed, onMounted, reactive, ref } from 'vue'

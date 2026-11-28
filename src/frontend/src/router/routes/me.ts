@@ -44,7 +44,7 @@ export const meRoutes: RouteRecordRaw[] = [
         },
       },
       {
-        // 组织中心（docs/contracts/orgs.md）：组织 = 多机构租户单元；
+        // 组织中心（docs/contracts.md §5）：组织 = 多机构租户单元；
         // 团队挂在组织下，组织题库为封闭上下文（题目编辑复用题库统一端点，仅创建走组织端点）
         path: 'orgs',
         redirect: '/me/orgs/mine',
@@ -144,7 +144,7 @@ export const meRoutes: RouteRecordRaw[] = [
           },
           {
             // 组织题目作答页（组织上下文）：复用题库详情组件，读 / 交题 / 自测走题库
-            // 裸路径端点（组织成员经 can_manage 放行，docs/contracts/orgs.md「组织成员
+            // 裸路径端点（组织成员经 can_manage 放行，docs/contracts.md §5「组织成员
             // 可对组织题交题/自测」）；评测结果落在 /submissions/:id 保持组织上下文。
             path: ':orgId/problems/:problemId',
             name: 'me-org-problem',

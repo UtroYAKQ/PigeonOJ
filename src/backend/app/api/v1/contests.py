@@ -1,4 +1,4 @@
-"""比赛路由（docs/contracts/contests.md /contests* 端点，统一前缀 /api/v1）。
+"""比赛路由（docs/contracts.md §9 /contests* 端点，统一前缀 /api/v1）。
 
 比赛上下文统一入口：赛内题目详情与交题经本模块端点（归属 / 窗口校验），
 不跨模块直调题库 / 判题端点（docs/frontend.md「路由上下文隔离」规则 4）。
@@ -11,15 +11,12 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import (
     ContestServiceDep,
-    SessionDep,
-    SubmissionServiceDep,
     get_current_user,
     get_optional_user,
 )
 from app.core.exceptions import APIError
 from app.enums import SubmissionStatus
 from app.models.user import User
-from app.rpc.judge_gateway import commit_and_dispatch
 from app.schemas.contest import (
     AnnouncementUpdate,
     BoardOut,
@@ -76,13 +73,10 @@ async def list_my_contests(
 async def create_contest(
     body: ContestCreate,
     service: ContestServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
     """创建比赛（admin；团队赛随 teams 模块开放）。"""
-    summary = await service.create(user, body)
-    await db.commit()  # 显式提交：确保数据持久化后再返回
-    return ok(summary)
+    return ok(await service.create(user, body))
 
 
 @router.get("/{contest_id}", response_model=ApiResponse[ContestDetail])
@@ -130,12 +124,10 @@ async def get_contest_submission(
     contest_id: uuid.UUID,
     submission_id: uuid.UUID,
     service: ContestServiceDep,
-    submission_service: SubmissionServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SubmissionDetailOut]:
     """比赛提交详情（统一入口）：窗口校验后复用判题详情装配（计分按提交行赛制快照）。"""
-    submission = await service.get_visible_submission(user, contest_id, submission_id)
-    return ok(await submission_service.build_detail(submission))
+    return ok(await service.get_submission_detail(user, contest_id, submission_id))
 
 
 @router.get(
@@ -158,25 +150,20 @@ async def list_board_cell_accepted(
 async def update_contest(
     contest_id: uuid.UUID, body: ContestUpdate,
     service: ContestServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
     """编辑比赛（admin）。"""
-    summary = await service.update(contest_id, user, body)
-    await db.commit()  # 显式提交：确保数据持久化
-    return ok(summary)
+    return ok(await service.update(contest_id, user, body))
 
 
 @router.post("/{contest_id}/register", response_model=ApiResponse[None])
 async def register_contest(
     contest_id: uuid.UUID,
     service: ContestServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """报名（公开比赛；重复 3003，截止 3002）。"""
     await service.register(user, contest_id)
-    await db.commit()  # 显式提交：确保数据持久化
     return ok(None)
 
 
@@ -234,23 +221,22 @@ async def create_contest_submission(
     problem_id: uuid.UUID,
     body: ContestSubmissionBody,
     service: ContestServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SubmissionCreatedResponse]:
     """比赛交题（统一入口）：窗口校验后落 contest 提交并派发判题。
 
-    判题上下文端口（ContestSubmitter）由 deps.py 装配进 ContestService。
+    判题上下文端口（ContestSubmitter / SubmissionDispatcher）由 deps.py 装配。
     赛后（end_time 之后）自动标记 is_after_contest 补题，不计榜单。
     """
-    submission, _after = await service.submit_problem(
-        user,
-        contest_id,
-        problem_id,
-        language=body.language,
-        code=body.code,
+    return ok(
+        await service.submit_problem(
+            user,
+            contest_id,
+            problem_id,
+            language=body.language,
+            code=body.code,
+        )
     )
-    await commit_and_dispatch(db, submission)
-    return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
 
 
 @router.get("/{contest_id}/board", response_model=ApiResponse[BoardOut])
@@ -267,14 +253,10 @@ async def get_contest_board(
 async def unfreeze_contest_board(
     contest_id: uuid.UUID,
     service: ContestServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
     """手动解冻榜单（admin）：从 submissions 权威重算并回填封榜期间结果（仅赛后）。"""
-    summary = await service.unfreeze(user, contest_id)
-    await db.commit()  # 显式提交：确保数据持久化
-    await service.invalidate_board_cache(contest_id)  # commit 后补失效，消除回填旧榜竞态
-    return ok(summary)
+    return ok(await service.unfreeze(user, contest_id))
 
 
 @router.put("/{contest_id}/announcement", response_model=ApiResponse[ContestSummary])
@@ -282,13 +264,10 @@ async def update_contest_announcement(
     contest_id: uuid.UUID,
     body: AnnouncementUpdate,
     service: ContestServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
     """更新比赛公告（管理角色；赛时允许，空字符串 = 清空）。"""
-    summary = await service.update_announcement(user, contest_id, body)
-    await db.commit()  # 显式提交：确保数据持久化
-    return ok(summary)
+    return ok(await service.update_announcement(user, contest_id, body))
 
 
 @router.post("/{contest_id}/extend", response_model=ApiResponse[ContestSummary])
@@ -296,13 +275,10 @@ async def extend_contest(
     contest_id: uuid.UUID,
     body: ContestExtend,
     service: ContestServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
     """赛时延时（管理角色）：新结束时间必须晚于当前结束时间；已结束则重新开赛。"""
-    summary = await service.extend(user, contest_id, body)
-    await db.commit()
-    return ok(summary)
+    return ok(await service.extend(user, contest_id, body))
 
 
 @router.put("/{contest_id}/freeze-time", response_model=ApiResponse[ContestSummary])
@@ -310,15 +286,10 @@ async def update_contest_freeze_time(
     contest_id: uuid.UUID,
     body: FreezeTimeUpdate,
     service: ContestServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
     """调整封榜时间（管理角色；未封榜时可改；null = 取消封榜）。"""
-    summary = await service.update_freeze_time(user, contest_id, body)
-    await db.commit()
-    if summary.board_frozen:
-        await service.invalidate_board_cache(contest_id)
-    return ok(summary)
+    return ok(await service.update_freeze_time(user, contest_id, body))
 
 
 @router.get("/{contest_id}/scoreboard-show", response_model=ApiResponse[ScoreboardShowOut])

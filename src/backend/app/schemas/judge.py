@@ -1,4 +1,4 @@
-"""判题模块请求模型（docs/contracts/judge.md）。题库 Schema 在 problems 模块。"""
+"""判题模块请求模型（docs/contracts.md §10）。题库 Schema 在 problems 模块。"""
 from __future__ import annotations
 
 import uuid
@@ -93,7 +93,7 @@ class SubmissionSummary(BaseModel):
     language: str
     submit_type: SubmitType
     status: SubmissionStatus
-    # 赛制计分（docs/contracts/judge.md「赛制计分」）：ACM 二值（AC=满分否则 0）；
+    # 赛制计分（docs/contracts.md §10.5）：ACM 二值（AC=满分否则 0）；
     # IOI / 练习 / 验题 = 通过测试点比例部分计分
     score: int
     time_used_ms: int | None

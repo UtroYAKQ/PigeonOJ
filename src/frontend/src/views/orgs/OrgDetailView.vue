@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 组织详情（/orgs/:id，docs/contracts/orgs.md）：组织空间式布局。
+ * 组织详情（/orgs/:id，docs/contracts.md §5）：组织空间式布局。
  * Hero（头像 + 名称 + 简介 + 动作区）+ 模块化内容区（tab 切换 + 数据装配）：
  * 成员 / 组织团队 / 组织题库，各模块面板见 ./components/*Panel.vue（面板自持列表数据）。
  * 权限按 my_role 显隐（org_admin ⊇ org_member）；非成员访问返回 2003，
@@ -49,7 +49,7 @@ const loadFailed = ref(false)
 const forbidden = ref(false)
 const loading = ref(false)
 
-/** 组织管理员（org_admin；站点 admin 视同拥有全部组织管理权，docs/contracts/orgs.md） */
+/** 组织管理员（org_admin；站点 admin 视同拥有全部组织管理权，docs/contracts.md §5） */
 const isOrgAdmin = computed(() => org.value?.my_role === 'admin' || userStore.isAdmin)
 /** 可见组织工作台（组织成员 my_role 非空；站点 admin 免成员校验） */
 const isMember = computed(() => org.value?.my_role != null || userStore.isAdmin)

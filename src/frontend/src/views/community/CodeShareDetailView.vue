@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 代码分享详情页（docs/contracts/community.md「代码广场」）：
+ * 代码分享详情页（docs/contracts.md §11.5）：
  * 说明（Markdown）+ 只读代码（Monaco，复制用浏览器编辑器原生能力）+ 操作 + 评论区。
  */
 import { computed, onMounted, ref } from 'vue'

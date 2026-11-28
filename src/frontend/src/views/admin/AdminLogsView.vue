@@ -1,6 +1,6 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 /**
- * 系统日志（admin）—— 请求 / 登录 / 异常（docs/contracts/admin.md）。
+ * 系统日志（admin）—— 请求 / 登录 / 异常（docs/contracts.md §12）。
  * 结构刻意从简：每类日志一个独立模板分支（不用 n-tabs），切换用 n-select 下拉框；
  * 无标题头部，切换 / 筛选 / 动作统一在工具栏；表格自然高度、整页滚动到底
  * （不锁定一屏，不用 flex-height / PaginatedDataTable）。

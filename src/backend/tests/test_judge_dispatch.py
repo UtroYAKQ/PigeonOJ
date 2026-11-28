@@ -460,7 +460,7 @@ async def test_reset_exhausted_marks_system_error(client, admin_headers, fake_st
         assert "retry exhausted" in row.error_message
 
 
-# ---- SPJ 特判派发（docs/contracts/judge.md「SPJ 特判」） ----
+# ---- SPJ 特判派发（docs/contracts.md §10.6） ----
 
 
 @pytest.mark.asyncio

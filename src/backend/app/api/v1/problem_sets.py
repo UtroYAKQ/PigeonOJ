@@ -1,4 +1,4 @@
-"""题单路由（docs/contracts/problem-sets.md /problem-sets* 端点，统一前缀 /api/v1）。"""
+"""题单路由（docs/contracts.md §8 /problem-sets* 端点，统一前缀 /api/v1）。"""
 from __future__ import annotations
 
 import uuid
@@ -7,14 +7,11 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import (
     ProblemSetServiceDep,
-    SessionDep,
-    SubmissionServiceDep,
     get_current_user,
     get_optional_user,
 )
 from app.models.user import User
-from app.rpc.judge_gateway import commit_and_dispatch
-from app.schemas.judge import SubmissionCreate, SubmissionCreatedResponse
+from app.schemas.judge import SubmissionCreatedResponse
 from app.schemas.problem import ProblemDetail
 from app.schemas.problem_set import (
     ProblemSetCreate,
@@ -50,13 +47,10 @@ async def list_problem_sets(
 async def create_problem_set(
     body: ProblemSetCreate,
     service: ProblemSetServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSetSummary]:
     """创建题单（admin；团队题单随 teams 模块开放）。"""
-    summary = await service.create(user, body)
-    await db.commit()  # 显式提交：确保数据持久化后再返回
-    return ok(summary)
+    return ok(await service.create(user, body))
 
 
 @router.get("/{set_id}", response_model=ApiResponse[ProblemSetDetail])
@@ -74,13 +68,10 @@ async def update_problem_set(
     set_id: uuid.UUID,
     body: ProblemSetUpdate,
     service: ProblemSetServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSetSummary]:
     """编辑题单元信息（admin）。"""
-    summary = await service.update(set_id, user, body)
-    await db.commit()  # 显式提交：确保数据持久化
-    return ok(summary)
+    return ok(await service.update(set_id, user, body))
 
 
 @router.put("/{set_id}/items", response_model=ApiResponse[None])
@@ -88,12 +79,10 @@ async def replace_problem_set_items(
     set_id: uuid.UUID,
     body: ProblemSetItemsUpdate,
     service: ProblemSetServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """编排题目：全量替换题单内列表（题目须已发布公开；同题单内不得重复）。"""
     await service.replace_items(set_id, user, body)
-    await db.commit()  # 显式提交：确保数据持久化
     return ok(None)
 
 
@@ -101,13 +90,10 @@ async def replace_problem_set_items(
 async def archive_problem_set(
     set_id: uuid.UUID,
     service: ProblemSetServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSetSummary]:
     """下线题单（status='archived'，不做物理删除）。"""
-    summary = await service.archive(set_id, user)
-    await db.commit()  # 显式提交：确保数据持久化
-    return ok(summary)
+    return ok(await service.archive(set_id, user))
 
 
 @router.get(
@@ -120,7 +106,7 @@ async def get_problem_set_problem(
     user: User | None = Depends(get_optional_user),
 ) -> ApiResponse[ProblemDetail]:
     """题单内题目详情（统一入口）：题单可见 + 题目属于该题单校验后，
-    返回与 GET /problems/{id} 完全一致的详情装配（docs/contracts/problem-sets.md）。"""
+    返回与 GET /problems/{id} 完全一致的详情装配（docs/contracts.md §8）。"""
     return ok(await service.get_problem_detail(set_id, problem_id, user))
 
 
@@ -133,18 +119,9 @@ async def create_problem_set_submission(
     problem_id: uuid.UUID,
     body: ProblemSetSubmissionCreate,
     service: ProblemSetServiceDep,
-    submission_service: SubmissionServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SubmissionCreatedResponse]:
     """题单内交题：题单可见 + 题目属于该题单校验通过后，走统一判题提交链路
-    （docs/contracts/problem-sets.md 交题端点；落库 / 派发 / 计分与 POST /submissions 完全一致）。
+    （docs/contracts.md §8 交题端点；落库 / 派发 / 计分与 POST /submissions 完全一致）。
     """
-    await service.ensure_set_problem(set_id, problem_id, user)
-    submission = await submission_service.create(
-        user,
-        SubmissionCreate(problem_id=problem_id, language=body.language, code=body.code),
-        bypass_visibility=True,  # 私有题豁免：题单门控（可见+归属）已通过
-    )
-    await commit_and_dispatch(db, submission)
-    return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
+    return ok(await service.create_set_submission(user, set_id, problem_id, body))

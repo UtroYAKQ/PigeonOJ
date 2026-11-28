@@ -1,13 +1,12 @@
-"""路由层依赖装配点（组合点，docs/architecture.md 依赖注入约定）。
+"""路由层依赖装配点（组合根，docs/architecture.md 依赖注入约定）。
 
-路由层一律通过本模块获取依赖（FastAPI Annotated 注入），
-禁止直接 import app.services 构造服务（check_import_rules.py 规则 5 强制检查）。
-
-约定（社区通用结构）：
-- deps.py 是路由层唯一的依赖导入点：认证身份、db 会话、各上下文服务 Provider 均从此导入；
-- Provider 内完成服务组装（含跨上下文端口装配），服务间依赖走构造注入而非函数内局部导入；
-- 同一请求内多个 Provider 共享同一个请求级 db 会话（FastAPI 依赖缓存，get_db 单例）；
-- 路由函数需要显式 commit 时另注入 SessionDep（与 Provider 内会话为同一实例）。
+路由层一律通过本模块获取依赖（FastAPI Annotated 注入）：
+- 认证身份与 `XxxServiceDep` 服务 Provider 均从 deps 导入；路由不直接 import
+  `app.services`、`app.core.dependency`、`get_db` / `SessionLocal`；
+- Provider 负责构造 service/repo 与跨上下文端口装配（组合根）；接口使用 Protocol，
+  以便测试经 `dependency_overrides` 替换；
+- 同一请求内多个 Provider 共享请求级 db 会话（FastAPI 依赖缓存，get_db 单例）；
+- 事务提交归属 Service（get_db 出口统一 commit），路由不再显式 commit。
 """
 from __future__ import annotations
 
@@ -25,33 +24,54 @@ from app.core.dependency import (  # noqa: F401 —— re-export 供路由层导
     get_optional_user,
 )
 from app.schemas.admin import SitePublicConfig
-from app.services.admin import AdminConfigService, LogService, ReportService, SandboxService
+from app.services.admin import (
+    AdminConfigService,
+    LogService,
+    ReportService,
+    SandboxService,
+    TeamAdminService,
+)
 from app.services.community import CommunityService
 from app.services.contest import ContestService
 from app.services.file import FileService
-from app.services.judge import SelfTestService, SubmissionService
+from app.services.judge import (
+    GatewaySubmissionDispatcher,
+    SelfTestService,
+    SubmissionService,
+)
+from app.services.org import OrgService
 from app.services.problem import ProblemService
 from app.services.problem_import import ProblemImportService
 from app.services.problem_set import ProblemSetService
 from app.services.system_config import ConfigService, get_site_public_configs
-from app.services.org import OrgService
 from app.services.tag import TagService
 from app.services.team import TeamService
 from app.services.team_space import TeamSpaceService
 from app.services.user import AuthService, UserService
 
 SessionDep = Annotated[AsyncSession, Depends(get_db)]
-"""请求级数据库会话（路由需要显式 commit 时使用）。"""
+"""请求级数据库会话（仅供 Provider 构造 / 系统基础端点使用，路由不提交事务）。"""
+
+
+# ---- 基础设施 Provider ----
+
+
+def get_config_service(db: SessionDep) -> ConfigService:
+    return ConfigService(db)
+
+
+ConfigServiceDep = Annotated[ConfigService, Depends(get_config_service)]
+
+
+def get_dispatcher(db: SessionDep) -> GatewaySubmissionDispatcher:
+    """交题收尾适配器：commit → dispatch（判题 rpc 在业务侧的唯一触点）。"""
+    return GatewaySubmissionDispatcher(db)
+
+
+SubmissionDispatcherDep = Annotated[GatewaySubmissionDispatcher, Depends(get_dispatcher)]
 
 
 # ---- 各上下文服务 Provider ----
-
-
-def get_auth_service(db: SessionDep) -> AuthService:
-    return AuthService(db)
-
-
-AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 
 
 def get_user_service(db: SessionDep) -> UserService:
@@ -61,11 +81,16 @@ def get_user_service(db: SessionDep) -> UserService:
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 
 
-def get_config_service(db: SessionDep) -> ConfigService:
-    return ConfigService(db)
+def get_auth_service(
+    db: SessionDep,
+    users: UserServiceDep,
+    config: ConfigServiceDep,
+) -> AuthService:
+    """认证服务：用户公开视图（UserViewPort）与配置服务构造注入。"""
+    return AuthService(db, config=config, user_view=users)
 
 
-ConfigServiceDep = Annotated[ConfigService, Depends(get_config_service)]
+AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 
 
 def get_tag_service(db: SessionDep) -> TagService:
@@ -89,15 +114,20 @@ def get_problem_import_service(db: SessionDep) -> ProblemImportService:
 ProblemImportServiceDep = Annotated[ProblemImportService, Depends(get_problem_import_service)]
 
 
-def get_submission_service(db: SessionDep) -> SubmissionService:
-    return SubmissionService(db)
+def get_submission_service(
+    db: SessionDep,
+    problems: ProblemServiceDep,
+    dispatcher: SubmissionDispatcherDep,
+) -> SubmissionService:
+    """判题服务：验题端口（ProblemVerificationPort）与派发端口构造注入。"""
+    return SubmissionService(db, verification=problems, dispatcher=dispatcher)
 
 
 SubmissionServiceDep = Annotated[SubmissionService, Depends(get_submission_service)]
 
 
-def get_self_test_service(db: SessionDep) -> SelfTestService:
-    return SelfTestService(db)
+def get_self_test_service(db: SessionDep, config: ConfigServiceDep) -> SelfTestService:
+    return SelfTestService(db, config=config)
 
 
 SelfTestServiceDep = Annotated[SelfTestService, Depends(get_self_test_service)]
@@ -111,8 +141,28 @@ def get_file_service() -> FileService:
 FileServiceDep = Annotated[FileService, Depends(get_file_service)]
 
 
-def get_problem_set_service(db: SessionDep) -> ProblemSetService:
-    return ProblemSetService(db)
+def get_team_service(db: SessionDep, config: ConfigServiceDep) -> TeamService:
+    return TeamService(db, config=config)
+
+
+TeamServiceDep = Annotated[TeamService, Depends(get_team_service)]
+
+
+def get_problem_set_service(
+    db: SessionDep,
+    problems: ProblemServiceDep,
+    teams: TeamServiceDep,
+    submissions: SubmissionServiceDep,
+    dispatcher: SubmissionDispatcherDep,
+) -> ProblemSetService:
+    """题单服务：题库详情 / 团队角色 / 提交创建与派发端口构造注入。"""
+    return ProblemSetService(
+        db,
+        problem_detail=problems,
+        team_roles=teams,
+        submission_creator=submissions,
+        dispatcher=dispatcher,
+    )
 
 
 ProblemSetServiceDep = Annotated[ProblemSetService, Depends(get_problem_set_service)]
@@ -120,24 +170,30 @@ ProblemSetServiceDep = Annotated[ProblemSetService, Depends(get_problem_set_serv
 
 def get_contest_service(
     db: SessionDep,
-    submission_service: SubmissionServiceDep,
+    config: ConfigServiceDep,
+    submissions: SubmissionServiceDep,
+    problems: ProblemServiceDep,
+    teams: TeamServiceDep,
+    dispatcher: SubmissionDispatcherDep,
 ) -> ContestService:
-    """比赛服务：装配判题上下文端口（ContestSubmitter），替代路由层回调注入。"""
-    return ContestService(db, submitter=submission_service)
+    """比赛服务：判题上下文端口（ContestSubmitter）、题库详情 / 团队角色 / 派发端口装配。"""
+    return ContestService(
+        db,
+        submitter=submissions,
+        dispatcher=dispatcher,
+        problem_detail=problems,
+        submission_detail=submissions,
+        team_roles=teams,
+        config=config,
+    )
 
 
 ContestServiceDep = Annotated[ContestService, Depends(get_contest_service)]
 
 
-def get_team_service(db: SessionDep) -> TeamService:
-    return TeamService(db)
-
-
-TeamServiceDep = Annotated[TeamService, Depends(get_team_service)]
-
-
-def get_org_service(db: SessionDep) -> OrgService:
-    return OrgService(db)
+def get_org_service(db: SessionDep, problems: ProblemServiceDep) -> OrgService:
+    """组织服务：组织题库视图经 ProblemDetailPort 装配（避免路由层跨 Service 串联）。"""
+    return OrgService(db, problems=problems)
 
 
 OrgServiceDep = Annotated[OrgService, Depends(get_org_service)]
@@ -147,11 +203,23 @@ def get_team_space_service(
     db: SessionDep,
     teams: TeamServiceDep,
     problems: ProblemServiceDep,
+    problem_sets: ProblemSetServiceDep,
     contests: ContestServiceDep,
     submissions: SubmissionServiceDep,
+    self_test: SelfTestServiceDep,
+    dispatcher: SubmissionDispatcherDep,
 ) -> TeamSpaceService:
     """团队空间门面：团队上下文题目 / 题单 / 比赛的统一入口（含跨上下文端口装配）。"""
-    return TeamSpaceService(db, teams, problems, contests, submissions)
+    return TeamSpaceService(
+        db,
+        teams,
+        problems,
+        contests,
+        submissions,
+        problem_sets,
+        self_test=self_test,
+        dispatcher=dispatcher,
+    )
 
 
 TeamSpaceServiceDep = Annotated[TeamSpaceService, Depends(get_team_space_service)]
@@ -160,9 +228,10 @@ TeamSpaceServiceDep = Annotated[TeamSpaceService, Depends(get_team_space_service
 def get_community_service(
     db: SessionDep,
     problems: ProblemServiceDep,
+    config: ConfigServiceDep,
 ) -> CommunityService:
     """社区服务：题目可见性门控复用 ProblemService（community.md「数据所有权」）。"""
-    return CommunityService(db, problems, ConfigService(db))
+    return CommunityService(db, problems, config)
 
 
 CommunityServiceDep = Annotated[CommunityService, Depends(get_community_service)]
@@ -193,11 +262,22 @@ ReportServiceDep = Annotated[ReportService, Depends(get_report_service)]
 
 
 def get_sandbox_service() -> SandboxService:
-    """SandboxService 走 Redis 注册表，不持有 db 会话。"""
+    """SandboxService 走 Redis 注册表 / 网关节点视图，不持有 db 会话。"""
     return SandboxService()
 
 
 SandboxServiceDep = Annotated[SandboxService, Depends(get_sandbox_service)]
+
+
+def get_team_admin_service(
+    teams: TeamServiceDep,
+    space: TeamSpaceServiceDep,
+) -> TeamAdminService:
+    """管理后台团队视图：团队基础信息 + 团队空间资源计数统一门面。"""
+    return TeamAdminService(teams, space)
+
+
+TeamAdminServiceDep = Annotated[TeamAdminService, Depends(get_team_admin_service)]
 
 
 # ---- 系统基础 ----

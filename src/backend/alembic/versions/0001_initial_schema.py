@@ -1,8 +1,8 @@
 """initial schema: users / user_sessions / roles / user_roles / user_token_stats /
 system_configs / model_configs / request_logs / login_logs / exception_logs / reports
 
-表结构与 docs/contracts/users.md、admin.md、ai.md、community.md 对齐。
-迁移 SQL 是表结构唯一来源（docs/contracts/index.md）。
+表结构与 docs/contracts.md §4、admin.md、ai.md、community.md 对齐。
+迁移 SQL 是表结构唯一来源（docs/contracts.md）。
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def _uuid(value: str) -> str:
     return str(uuid.UUID(value))
 
 
-# 角色种子：docs/security.md（scope 语义由 user_roles 承载）
+# 角色种子：docs/architecture.md §5（scope 语义由 user_roles 承载）
 ROLE_SEEDS = [
     (_uuid("11111111-1111-1111-1111-111111111111"), "admin", "系统管理员",
      "全部能力：用户管理、系统配置、运维、公开比赛、团队、AI 出题等"),
@@ -38,7 +38,7 @@ ROLE_SEEDS = [
      "查看团队题单 / 比赛、提交、AI 聊天"),
 ]
 
-# 系统配置种子（docs/contracts/admin.md system_configs 配置项举例）
+# 系统配置种子（docs/contracts.md §12.1 配置项举例）
 CONFIG_SEEDS = [
     ("site", "site.name", "PigeonOJ", "站点名称"),
     ("site", "site.logo", "", "站点 Logo"),

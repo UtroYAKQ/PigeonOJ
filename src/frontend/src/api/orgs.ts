@@ -1,5 +1,5 @@
 /**
- * 组织模块 API（docs/contracts/orgs.md）。
+ * 组织模块 API（docs/contracts.md §5）。
  * 组织角色经后端 user_roles（scope='org'）判定；前端按 OrgDetail.my_role 控制交互显隐。
  * 组织题库管理动作复用题库统一端点（/problems/{id}/...，权限门按组织扩展），
  * 仅「创建」必须走组织端点（POST /orgs/{id}/problems）。

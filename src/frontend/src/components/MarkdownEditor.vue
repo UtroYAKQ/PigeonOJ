@@ -2,7 +2,7 @@
 /**
  * Markdown 编辑器（md-editor-v3 封装）：
  * CodeMirror 编辑 + 整块纯预览切换（非分屏）；支持 KaTeX 公式（本地实例，无 CDN 依赖）。
- * 存储仍为纯 Markdown 文本（契约 docs/contracts/problems.md），
+ * 存储仍为纯 Markdown 文本（契约 docs/contracts.md §7），
  * 展示侧继续走 MarkdownView 渲染链路。深色模式与界面语言跟随全局设置（props 响应式）。
  */
 import { computed } from 'vue'

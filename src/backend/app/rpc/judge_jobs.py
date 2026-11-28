@@ -36,7 +36,7 @@ from app.services.problem import ProblemService
 
 from app.core.storage import get_storage
 
-# 练习 / 验题单题满分（docs/contracts/judge.md：得分由服务端按通过比例派生）
+# 练习 / 验题单题满分（docs/contracts.md §10：得分由服务端按通过比例派生）
 _FULL_SCORE = 100
 # FetchProblemData 数据包内的固定文件名（判题节点 datacache 按同名约定解析）
 _MANIFEST_OBJECT_NAME = "manifest.json"
@@ -55,7 +55,7 @@ def data_fingerprint(rows: list, *, spj_key: str | None) -> str:
     """数据指纹 = sha256(测试点数量 | 最大 updated_at | 特判程序对象 key)。
 
     按判定集计算；特判程序对象 key 变更（覆盖 / 移除 / 晋升）自然使指纹变化，
-    节点据此失效 <problem_id>-<version> 本地缓存（docs/contracts/judge.md「节点网关协议」）。
+    节点据此失效 <problem_id>-<version> 本地缓存（docs/contracts.md §10「节点网关协议」）。
     """
     latest = max((r.updated_at for r in rows), default=None)
     raw = f"{len(rows)}|{latest.isoformat() if latest else 'empty'}|{spj_key or 'none'}"
@@ -75,7 +75,7 @@ class ResourceLimits:
 @dataclass(frozen=True)
 class TestCaseFile:
     """单个测试点的派发元数据（数据本体不进作业描述：节点经 FetchProblemData
-    按 data_version 拉取并本地缓存，见 stream_problem_data / docs/contracts/judge.md）。"""
+    按 data_version 拉取并本地缓存，见 stream_problem_data / docs/contracts.md §10）。"""
     test_case_id: str
     name: str
 
@@ -91,7 +91,7 @@ class JobBundle:
     problem_id: str
     data_version: str
     cases: tuple[TestCaseFile, ...]
-    # ACM 赛制短路：节点在首个非 accepted 测试点后停止执行（docs/contracts/judge.md 赛制计分）
+    # ACM 赛制短路：节点在首个非 accepted 测试点后停止执行（docs/contracts.md §10.5）
     stop_on_failure: bool = False
     # SPJ 特判：数据包内含 spj.cpp，节点编译一次后逐测试点运行特判程序判定
     spj: bool = False
@@ -132,7 +132,7 @@ class RunCodeOutcome:
 
 
 def resolve_limits(problem, config: SandboxConfig | None) -> tuple[ResourceLimits, ResourceLimits]:
-    """按 sandbox_configs 语言比例换算有效限制（docs/contracts/judge.md 语言限制换算）。"""
+    """按 sandbox_configs 语言比例换算有效限制（docs/contracts.md §10.4）。"""
     time_ratio = config.time_ratio if config else 1.0
     memory_ratio = config.memory_ratio if config else 1.0
     memory_min = config.memory_min_mb if config else 0
@@ -281,7 +281,7 @@ def _derive_scores(
     返回 (scored, total_score, max_time, max_memory)：
     - scored = [(回传测试点, 对应 TestCase 行, 单点分值)]；未知 / 重复 test_case_id 跳过，
       节点可能回传少于全部测试点的结果（ACM 短路），未执行测试点不落结果行。
-    - 单点分值（docs/contracts/judge.md「赛制计分」）：ACM 恒 0（总分收口时按整体结果
+    - 单点分值（docs/contracts.md §10.5）：ACM 恒 0（总分收口时按整体结果
       给满/零，见 apply_job_result）；部分计分单点 = base + 前 extra 点补偿，仅通过计分。
     """
     scored: list[tuple[CaseOutcome, object, int]] = []
@@ -387,7 +387,7 @@ async def apply_job_result(db, outcome: JudgeOutcome, *, storage) -> bool:
     if submission is None or submission.status != SubmissionStatus.JUDGING:
         return False
 
-    # 分数在服务端按赛制派生（docs/contracts/judge.md「赛制计分」）：
+    # 分数在服务端按赛制派生（docs/contracts.md §10.5）：
     # - ACM（二值）：全部测试点通过 = 单题满分，否则 0；测试点不设分值。
     #   短路执行（stop_on_failure）下节点仅回传已执行测试点，无部分分可泄露。
     # - IOI / 练习 / 验题（部分计分）：测试点分值一致，单点 = 满分 ÷ 测试点数，
@@ -524,7 +524,7 @@ async def submission_needs_spj(submission_id: uuid.UUID) -> bool:
 
 async def fail_no_spj_node(submission_id: uuid.UUID) -> None:
     """无支持 SPJ 的在线节点：原子认领后落 system_error（防旧节点静默误判，
-    docs/contracts/judge.md「SPJ 特判」；幂等，重复调用安全）。"""
+    docs/contracts.md §10.6；幂等，重复调用安全）。"""
     async with SessionLocal() as db:
         if not await _claim_submission(db, submission_id, [SubmissionStatus.PENDING]):
             return

@@ -1,6 +1,6 @@
-"""SPJ 特判执行核心单元测试（docs/contracts/judge.md「SPJ 特判」）。
+"""SPJ 特判执行核心单元测试（docs/contracts.md §10.6）。
 
-不依赖 nsjail：向 JudgeWorker 注入 FakeExecutor 回放预设的 ExecutionResult，
+不依赖 isolate：向 JudgeWorker 注入 FakeExecutor 回放预设的 ExecutionResult，
 覆盖编译失败路径、退出码判定映射、多测试点编译一次、SPJ 数据缺失兜底。
 """
 from __future__ import annotations
@@ -34,12 +34,18 @@ class FakeExecutor:
         self.commands: list[list[str]] = []
         self._lock = threading.Lock()
 
-    def run(self, command, **_kwargs) -> ExecutionResult:
+    def run(self, command, **kwargs) -> ExecutionResult:
         with self._lock:
             self.commands.append(command)
             if not self.results:
                 raise AssertionError("FakeExecutor 结果队列已耗尽")
-            return self.results.pop(0)
+            result = self.results.pop(0)
+        # 模拟真实执行器把程序 stdout 落到 capture_stdout（SPJ 判定依赖该文件）
+        target = kwargs.get("capture_stdout")
+        if target is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(result.stdout)
+        return result
 
 
 def _worker(executor: FakeExecutor, workspace_root) -> JudgeWorker:
@@ -117,7 +123,7 @@ def test_prepare_spj_success_returns_jail_binary_path(tmp_path):
     worker = _worker(executor, tmp_path)
     with worker.prepare_submission("python3.12", _case().source, LIMITS) as submission:
         spj = submission.prepare_spj(SPJ_SOURCE, LIMITS)
-    assert spj.binary == "/workspace/spj"
+    assert spj.binary == "/box/prog/spj"
     assert executor.commands[0][-1].endswith("spj.cpp")  # 编译命令以特判源码收尾
 
 
@@ -133,13 +139,14 @@ def test_run_case_with_spj_stages_three_files_and_runs_checker(tmp_path):
         spj = submission.prepare_spj(SPJ_SOURCE, LIMITS)
         result = submission.run_case(case.stdin, case.expected_stdout, case.limits, spj=spj, spj_limits=LIMITS)
         checker_cmd = executor.commands[-1]
-        staged_input = (submission.workdir / "spj_input").read_bytes()
-        staged_user_out = (submission.workdir / "spj_user_out").read_bytes()
-        staged_answer = (submission.workdir / "spj_answer").read_bytes()
+        staged_input = (submission.workdir / "spj_in.0").read_bytes()
+        staged_user_out = (submission.workdir / "user_out.0").read_bytes()
+        staged_answer = (submission.workdir / "spj_ans.0").read_bytes()
     assert result.status == "accepted"
-    assert spj.binary == "/workspace/spj"
+    assert spj.binary == "/box/prog/spj"
+    # 内联数据：三文件都在作业目录内，直接复用 /box/prog 挂载点（无需额外 bind）
     assert checker_cmd == [
-        "/workspace/spj", "/workspace/spj_input", "/workspace/spj_user_out", "/workspace/spj_answer",
+        "/box/prog/spj", "/box/prog/spj_in.0", "/box/prog/user_out.0", "/box/prog/spj_ans.0",
     ]
     assert staged_input == case.stdin
     assert staged_user_out == b"2\n"
@@ -229,3 +236,27 @@ async def test_judge_with_data_spj_failure_sets_plain_error_message(tmp_path, mo
     assert result["status"] == "system_error"
     assert result["error_message"] == "special judge program failed"
     assert result["cases"][0]["message"] == b""
+
+# ---- SPJ 二进制缓存（同 data_version 不重复编译） ----
+
+
+def test_prepare_spj_uses_cached_binary_without_compiling(tmp_path):
+    cache = tmp_path / "spj.bin"
+    cache.write_bytes(b"ELF")
+    executor = FakeExecutor()  # 队列为空：一旦触发编译就 AssertionError
+    worker = _worker(executor, tmp_path)
+    with worker.prepare_submission("python3.12", _case().source, LIMITS) as submission:
+        spj = submission.prepare_spj(SPJ_SOURCE, LIMITS, cache_path=cache)
+        assert (submission.workdir / "spj").read_bytes() == b"ELF"
+    assert spj.binary == "/box/prog/spj"
+    assert executor.commands == []
+
+
+def test_prepare_spj_writes_cache_after_compile(tmp_path):
+    executor = FakeExecutor(ExecutionResult("ok", b"", b"", 800, 2000, 0))
+    worker = _worker(executor, tmp_path)
+    cache = tmp_path / "cache" / "spj.bin"
+    with worker.prepare_submission("python3.12", _case().source, LIMITS) as submission:
+        (submission.workdir / "spj").write_bytes(b"ELF2")  # 模拟编译产物
+        submission.prepare_spj(SPJ_SOURCE, LIMITS, cache_path=cache)
+    assert cache.read_bytes() == b"ELF2"

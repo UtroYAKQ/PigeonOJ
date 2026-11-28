@@ -2,7 +2,7 @@
 /**
  * 赛时工具页：公告编辑 + 赛后解榜 + 滚榜大屏 + 快捷入口。
  * 管理后台 `/admin/contests/:cid/tools`；团队空间 `/teams/:teamId/contests/:cid/tools`。
- * 结构性字段编辑走编辑向导（赛中被后端状态守卫拒绝，docs/contracts/contests.md）。
+ * 结构性字段编辑走编辑向导（赛中被后端状态守卫拒绝，docs/contracts.md §9）。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'

@@ -1,7 +1,7 @@
-"""用户模块请求 / 响应 Schema（pydantic v2，docs/contracts/users.md）。
+"""用户模块请求 / 响应 Schema（pydantic v2，docs/contracts.md §4）。
 
 包含认证（注册 / 登录 / 找回密码等）与用户中心两组契约；
-数据形状与 docs/contracts/users.md 对齐；返回用户对象一律排除 password 字段。
+数据形状与 docs/contracts.md §4 对齐；返回用户对象一律排除 password 字段。
 """
 from __future__ import annotations
 
@@ -96,7 +96,7 @@ class SessionOut(BaseModel):
         return str(v) if v is not None else None
 
 
-# ---- 认证（原 auth 模块，docs/contracts/users.md /auth* 端点） ----
+# ---- 认证（原 auth 模块，docs/contracts.md §4 /auth* 端点） ----
 
 
 class EmailCodeRequest(BaseModel):
@@ -106,7 +106,7 @@ class EmailCodeRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: str
-    # 邮箱验证开启（email.verify_enabled）时必填；关闭时可缺省（docs/contracts/users.md）
+    # 邮箱验证开启（email.verify_enabled）时必填；关闭时可缺省（docs/contracts.md §4）
     code: str = ""
     password: str
     nickname: str = Field(max_length=64)

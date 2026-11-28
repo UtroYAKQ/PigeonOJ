@@ -2,9 +2,9 @@
 
 - problems.spj_oss_id / pending_spj_oss_id：生效 / 暂存特判程序源码对象 key
   （MinIO problems/{problem_id}/spj/{uuid}/code，C++17；NULL = 非 SPJ 题；
-  暂存空串 '' = 暂存移除，docs/contracts/problems.md「SPJ 特判程序」节）
+  暂存空串 '' = 暂存移除，docs/contracts.md §7.5）
 - submission_test_case_results.message：SPJ 判定信息（特判程序 stdout ≤2KB，
-  docs/contracts/judge.md「SPJ 特判」节）
+  docs/contracts.md §10.6节）
 
 Revision ID: 0036
 Revises: 0035

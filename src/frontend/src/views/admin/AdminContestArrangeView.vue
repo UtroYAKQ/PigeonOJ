@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 /**
  * 比赛向导 · 步骤 2 编排题目（题号自动分配、IOI 分值、顺序调整）。
  * 管理后台：/admin/contests/:cid/edit/problems；团队空间：/teams/:teamId/contests/:cid/edit/problems。
@@ -88,7 +88,7 @@ function addFromPool(problem: { id: string; title: string; difficulty: number | 
   draftProblems.value.push({
     problem_id: problem.id,
     letter: null,
-    // IOI 未填分值默认 100（后端 _replace_problems 同款兜底，docs/contracts/contests.md）
+    // IOI 未填分值默认 100（后端 _replace_problems 同款兜底，docs/contracts.md §9）
     score: isIOI.value ? 100 : 0,
     sort_order: draftProblems.value.length,
     title: problem.title,

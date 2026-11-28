@@ -1,5 +1,5 @@
 /**
- * 管理 / 运维模块 API（docs/contracts/admin.md）：用户管理 / 系统配置 / 日志 / 沙箱状态 / 举报。
+ * 管理 / 运维模块 API（docs/contracts.md §12）：用户管理 / 系统配置 / 日志 / 沙箱状态 / 举报。
  * 所有端点权限为 admin（后端 2003 拦截非管理员）。
  * 注：模型配置与 Token 用量端点随 AI 模块暂缓实现，未包含在本模块。
  */
@@ -65,7 +65,7 @@ export function adminListProblemSets(query: AdminProblemSetListQuery = {}) {
   return apiRequest<PageResult<ProblemSetSummary>>('GET', `/admin/problem-sets${buildQuery(query)}`)
 }
 
-// ---------------- 组织管理（docs/contracts/orgs.md 管理端视图：admin） ----------------
+// ---------------- 组织管理（docs/contracts.md §5.5：admin） ----------------
 
 /** GET /admin/orgs — 组织管理列表（全量含已解散，创建时间倒序；成员数 / 团队数 / 状态） */
 export function adminListOrgs(
@@ -95,7 +95,7 @@ export function adminAssignTeamOrg(teamId: string, orgId: string) {
   return apiRequest<TeamAdminSummary>('PUT', `/admin/teams/${teamId}/org`, { org_id: orgId })
 }
 
-// ---------------- 团队管理（docs/contracts/teams.md 管理端：admin 全量只读浏览） ----------------
+// ---------------- 团队管理（docs/contracts.md §6.5：admin 全量只读浏览） ----------------
 
 /** GET /admin/teams — 团队管理列表（admin 全量，含已解散；成员数 / 创建人昵称 / 状态） */
 export function adminListTeams(query: AdminTeamListQuery = {}) {
@@ -243,12 +243,12 @@ export function adminListReports(
   return apiRequest<PageResult<Report>>('GET', `/admin/reports${buildQuery(query)}`)
 }
 
-/** POST /admin/reports/:id/handle — 处理举报（handled 通过 / ignored 驳回，docs/contracts/community.md） */
+/** POST /admin/reports/:id/handle — 处理举报（handled 通过 / ignored 驳回，docs/contracts.md §11） */
 export function adminHandleReport(reportId: string, action: 'handled' | 'ignored') {
   return apiRequest<null>('POST', `/admin/reports/${reportId}/handle`, { action })
 }
 
-// ---------------- 标签管理（docs/contracts/problems.md /admin/tags*） ----------------
+// ---------------- 标签管理（docs/contracts.md §7.7*） ----------------
 
 /** GET /admin/tags — 标签管理分页列表（含已归档，激活在前；keyword 模糊匹配标签名） */
 export function adminListTags(query: { page: number; page_size: number; keyword?: string }) {

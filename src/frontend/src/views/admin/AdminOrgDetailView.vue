@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 组织管理详情（/admin/orgs/:id，admin 管理视图，docs/contracts/orgs.md 管理端视图）：
+ * 组织管理详情（/admin/orgs/:id，admin 管理视图，docs/contracts.md §5.5）：
  * 组织信息卡 + 模块化 tab（成员 / 名下团队 / 组织题库，按 tab 懒加载）。
  * 成员管理（授·撤组织管理员 / 移出）收敛在此（组织空间页不放，见 orgs.md）；
  * 组织题库走组织端点（GET /orgs/{id}/problems）——站点 admin 视同拥有组织管理权（orgs.md）。

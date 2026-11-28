@@ -339,7 +339,7 @@ export const adminRoutes: RouteRecordRaw[] = [
         ],
       },
       {
-        // 组织管理（docs/contracts/orgs.md 管理端视图）：创建组织 / 全量浏览 / 存量团队指派组织
+        // 组织管理（docs/contracts.md §5.5）：创建组织 / 全量浏览 / 存量团队指派组织
         path: 'orgs',
         name: 'admin-orgs-section',
         meta: {
@@ -509,7 +509,7 @@ export const adminRoutes: RouteRecordRaw[] = [
         meta: { title: '举报管理', titleKey: 'nav.reports', icon: 'Warning', roles: ['admin'] },
       },
       {
-        // 题解管理（社区内容治理：预览弹窗内下钻评论处置，docs/contracts/admin.md）
+        // 题解管理（社区内容治理：预览弹窗内下钻评论处置，docs/contracts.md §12）
         path: 'solutions',
         name: 'admin-solutions',
         component: () => import('@/views/admin/AdminSolutionsView.vue'),

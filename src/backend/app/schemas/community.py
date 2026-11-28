@@ -1,4 +1,4 @@
-"""社区模块请求 / 响应 Schema（docs/contracts/community.md）。"""
+"""社区模块请求 / 响应 Schema（docs/contracts.md §11）。"""
 from __future__ import annotations
 
 import uuid

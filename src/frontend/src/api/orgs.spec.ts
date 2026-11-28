@@ -24,7 +24,7 @@ const envelope = (data: unknown = null) => ({ code: 0, message: 'ok', data })
 
 const adapterMock = vi.fn()
 
-describe('api/orgs（组织模块端点与载荷，docs/contracts/orgs.md）', () => {
+describe('api/orgs（组织模块端点与载荷，docs/contracts.md §5）', () => {
   beforeEach(() => {
     adapterMock.mockReset()
     httpClient.defaults.adapter = adapterMock as unknown as AxiosAdapter

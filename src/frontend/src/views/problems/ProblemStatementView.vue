@@ -36,7 +36,7 @@ const form = reactive({
   output_description: '',
   note: '',
   solution: '',
-  /** 标签名（激活标签；≤8，docs/contracts/problems.md） */
+  /** 标签名（激活标签；≤8，docs/contracts.md §7） */
   tags: [] as string[],
   visibility: 'public',
   time_limit_ms: 1000,
@@ -171,7 +171,7 @@ async function persist(): Promise<string | null> {
       message.success(t('problems.create.saved'))
       return id
     }
-    // 组织题库直建必须走组织端点（docs/contracts/orgs.md）；团队 team_id 直建已移除
+    // 组织题库直建必须走组织端点（docs/contracts.md §5）；团队 team_id 直建已移除
     // （validate() 已确保必填项非空，类型上收窄为创建载荷）
     const created = isOrg.value
       ? await createOrgProblem(orgId.value!, payload() as Parameters<typeof createOrgProblem>[1])
@@ -221,7 +221,7 @@ const tagColorMap = computed(() => {
 })
 
 onMounted(() => {
-  // 团队引用题默认「全队成员可见」（docs/contracts/problems.md 团队可见性分支）；
+  // 团队引用题默认「全队成员可见」（docs/contracts.md §3.2）；
   // 组织题 visibility 恒 org_visible，由服务端强制，无需前端设置
   if (isTeam.value && !isEdit.value) form.visibility = 'team_visible'
   loadTagOptions()

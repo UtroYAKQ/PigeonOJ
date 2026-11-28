@@ -10,7 +10,7 @@ class TeamStatus(StrEnum):
 
 
 class TeamVisibility(StrEnum):
-    """团队可见性（docs/contracts/teams.md）：公开在团队中心可见、可直接申请加入；
+    """团队可见性（docs/contracts.md §6）：公开在团队中心可见、可直接申请加入；
     私有不进团队中心，仅经邀请链接申请加入。"""
 
     PRIVATE = "private"

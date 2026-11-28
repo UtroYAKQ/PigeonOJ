@@ -1,5 +1,5 @@
 /**
- * Markdown 渲染：题面 / 输入输出说明 / 题解均为 Markdown（docs/contracts/problems.md 数据模型）。
+ * Markdown 渲染：题面 / 输入输出说明 / 题解均为 Markdown（docs/contracts.md §7.1）。
  * html: false 使原始 HTML 按文本转义，输出再经 DOMPurify 白名单过滤，双重防 XSS。
  * 数学公式经 @vscode/markdown-it-katex 渲染（$...$ 行内 / $$...$$ 块级），与编辑器预览能力对齐。
  */

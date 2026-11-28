@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 题解管理（docs/contracts/admin.md「社区内容管理」）：全状态列表 + 预览弹窗 +
+ * 题解管理（docs/contracts.md §11.5）：全状态列表 + 预览弹窗 +
  * 评论治理下钻（不设独立评论列表页，评论从所属题解预览弹窗内查看与处置）。
  * 举报处理页经 ?solution=<id>&comment=<id> 跳转本页预览并锚定评论。
  */

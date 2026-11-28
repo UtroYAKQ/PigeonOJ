@@ -11,7 +11,7 @@ class ProblemStatus(StrEnum):
 
 
 class ProblemVisibility(StrEnum):
-    """题目可见性（docs/contracts/problems.md 可见性三分支）：
+    """题目可见性（docs/contracts.md §7 可见性三分支）：
 
     全站题目（org_id / team_id 均 NULL）：private / public；
     组织题目（org_id 非空）：org_visible（组织成员全员可见可编辑，团队管理者只读）；
@@ -43,7 +43,7 @@ class VerificationStatus(StrEnum):
 
 class ImportStatus(StrEnum):
     """FPS 批量导入单题结果（schemas/problem.py FpsImportItemOut.status，
-    docs/contracts/problems.md「FPS 题库导入」）。"""
+    docs/contracts.md §7.8）。"""
 
     PUBLISHED = "published"
     DRAFT = "draft"
@@ -68,7 +68,7 @@ class CaseStatus(StrEnum):
 
 
 class ProblemSetStatus(StrEnum):
-    """题单生命周期（docs/contracts/problem-sets.md）：不做物理删除，下线即归档。"""
+    """题单生命周期（docs/contracts.md §8）：不做物理删除，下线即归档。"""
 
     ACTIVE = "active"
     ARCHIVED = "archived"

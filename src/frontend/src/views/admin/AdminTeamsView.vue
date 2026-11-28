@@ -1,6 +1,6 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 /**
- * 团队管理（管理后台，admin；docs/contracts/teams.md 管理端）：
+ * 团队管理（管理后台，admin；docs/contracts.md §6.5）：
  * 全量团队列表（含已解散）+ 「指派组织」动作（PUT /admin/teams/{id}/org，
  * 存量团队迁移用——组织化改造后团队创建入口收敛在组织空间，引用题目需归属组织）；
  * 行整行点击进入团队详情（成员 / 团队题库 / 团队题单 / 团队比赛只读浏览）。

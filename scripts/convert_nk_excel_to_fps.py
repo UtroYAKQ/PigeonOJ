@@ -2,7 +2,7 @@
 
 数据源：牛客「下载题库.xlsx」（编程 sheet，377 题）。
 产物：`nk_problems/fps-{batch:03d}.xml`，每个文件 ≤20 题（对齐 OJ 导入单次上限
-`MAX_IMPORT_ATTEMPTS`，docs/contracts/problems.md「FPS 题库导入」）。
+`MAX_IMPORT_ATTEMPTS`，docs/contracts.md §7.8）。
 
 转换约定：
 - 题面统一 Markdown：Niuke 题面是 HTML（公式为 `<img>` 公网图），逐字段转 Markdown；

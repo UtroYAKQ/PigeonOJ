@@ -1,5 +1,5 @@
 """管理模块数据模型：举报处理。
-reports 结构见 docs/contracts/community.md
+reports 结构见 docs/contracts.md §11
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from app.enums import ReportStatus, ReportTargetType
 
 
 class Report(Base):
-    """举报（docs/contracts/community.md reports；处理状态 pending / handled / ignored）。"""
+    """举报（docs/contracts.md §11 reports；处理状态 pending / handled / ignored）。"""
 
     __tablename__ = "reports"
 

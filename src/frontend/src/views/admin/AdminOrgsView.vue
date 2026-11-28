@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 组织管理（管理后台，admin；docs/contracts/orgs.md 管理端视图）：
+ * 组织管理（管理后台，admin；docs/contracts.md §5.5）：
  * 全量组织列表（含已解散）+ 创建组织入口（可同时任命初始组织管理员）；
  * 行整行点击进入组织详情（信息 / 成员 / 名下团队只读浏览）。
  */

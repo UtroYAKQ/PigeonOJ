@@ -21,9 +21,11 @@ max_mb = 512                   # /cache 总大小上限；超出按 LRU 回收�
 gc_interval_seconds = 300      # 回收巡检间隔
 
 [sandbox]
-nsjail_binary = "nsjail"
-nsjail_config = "/etc/pigeonoj/nsjail.cfg"
+isolate_binary = "isolate"     # isolate 可执行文件（镜像内已在 PATH）
+box_pool_size = 10             # 预初始化 box 数；建议 ≥ capacity×(case_parallel+1)
+box_id_base = 0                # 池占用 box-id 起点；同机多节点进程需错开
 case_parallel = 4              # IOI/练习并行测试点数；ACM stop_on_failure 仍串行
+box_acquire_timeout_seconds = 60.0  # 等不到空闲 box 的失败时限（秒）
 
 [admin]
 bind = "127.0.0.1"             # 管理页；空或 port=0 不启动。Docker 内用 0.0.0.0 并只映射到宿主机回环

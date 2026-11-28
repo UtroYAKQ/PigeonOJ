@@ -2,7 +2,7 @@
 /**
  * 团队题单创建页（/teams/:teamId/sets/new）：双框工作台（与管理后台创建页同形态）。
  * 左框「基本信息」：标题（团队题单恒 team_visible，全队成员可见，无可见性选择；
- * copy_items_from 复制来源已随组织化改造移除，docs/contracts/teams.md 团队空间节）；
+ * copy_items_from 复制来源已随组织化改造移除，docs/contracts.md §6.4）；
  * 右框「题单说明」：Markdown 编辑器撑满。
  * 成功后 replace 回团队详情。
  */

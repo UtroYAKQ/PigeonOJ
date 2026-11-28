@@ -1,6 +1,6 @@
 """后端错误消息 i18n：语言协商 + 目录翻译 + 信封消息随 Accept-Language 切换。
 
-约定见 docs/contracts/common.md：code 不变，message 默认中文，
+约定见 docs/contracts.md §1：code 不变，message 默认中文，
 请求 Accept-Language 偏好英文时返回英文（未命中目录回退中文）。
 """
 from __future__ import annotations

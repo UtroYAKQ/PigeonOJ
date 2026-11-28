@@ -62,6 +62,7 @@ from app.core.redis import (
 )
 from app.utils.security import generate_token, hash_password, hash_token, verify_password
 from app.utils.validation import normalize_email, validate_email, validate_nickname, validate_password
+from app.services.ports import UserViewPort
 from app.services.system_config import ConfigService
 from app.settings.config import get_settings
 from app.core.storage import get_storage
@@ -219,7 +220,7 @@ class UserService:
                 raise APIError(PARAM_FORMAT_INVALID, "个性签名过长（≤255）", 400)
             user.signature = patch.signature
         if patch.avatar_url is not None:
-            # 统一形态：当前用户站内头像文件 URL 或可信外链；拒绝裸 oss_id 与越权路径（docs/contracts/users.md）
+            # 统一形态：当前用户站内头像文件 URL 或可信外链；拒绝裸 oss_id 与越权路径（docs/contracts.md §4）
             site_prefix = f"/api/v1/files/users/{user.id}/avatar/"
             if not (
                 patch.avatar_url.startswith(site_prefix)
@@ -246,7 +247,7 @@ class UserService:
         return await self.to_public(user)
 
     async def soft_delete(self, user: User, password: str) -> None:
-        """软注销（docs/contracts/users.md）：status='deleted'，邮箱脱敏释放唯一约束。"""
+        """软注销（docs/contracts.md §4）：status='deleted'，邮箱脱敏释放唯一约束。"""
         # bcrypt 为 CPU 密集操作，放线程池避免阻塞事件循环
         if not await asyncio.to_thread(verify_password, password, user.password):
             raise APIError(AUTH_INVALID_CREDENTIAL, "密码错误", 401)
@@ -346,7 +347,7 @@ class UserService:
 
     async def admin_set_roles(self, user_id: uuid.UUID, role_code: str) -> None:
         """全局角色授权（单一角色模型）：整体替换该用户唯一全局角色
-        （写 user_roles，scope='global'、object_id=NULL），见 docs/contracts/admin.md。"""
+        （写 user_roles，scope='global'、object_id=NULL），见 docs/contracts.md §12。"""
         target = await self.users.get_by_id(user_id)
         if target is None:
             raise APIError(RESOURCE_NOT_FOUND, "用户不存在", 404)
@@ -396,12 +397,24 @@ class UserService:
 
 
 class AuthService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        config: ConfigService | None = None,
+        user_view: UserViewPort | None = None,
+    ) -> None:
         self.db = db
         self.users = UserRepository(db)
         self.sessions = SessionRepository(db)
         self.roles = RoleRepository(db)
-        self.config = ConfigService(db)
+        self.config = config or ConfigService(db)
+        self._user_view = user_view
+
+    def _require_user_view(self) -> UserViewPort:
+        if self._user_view is None:
+            raise RuntimeError("AuthService 未装配 UserViewPort（请经 deps Provider 构造）")
+        return self._user_view
 
     # ---------------- 验证码 ----------------
 
@@ -524,7 +537,7 @@ class AuthService:
             fails = await redis_incr(fail_key, LOGIN_FAIL_WINDOW_SECONDS)
             if fails >= LOGIN_FAIL_MAX:
                 # 安全策略：失败超次 → 短时冻结落库（status=frozen + frozen_until，
-                # 到期自动恢复；区别于管理员封禁 banned，docs/contracts/users.md）。
+                # 到期自动恢复；区别于管理员封禁 banned，docs/contracts.md §4）。
                 # 失败计数同步清零，冻结到期后重新起算。
                 if user is not None:
                     user.status = UserStatus.FROZEN
@@ -585,7 +598,7 @@ class AuthService:
         await self.db.flush()
 
         # 组装返回（含角色）
-        public = await UserService(self.db).to_public(user)
+        public = await self._require_user_view().to_public(user)
         return LoginResult(token=raw_token, user=public)
 
     async def logout(self, raw_token: str | None, user: User, ip: str | None, user_agent: str | None) -> None:

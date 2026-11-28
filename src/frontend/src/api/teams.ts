@@ -1,5 +1,5 @@
 /**
- * 团队模块 API（docs/contracts/teams.md）。
+ * 团队模块 API（docs/contracts.md §6）。
  * 团队角色经后端 user_roles（scope='team'）判定；前端按 TeamDetail.my_role 控制交互显隐。
  */
 import { apiRequest } from './http'
@@ -124,7 +124,7 @@ export function disbandTeam(id: string): Promise<null> {
   return apiRequest('DELETE', `/teams/${id}`)
 }
 
-/* ==================== 团队空间（题库 / 题单 / 比赛，docs/contracts/teams.md 团队空间节） ==================== */
+/* ==================== 团队空间（题库 / 题单 / 比赛，docs/contracts.md §6.4） ==================== */
 
 /** 团队题库列表：成员见 team_visible；创建者 / 管理员另见 admin_visible（仅已发布） */
 export function listTeamProblems(

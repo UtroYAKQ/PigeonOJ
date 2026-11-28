@@ -1,6 +1,6 @@
 """组织模块数据模型：organizations / org_members。
 
-表结构与 docs/contracts/orgs.md 对齐；组织角色（org_admin / org_member）经
+表结构与 docs/contracts.md §5 对齐；组织角色（org_admin / org_member）经
 user_roles（scope='org'、object_id=org_id）授权，本模块不含独立角色表。
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ from app.enums import OrgMemberStatus, OrgStatus
 
 
 class Organization(Base):
-    """组织（docs/contracts/orgs.md）。解散为软解散，题库题目默认归档。"""
+    """组织（docs/contracts.md §5）。解散为软解散，题库题目默认归档。"""
 
     __tablename__ = "organizations"
 

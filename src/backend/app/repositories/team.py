@@ -74,7 +74,7 @@ class TeamRepository:
         keyword: str | None = None,
     ) -> tuple[list[tuple[TeamMember, User]], int]:
         """成员列表（join 用户，入队时间倒序分页；status 缺省 = 在册成员；
-        keyword 模糊匹配昵称，docs/contracts/teams.md）。"""
+        keyword 模糊匹配昵称，docs/contracts.md §6）。"""
         conditions = [TeamMember.team_id == team_id]
         if status:
             conditions.append(TeamMember.status == status)
@@ -184,7 +184,7 @@ class TeamRepository:
         self, page: int, page_size: int, keyword: str | None = None
     ) -> tuple[list[Team], int]:
         """团队中心公开列表：仅 public + active（私有团队不进任何公开列表，
-        docs/contracts/teams.md）；创建时间倒序，keyword 模糊匹配团队名称。"""
+        docs/contracts.md §6）；创建时间倒序，keyword 模糊匹配团队名称。"""
         conditions = [
             Team.visibility == TeamVisibility.PUBLIC,
             Team.status == TeamStatus.ACTIVE,
@@ -215,7 +215,7 @@ class TeamRepository:
         status: TeamStatus | None = None,
     ) -> tuple[list[tuple[Team, str | None]], int]:
         """团队管理列表（admin 全量，创建时间倒序；keyword 模糊团队名称、status 过滤；
-        join 创建人带昵称，docs/contracts/teams.md 管理端）。"""
+        join 创建人带昵称，docs/contracts.md §6.5）。"""
         conditions: list = []
         if keyword:
             conditions.append(Team.name.ilike(f"%{keyword}%"))

@@ -1,4 +1,4 @@
-"""题单模块集成测试（docs/contracts/problem-sets.md）。
+"""题单模块集成测试（docs/contracts.md §8）。
 
 覆盖：创建权限、题单中心可见性、详情访问控制、题目编排校验与排序、下线语义。
 """
@@ -278,7 +278,7 @@ async def test_replace_items_validation_and_ordering(client: httpx.AsyncClient) 
     private = await _seed_problem("私有题", visibility="private")
 
     url = f"/api/v1/problem-sets/{sid}/items"
-    # 草稿不可加入 → 1001；admin 本人私有题可加入（admin 同权，docs/contracts/problem-sets.md）
+    # 草稿不可加入 → 1001；admin 本人私有题可加入（admin 同权，docs/contracts.md §8）
     resp = await client.put(url, json={"items": [{"problem_id": draft}]}, headers=manager)
     assert resp.json()["code"] == 1001
     resp = await client.put(url, json={"items": [{"problem_id": private}]}, headers=manager)

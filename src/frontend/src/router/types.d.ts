@@ -12,7 +12,7 @@ declare module 'vue-router' {
     icon?: string
     /** 是否在侧边栏隐藏（用户设置 / 管理后台由头像菜单进入） */
     hidden?: boolean
-    /** 需要的全局角色 code 列表（满足任一即可，见 docs/security.md） */
+    /** 需要的全局角色 code 列表（满足任一即可，见 docs/architecture.md §5） */
     roles?: string[]
     /** 是否需要登录 */
     requiresAuth?: boolean

@@ -1,4 +1,4 @@
-"""标签管理业务逻辑（docs/contracts/problems.md problem_tags / 端点表）。"""
+"""标签管理业务逻辑（docs/contracts.md §7 problem_tags / 端点表）。"""
 from __future__ import annotations
 
 import uuid

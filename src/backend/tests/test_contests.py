@@ -1,4 +1,4 @@
-﻿"""比赛模块集成测试（docs/contracts/contests.md）。
+"""比赛模块集成测试（docs/contracts.md §9）。
 
 覆盖：建赛权限与时间校验、报名窗口、赛内访问窗口、ACM/IOI 计分与榜单条件更新、
 自动封榜、手动解冻重算（解冻必须人工）、提交记录窗口、赛制快照与原生计分、赛后补题不计榜单。
@@ -175,7 +175,7 @@ async def test_create_requires_manager_role(client: httpx.AsyncClient, user_head
 
 
 async def test_user_cannot_manage_others_contests(client: httpx.AsyncClient, admin_headers, user_headers) -> None:
-    """管理边界（docs/security.md）：普通用户对他人比赛——
+    """管理边界（docs/architecture.md §5）：普通用户对他人比赛——
 
     详情 can_manage=false；编辑 / 公告 / 编排搜索 → 2003；admin 创建的比赛自身可正常编辑。
     """
@@ -347,7 +347,7 @@ async def test_contest_access_and_submission_flow(client: httpx.AsyncClient, use
 
 
 async def test_contest_detail_problem_solved(client: httpx.AsyncClient, user_headers) -> None:
-    """详情题目 solved 作答状态（docs/contracts/contests.md）：仅统计本场比赛提交
+    """详情题目 solved 作答状态（docs/contracts.md §9）：仅统计本场比赛提交
     （AC=true / 尝试未过=false / 未交=null），练习通过不计入本场；列表端点同口径。"""
     p1 = await _seed_problem("状态题一")
     p2 = await _seed_problem("状态题二")
@@ -957,7 +957,7 @@ async def _seed_judging_contest_submission(problem_id: str, contest_id: str, *, 
 
 
 async def test_acm_binary_scoring_with_short_circuit(fake_storage) -> None:
-    """ACM 原生二值计分 + 短路（docs/contracts/judge.md 赛制计分）：
+    """ACM 原生二值计分 + 短路（docs/contracts.md §10.5）：
 
     - 首个测试点失败（节点短路只回传 1 个点）→ 总分 0，仅落已执行点；
     - 全部通过 → 总分 = 单题满分（比赛配置），测试点行不携带分值。

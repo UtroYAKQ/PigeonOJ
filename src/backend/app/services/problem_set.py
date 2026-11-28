@@ -1,4 +1,4 @@
-"""题单域服务：创建 / 编辑 / 编排题目 / 下线与可见性控制（docs/contracts/problem-sets.md）。"""
+"""题单域服务：创建 / 编辑 / 编排题目 / 下线与可见性控制（docs/contracts.md §8）。"""
 from __future__ import annotations
 
 import uuid
@@ -12,26 +12,66 @@ from app.models.problem_set import ProblemSet, ProblemSetItem
 from app.models.user import User
 from app.repositories.problem import ProblemRepository
 from app.repositories.problem_set import ProblemSetRepository, to_summary
+from app.schemas.judge import SubmissionCreate, SubmissionCreatedResponse
 from app.schemas.problem import ProblemDetail
 from app.schemas.problem_set import (
     ProblemSetCreate,
     ProblemSetDetail,
     ProblemSetItemsUpdate,
     ProblemSetItemOut,
+    ProblemSetSubmissionCreate,
     ProblemSetSummary,
     ProblemSetUpdate,
 )
-from app.services.problem import ProblemService, to_problem_detail
-from app.services.team import TeamService  # 团队角色校验（无环：team 不反向依赖 problem_set）
+from app.services.ports import (
+    ProblemDetailPort,
+    SubmissionCreator,
+    SubmissionDispatcher,
+    TeamRolePort,
+)
+from app.services.problem import to_problem_detail
 
-# 全站题单管理角色（docs/contracts/problem-sets.md：公开题单由 admin 创建；tutor 已下线）
+# 全站题单管理角色（docs/contracts.md §8：公开题单由 admin 创建；tutor 已下线）
 SET_MANAGER_ROLES: set[str] = {RoleCode.ADMIN}
 
 
 class ProblemSetService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        problem_detail: ProblemDetailPort | None = None,
+        team_roles: TeamRolePort | None = None,
+        submission_creator: SubmissionCreator | None = None,
+        dispatcher: SubmissionDispatcher | None = None,
+    ) -> None:
         self.db = db
         self.repo = ProblemSetRepository(db)
+        self.problems = ProblemRepository(db)
+        self._problem_detail = problem_detail
+        self._team_roles = team_roles
+        self._submission_creator = submission_creator
+        self._dispatcher = dispatcher
+
+    def _require_problem_detail(self) -> ProblemDetailPort:
+        if self._problem_detail is None:
+            raise RuntimeError("ProblemSetService 未装配 ProblemDetailPort（请经 deps Provider 构造）")
+        return self._problem_detail
+
+    def _require_team_roles(self) -> TeamRolePort:
+        if self._team_roles is None:
+            raise RuntimeError("ProblemSetService 未装配 TeamRolePort（请经 deps Provider 构造）")
+        return self._team_roles
+
+    def _require_submission_creator(self) -> SubmissionCreator:
+        if self._submission_creator is None:
+            raise RuntimeError("ProblemSetService 未装配 SubmissionCreator（请经 deps Provider 构造）")
+        return self._submission_creator
+
+    def _require_dispatcher(self) -> SubmissionDispatcher:
+        if self._dispatcher is None:
+            raise RuntimeError("ProblemSetService 未装配 SubmissionDispatcher（请经 deps Provider 构造）")
+        return self._dispatcher
 
     async def _is_set_manager(self, user: User | None) -> bool:
         """题单管理角色门（创建 / 管理后台入口）：admin。"""
@@ -41,14 +81,14 @@ class ProblemSetService:
         return bool(SET_MANAGER_ROLES.intersection(codes))
 
     async def _can_manage(self, user: User | None, problem_set: ProblemSet | None) -> bool:
-        """单个题单的管理权限（单一所有权模型，docs/security.md）：admin 管理全站题单；
+        """单个题单的管理权限（单一所有权模型，docs/architecture.md §5）：admin 管理全站题单；
         其余用户仅可管理本人创建的题单；团队题单由团队创建者 / 管理员管理。"""
         if user is None:
             return False
         if await is_admin(self.db, user):
             return True
         if problem_set is not None and problem_set.team_id is not None:
-            return await TeamService(self.db).has_team_roles(
+            return await self._require_team_roles().has_team_roles(
                 user, problem_set.team_id, level=RoleLevel.ADMIN
             )
         return problem_set is not None and user.id == problem_set.owner_id
@@ -57,7 +97,7 @@ class ProblemSetService:
         """团队题单的成员可见性：任意团队角色（member 及以上）可浏览详情。"""
         if user is None or problem_set.team_id is None:
             return False
-        return await TeamService(self.db).has_team_roles(
+        return await self._require_team_roles().has_team_roles(
             user, problem_set.team_id, level=RoleLevel.MEMBER
         )
 
@@ -103,7 +143,7 @@ class ProblemSetService:
     async def ensure_set_problem(
         self, set_id: uuid.UUID, problem_id: uuid.UUID, viewer: User | None
     ) -> ProblemSet:
-        """题单上下文资源访问前置校验（docs/contracts/problem-sets.md 统一入口）：
+        """题单上下文资源访问前置校验（docs/contracts.md §8.2）：
 
         题单必须可见（私有 / 已下线按可见性拦截），题目必须属于该题单（否则 3001）。
         """
@@ -112,15 +152,37 @@ class ProblemSetService:
             raise APIError(RESOURCE_NOT_FOUND, "题目不在该题单中", 404)
         return problem_set
 
+    async def create_set_submission(
+        self,
+        user: User,
+        set_id: uuid.UUID,
+        problem_id: uuid.UUID,
+        body: ProblemSetSubmissionCreate,
+    ) -> SubmissionCreatedResponse:
+        """题单内交题（统一入口）：题单可见 + 归属校验 → 创建提交 → commit → 派发。
+
+        与 POST /submissions 共用判题链路；题单门控通过后豁免题库私有可见性。
+        """
+        await self.ensure_set_problem(set_id, problem_id, user)
+        submission = await self._require_submission_creator().create(
+            user,
+            SubmissionCreate(problem_id=problem_id, language=body.language, code=body.code),
+            bypass_visibility=True,
+        )
+        await self._require_dispatcher().dispatch(submission)
+        return SubmissionCreatedResponse(
+            submission_id=str(submission.id), status=submission.status
+        )
+
     async def get_problem_detail(
         self, set_id: uuid.UUID, problem_id: uuid.UUID, viewer: User | None
     ) -> ProblemDetail:
         """题单内题目详情（统一入口）：归属校验通过后复用题库详情装配，
-        结构与可见性门控与 GET /problems/{id} 完全一致（docs/contracts/problem-sets.md）。"""
+        结构与可见性门控与 GET /problems/{id} 完全一致（docs/contracts.md §8）。"""
         await self.ensure_set_problem(set_id, problem_id, viewer)
         # 私有题豁免：题单可见 + 归属校验即题目访问门（bypass_visibility），
         # 创建者把私有题编入题单即视为通过题单分发
-        detail = await ProblemService(self.db).get_detail(
+        detail = await self._require_problem_detail().get_detail(
             problem_id, viewer, bypass_visibility=True
         )
         return to_problem_detail(detail)
@@ -167,7 +229,7 @@ class ProblemSetService:
         条目按 sort_order 展示、登录请求带 per-user 作答状态、can_manage=团队管理。"""
         rows = await self.repo.list_items_with_problem(problem_set.id)
         solved_map = (
-            await ProblemRepository(self.db).solve_status_map(
+            await self.problems.solve_status_map(
                 viewer.id, [problem.id for _, problem in rows]
             )
             if viewer is not None and rows

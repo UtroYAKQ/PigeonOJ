@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { CirclePlus, EditPen, Tickets, TurnOff } from '@element-plus/icons-vue'
 import { computed, h, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -30,7 +30,7 @@ const query = reactive({
   ownership: '' as '' | 'solo' | 'org' | 'team',
 })
 
-/** FPS 题库导入 / 导出（docs/contracts/problems.md「FPS 题库导入 / 导出」）：
+/** FPS 题库导入 / 导出（docs/contracts.md §7.8）：
  * 同一弹窗双 tab；导入上传 ZIP，导出按列表勾选（跨页保留选中） */
 const importVisible = ref(false)
 const importing = ref(false)

@@ -2,7 +2,7 @@
 /**
  * 写题工作台大组件：左栏题面卡片 + 可拖拽分隔条 + 右栏编辑器与自测控制台。
  * 工具行按钮只抛事件、行为由宿主页面注入——普通做题传 @submit 走正式提交，
- * 验题页传 @submit 走自行验题提交，@self-test 走用户自测（docs/contracts/judge.md）。
+ * 验题页传 @submit 走自行验题提交，@self-test 走用户自测（docs/contracts.md §10）。
  * 分栏比例全局持久化（useSplitPane），窄屏（<900px）自动上下堆叠。
  */
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'

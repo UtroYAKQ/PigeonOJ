@@ -1,4 +1,4 @@
-"""团队空间服务：团队题库 / 团队题单 / 团队比赛（docs/contracts/teams.md 团队空间节）。
+"""团队空间服务：团队题库 / 团队题单 / 团队比赛（docs/contracts.md §6.4）。
 
 限界上下文：团队空间对题目 / 题单 / 比赛的创建与编排经本模块独立端点完成
 （/teams/{team_id}/...），与公开上下文（题库中心 / 题单中心 / 比赛中心）互相隔离；
@@ -12,9 +12,9 @@
   对非成员 2003），创建与编排收敛在团队空间端点。
 
 引用语义（referenced_at 非空标记引用来源）：
-- 团队题目：引用导师本人创建的全站题目（private）进团队，team_id 归属切换 +
-  可见性转团队分支（单向，不设移出 / 升级公开通道，docs/contracts/problems.md）；
-- 团队题单：引用本人创建的全站题单进团队（visibility='team'，单向）；
+- 团队题目：引用来源 = 本团队归属组织的组织题库 ∪ 全站公开已发布题（docs/contracts.md §6.4），
+  快照复制为新题（统计从零累计），单向、不设移出 / 升级公开通道；
+- 团队题单：团队空间直接创建，恒 team_visible（无可见性入参、无复制来源）；
 - 团队比赛：团队空间直接创建（contest_type='team'），无引用语义。
 """
 from __future__ import annotations
@@ -59,7 +59,7 @@ from app.schemas.contest import (
     FreezeTimeUpdate,
     ScoreboardShowOut,
 )
-from app.schemas.judge import SubmissionCreate
+from app.schemas.judge import SubmissionCreate, SubmissionCreatedResponse
 from app.schemas.problem import ProblemDetail, ProblemUpdate, TeamProblemSummary
 from app.schemas.problem_set import ProblemSetSummary
 from app.schemas.team import (
@@ -69,6 +69,7 @@ from app.schemas.team import (
 )
 from app.services.contest import ContestService
 from app.services.judge import SubmissionService
+from app.services.ports import SelfTestPort, SubmissionDispatcher
 from app.services.problem import ProblemService, to_problem_detail
 from app.services.problem_set import ProblemSetService
 from app.services.team import TeamService
@@ -88,15 +89,31 @@ class TeamSpaceService:
         problems: ProblemService,
         contests: ContestService,
         submissions: SubmissionService,
+        problem_sets: ProblemSetService,
+        *,
+        self_test: SelfTestPort | None = None,
+        dispatcher: SubmissionDispatcher | None = None,
     ) -> None:
         self.db = db
         self.teams = teams
         self.problems = problems
         self.contests = contests
         self.submissions = submissions
+        self.problem_sets = problem_sets
+        self._self_test = self_test
+        self._dispatcher = dispatcher
         self.problem_repo = ProblemRepository(db)
         self.set_repo = ProblemSetRepository(db)
-        self.set_service = ProblemSetService(db)
+
+    def _require_self_test(self) -> SelfTestPort:
+        if self._self_test is None:
+            raise RuntimeError("TeamSpaceService 未装配 SelfTestPort（请经 deps Provider 构造）")
+        return self._self_test
+
+    def _require_dispatcher(self) -> SubmissionDispatcher:
+        if self._dispatcher is None:
+            raise RuntimeError("TeamSpaceService 未装配 SubmissionDispatcher（请经 deps Provider 构造）")
+        return self._dispatcher
 
     # ---------------- 团队角色辅助 ----------------
 
@@ -153,7 +170,7 @@ class TeamSpaceService:
     ) -> TeamProblemSummary:
         """引用题目进入团队题库（team_creator / team_admin）。
 
-        引用 = 快照复制新题（docs/contracts/teams.md 团队空间节 / orgs.md）：
+        引用 = 快照复制新题（docs/contracts.md §6.4 / orgs.md）：
         - 来源池 = 本组织组织题库（org_id = 团队归属组织）∪ 全站公开题，已发布；
           不再要求本人创建（组织题库为组织所有，成员全员可引用）
         - 新题继承题面 / 样例 / 生效测试点（MinIO 对象复制）/ 验题与发布状态，
@@ -254,9 +271,8 @@ class TeamSpaceService:
         *,
         language: str,
         code: str,
-    ) -> object:
-        """团队题库内交题（统一入口）：可见性校验后走统一判题链路
-        （submit_type='practice'；派发由路由层 commit 后执行）。"""
+    ) -> SubmissionCreatedResponse:
+        """团队题库内交题（统一入口）：可见性校验 → 创建提交 → commit → 派发。"""
         await self.require_member(user, team_id)
         problem = await self._team_problem_or_404(team_id, problem_id)
         if problem.status != ProblemStatus.PUBLISHED:
@@ -266,11 +282,40 @@ class TeamSpaceService:
             and not await self._is_team_manager(user, team_id)
         ):
             raise APIError(AUTH_FORBIDDEN, "无权限提交该题目", 403)
-        return await self.submissions.create(
+        submission = await self.submissions.create(
             user,
             SubmissionCreate(problem_id=problem_id, language=language, code=code),
             bypass_visibility=True,  # 团队题目豁免题库可见性：团队门控（成员 + 归属）已通过
         )
+        await self._require_dispatcher().dispatch(submission)
+        return SubmissionCreatedResponse(
+            submission_id=str(submission.id), status=submission.status
+        )
+
+    async def run_problem_code(
+        self, user: User, team_id: uuid.UUID, problem_id: uuid.UUID, body: object
+    ) -> object:
+        """团队题库内自测（统一入口）：团队门控 + 题目归属校验后复用判题自测链路。"""
+        await self.require_member(user, team_id)
+        await self.get_problem_detail(user, team_id, problem_id)
+        service = self._require_self_test()
+        order = await service.create_order(user, problem_id, body, bypass_visibility=True)
+        return await service.run_once(order, user.id)
+
+    async def run_set_problem_code(
+        self,
+        user: User,
+        team_id: uuid.UUID,
+        set_id: uuid.UUID,
+        problem_id: uuid.UUID,
+        body: object,
+    ) -> object:
+        """团队题单内自测（统一入口）：团队门控 + 题单归属校验后复用判题自测链路。"""
+        await self.require_member(user, team_id)
+        await self.get_set_problem_detail(user, team_id, set_id, problem_id)
+        service = self._require_self_test()
+        order = await service.create_order(user, problem_id, body, bypass_visibility=True)
+        return await service.run_once(order, user.id)
 
     async def update_team_problem_statement(
         self,
@@ -348,7 +393,7 @@ class TeamSpaceService:
         不再走 /problem-sets/{id} 统一端点。"""
         await self.require_member(user, team_id)
         problem_set = await self._team_set_or_404(team_id, set_id)
-        return await self.set_service.get_detail_for_team(problem_set, user)
+        return await self.problem_sets.get_detail_for_team(problem_set, user)
 
     async def get_set_problem_detail(
         self, user: User, team_id: uuid.UUID, set_id: uuid.UUID, problem_id: uuid.UUID
@@ -371,9 +416,8 @@ class TeamSpaceService:
         *,
         language: str,
         code: str,
-    ) -> object:
-        """团队题单内交题（团队上下文统一入口）：成员门 + 归属校验后
-        走统一判题链路（submit_type='practice'；派发由路由层 commit 后执行）。"""
+    ) -> SubmissionCreatedResponse:
+        """团队题单内交题（团队上下文统一入口）：成员门 + 归属校验 → 创建提交 → commit → 派发。"""
         await self.require_member(user, team_id)
         problem_set = await self._team_set_or_404(team_id, set_id)
         if await self.set_repo.get_item(problem_set.id, problem_id) is None:
@@ -381,10 +425,14 @@ class TeamSpaceService:
         problem = await self.problem_repo.get_by_id(problem_id)
         if problem is None or problem.status != ProblemStatus.PUBLISHED:
             raise APIError(AUTH_FORBIDDEN, "题目未发布，不可提交", 403)
-        return await self.submissions.create(
+        submission = await self.submissions.create(
             user,
             SubmissionCreate(problem_id=problem_id, language=language, code=code),
             bypass_visibility=True,  # 团队门控（成员 + 归属）已通过，豁免题库可见性
+        )
+        await self._require_dispatcher().dispatch(submission)
+        return SubmissionCreatedResponse(
+            submission_id=str(submission.id), status=submission.status
         )
 
     async def list_arrangeable_problems(
@@ -605,7 +653,7 @@ class TeamSpaceService:
         self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID, submission_id: uuid.UUID
     ):
         await self.require_team_contest(user, team_id, contest_id)
-        return await self.contests.get_visible_submission(user, contest_id, submission_id)
+        return await self.contests.get_submission_detail(user, contest_id, submission_id)
 
     async def update_contest(
         self, user: User, team_id: uuid.UUID, contest_id: uuid.UUID, body: ContestUpdate
@@ -643,7 +691,7 @@ class TeamSpaceService:
         await self.require_team_contest(user, team_id, contest_id, manager=True)
         return await self.contests.scoreboard_show(user, contest_id)
 
-    # ---------------- 管理端只读视图（admin，免团队成员校验；docs/contracts/teams.md 管理端） ----------------
+    # ---------------- 管理端只读视图（admin，免团队成员校验；docs/contracts.md §6.5） ----------------
 
     async def count_team_resources(
         self, team_ids: list[uuid.UUID]

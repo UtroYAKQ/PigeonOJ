@@ -1,4 +1,4 @@
-"""管理 / 运维路由（docs/contracts/admin.md /admin* 端点，统一前缀 /api/v1，全部 admin 权限）。
+"""管理 / 运维路由（docs/contracts.md §12 /admin* 端点，统一前缀 /api/v1，全部 admin 权限）。
 
 用户管理端点（用户列表 / 角色 / 封禁 / 冻结）复用 users.service 的业务逻辑。
 （模型配置 / Token 用量端点随 AI 模块暂缓实现）
@@ -21,9 +21,9 @@ from app.api.deps import (
     ProblemSetServiceDep,
     ReportServiceDep,
     SandboxServiceDep,
-    SessionDep,
     SubmissionServiceDep,
     TagServiceDep,
+    TeamAdminServiceDep,
     TeamServiceDep,
     TeamSpaceServiceDep,
     UserServiceDep,
@@ -240,12 +240,10 @@ async def list_logs(
 async def clear_logs(
     log_type: str,
     service: LogServiceDep,
-    db: SessionDep,
     admin: User = _admin,
 ) -> ApiResponse[None]:
     """一键清空指定类型日志（admin 危险操作；清的是全表，不做时间过滤）。"""
     await service.clear(log_type)
-    await db.commit()  # 显式提交：删除持久化后再返回
     return ok(None)
 
 
@@ -279,7 +277,7 @@ async def handle_report(
     return ok(None)
 
 
-# ---- 社区内容管理（docs/contracts/admin.md「社区内容管理」） ----
+# ---- 社区内容管理（docs/contracts.md §11.5） ----
 
 
 @router.get(
@@ -313,11 +311,9 @@ async def admin_set_solution_status(
     solution_id: uuid.UUID,
     body: AdminSolutionStatusUpdate,
     service: CommunityServiceDep,
-    db: SessionDep,
     admin: User = _admin,
 ) -> ApiResponse[None]:
     await service.admin_set_solution_status(solution_id, body.status)
-    await db.commit()
     return ok(None)
 
 
@@ -336,15 +332,13 @@ async def admin_set_comment_status(
     comment_id: uuid.UUID,
     body: AdminCommentStatusUpdate,
     service: CommunityServiceDep,
-    db: SessionDep,
     admin: User = _admin,
 ) -> ApiResponse[None]:
     await service.admin_set_comment_status(comment_id, body.is_deleted)
-    await db.commit()
     return ok(None)
 
 
-# ---- 代码分享管理（docs/contracts/community.md「代码广场」） ----
+# ---- 代码分享管理（docs/contracts.md §11.5） ----
 
 
 @router.get("/codes", response_model=ApiResponse[PaginatedResponse[AdminCodeShareOut]])
@@ -377,15 +371,13 @@ async def admin_set_code_share_status(
     share_id: uuid.UUID,
     body: AdminCodeShareStatusUpdate,
     service: CommunityServiceDep,
-    db: SessionDep,
     admin: User = _admin,
 ) -> ApiResponse[None]:
     await service.admin_set_code_share_status(share_id, body.status)
-    await db.commit()
     return ok(None)
 
 
-# ---- 标签管理（docs/contracts/problems.md 端点表 /admin/tags*） ----
+# ---- 标签管理（docs/contracts.md §7.7*） ----
 @router.get("/tags", response_model=ApiResponse[PaginatedResponse[TagOut]])
 async def list_tags(
     service: TagServiceDep,
@@ -408,11 +400,9 @@ async def list_tags(
 async def create_tag(
     body: TagCreate,
     service: TagServiceDep,
-    db: SessionDep,
     admin: User = _admin,
 ) -> ApiResponse[TagOut]:
     tag = await service.create(body)
-    await db.commit()
     return ok(TagOut.model_validate(tag))
 
 
@@ -421,11 +411,9 @@ async def update_tag(
     tag_id: uuid.UUID,
     body: TagUpdate,
     service: TagServiceDep,
-    db: SessionDep,
     admin: User = _admin,
 ) -> ApiResponse[TagOut]:
     tag = await service.update(tag_id, body)
-    await db.commit()
     return ok(TagOut.model_validate(tag))
 
 
@@ -433,11 +421,9 @@ async def update_tag(
 async def archive_tag(
     tag_id: uuid.UUID,
     service: TagServiceDep,
-    db: SessionDep,
     admin: User = _admin,
 ) -> ApiResponse[TagOut]:
     tag = await service.archive(tag_id)
-    await db.commit()
     return ok(TagOut.model_validate(tag))
 
 
@@ -447,7 +433,7 @@ async def import_fps_problems(
     admin: User = _admin,
     file: UploadFile = File(...),
 ) -> ApiResponse[FpsImportResult]:
-    """FPS 题库一键导入（admin；docs/contracts/problems.md「FPS 题库导入」）。
+    """FPS 题库一键导入（admin；docs/contracts.md §7.8）。
 
     上传 ZIP（内含 fps XML，兼容 cp437 中文文件名）或单个 XML；逐题建库，
     有测试点直接发布、带 checker 写暂存并保持草稿；单次最多尝试 20 题，
@@ -468,7 +454,7 @@ async def export_problems_zip(
     admin: User = _admin,
     ids: str = Query(..., max_length=1000),
 ) -> Response:
-    """批量导出为 ZIP（admin；docs/contracts/problems.md「FPS 题库导入」）。
+    """批量导出为 ZIP（admin；docs/contracts.md §7.8）。
 
     `ids` 为逗号分隔的题目 id（≤20）；ZIP 内含单文件 fps.xml（一题一 item，
     可直接经导入端点回灌）。文件下载为原始响应，不经统一信封。"""
@@ -501,7 +487,7 @@ async def export_problem_xml(
     )
 
 
-# ---- 比赛管理视图（单一所有权模型：admin 全量；docs/contracts/contests.md） ----
+# ---- 比赛管理视图（单一所有权模型：admin 全量；docs/contracts.md §9） ----
 @router.get("/contests", response_model=ApiResponse[PaginatedResponse[ContestSummary]])
 async def admin_list_contests(
     service: ContestServiceDep,
@@ -522,7 +508,7 @@ async def admin_list_contests(
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
 
 
-# ---- 题单管理（docs/contracts/problem-sets.md；管理角色：admin） ----
+# ---- 题单管理（docs/contracts.md §8；管理角色：admin） ----
 
 
 @router.get("/problem-sets", response_model=ApiResponse[PaginatedResponse[ProblemSetSummary]])
@@ -547,13 +533,12 @@ async def admin_list_problem_sets(
     return ok(PaginatedResponse(items=rows, total=total, page=page, page_size=page_size))
 
 
-# ---- 团队管理视图（docs/contracts/teams.md 管理端：admin 全量只读浏览，免团队角色） ----
+# ---- 团队管理视图（docs/contracts.md §6.5：admin 全量只读浏览，免团队角色） ----
 
 
 @router.get("/teams", response_model=ApiResponse[PaginatedResponse[TeamAdminSummary]])
 async def admin_list_teams(
-    service: TeamServiceDep,
-    space: TeamSpaceServiceDep,
+    service: TeamAdminServiceDep,
     admin: User = _admin,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
@@ -561,29 +546,18 @@ async def admin_list_teams(
     status: TeamStatus | None = Query(default=None),
 ) -> ApiResponse[PaginatedResponse[TeamAdminSummary]]:
     """团队管理列表（admin 全量，含已解散）：成员数 / 资源计数 / 创建人昵称 / 状态。"""
-    items, total = await service.admin_list_teams(page, page_size, keyword, status)
-    counts = await space.count_team_resources([item.id for item in items])
-    for item in items:
-        item.problem_count = counts.get(item.id, {}).get("problems", 0)
-        item.problem_set_count = counts.get(item.id, {}).get("sets", 0)
-        item.contest_count = counts.get(item.id, {}).get("contests", 0)
+    items, total = await service.list_teams(page, page_size, keyword, status)
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
 
 
 @router.get("/teams/{team_id}", response_model=ApiResponse[TeamAdminDetail])
 async def admin_get_team(
     team_id: uuid.UUID,
-    service: TeamServiceDep,
-    space: TeamSpaceServiceDep,
+    service: TeamAdminServiceDep,
     admin: User = _admin,
 ) -> ApiResponse[TeamAdminDetail]:
     """团队管理详情（免团队成员校验，含已解散团队与创建人昵称 / 资源计数）。"""
-    detail = await service.admin_get_detail(team_id)
-    counts = await space.count_team_resources([detail.id])
-    detail.problem_count = counts.get(detail.id, {}).get("problems", 0)
-    detail.problem_set_count = counts.get(detail.id, {}).get("sets", 0)
-    detail.contest_count = counts.get(detail.id, {}).get("contests", 0)
-    return ok(detail)
+    return ok(await service.get_team(team_id))
 
 
 @router.get("/teams/{team_id}/members", response_model=ApiResponse[PaginatedResponse[TeamMemberOut]])
@@ -664,16 +638,14 @@ async def admin_list_team_contests(
 async def admin_disband_team(
     team_id: uuid.UUID,
     service: TeamServiceDep,
-    db: SessionDep,
     admin: User = _admin,
 ) -> ApiResponse[None]:
     """站点 admin 代解散团队（治理逃生门；创建者账号缺失时的兜底通道）。"""
     await service.disband(admin, team_id)
-    await db.commit()
     return ok(None)
 
 
-# ---- 组织管理视图（docs/contracts/orgs.md 管理端：admin 全量只读浏览，免组织角色） ----
+# ---- 组织管理视图（docs/contracts.md §5.5：admin 全量只读浏览，免组织角色） ----
 
 
 @router.get("/orgs", response_model=ApiResponse[PaginatedResponse[OrgAdminSummary]])
@@ -720,10 +692,8 @@ async def admin_assign_team_org(
     team_id: uuid.UUID,
     body: OrgTeamAssign,
     service: OrgServiceDep,
-    db: SessionDep,
     admin: User = _admin,
 ) -> ApiResponse[None]:
     """存量团队指派组织（迁移用；组织必须 active）。"""
     await service.admin_assign_team(team_id, body)
-    await db.commit()
     return ok(None)

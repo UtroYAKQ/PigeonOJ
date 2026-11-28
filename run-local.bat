@@ -4,7 +4,7 @@ rem  PigeonOJ local one-click startup script for Windows
 rem  - Starts PostgreSQL / MinIO / Redis infra containers (no pull)
 rem  - Backend always runs in the repo-root .venv (created if missing, reused if present)
 rem  - Auto-installs missing backend (pip) / frontend (npm) dependencies
-rem  - Builds the judge-node image only when missing (nsjail sandbox), runs 1 judge node in its own window
+rem  - Builds the judge-node image only when missing (isolate sandbox), runs 1 judge node in its own window
 rem  - Runs DB migrations + demo user initialization
 rem  - Starts the backend (port from .env SERVER_PORT, default 8000) and the frontend (5173)
 rem  Note: This script never executes user code; judging runs only inside the judge node's sandbox.
@@ -104,7 +104,7 @@ if not exist "node_modules\" (
     echo Frontend node_modules already present
 )
 
-rem ---------- 3. Prepare the judge-node image (pre-build the nsjail sandbox; first build takes time) ----------
+rem ---------- 3. Prepare the judge-node image (builds isolate in-image; first build takes time) ----------
 echo [3/8] Preparing judge-node image...
 docker image inspect pigeonoj/judge-node:latest >nul 2>&1
 if errorlevel 1 (

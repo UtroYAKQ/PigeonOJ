@@ -13,7 +13,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const host = ref<HTMLElement>()
 const userStore = useUserStore()
 
-// 用户编辑器偏好（docs/contracts/users.md）：默认 JetBrains Mono / 14px，随个人资料即时变更
+// 用户编辑器偏好（docs/contracts.md §4）：默认 JetBrains Mono / 14px，随个人资料即时变更
 function editorPrefs() {
   const size = userStore.user?.editor_font_size ?? 14
   const { fontFamily, ligatures } = editorFontStack(userStore.user?.editor_font_family)

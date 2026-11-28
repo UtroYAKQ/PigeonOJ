@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 代码广场（docs/contracts/community.md「代码广场」）：小卡片网格 + 关键词 / 语言筛选，
+ * 代码广场（docs/contracts.md §11.5）：小卡片网格 + 关键词 / 语言筛选，
  * 点击卡片进入详情页查看代码；分享不关联题目、不设评论。
  */
 import { computed, onMounted, reactive, ref } from 'vue'

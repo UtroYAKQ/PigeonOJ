@@ -1,4 +1,4 @@
-"""题库路由（docs/contracts/problems.md /problems* 端点，统一前缀 /api/v1）。
+"""题库路由（docs/contracts.md §7 /problems* 端点，统一前缀 /api/v1）。
 
 验题提交端点 POST /problems/{id}/verify 在 judge 模块路由中注册
 （创建判题提交并派发）。
@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from app.api.deps import (
     ProblemServiceDep,
-    SessionDep,
+
     TagServiceDep,
     get_current_user,
     get_optional_user,
@@ -68,18 +68,7 @@ async def list_problems(
         raise APIError(AUTH_NOT_LOGGED_IN, "查看我的题目需要登录", 401)
     if query.mine and user is None:
         raise APIError(AUTH_NOT_LOGGED_IN, "查看我的题目需要登录", 401)
-    rows, total = await service.list_published(query, viewer=user)
-    flags = (
-        await service.verification_flags([row.id for row in rows]) if query.scope == "mine" else {}
-    )
-    items: list[ProblemSummary] = []
-    for row in rows:
-        item = ProblemSummary.model_validate(row)
-        item.needs_reverification = flags.get(row.id, False)
-        items.append(item)
-    await service.attach_counters(items)
-    await service.attach_solve_status(items, user)
-    await service.attach_tags(items)
+    items, total = await service.list_published_page(query, user)
     return ok(PaginatedResponse(items=items, total=total, page=query.page, page_size=query.page_size))
 
 
@@ -87,15 +76,9 @@ async def list_problems(
 async def create_problem(
     body: ProblemCreate,
     service: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
-    problem = await service.create(user, body)
-    await db.commit()  # 显式提交：确保数据持久化后再返回（get_db 会再次 commit，但无害）
-    summary = ProblemSummary.model_validate(problem)
-    await service.attach_counters([summary])
-    await service.attach_tags([summary])
-    return ok(summary)
+    return ok(await service.create_summary(user, body))
 
 
 @router.get("/problems/tags")
@@ -105,7 +88,7 @@ async def list_active_tags(
     page: int | None = Query(default=None, ge=1),
     page_size: int | None = Query(default=None, ge=1, le=100),
 ) -> ApiResponse[list[TagPublic] | PaginatedResponse[TagPublic]]:
-    """激活标签列表（public：打标选择器与题库筛选；docs/contracts/problems.md 端点表）。
+    """激活标签列表（public：打标选择器与题库筛选；docs/contracts.md §7.7）。
 
     注意必须先于 /problems/{problem_id} 注册，否则 tags 会被当作 uuid 解析。
 
@@ -141,15 +124,9 @@ async def get_problem(
 async def update_problem(
     problem_id: uuid.UUID, body: ProblemUpdate,
     service: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
-    problem = await service.update(user, problem_id, body)
-    await db.commit()  # 显式提交：确保数据持久化
-    summary = ProblemSummary.model_validate(problem)
-    await service.attach_counters([summary])
-    await service.attach_tags([summary])
-    return ok(summary)
+    return ok(await service.update_summary(user, problem_id, body))
 
 
 @router.get("/problems/{problem_id}/test-cases", response_model=ApiResponse[TestCaseListOut])
@@ -169,12 +146,10 @@ async def get_test_cases(
 async def update_test_cases(
     problem_id: uuid.UUID, body: TestCasesUpdate,
     service: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """全量替换暂存集（生效集不动，验题通过后晋升；行不可变不物理删除）。"""
     await service.replace_cases(user, problem_id, body)
-    await db.commit()  # 显式提交：确保数据持久化
     return ok(None)
 
 
@@ -182,31 +157,20 @@ async def update_test_cases(
 async def patch_test_cases(
     problem_id: uuid.UUID, body: TestCasesPatch,
     service: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[TestCasesOut]:
     """增量更新暂存集：只提交变化的测试点（带 id=修改 / 无 id=新增 / delete_ids=目标状态移除）。"""
-    await service.patch_cases(user, problem_id, body)
-    await db.commit()  # 显式提交：确保数据持久化
-    problem = await service.problems.get_by_id(problem_id)
-    cases = await service.list_cases_view(problem) if problem else []
-    return ok(TestCasesOut(cases=cases))
+    return ok(await service.patch_cases_view(user, problem_id, body))
 
 
 @router.post("/problems/{problem_id}/test-cases/apply", response_model=ApiResponse[ProblemSummary])
 async def apply_test_cases(
     problem_id: uuid.UUID,
     service: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
     """显式生效：把已通过验题的暂存集晋升为生效集（测试点与 SPJ 一并晋升；验题与晋升解耦）。"""
-    problem = await service.apply_pending_cases(user, problem_id)
-    await db.commit()
-    summary = ProblemSummary.model_validate(problem)
-    await service.attach_counters([summary])
-    await service.attach_tags([summary])
-    return ok(summary)
+    return ok(await service.apply_cases_summary(user, problem_id))
 
 
 @router.get("/problems/{problem_id}/spj", response_model=ApiResponse[SpjOut])
@@ -215,7 +179,7 @@ async def get_spj(
     service: ProblemServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SpjOut]:
-    """特判程序目标状态回读（暂存优先；仅题目管理者可读，docs/contracts/problems.md）。"""
+    """特判程序目标状态回读（暂存优先；仅题目管理者可读，docs/contracts.md §7.5）。"""
     return ok(await service.get_spj_managed(user, problem_id))
 
 
@@ -223,12 +187,10 @@ async def get_spj(
 async def update_spj(
     problem_id: uuid.UUID, body: SpjUpdate,
     service: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """设置 / 覆盖暂存特判程序（C++17 源码；生效集不动，验题通过后随 apply 晋升）。"""
     await service.replace_spj(user, problem_id, body)
-    await db.commit()  # 显式提交：确保数据持久化
     return ok(None)
 
 
@@ -236,12 +198,10 @@ async def update_spj(
 async def delete_spj(
     problem_id: uuid.UUID,
     service: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """暂存移除特判程序（写 pending_spj_oss_id=''，apply 晋升后生效集置 NULL）。"""
     await service.remove_spj(user, problem_id)
-    await db.commit()  # 显式提交：确保数据持久化
     return ok(None)
 
 
@@ -249,11 +209,9 @@ async def delete_spj(
 async def update_samples(
     problem_id: uuid.UUID, body: SamplesUpdate,
     service: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     await service.replace_samples(user, problem_id, body)
-    await db.commit()  # 显式提交：确保数据持久化
     return ok(None)
 
 
@@ -261,30 +219,18 @@ async def update_samples(
 async def publish_problem(
     problem_id: uuid.UUID,
     service: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
-    problem = await service.publish(user, problem_id)
-    await db.commit()  # 显式提交：确保数据持久化
-    summary = ProblemSummary.model_validate(problem)
-    await service.attach_counters([summary])
-    await service.attach_tags([summary])
-    return ok(summary)
+    return ok(await service.publish_summary(user, problem_id))
 
 
 @router.post("/problems/{problem_id}/archive", response_model=ApiResponse[ProblemSummary])
 async def archive_problem(
     problem_id: uuid.UUID,
     service: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSummary]:
-    problem = await service.archive(user, problem_id)
-    await db.commit()  # 显式提交：确保数据持久化
-    summary = ProblemSummary.model_validate(problem)
-    await service.attach_counters([summary])
-    await service.attach_tags([summary])
-    return ok(summary)
+    return ok(await service.archive_summary(user, problem_id))
 
 
 @router.get("/verify-invites/{token}", response_model=ApiResponse[VerificationInviteOut])

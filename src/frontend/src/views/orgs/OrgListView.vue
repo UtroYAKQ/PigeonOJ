@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 组织中心（/orgs/mine，docs/contracts/orgs.md）：
+ * 组织中心（/orgs/mine，docs/contracts.md §5）：
  * 我的组织列表（GET /orgs/mine，卡片墙，带成员数 / 团队数 / 我的角色），
  * 站点 admin 可见「创建组织」入口（POST /orgs，可不带初始管理员，后续在详情中任命）。
  * 卡片范式与团队中心（TeamListView）一致。

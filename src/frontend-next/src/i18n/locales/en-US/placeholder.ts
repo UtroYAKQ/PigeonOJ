@@ -6,8 +6,8 @@ export default {
     developing: '"{title}" is in development',
     endpoints: 'Planned endpoints',
     contestsDescription:
-      'Public and team contests, registration, and rankings are being implemented against docs/contracts/contests.md.',
+      'Public and team contests, registration, and rankings are being implemented against docs/contracts.md §9.',
     teamsDescription:
-      'Team workspaces, members, and invitations are being implemented against docs/contracts/teams.md.',
+      'Team workspaces, members, and invitations are being implemented against docs/contracts.md §6.',
   },
 }

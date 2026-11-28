@@ -1,6 +1,6 @@
 """团队模块数据模型：teams / team_members / team_member_applications。
 
-表结构与 docs/contracts/teams.md 对齐；团队角色经 user_roles（scope='team'、
+表结构与 docs/contracts.md §6 对齐；团队角色经 user_roles（scope='team'、
 object_id=team_id）授权，本模块不含独立角色表。
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ from app.enums import TeamApplicationStatus, TeamMemberStatus, TeamStatus, TeamV
 
 
 class Team(Base):
-    """团队（docs/contracts/teams.md）。解散为软解散，成员资源默认归档不物理删除。"""
+    """团队（docs/contracts.md §6）。解散为软解散，成员资源默认归档不物理删除。"""
 
     __tablename__ = "teams"
 

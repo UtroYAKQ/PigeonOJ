@@ -76,7 +76,7 @@ function openProblemCreate() {
   void router.push(`/me/orgs/${props.orgId}/problems/new`)
 }
 
-/** 行点击：已发布题进组织作答页（组织成员可交题 / 自测，docs/contracts/orgs.md）；
+/** 行点击：已发布题进组织作答页（组织成员可交题 / 自测，docs/contracts.md §5）；
  * 草稿进编辑向导（草稿不可作答）。 */
 function openOrgProblem(row: TeamProblemSummary) {
   const base = `/me/orgs/${props.orgId}/problems/${row.id}`

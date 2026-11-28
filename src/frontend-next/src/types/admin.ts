@@ -1,8 +1,8 @@
 /**
- * 管理 / 运维模块类型（docs/contracts/admin.md）。
+ * 管理 / 运维模块类型（docs/contracts.md §12）。
  */
 
-/** 在线用户面板条目（每活跃会话一行，docs/contracts/admin.md） */
+/** 在线用户面板条目（每活跃会话一行，docs/contracts.md §12） */
 export interface OnlineUser {
   user_id: string
   nickname: string
@@ -17,7 +17,7 @@ export interface OnlineUser {
   session_created_at: string
 }
 
-/** 全站提交面板条目（admin，docs/contracts/admin.md） */
+/** 全站提交面板条目（admin，docs/contracts.md §12） */
 export interface AdminSubmission {
   id: string
   problem_id: string

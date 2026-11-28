@@ -1,4 +1,4 @@
-"""题库模型：题目、标签、验题、测试点、代码草稿。表结构对应 docs/contracts/problems.md。
+"""题库模型：题目、标签、验题、测试点、代码草稿。表结构对应 docs/contracts.md §7。
 
 原位于 judge/models.py；按「每张表只有一个归属模块」原则迁入题库模块
 。
@@ -30,7 +30,7 @@ from app.enums import CaseStatus, ProblemStatus, ProblemVisibility, TagStatus, V
 
 
 class Problem(Base):
-    """题目（docs/contracts/problems.md）：team_id 非空为团队题目（teams 模块，0022 起落库）。"""
+    """题目（docs/contracts.md §7）：team_id 非空为团队题目（teams 模块，0022 起落库）。"""
 
     __tablename__ = "problems"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -40,7 +40,7 @@ class Problem(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     input_description: Mapped[str | None] = mapped_column(Text)
     output_description: Mapped[str | None] = mapped_column(Text)
-    # 题面说明：可选题面要素，详情页渲染于题面最后（docs/contracts/problems.md）
+    # 题面说明：可选题面要素，详情页渲染于题面最后（docs/contracts.md §7）
     note: Mapped[str | None] = mapped_column(Text)
     solution: Mapped[str | None] = mapped_column(Text)
     # 展示样例数组 [{"input", "output", "explanation"?}]，仅展示与自测，不参与判题
@@ -52,7 +52,7 @@ class Problem(Base):
     # 测试点集合：生效集（判题唯一来源）/ 暂存集（NULL=无暂存改动）
     active_case_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     pending_case_ids: Mapped[list | None] = mapped_column(JSONB)
-    # SPJ 特判程序源码（MinIO 对象 key，C++17，docs/contracts/problems.md「SPJ 特判程序」）：
+    # SPJ 特判程序源码（MinIO 对象 key，C++17，docs/contracts.md §7.5）：
     # 生效集 / 暂存集双字段与测试点同语义；暂存 '' = 暂存移除特判程序
     spj_oss_id: Mapped[str | None] = mapped_column(String(512))
     pending_spj_oss_id: Mapped[str | None] = mapped_column(String(512))
@@ -67,16 +67,16 @@ class Problem(Base):
     difficulty: Mapped[int | None] = mapped_column(Integer)
     # 全站题目：private / public；组织题目（org_id 非空）：org_visible；团队题目（team_id 非空）：admin_visible / team_visible
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemVisibility.PUBLIC)
-    # 归属团队；NULL=非团队题目（docs/contracts/problems.md 可见性设计）
+    # 归属团队；NULL=非团队题目（docs/contracts.md §7 可见性设计）
     team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id"))
-    # 归属组织；NULL=非组织题目（组织题库，docs/contracts/orgs.md；与 team_id 互斥）
+    # 归属组织；NULL=非组织题目（组织题库，docs/contracts.md §5；与 team_id 互斥）
     org_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"))
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=ProblemStatus.DRAFT)
     verified_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     # 验题通过时间即「已验题」事实载体（is_verified 列已移除，≡ verified_at 非空）
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # 经团队引用进入团队题库的时间（引用来源标记；NULL=非引用产生，docs/contracts/teams.md 团队空间节）
+    # 经团队引用进入团队题库的时间（引用来源标记；NULL=非引用产生，docs/contracts.md §6.4）
     # 引用语义（0030 起）= 快照复制新题：源题留个人题库，本行继承题面 / 测试点 / 验题状态，
     # source_problem_id 指向源题（同团队同源唯一），统计数据从零累计（纯团队口径）
     referenced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -117,10 +117,10 @@ class Problem(Base):
 
 
 class ProblemCounter(Base):
-    """题目统计计数（docs/contracts/problems.md problem_counters）。
+    """题目统计计数（docs/contracts.md §7 problem_counters）。
 
     与 problems 1:1；判题完成时以 upsert 原子累加，避免 problems 热行频繁 UPDATE。
-    统计口径：排除 verify 提交与 pending/judging/system_error（见 docs/contracts/judge.md）。
+    统计口径：排除 verify 提交与 pending/judging/system_error（见 docs/contracts.md §10）。
     """
 
     __tablename__ = "problem_counters"
@@ -135,7 +135,7 @@ class ProblemCounter(Base):
 
 
 class ProblemTag(Base):
-    """标签定义（docs/contracts/problems.md problem_tags；admin 维护，归档不删除）。
+    """标签定义（docs/contracts.md §7 problem_tags；admin 维护，归档不删除）。
 
     分类体系替代原 difficulty 三档枚举。
     """
@@ -150,7 +150,7 @@ class ProblemTag(Base):
 
 
 class ProblemTagRelation(Base):
-    """题目-标签关联（docs/contracts/problems.md problem_tag_relations）。"""
+    """题目-标签关联（docs/contracts.md §7 problem_tag_relations）。"""
 
     __tablename__ = "problem_tag_relations"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -164,7 +164,7 @@ class ProblemTagRelation(Base):
 
 
 class ProblemVerification(Base):
-    """验题记录（docs/contracts/problems.md problem_verifications）。"""
+    """验题记录（docs/contracts.md §7 problem_verifications）。"""
 
     __tablename__ = "problem_verifications"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -182,7 +182,7 @@ class ProblemVerification(Base):
 
 
 class TestCase(Base):
-    """判题测试点（docs/contracts/problems.md test_cases）；行不可变版本化，
+    """判题测试点（docs/contracts.md §7 test_cases）；行不可变版本化，
     集合成员资格由 problems.active_case_ids / pending_case_ids 定义；
     样例存 problems.samples，不落本表。"""
 

@@ -1,4 +1,4 @@
-"""管理 / 运维模块集成测试（docs/contracts/admin.md）：权限 / 用户管理 / 配置 / 日志 / 举报。"""
+"""管理 / 运维模块集成测试（docs/contracts.md §12）：权限 / 用户管理 / 配置 / 日志 / 举报。"""
 from __future__ import annotations
 
 import asyncio
@@ -578,7 +578,7 @@ async def test_admin_reports(client: httpx.AsyncClient, admin_headers: dict[str,
 async def test_admin_submissions_no_cross_join(
     client: httpx.AsyncClient, admin_headers: dict[str, str], user_headers: dict[str, str]
 ) -> None:
-    """全站提交面板（docs/contracts/admin.md /admin/submissions）：多题目场景行数不放大
+    """全站提交面板（docs/contracts.md §12 /admin/submissions）：多题目场景行数不放大
     （回归：rows_stmt 缺 Problem join 退化为笛卡尔积，同一提交重复多行）。"""
     from app.models.judge import Submission
     from app.models.problem import Problem

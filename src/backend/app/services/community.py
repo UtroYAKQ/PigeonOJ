@@ -1,9 +1,9 @@
-"""社区服务：官方题解展示、用户题解分享、评论与举报（docs/contracts/community.md）。
+"""社区服务：官方题解展示、用户题解分享、评论与举报（docs/contracts.md §11）。
 
 门控复用：题目可见性一律经 ProblemService.get_detail（题解 / 评论继承题目可见性），
 比赛进行中门禁经 ContestService 公开端口 is_problem_locked_by_running_contest，
 功能开关读 system_configs `community.feature_switches`（admin.md community 域）。
-频控：Redis 固定窗口（SETNX + TTL，docs/security.md 频控口径）。
+频控：Redis 固定窗口（SETNX + TTL，docs/architecture.md §5 频控口径）。
 """
 from __future__ import annotations
 
@@ -154,6 +154,9 @@ class CommunityService:
         self.comments = CommentRepository(db)
         self.code_shares = CodeShareRepository(db)
         self.reports = ReportRepository(db)
+        # 作者摘要 / 题目标题装配所需的邻域仓储（构造期装配，方法体不自构）
+        self.users = UserRepository(db)
+        self.problem_repo = ProblemRepository(db)
 
     # ---- 门控 ----
 
@@ -188,7 +191,7 @@ class CommunityService:
     async def _author_briefs(
         self, user_ids: list[uuid.UUID]
     ) -> dict[uuid.UUID, AuthorBrief]:
-        rows = await UserRepository(self.db).get_briefs(list(dict.fromkeys(user_ids)))
+        rows = await self.users.get_briefs(list(dict.fromkeys(user_ids)))
         return {u.id: AuthorBrief.model_validate(u) for u in rows}
 
     # ---- 官方题解 ----
@@ -610,7 +613,7 @@ class CommunityService:
         rows, total = await self.solutions.list_admin(page, page_size, status, keyword, problem_id)
         counts = await self.solutions.count_comments([r.id for r in rows])
         authors = await self._author_briefs([r.user_id for r in rows])
-        titles = await ProblemRepository(self.db).get_titles(list({r.problem_id for r in rows}))
+        titles = await self.problem_repo.get_titles(list({r.problem_id for r in rows}))
         items = [
             AdminSolutionOut(
                 id=row.id,
@@ -638,7 +641,7 @@ class CommunityService:
         row = await self._require_solution(solution_id)
         counts = await self.solutions.count_comments([row.id])
         authors = await self._author_briefs([row.user_id])
-        titles = await ProblemRepository(self.db).get_titles([row.problem_id])
+        titles = await self.problem_repo.get_titles([row.problem_id])
         return AdminSolutionOut(
             id=row.id,
             problem=ProblemBrief(id=row.problem_id, title=titles.get(row.problem_id, "未知题目")),

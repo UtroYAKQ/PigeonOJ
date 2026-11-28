@@ -1,5 +1,5 @@
 /**
- * 团队模块类型（docs/contracts/teams.md）。
+ * 团队模块类型（docs/contracts.md §6）。
  */
 
 export type TeamRoleType = 'creator' | 'admin' | 'member'
@@ -83,7 +83,7 @@ export interface TeamListQuery {
   mine?: boolean
 }
 
-/* ==================== 团队空间（题库 / 题单 / 比赛，docs/contracts/teams.md 团队空间节） ==================== */
+/* ==================== 团队空间（题库 / 题单 / 比赛，docs/contracts.md §6.4） ==================== */
 
 /** 团队题库列表项：题库摘要 + 引用来源字段 */
 export interface TeamProblemSummary {
@@ -141,7 +141,7 @@ export interface TeamContestListQuery {
   status?: 'scheduled' | 'running' | 'finished'
 }
 
-/* ==================== 团队管理（admin 后台，docs/contracts/teams.md 管理端） ==================== */
+/* ==================== 团队管理（admin 后台，docs/contracts.md §6.5） ==================== */
 
 /** 团队管理列表项（admin 全量，含已解散；带创建人昵称与状态） */
 export interface TeamAdminSummary extends TeamSummary {

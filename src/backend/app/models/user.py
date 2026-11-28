@@ -1,6 +1,6 @@
 """用户模块数据模型：users / user_sessions / roles / user_roles。
 
-表结构与 docs/contracts/users.md、docs/security.md 权限设计对齐；
+表结构与 docs/contracts.md §4、docs/architecture.md §5 权限设计对齐；
 唯一来源是 alembic/versions/ 下的迁移 SQL。
 
 """
@@ -28,7 +28,7 @@ from app.enums import EditorFontFamily, UserStatus, Theme, UserRoleScope
 
 
 class User(Base):
-    """用户账号（docs/contracts/users.md）。"""
+    """用户账号（docs/contracts.md §4）。"""
 
     __tablename__ = "users"
 
@@ -40,12 +40,12 @@ class User(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(512))
     signature: Mapped[str | None] = mapped_column(String(255))
     theme: Mapped[str] = mapped_column(String(32), nullable=False, default=Theme.LIGHT)
-    # 编辑器偏好（docs/contracts/users.md；前端 Monaco 字号 / 字体消费）
+    # 编辑器偏好（docs/contracts.md §4；前端 Monaco 字号 / 字体消费）
     editor_font_size: Mapped[int] = mapped_column(Integer, nullable=False, default=14)
     editor_font_family: Mapped[str] = mapped_column(
         String(32), nullable=False, default=EditorFontFamily.JETBRAINS_MONO
     )
-    # active / frozen / banned / deleted（语义见 docs/contracts/users.md「账号状态语义」）
+    # active / frozen / banned / deleted（语义见 docs/contracts.md §4.3）
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=UserStatus.ACTIVE, server_default=UserStatus.ACTIVE)
     # 冻结到期时刻：非空 = 短时冻结（登录失败超次自动置入），到期自动恢复 active；
     # 空 = 人工冻结（无限期，仅人工解冻）
@@ -60,7 +60,7 @@ class User(Base):
 
 
 class UserSession(Base):
-    """登录会话（docs/contracts/users.md user_sessions；token 存 SHA-256 哈希）。"""
+    """登录会话（docs/contracts.md §4 user_sessions；token 存 SHA-256 哈希）。"""
 
     __tablename__ = "user_sessions"
 

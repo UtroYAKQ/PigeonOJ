@@ -46,7 +46,7 @@ def thumb_object_key(object_key: str, width: int) -> str:
 def _etag(key: str, size: int) -> str:
     return f'"{hashlib.sha256(key.encode()).hexdigest()[:16]}-{size:x}"'
 
-# 上传频控（docs/security.md「上传与文件安全」）：按用户 Redis 固定窗口计数，
+# 上传频控（docs/architecture.md §5「上传与文件安全」）：按用户 Redis 固定窗口计数，
 # 防止循环上传垃圾对象耗尽对象存储；仅通过类型/大小校验、即将写入存储的请求消耗配额
 _UPLOAD_QUOTAS = {
     "avatar": (10, 3600),   # (窗口内次数上限, 窗口秒数)

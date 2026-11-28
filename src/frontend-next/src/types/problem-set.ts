@@ -1,5 +1,5 @@
 /**
- * 题单模块类型（docs/contracts/problem-sets.md）。
+ * 题单模块类型（docs/contracts.md §8）。
  * 团队题单恒 team_visible（全队可见；admin_visible 分支随组织化改造移除）。
  */
 

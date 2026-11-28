@@ -1,6 +1,6 @@
 """新增题目背景字段 problems.background（必填，Markdown）
 
-题目背景为必填题面要素，详情页渲染于题面之前（docs/contracts/problems.md）。
+题目背景为必填题面要素，详情页渲染于题面之前（docs/contracts.md §7）。
 存量行以 ADD COLUMN ... NOT NULL DEFAULT '无' 一次性回填；
 server_default 保留，兜底直接 ORM 建题等未显式传值的路径。
 

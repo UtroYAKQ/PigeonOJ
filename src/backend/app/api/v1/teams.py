@@ -1,4 +1,4 @@
-"""团队路由（docs/contracts/teams.md /teams* 端点，统一前缀 /api/v1）。
+"""团队路由（docs/contracts.md §6 /teams* 端点，统一前缀 /api/v1）。
 
 团队角色经 user_roles（scope='team'）应用层判定；路由仅做 HTTP 装配，
 权限 / 状态校验收敛在 TeamService 与 TeamSpaceService（团队空间门面）。
@@ -12,16 +12,12 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import (
     get_current_user,
     get_optional_user,
-    SelfTestServiceDep,
-    SessionDep,
-    SubmissionServiceDep,
     TeamServiceDep,
     TeamSpaceServiceDep,
 )
 from app.core.exceptions import AUTH_NOT_LOGGED_IN, APIError
 from app.enums import SubmissionStatus
 from app.models.user import User
-from app.rpc.judge_gateway import commit_and_dispatch
 from app.schemas.judge import (
     SelfTestRequest,
     SelfTestResultOut,
@@ -81,7 +77,7 @@ async def list_teams(
 ) -> ApiResponse[PaginatedResponse[TeamSummary]]:
     """团队中心列表：默认仅公开在册团队（匿名可看）；mine=true 为「我的团队」
     勾选（须登录，匿名 401），返回本人在册的团队（公开 + 私有）。
-    团队创建已收敛到组织端点 POST /orgs/{org_id}/teams（docs/contracts/orgs.md）。"""
+    团队创建已收敛到组织端点 POST /orgs/{org_id}/teams（docs/contracts.md §5）。"""
     if mine and user is None:
         raise APIError(AUTH_NOT_LOGGED_IN, "查看我的团队需要登录", 401)
     items, total = await service.list_public_teams(
@@ -124,12 +120,10 @@ async def update_team(
     team_id: uuid.UUID,
     body: TeamUpdate,
     service: TeamServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[TeamDetail]:
     """编辑团队信息（team_creator / team_admin；缺省不动）。"""
     detail = await service.update(user, team_id, body)
-    await db.commit()
     return ok(detail)
 
 
@@ -163,12 +157,10 @@ async def submit_application(
     team_id: uuid.UUID,
     body: TeamApplicationSubmit,
     service: TeamServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """提交加入申请（已入队或已有 pending 申请返回 3003；邀请链接经校验记录来源）。"""
     await service.submit_application(user, team_id, body)
-    await db.commit()
     return ok(None)
 
 
@@ -194,12 +186,10 @@ async def review_application(
     application_id: uuid.UUID,
     body: TeamApplicationReview,
     service: TeamServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """审批加入申请（通过写在册成员 + team_member 授权；拒绝仅记录状态）。"""
     await service.review_application(user, team_id, application_id, body)
-    await db.commit()
     return ok(None)
 
 
@@ -209,7 +199,6 @@ async def set_member_admin(
     user_id: uuid.UUID,
     body: TeamAdminFlag,
     service: TeamServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """分配 / 取消团队管理员（创建者或站点 admin 兜底；分配即写授权，取消即删除）。
@@ -217,7 +206,6 @@ async def set_member_admin(
     方法与组织端点 PUT /orgs/{id}/members/{uid}/admin 对齐（幂等置位语义用 PUT）。
     """
     await service.set_admin(user, team_id, user_id, body)
-    await db.commit()
     return ok(None)
 
 
@@ -227,12 +215,10 @@ async def set_member_note(
     user_id: uuid.UUID,
     body: TeamMemberNote,
     service: TeamServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """设置成员备注（本人可备注自己；团队创建者 / 管理员可备注任意成员；空串 = 清除）。"""
     await service.set_member_note(user, team_id, user_id, body)
-    await db.commit()
     return ok(None)
 
 
@@ -241,12 +227,10 @@ async def kick_member(
     team_id: uuid.UUID,
     user_id: uuid.UUID,
     service: TeamServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """踢出成员（team_creator / team_admin；清理成员状态与团队授权）。"""
     await service.kick(user, team_id, user_id)
-    await db.commit()
     return ok(None)
 
 
@@ -254,12 +238,10 @@ async def kick_member(
 async def exit_team(
     team_id: uuid.UUID,
     service: TeamServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """主动退出（成员本人；创建者不可退出，只能解散）。"""
     await service.exit(user, team_id)
-    await db.commit()
     return ok(None)
 
 
@@ -267,16 +249,14 @@ async def exit_team(
 async def disband_team(
     team_id: uuid.UUID,
     service: TeamServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """解散团队（软解散，仅创建者；清理全部团队授权与成员状态）。"""
     await service.disband(user, team_id)
-    await db.commit()
     return ok(None)
 
 
-# ==================== 团队空间（docs/contracts/teams.md 团队空间节） ====================
+# ==================== 团队空间（docs/contracts.md §6.4） ====================
 # 注意：/problems/references、/problems/arrangeable 等静态段路由必须先于
 # /problems/{problem_id} 注册（FastAPI 按注册顺序匹配，UUID 路径参数会吞掉静态段）。
 
@@ -310,13 +290,11 @@ async def reference_team_problem(
     team_id: uuid.UUID,
     body: TeamProblemReferenceCreate,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[TeamProblemSummary]:
     """引用题目进入团队题库（team_creator / team_admin）：来源 = 本组织组织题库
-    ∪ 全站公开题，快照复制新题（单向，无移出通道；docs/contracts/teams.md / orgs.md）。"""
+    ∪ 全站公开题，快照复制新题（单向，无移出通道；docs/contracts.md §6 / orgs.md）。"""
     item = await service.reference_problem(user, team_id, body)
-    await db.commit()
     return ok(item)
 
 
@@ -369,12 +347,10 @@ async def update_team_problem_statement(
     problem_id: uuid.UUID,
     body: ProblemUpdate,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[TeamProblemSummary]:
     """团队上下文编辑题面（编辑向导第一步）：成员门 + 归属校验后复用题库 update。"""
     item = await service.update_team_problem_statement(user, team_id, problem_id, body)
-    await db.commit()
     return ok(item)
 
 
@@ -398,15 +374,14 @@ async def create_team_problem_submission(
     problem_id: uuid.UUID,
     body: ProblemSetSubmissionCreate,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SubmissionCreatedResponse]:
     """团队题库内交题（统一入口）：团队门控通过后走统一判题链路（submit_type='practice'）。"""
-    submission = await service.create_problem_submission(
-        user, team_id, problem_id, language=body.language, code=body.code
+    return ok(
+        await service.create_problem_submission(
+            user, team_id, problem_id, language=body.language, code=body.code
+        )
     )
-    await commit_and_dispatch(db, submission)
-    return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
 
 
 @router.post(
@@ -417,15 +392,11 @@ async def run_team_problem_code(
     team_id: uuid.UUID,
     problem_id: uuid.UUID,
     body: SelfTestRequest,
-    space: TeamSpaceServiceDep,
-    service: SelfTestServiceDep,
+    service: TeamSpaceServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SelfTestResultOut]:
     """团队题库内用户自测：团队门控通过后豁免题库可见性，经网关派发一次性运行。"""
-    await space.require_member(user, team_id)
-    await space.get_problem_detail(user, team_id, problem_id)  # 复用详情门控（可见性 + 归属）
-    order = await service.create_order(user, problem_id, body, bypass_visibility=True)
-    return ok(await service.run_once(order, user.id))
+    return ok(await service.run_problem_code(user, team_id, problem_id, body))
 
 
 @router.get(
@@ -452,12 +423,10 @@ async def create_team_problem_set(
     team_id: uuid.UUID,
     body: TeamProblemSetCreate,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSetSummary]:
     """创建团队题单（team_creator / team_admin；team_id 由路径给定；团队题单恒 team_visible）。"""
     summary = await service.create_problem_set(user, team_id, body)
-    await db.commit()
     return ok(summary)
 
 
@@ -467,13 +436,11 @@ async def replace_team_problem_set_items(
     set_id: uuid.UUID,
     body: ProblemSetItemsUpdate,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """编排团队题单（team_creator / team_admin）：候选 = 已发布且
     （本团队题目 ∪ 全站公开）；同一题单内不得重复。"""
     await service.replace_set_items(user, team_id, set_id, body.items)
-    await db.commit()
     return ok(None)
 
 
@@ -482,12 +449,10 @@ async def archive_team_problem_set(
     team_id: uuid.UUID,
     set_id: uuid.UUID,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ProblemSetSummary]:
     """下线团队题单（team_creator / team_admin；不做物理删除）。"""
     summary = await service.archive_problem_set(user, team_id, set_id)
-    await db.commit()
     return ok(summary)
 
 
@@ -532,15 +497,14 @@ async def create_team_set_submission(
     problem_id: uuid.UUID,
     body: ProblemSetSubmissionCreate,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SubmissionCreatedResponse]:
     """团队题单内交题（团队上下文统一入口）：门控通过后走统一判题链路。"""
-    submission = await service.create_set_submission(
-        user, team_id, set_id, problem_id, language=body.language, code=body.code
+    return ok(
+        await service.create_set_submission(
+            user, team_id, set_id, problem_id, language=body.language, code=body.code
+        )
     )
-    await commit_and_dispatch(db, submission)
-    return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
 
 
 @router.post(
@@ -552,15 +516,11 @@ async def run_team_set_problem_code(
     set_id: uuid.UUID,
     problem_id: uuid.UUID,
     body: SelfTestRequest,
-    space: TeamSpaceServiceDep,
-    service: SelfTestServiceDep,
+    service: TeamSpaceServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SelfTestResultOut]:
     """团队题单内用户自测：门控复用题目详情端点，豁免题库可见性后经网关派发。"""
-    await space.require_member(user, team_id)
-    await space.get_set_problem_detail(user, team_id, set_id, problem_id)  # 复用详情门控
-    order = await service.create_order(user, problem_id, body, bypass_visibility=True)
-    return ok(await service.run_once(order, user.id))
+    return ok(await service.run_set_problem_code(user, team_id, set_id, problem_id, body))
 
 
 @router.get(
@@ -587,13 +547,11 @@ async def create_team_contest(
     team_id: uuid.UUID,
     body: TeamContestCreate,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
     """创建团队比赛（team_creator / team_admin；contest_type='team'）；
     编排候选在公开比赛规则之上放开本团队题目。"""
     summary = await service.create_contest(user, team_id, body)
-    await db.commit()
     return ok(summary)
 
 
@@ -617,12 +575,10 @@ async def update_team_contest(
     contest_id: uuid.UUID,
     body: ContestUpdate,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
     """编辑团队比赛（team_creator / team_admin）。"""
     summary = await service.update_contest(user, team_id, contest_id, body)
-    await db.commit()
     return ok(summary)
 
 
@@ -631,12 +587,10 @@ async def register_team_contest(
     team_id: uuid.UUID,
     contest_id: uuid.UUID,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """团队比赛报名（成员门 + 归属校验后走比赛报名，叠加团队成员校验）。"""
     await service.register_contest(user, team_id, contest_id)
-    await db.commit()
     return ok(None)
 
 
@@ -693,14 +647,13 @@ async def create_team_contest_submission(
     problem_id: uuid.UUID,
     body: ProblemSetSubmissionCreate,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SubmissionCreatedResponse]:
-    submission, _after = await service.submit_contest_problem(
-        user, team_id, contest_id, problem_id, language=body.language, code=body.code
+    return ok(
+        await service.submit_contest_problem(
+            user, team_id, contest_id, problem_id, language=body.language, code=body.code
+        )
     )
-    await commit_and_dispatch(db, submission)
-    return ok(SubmissionCreatedResponse(submission_id=str(submission.id), status=submission.status))
 
 
 @router.get("/{team_id}/contests/{contest_id}/board", response_model=ApiResponse[BoardOut])
@@ -768,11 +721,11 @@ async def get_team_contest_submission(
     contest_id: uuid.UUID,
     submission_id: uuid.UUID,
     service: TeamSpaceServiceDep,
-    submission_service: SubmissionServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SubmissionDetailOut]:
-    submission = await service.get_contest_submission(user, team_id, contest_id, submission_id)
-    return ok(await submission_service.build_detail(submission))
+    return ok(
+        await service.get_contest_submission(user, team_id, contest_id, submission_id)
+    )
 
 
 @router.post(
@@ -782,13 +735,9 @@ async def unfreeze_team_contest_board(
     team_id: uuid.UUID,
     contest_id: uuid.UUID,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
-    summary = await service.unfreeze_contest(user, team_id, contest_id)
-    await db.commit()
-    await service.contests.invalidate_board_cache(contest_id)
-    return ok(summary)
+    return ok(await service.unfreeze_contest(user, team_id, contest_id))
 
 
 @router.put(
@@ -799,11 +748,9 @@ async def update_team_contest_announcement(
     contest_id: uuid.UUID,
     body: AnnouncementUpdate,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
     summary = await service.update_contest_announcement(user, team_id, contest_id, body)
-    await db.commit()
     return ok(summary)
 
 
@@ -815,11 +762,9 @@ async def extend_team_contest(
     contest_id: uuid.UUID,
     body: ContestExtend,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
     summary = await service.extend_contest(user, team_id, contest_id, body)
-    await db.commit()
     return ok(summary)
 
 
@@ -831,14 +776,9 @@ async def update_team_contest_freeze_time(
     contest_id: uuid.UUID,
     body: FreezeTimeUpdate,
     service: TeamSpaceServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[ContestSummary]:
-    summary = await service.update_contest_freeze_time(user, team_id, contest_id, body)
-    await db.commit()
-    if summary.board_frozen:
-        await service.contests.invalidate_board_cache(contest_id)
-    return ok(summary)
+    return ok(await service.update_contest_freeze_time(user, team_id, contest_id, body))
 
 
 @router.get(

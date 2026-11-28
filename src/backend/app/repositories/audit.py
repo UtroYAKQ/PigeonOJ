@@ -1,4 +1,4 @@
-"""审计日志仓储（docs/contracts/admin.md）。"""
+"""审计日志仓储（docs/contracts.md §12）。"""
 from __future__ import annotations
 
 import uuid

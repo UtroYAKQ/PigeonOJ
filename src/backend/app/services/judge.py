@@ -28,6 +28,7 @@ from app.rpc.judge_gateway import (
     GatewayBusyError,
     GatewayTimeoutError,
     GatewayUnavailableError,
+    commit_and_dispatch,
     dispatch_run_code,
 )
 from app.schemas.judge import (
@@ -36,11 +37,14 @@ from app.schemas.judge import (
     SelfTestRequest,
     SelfTestResultOut,
     SubmissionCreate,
+    SubmissionCreatedResponse,
     SubmissionDetailOut,
     SubmissionQuery,
     SubmissionSummary,
     TestCaseResult,
+    VerifyRequest,
 )
+from app.schemas.problem import VerificationInitOut
 from app.services.problem import (
     attach_verification_code,
     can_manage_problem,
@@ -48,6 +52,7 @@ from app.services.problem import (
     get_problem,
     judged_case_ids,
 )
+from app.services.ports import ProblemVerificationPort, SubmissionDispatcher
 from app.services.system_config import ConfigService
 
 logger = logging.getLogger(__name__)
@@ -80,9 +85,9 @@ class SelfTestOrder:
 class SelfTestService:
     """用户自测（轻量代码运行）：语言白名单、题目可见性、冷却与并发配置。"""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, *, config: ConfigService | None = None) -> None:
         self.db = db
-        self.config_service = ConfigService(db)
+        self.config_service = config or ConfigService(db)
 
     async def create_order(
         self,
@@ -169,11 +174,39 @@ class SelfTestService:
         )
 
 
-class SubmissionService:
+class GatewaySubmissionDispatcher:
+    """提交收尾适配器：先 commit 持久化，再派发判题作业（判题 rpc 在业务侧的唯一触点）。"""
+
     def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+
+    async def dispatch(self, submission: Submission) -> None:
+        await commit_and_dispatch(self.db, submission)
+
+
+class SubmissionService:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        verification: ProblemVerificationPort | None = None,
+        dispatcher: SubmissionDispatcher | None = None,
+    ) -> None:
         self.db = db
         self.submissions = SubmissionRepository(db)
         self.test_cases = TestCaseRepository(db)
+        self._verification = verification
+        self._dispatcher = dispatcher
+
+    def _require_dispatcher(self) -> SubmissionDispatcher:
+        if self._dispatcher is None:
+            raise RuntimeError("SubmissionService 未装配 SubmissionDispatcher（请经 deps Provider 构造）")
+        return self._dispatcher
+
+    def _require_verification(self) -> ProblemVerificationPort:
+        if self._verification is None:
+            raise RuntimeError("SubmissionService 未装配 ProblemVerificationPort（请经 deps Provider 构造）")
+        return self._verification
 
     async def create(
         self, user: object, body: SubmissionCreate, *, bypass_visibility: bool = False
@@ -182,7 +215,7 @@ class SubmissionService:
         if problem.status != ProblemStatus.PUBLISHED:
             raise APIError(AUTH_FORBIDDEN, "题目未发布，不可提交", 403)
         # 题库直提门控：私有题仅创建者 / admin（私有题的对外分发走题单 / 比赛上下文，
-        # 各自经 ensure_set_problem / 比赛可见窗口门控，docs/contracts/problems.md 可见性表）
+        # 各自经 ensure_set_problem / 比赛可见窗口门控，docs/contracts.md §3.2）
         if (
             not bypass_visibility
             and problem.visibility != ProblemVisibility.PUBLIC
@@ -199,6 +232,30 @@ class SubmissionService:
         )
         return await self.submissions.create(submission)
 
+    async def create_and_dispatch(
+        self, user: object, body: SubmissionCreate, *, bypass_visibility: bool = False
+    ) -> SubmissionCreatedResponse:
+        """题库直提收尾：创建提交 → commit → 派发（判题链路唯一入口）。"""
+        submission = await self.create(user, body, bypass_visibility=bypass_visibility)
+        await self._require_dispatcher().dispatch(submission)
+        return SubmissionCreatedResponse(
+            submission_id=str(submission.id), status=submission.status
+        )
+
+    async def verify_problem(
+        self, user: object, problem_id: uuid.UUID, body: VerifyRequest
+    ) -> SubmissionCreatedResponse | VerificationInitOut:
+        """验题统一入口：携带代码 = 创建验题提交并派发；否则发起验题并返回邀请信息。"""
+        if body.code is not None:
+            submission = await self.create_verify_submission(user, problem_id, body)
+            await self._require_dispatcher().dispatch(submission)
+            return SubmissionCreatedResponse(
+                submission_id=str(submission.id), status=submission.status
+            )
+        return await self._require_verification().init_verification(
+            user, problem_id, body.invite_expires_hours
+        )
+
     async def create_contest_submission(
         self,
         user: object,
@@ -210,7 +267,7 @@ class SubmissionService:
         after_contest: bool,
         rule_type: RuleType,
     ) -> Submission:
-        """比赛提交（docs/contracts/contests.md 统一入口）：窗口 / 报名 / 存在性校验由比赛服务完成。
+        """比赛提交（docs/contracts.md §9 统一入口）：窗口 / 报名 / 存在性校验由比赛服务完成。
 
         赛制与补题标记在创建时由比赛上下文经命令参数快照进提交行
         （submissions.rule_type / is_after_contest），判题计分按快照派生；
@@ -247,7 +304,7 @@ class SubmissionService:
         problem_id: uuid.UUID | None, status: str | None, language: str | None,
         keyword: str | None, page: int, page_size: int,
     ) -> tuple[list[AdminSubmissionItem], int]:
-        """全站提交面板（admin 专用，docs/contracts/admin.md）：跨题目 / 跨用户，
+        """全站提交面板（admin 专用，docs/contracts.md §12）：跨题目 / 跨用户，
         submit_type / user_id / problem_id / status / language 精确过滤，keyword 模糊匹配昵称。"""
         rows, title_map, total = await self.submissions.list_all_for_admin(
             submit_type=submit_type, user_id=user_id, problem_id=problem_id,
@@ -275,7 +332,7 @@ class SubmissionService:
         self, user: object, problem_id: uuid.UUID, status: str | None, keyword: str | None,
         language: str | None, submit_type: str | None, page: int, page_size: int,
     ) -> tuple[list[ProblemSubmissionItem], int]:
-        """题目全员提交（题目管理视角：创建者与管理角色，docs/contracts/judge.md）。
+        """题目全员提交（题目管理视角：创建者与管理角色，docs/contracts.md §10）。
 
         keyword 模糊匹配提交人昵称；language / submit_type 精确匹配。
         """

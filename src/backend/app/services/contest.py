@@ -1,8 +1,8 @@
-﻿"""比赛域服务：建赛编排、报名、赛内访问窗口、ACM/IOI 计分与封榜解冻。
+"""比赛域服务：建赛编排、报名、赛内访问窗口、ACM/IOI 计分与封榜解冻。
 
 时间语义：全部使用 UTC aware datetime（TIMESTAMPTZ 列；naive 输入按 UTC 归一）。
 封榜按时间自动触发；解冻必须由 admin 手动执行，解冻时从 submissions
-权威重算榜单回填封榜期间结果（docs/contracts/contests.md 第 5 条修订版）。
+权威重算榜单回填封榜期间结果（docs/contracts.md §9 第 5 条修订版）。
 """
 from __future__ import annotations
 
@@ -58,13 +58,18 @@ from app.schemas.contest import (
     RevealStep,
     ScoreboardShowOut,
 )
+from app.schemas.judge import SubmissionCreatedResponse
 from app.schemas.problem import ProblemDetail
-from app.services.judge import SubmissionService  # 判题上下文：交题派发兜底（构造见 submit_problem）
-from app.services.problem import ProblemService, to_problem_detail
+from app.services.ports import (
+    ProblemDetailPort,
+    SubmissionDetailPort,
+    SubmissionDispatcher,
+    TeamRolePort,
+)
+from app.services.problem import to_problem_detail
 from app.services.system_config import ConfigService
-from app.services.team import TeamService  # 团队角色校验委托（无环：team 不反向依赖 contest）
 
-# 全站比赛管理角色（docs/contracts/contests.md：公开比赛由 admin 创建管理；tutor 已下线）
+# 全站比赛管理角色（docs/contracts.md §9：公开比赛由 admin 创建管理；tutor 已下线）
 CONTEST_MANAGER_ROLES: set[str] = {RoleCode.ADMIN}
 # 赛时仍可编辑的字段（赛时工具端点承载；PUT 守卫 = ContestUpdate 全部字段 - 本集合）。
 # 从 ContestUpdate.model_fields 推导守卫清单，新增 schema 字段自动纳入锁定
@@ -328,13 +333,52 @@ class ContestSubmitter(Protocol):
 
 
 class ContestService:
-    def __init__(self, db: AsyncSession, *, submitter: ContestSubmitter | None = None) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        submitter: ContestSubmitter | None = None,
+        dispatcher: SubmissionDispatcher | None = None,
+        problem_detail: ProblemDetailPort | None = None,
+        submission_detail: SubmissionDetailPort | None = None,
+        team_roles: TeamRolePort | None = None,
+        config: ConfigService | None = None,
+    ) -> None:
         self.db = db
         self.repo = ContestRepository(db)
         self.rankings = ContestRankingRepository(db)
         self.submissions = ContestSubmissionQueryRepository(db)
-        self.config = ConfigService(db)
+        self.config = config or ConfigService(db)
         self._submitter = submitter
+        self._dispatcher = dispatcher
+        self._problem_detail = problem_detail
+        self._submission_detail = submission_detail
+        self._team_roles = team_roles
+
+    def _require_submitter(self) -> ContestSubmitter:
+        if self._submitter is None:
+            raise RuntimeError("ContestService 未装配 ContestSubmitter（请经 deps Provider 构造）")
+        return self._submitter
+
+    def _require_dispatcher(self) -> SubmissionDispatcher:
+        if self._dispatcher is None:
+            raise RuntimeError("ContestService 未装配 SubmissionDispatcher（请经 deps Provider 构造）")
+        return self._dispatcher
+
+    def _require_problem_detail(self) -> ProblemDetailPort:
+        if self._problem_detail is None:
+            raise RuntimeError("ContestService 未装配 ProblemDetailPort（请经 deps Provider 构造）")
+        return self._problem_detail
+
+    def _require_team_roles(self) -> TeamRolePort:
+        if self._team_roles is None:
+            raise RuntimeError("ContestService 未装配 TeamRolePort（请经 deps Provider 构造）")
+        return self._team_roles
+
+    def _require_submission_detail(self) -> SubmissionDetailPort:
+        if self._submission_detail is None:
+            raise RuntimeError("ContestService 未装配 SubmissionDetailPort（请经 deps Provider 构造）")
+        return self._submission_detail
 
     async def _is_contest_manager(self, user: User | None) -> bool:
         """比赛管理角色门（创建入口 / 管理后台列表）：admin。"""
@@ -362,7 +406,7 @@ class ContestService:
         return await self._to_summaries(self.repo, rows), total
 
     async def _can_manage(self, user: User | None, contest: Contest | None = None) -> bool:
-        """单个比赛的管理权限（单一所有权模型，docs/security.md）：admin 管理全站比赛；
+        """单个比赛的管理权限（单一所有权模型，docs/architecture.md §5）：admin 管理全站比赛；
         其余用户仅可管理本人创建的比赛；团队比赛由团队创建者 / 管理员管理。"""
         if user is None:
             return False
@@ -393,7 +437,7 @@ class ContestService:
         return registration is not None and registration.status == RegistrationStatus.REGISTERED
 
     async def _ensure_team_view(self, contest: Contest, user: User | None) -> None:
-        """团队比赛封闭空间门（docs/contracts/contests.md 数据所有权）：
+        """团队比赛封闭空间门（docs/contracts.md §3.1）：
         仅团队成员或全局 admin 可见（非成员 2003）；全站比赛不设门。"""
         if contest.contest_type != ContestType.TEAM or contest.team_id is None:
             return
@@ -412,7 +456,7 @@ class ContestService:
             raise APIError(AUTH_FORBIDDEN, "比赛期间提交记录不可见，结束后开放查看", 403)
 
     async def _ensure_problems_visible(self, contest: Contest, user: User) -> None:
-        """看题窗口（docs/contracts/contests.md 第 2 条）：比赛管理者随时可看
+        """看题窗口（docs/contracts.md §9 第 2 条）：比赛管理者随时可看
         （编排 / 验题需要，与详情 can_view_problems 的 can_manage 口径一致）；
         团队比赛限团队成员（封闭空间）；其余用户赛前不开放，赛中仅报名者，
         赛后向全站比赛的所有登录用户开放（补题浏览）。"""
@@ -450,10 +494,10 @@ class ContestService:
     async def _validate_problem_ids(
         self, user: User, problem_ids: list[uuid.UUID], *, team_id: uuid.UUID | None = None
     ) -> None:
-        """编排候选校验：已发布且（全站公开 或 本人私有）题目（docs/contracts/contests.md）。
+        """编排候选校验：已发布且（全站公开 或 本人私有）题目（docs/contracts.md §9）。
 
         team_id 非 None（团队比赛）时额外放开本团队题目；
-        全站编排一律排除团队题目（团队是封闭空间，docs/contracts/teams.md）。
+        全站编排一律排除团队题目（团队是封闭空间，docs/contracts.md §6）。
         """
         seen: list[uuid.UUID] = []
         for pid in problem_ids:
@@ -546,7 +590,7 @@ class ContestService:
 
     async def get_detail(self, contest_id: uuid.UUID, viewer: User | None) -> ContestDetail:
         contest = await self._get_contest(contest_id)
-        # 团队比赛：非团队成员不可见（团队空间封闭，docs/contracts/teams.md）
+        # 团队比赛：非团队成员不可见（团队空间封闭，docs/contracts.md §6）
         if contest.contest_type == ContestType.TEAM and not await self._has_team_role(
             viewer, contest.team_id
         ):
@@ -650,7 +694,7 @@ class ContestService:
             problem = await self.db.get(Problem, problem_id)
             if problem is None or problem.visibility != ProblemVisibility.PUBLIC:
                 raise APIError(RESOURCE_NOT_FOUND, "题目不在该比赛中", 404)
-        detail = await ProblemService(self.db).get_detail(
+        detail = await self._require_problem_detail().get_detail(
             problem_id, user, bypass_visibility=True
         )
         return to_problem_detail(detail)
@@ -663,13 +707,12 @@ class ContestService:
         *,
         language: str,
         code: str,
-    ) -> tuple[object, bool]:
-        """比赛交题（统一入口）：窗口校验 → 经 ContestSubmitter 端口创建 contest 提交。
+    ) -> SubmissionCreatedResponse:
+        """比赛交题（统一入口）：窗口校验 → 创建 contest 提交 → commit → 派发。
 
-        返回 (submission, after_contest)；判题上下文端口由构造注入，非路由组合根
-        （rpc / 测试）未装配端口时延迟自建兜底。赛中限报名者；赛后向所有登录用户
-        开放补题（自动标记 is_after_contest，不计榜单，docs/contracts/contests.md 第 6 条）；
-        未报名者补题限公开题（私有题按不存在处理）。
+        判题协作者（ContestSubmitter / SubmissionDispatcher）一律构造注入，方法体内
+        不自构。赛中限报名者；赛后向所有登录用户开放补题（自动标记 is_after_contest，
+        不计榜单，docs/contracts.md §9 第 6 条）；未报名者补题限公开题（按不存在处理）。
         """
         contest = await self._get_contest(contest_id)
         now = _now()
@@ -684,11 +727,7 @@ class ContestService:
             if problem is None or problem.visibility != ProblemVisibility.PUBLIC:
                 raise APIError(RESOURCE_NOT_FOUND, "题目不在该比赛中", 404)
         after = now > _aware(contest.end_time)
-        if self._submitter is not None:
-            submitter = self._submitter
-        else:  # 非路由组合根兜底（tests / rpc / init_app 直构 ContestService(db)）
-            submitter = SubmissionService(self.db)
-        submission = await submitter.create_contest_submission(
+        submission = await self._require_submitter().create_contest_submission(
             user,
             contest_id=contest.id,
             problem_id=problem_id,
@@ -697,7 +736,10 @@ class ContestService:
             after_contest=after,
             rule_type=contest.rule_type,
         )
-        return submission, after
+        await self._require_dispatcher().dispatch(submission)
+        return SubmissionCreatedResponse(
+            submission_id=str(submission.id), status=submission.status
+        )
 
     async def list_my_contests(
         self, user: User, *, page: int, page_size: int, status: str | None
@@ -761,6 +803,13 @@ class ContestService:
             raise APIError(RESOURCE_NOT_FOUND, "提交不存在", 404)
         return submission
 
+    async def get_submission_detail(
+        self, user: User, contest_id: uuid.UUID, submission_id: uuid.UUID
+    ) -> object:
+        """比赛提交详情（统一入口）：窗口 / 归属校验后复用判题详情装配。"""
+        submission = await self.get_visible_submission(user, contest_id, submission_id)
+        return await self._require_submission_detail().build_detail(submission)
+
     async def cell_submissions(
         self, user: User, contest_id: uuid.UUID, cell_user_id: uuid.UUID, problem_id: uuid.UUID
     ) -> list[ContestSubmissionItem]:
@@ -798,7 +847,7 @@ class ContestService:
     async def register(self, user: User, contest_id: uuid.UUID) -> None:
         contest = await self._get_contest(contest_id)
         if contest.contest_type == ContestType.TEAM:
-            # 团队比赛：仅团队成员可报名（docs/contracts/contests.md 数据所有权）
+            # 团队比赛：仅团队成员可报名（docs/contracts.md §3.1）
             if contest.team_id is None or not await self._has_team_role(user, contest.team_id):
                 raise APIError(AUTH_FORBIDDEN, "仅团队成员可报名团队比赛", 403)
         now = _now()
@@ -858,7 +907,7 @@ class ContestService:
         self, contest_id: uuid.UUID, user: User, body: ContestUpdate
     ) -> ContestSummary:
         contest = await self.require_manage(contest_id, user)
-        # 赛时守卫：比赛开始后结构性信息冻结（docs/contracts/contests.md 状态守卫节）——
+        # 赛时守卫：比赛开始后结构性信息冻结（docs/contracts.md §9 状态守卫节）——
         # 影响比赛公平 / 结构的字段一律拒绝；赛中调整走受控端点（公告 / 延时 / 封榜时间）。
         # 守卫字段从 ContestUpdate 模型定义推导（杜绝与 schema 脱节的「魔法字段清单」）：
         # 即「全部字段 - 公告类」，freeze_time 的显式 null（取消封榜）同样计入
@@ -926,7 +975,7 @@ class ContestService:
     ) -> None:
         """全量替换编排（letter 按 sort_order 自动分配）。
 
-        IOI 赛制未配置分值（<= 0）时默认 100 分（docs/contracts/contests.md 编排规则）；
+        IOI 赛制未配置分值（<= 0）时默认 100 分（docs/contracts.md §9 编排规则）；
         ACM 无单题分值概念，恒 0。
         """
         rows = [
@@ -946,7 +995,7 @@ class ContestService:
         ]
         await self.repo.replace_problems(contest_id, rows)
 
-    # ---------------- 团队比赛（docs/contracts/teams.md 团队空间节） ----------------
+    # ---------------- 团队比赛（docs/contracts.md §6.4） ----------------
 
     async def _has_team_role(
         self, user: User, team_id: uuid.UUID | None, *, level: str = "member"
@@ -954,7 +1003,7 @@ class ContestService:
         """团队角色检查（团队比赛可见性 / 报名 / 管理权共用）：匿名恒 False。委托 TeamService。"""
         if user is None or team_id is None:
             return False
-        return await TeamService(self.db).has_team_roles(user, team_id, level=level)
+        return await self._require_team_roles().has_team_roles(user, team_id, level=level)
 
     async def list_team_contests(
         self,
@@ -1139,7 +1188,7 @@ class ContestService:
     # ---------------- 判题挂钩（judge_jobs 终态调用） ----------------
 
     async def full_score_for(self, contest_id: uuid.UUID, problem_id: uuid.UUID) -> int | None:
-        """单题满分基准（比赛上下文自持的计分知识，docs/contracts/contests.md 第 4 条）。
+        """单题满分基准（比赛上下文自持的计分知识，docs/contracts.md §9.4）。
 
         返回比赛配置的单题分值；未配置（<= 0）或题目不在比赛中返回 None（调用方用练习满分兜底）。
         判题上下文不直查 ContestProblem，经本方法获取。
@@ -1157,7 +1206,7 @@ class ContestService:
         await self.update_ranking_on_result(submission, status)
 
     async def update_ranking_on_result(self, submission: Submission, status: str) -> None:
-        """判题终态回写榜单（条件更新，docs/contracts/contests.md 第 4 条）。
+        """判题终态回写榜单（条件更新，docs/contracts.md §9.4）。
 
         仅统计比赛内正式提交：赛后补题与 system_error（平台故障）不计；
         封榜按「提交时刻」判定边界——封榜后提交才不入榜，封榜前提交的迟到终态
@@ -1229,7 +1278,8 @@ class ContestService:
             raise APIError(RESOURCE_STATE_CONFLICT, "榜单未处于冻结中", 409)
         await self._recompute_rankings(contest)
         contest.board_frozen = False
-        await self.db.flush()
+        # 先提交后失效：消除「先删缓存后提交」的回填旧榜竞态（docs/operations.md）
+        await self.db.commit()
         await self._invalidate_board_cache(contest.id)
         return await self._to_summary(self.repo, contest)
 
@@ -1299,7 +1349,8 @@ class ContestService:
             contest.board_frozen = True
             contest.frozen_at = now
             await self._recompute_rankings(contest, before=now)
-            await self.db.flush()
+            # 先提交后失效：封榜快照落库后再删缓存，避免旧榜回填
+            await self.db.commit()
             await self._invalidate_board_cache(contest.id)
         else:
             await self.db.flush()

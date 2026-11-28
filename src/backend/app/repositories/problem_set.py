@@ -1,4 +1,4 @@
-"""题单仓储：ProblemSet / ProblemSetItem 数据访问（纯 CRUD，docs/contracts/problem-sets.md）。"""
+"""题单仓储：ProblemSet / ProblemSetItem 数据访问（纯 CRUD，docs/contracts.md §8）。"""
 from __future__ import annotations
 
 import uuid
@@ -113,7 +113,7 @@ class ProblemSetRepository:
         page_size: int = 20,
         admin_view: bool = False,
     ) -> tuple[list[ProblemSet], int]:
-        """团队题单列表（docs/contracts/teams.md 团队空间节）：团队题单恒 team_visible，
+        """团队题单列表（docs/contracts.md §6.4）：团队题单恒 team_visible，
         全员可见；默认仅未下线；status 显式传入时按值过滤。
 
         - 团队视图：按 team_id 过滤（status 显式传入时按值过滤）
@@ -186,7 +186,7 @@ class ProblemSetRepository:
         规则：须为已发布，且（全站公开 或 创建者本人的私有题；admin 不受可见性限制）。
         team_id 非 None（团队题单）时额外放开该团队题目；
         全站题单一律排除团队 / 组织封闭空间题目（team_id / org_id 非空，admin 亦然，
-        docs/contracts/teams.md / orgs.md）。未发布（草稿）/ 已归档的题目一律不可加入。
+        docs/contracts.md §6 / orgs.md）。未发布（草稿）/ 已归档的题目一律不可加入。
         """
         if not problem_ids:
             return []

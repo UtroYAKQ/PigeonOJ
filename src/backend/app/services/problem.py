@@ -63,6 +63,7 @@ from app.schemas.problem import (
     ProblemCreate,
     ProblemDetail,
     ProblemQuery,
+    ProblemSummary,
     ProblemUpdate,
     SampleOut,
     SamplesUpdate,
@@ -71,6 +72,7 @@ from app.schemas.problem import (
     TagPublic,
     TestCaseListOut,
     TestCaseOut,
+    TestCasesOut,
     TestCasesPatch,
     TestCasesUpdate,
     VerificationInitOut,
@@ -121,7 +123,7 @@ def judged_case_ids(problem: Problem, *, verify: bool) -> list[uuid.UUID]:
 
 
 def judged_spj_key(problem: Problem, *, verify: bool = False) -> str | None:
-    """判定集特判程序对象 key（docs/contracts/judge.md「SPJ 特判」）：
+    """判定集特判程序对象 key（docs/contracts.md §10.6）：
 
     验题提交按暂存判（暂存 '' = 移除 → None），练习 / 比赛恒用生效集。
     """
@@ -154,7 +156,7 @@ def needs_reverification(problem: Problem) -> bool:
 
 
 async def bump_counters(db: AsyncSession, problem_id: uuid.UUID, *, accepted: bool) -> None:
-    """判题终态回写通过率计数（problem_counters upsert 原子累加，docs/contracts/judge.md）。
+    """判题终态回写通过率计数（problem_counters upsert 原子累加，docs/contracts.md §10）。
 
     统计口径由调用方保证：verify 提交与 system_error 不进入本函数。
     SQL 细节见 ProblemRepository.bump_counters。
@@ -181,7 +183,7 @@ _cleanup_tasks: set[asyncio.Task] = set()
 
 
 def schedule_object_cleanup(stale_keys: list[str]) -> None:
-    """事务提交后异步清理 MinIO 旧对象（fire-and-forget，docs/contracts/problems.md）。"""
+    """事务提交后异步清理 MinIO 旧对象（fire-and-forget，docs/contracts.md §7）。"""
     if not stale_keys:
         return
 
@@ -209,6 +211,7 @@ class ProblemService:
         self.tags = TagRepository(db)
         self.verifications = VerificationRepository(db)
         self.test_cases = TestCaseRepository(db)
+        self.roles = RoleRepository(db)
 
     async def list_published(
         self, query: ProblemQuery, viewer: object | None = None,
@@ -218,10 +221,30 @@ class ProblemService:
         see_all = viewer is not None and await is_admin(self.db, viewer)
         org_ids: list[uuid.UUID] = []
         if query.scope == ProblemScope.MINE and not see_all and viewer_id is not None:
-            org_ids = await RoleRepository(self.db).org_ids_with_roles(
+            org_ids = await self.roles.org_ids_with_roles(
                 viewer_id, {RoleCode.ORG_ADMIN, RoleCode.ORG_MEMBER}
             )
         return await self.problems.list_published(query, viewer_id, see_all, org_ids)
+
+    async def list_published_page(
+        self, query: ProblemQuery, viewer: object | None
+    ) -> tuple[list[ProblemSummary], int]:
+        """题库中心列表（统一装配）：摘要 + 待复验标记 + 计数 / 作答状态 / 标签。"""
+        rows, total = await self.list_published(query, viewer=viewer)
+        flags = (
+            await self.verification_flags([row.id for row in rows])
+            if query.scope == "mine"
+            else {}
+        )
+        items: list[ProblemSummary] = []
+        for row in rows:
+            item = ProblemSummary.model_validate(row)
+            item.needs_reverification = flags.get(row.id, False)
+            items.append(item)
+        await self.attach_counters(items)
+        await self.attach_solve_status(items, viewer)
+        await self.attach_tags(items)
+        return items, total
 
     async def list_org_problems(
         self,
@@ -248,7 +271,7 @@ class ProblemService:
         return to_problem_detail(await self.get_detail(problem_id, user))
 
     async def _org_readable_via_team(self, user_id: uuid.UUID, org_id: uuid.UUID) -> bool:
-        """组织名下团队的创建者 / 管理员对组织题库的只读门（docs/contracts/orgs.md）。"""
+        """组织名下团队的创建者 / 管理员对组织题库的只读门（docs/contracts.md §5）。"""
         from sqlalchemy import select as _select
 
         team_ids = (
@@ -258,7 +281,7 @@ class ProblemService:
         )
         if not team_ids:
             return False
-        return await RoleRepository(self.db).has_team_roles_on_teams(
+        return await self.roles.has_team_roles_on_teams(
             user_id, list(team_ids), {RoleCode.TEAM_CREATOR, RoleCode.TEAM_ADMIN}
         )
 
@@ -315,15 +338,49 @@ class ProblemService:
             tags = tags_map.get(item.id, [])
             item.tags = [TagPublic.model_validate(t) for t in tags]
 
+    async def _to_summary(self, problem: Problem, *, with_tags: bool = True) -> ProblemSummary:
+        """题目写操作统一返回装配：摘要 + 通过率计数 + 标签。"""
+        summary = ProblemSummary.model_validate(problem)
+        await self.attach_counters([summary])
+        if with_tags:
+            await self.attach_tags([summary])
+        return summary
+
+    async def create_summary(self, user: object, body: ProblemCreate) -> ProblemSummary:
+        return await self._to_summary(await self.create(user, body))
+
+    async def update_summary(
+        self, user: object, problem_id: uuid.UUID, body: ProblemUpdate
+    ) -> ProblemSummary:
+        return await self._to_summary(await self.update(user, problem_id, body))
+
+    async def apply_cases_summary(self, user: object, problem_id: uuid.UUID) -> ProblemSummary:
+        return await self._to_summary(await self.apply_pending_cases(user, problem_id))
+
+    async def publish_summary(self, user: object, problem_id: uuid.UUID) -> ProblemSummary:
+        return await self._to_summary(await self.publish(user, problem_id))
+
+    async def archive_summary(self, user: object, problem_id: uuid.UUID) -> ProblemSummary:
+        return await self._to_summary(await self.archive(user, problem_id))
+
+    async def patch_cases_view(
+        self, user: object, problem_id: uuid.UUID, body: TestCasesPatch
+    ) -> TestCasesOut:
+        """增量更新测试点并回读目标状态（路由层不再直读 service.problems）。"""
+        await self.patch_cases(user, problem_id, body)
+        problem = await self.problems.get_by_id(problem_id)
+        cases = await self.list_cases_view(problem) if problem else []
+        return TestCasesOut(cases=cases)
+
     async def create(self, user: object, body: ProblemCreate, *, org_id: uuid.UUID | None = None) -> Problem:
         """创建题目。全站题（org_id 为空）：仅站点 admin（tutor 已下线，公开内容收归 admin）；
         组织题（org_id 非空）：org_member 门，visibility 恒 org_visible，owner_id 为创建人署名。
-        团队直建已移除——团队题目只来自引用快照（docs/contracts/teams.md）。"""
+        团队直建已移除——团队题目只来自引用快照（docs/contracts.md §6）。"""
         if org_id is not None:
             org = await self.db.get(Organization, org_id)
             if org is None or org.status != OrgStatus.ACTIVE:
                 raise APIError(RESOURCE_NOT_FOUND, "组织不存在", 404)
-            codes = set(await RoleRepository(self.db).get_org_role_codes(user.id, org_id))
+            codes = set(await self.roles.get_org_role_codes(user.id, org_id))
             if not ({RoleCode.ORG_ADMIN, RoleCode.ORG_MEMBER} & codes) and not await is_admin(self.db, user):
                 raise APIError(AUTH_FORBIDDEN, "无权限在该组织创建题目", 403)
             if body.visibility in (
@@ -366,7 +423,7 @@ class ProblemService:
             raise APIError(RESOURCE_NOT_FOUND, "题目不存在", 404)
         can_manage = user is not None and await _can_manage(self.db, user, problem)
         # 团队快照题（source_problem_id 非空 = 经引用复制）：题库裸路径一律拦截，
-        # 访问 / 交题 / 自测只能走团队上下文端点（成员 + 归属门控，docs/contracts/teams.md）；
+        # 访问 / 交题 / 自测只能走团队上下文端点（成员 + 归属门控，docs/contracts.md §6）；
         # 例外：全局 admin（管理动线只读浏览团队资源，teams.md 管理端）
         if (
             problem.source_problem_id is not None
@@ -378,10 +435,10 @@ class ProblemService:
             raise APIError(AUTH_FORBIDDEN, "无权限", 403)
         if problem.org_id is not None and not can_manage:
             # 组织题库只读门：组织名下团队的创建者 / 管理员可读（引用选题），其余拦截
-            # （docs/contracts/orgs.md；组织成员经 can_manage 全量读写）
+            # （docs/contracts.md §5；组织成员经 can_manage 全量读写）
             if user is None or not await self._org_readable_via_team(user.id, problem.org_id):
                 raise APIError(AUTH_FORBIDDEN, "无权限", 403)
-        # 私有题仅创建者 / admin 可见（docs/contracts/problems.md 可见性表）；
+        # 私有题仅创建者 / admin 可见（docs/contracts.md §3.2）；
         # 题单 / 比赛等引用上下文经各自门控（题单可见 + 归属 / 比赛可见窗口）传入
         # bypass_visibility=True，题库裸路径（直访 / 交题 / 自测）一律严格校验。
         elif (
@@ -409,7 +466,7 @@ class ProblemService:
     async def get_cases_managed(self, user: object, problem_id: uuid.UUID) -> TestCaseListOut:
         """测试点列表（独立管理端点）：仅题目管理者（admin 或创建者）可读。
 
-        详情响应一律不携带测试点（docs/contracts/problems.md 数据所有权），
+        详情响应一律不携带测试点（docs/contracts.md §3.1），
         编辑器经本端点回读目标状态（暂存优先）。
         """
         problem = await self._require_manage(user, problem_id)
@@ -419,7 +476,7 @@ class ProblemService:
         return TestCaseListOut(cases=cases, updated_at=updated_at)
 
     async def get_spj_managed(self, user: object, problem_id: uuid.UUID) -> SpjOut:
-        """特判程序目标状态回读（暂存优先；docs/contracts/problems.md「SPJ 特判程序」）。
+        """特判程序目标状态回读（暂存优先；docs/contracts.md §7.5）。
 
         仅题目管理者可读；暂存 ''（暂存移除）与无特判程序同样返回 code=None。
         """
@@ -486,7 +543,7 @@ class ProblemService:
 
         - 验题提交：无论终态如何都推进验题状态机（system_error 视为未通过）
         - 练习/比赛提交：回写通过率计数；verify（非真实作答）与 system_error（平台故障）不计入
-          （docs/contracts/judge.md 统计口径）
+          （docs/contracts.md §10.13）
         """
         if submission.submit_type == SubmitType.VERIFY:
             if submission.verification_id:
@@ -534,7 +591,7 @@ class ProblemService:
         if body.solution is not None:
             problem.solution = body.solution
         if body.visibility is not None:
-            # 可见性不得越分支切换（docs/contracts/problems.md）：团队题在
+            # 可见性不得越分支切换（docs/contracts.md §3.2）：团队题在
             # team_visible/admin_visible 之间、全站题在 public/private 之间
             # 可经题库编辑由题目管理者切换；跨分支仅可经团队引用 / 团队空间动作。
             is_team_branch = problem.team_id is not None
@@ -769,7 +826,7 @@ class ProblemService:
     async def apply_pending_cases(self, user: object, problem_id: uuid.UUID) -> Problem:
         """显式生效（点「保存」才晋升）：把已通过验题的暂存改动晋升为生效集。
 
-        测试点与特判程序一并晋升（docs/contracts/problems.md「SPJ 特判程序」）。
+        测试点与特判程序一并晋升（docs/contracts.md §7.5）。
         前置：存在暂存改动且已打「已验待生效」标记；任何新的暂存写入都会清除标记。
         """
         problem = await self._require_editable(user, problem_id, action="应用测试点")
@@ -959,7 +1016,7 @@ async def _discard_uploaded(storage: object, keys: list[str]) -> None:
 
 
 async def _can_manage(db: AsyncSession, user: object, problem: Problem) -> bool:
-    """题目管理权限：admin 管理全站；组织题库按组织成员资格判定（docs/contracts/orgs.md，
+    """题目管理权限：admin 管理全站；组织题库按组织成员资格判定（docs/contracts.md §5，
     owner_id 仅为创建人署名、无权限语义）；其余题目按创建人判定（单一所有权模型）。"""
     if await is_admin(db, user):
         return True
@@ -977,7 +1034,7 @@ def to_problem_detail(detail: ProblemDetailData) -> ProblemDetail:
     """题目详情装配：ProblemDetailData → 响应契约（测试点 / 题解仅管理角色可见）。
 
     题库路由（GET /problems/{id}）与题单路由（GET /problem-sets/{id}/problems/{pid}）共用，
-    保证两个入口的详情结构与可见性门控完全一致（docs/contracts/problem-sets.md 统一入口）。
+    保证两个入口的详情结构与可见性门控完全一致（docs/contracts.md §8.2）。
     """
     problem = detail.problem
     return ProblemDetail(

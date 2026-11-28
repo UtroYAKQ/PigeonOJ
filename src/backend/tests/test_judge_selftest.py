@@ -138,7 +138,7 @@ async def test_run_code_dispatch_and_result_roundtrip(client, admin_headers):
     assert job.language == "python3.12"
     assert job.input == b"hello\n"
     assert job.code == b"print(input())"
-    # python3.12 时间比例 3.0 → 有效时间 = 题目基准 × 比例（docs/contracts/judge.md 语言限制换算）
+    # python3.12 时间比例 3.0 → 有效时间 = 题目基准 × 比例（docs/contracts.md §10.4）
     assert job.limits.time_limit_ms >= 2400
 
     await _handle_run_code_result(judge_pb2.RunCodeResult(

@@ -1,4 +1,4 @@
-"""比赛模块请求 / 响应 Schema（docs/contracts/contests.md）。"""
+"""比赛模块请求 / 响应 Schema（docs/contracts.md §9）。"""
 from __future__ import annotations
 
 import uuid
@@ -189,7 +189,7 @@ class BoardOut(BaseModel):
 
 
 class ContestSubmissionItem(BaseModel):
-    """比赛提交记录列表项（比赛期间对所有人隐藏，赛后开放；docs/contracts/contests.md 第 7 条）。"""
+    """比赛提交记录列表项（比赛期间对所有人隐藏，赛后开放；docs/contracts.md §9 第 7 条）。"""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -201,7 +201,7 @@ class ContestSubmissionItem(BaseModel):
     score: int | None = None
     time_used_ms: int | None = None
     memory_used_kb: int | None = None
-    # 赛制快照（创建时落库，docs/contracts/contests.md）：ACM 二值分不展示为 IOI 分数；
+    # 赛制快照（创建时落库，docs/contracts.md §9）：ACM 二值分不展示为 IOI 分数；
     # 历史数据可能为 NULL（快照列后补），可空
     rule_type: RuleType | None = None
     nickname: str
@@ -239,7 +239,7 @@ class ScoreboardShowOut(BaseModel):
     """滚榜数据包：冻结快照榜（起点）+ 最终榜（终点）+ 揭晓序列（动画步骤）。
 
     队伍揭晓顺序由服务端按「最终名次从差到好」生成，保证动画中
-    每支队伍结算后不再移动（domjudge 式滚榜，docs/contracts/contests.md）。
+    每支队伍结算后不再移动（domjudge 式滚榜，docs/contracts.md §9）。
     """
 
     contest_id: uuid.UUID

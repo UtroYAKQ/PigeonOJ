@@ -59,7 +59,7 @@ class ProblemRepository:
         return problem
 
     async def copy_test_cases(self, source: Problem, target: Problem) -> None:
-        """快照复制生效测试点（引用题继承判题数据；docs/contracts/teams.md 团队空间节）。
+        """快照复制生效测试点（引用题继承判题数据；docs/contracts.md §6.4）。
 
         - 仅复制 source.active_case_ids 引用的行（暂存集不复制）
         - MinIO 对象逐份复制（新 oss id），源 / 目标对象互不影响，可独立清理
@@ -117,7 +117,7 @@ class ProblemRepository:
         await self.db.flush()
 
     async def copy_tag_relations(self, source: Problem, target: Problem) -> None:
-        """复制题目-标签关联（引用快照继承分类，docs/contracts/teams.md 团队空间节）。"""
+        """复制题目-标签关联（引用快照继承分类，docs/contracts.md §6.4）。"""
         rows = list(
             (
                 await self.db.execute(
@@ -130,7 +130,7 @@ class ProblemRepository:
         await self.db.flush()
 
     async def bump_counters(self, problem_id: uuid.UUID, *, accepted: bool) -> None:
-        """通过率计数 upsert 原子累加（INSERT ... ON CONFLICT，并发安全；docs/contracts/judge.md）。
+        """通过率计数 upsert 原子累加（INSERT ... ON CONFLICT，并发安全；docs/contracts.md §10）。
 
         计数行不存在时自动创建；统计口径由调用方保证。
         """
@@ -215,7 +215,7 @@ class ProblemRepository:
     ) -> tuple[list[Problem], int]:
         """题库列表：scope=all 仅 published+public（组织题不进题库中心）；
         scope=mine 为管理视图（admin 见全量，其余用户见所在组织的组织题聚合 +
-        本人创建的存量题，docs/contracts/problems.md / orgs.md）。"""
+        本人创建的存量题，docs/contracts.md §7 / orgs.md）。"""
         conditions = []
         if query.scope == ProblemScope.MINE:
             if not see_all and viewer_id is not None:
@@ -290,7 +290,7 @@ class ProblemRepository:
         page_size: int = 20,
         admin_view: bool = False,
     ) -> tuple[list[Problem], int]:
-        """团队题库列表（docs/contracts/teams.md 团队空间节）。
+        """团队题库列表（docs/contracts.md §6.4）。
 
         - 成员视图：published 且 team_visible（admin_visible 仅团队管理可见）
         - 团队管理视图（创建者 / 管理员）：仅已发布（草稿 / 归档在团队空间不返回
@@ -344,7 +344,7 @@ class ProblemRepository:
         """团队上下文编排候选校验（团队题单 / 团队比赛共用规则）：
 
         已发布且（全站公开 或 本团队题目）；组织题目须先引用进团队（快照边界，
-        docs/contracts/teams.md 团队空间节）。团队管理动作专用。
+        docs/contracts.md §6.4）。团队管理动作专用。
         """
         if not problem_ids:
             return []
@@ -412,7 +412,7 @@ class ProblemRepository:
         page_size: int,
     ) -> tuple[list[Problem], int]:
         """团队题目引用候选（引用页列表）：已发布 + 非团队题 +（本组织组织题 ∪ 全站公开）
-        + 未被该团队引用过（同团队同源仅一份快照，docs/contracts/teams.md 团队空间节）。
+        + 未被该团队引用过（同团队同源仅一份快照，docs/contracts.md §6.4）。
 
         团队题目全部为引用快照：来源 = 归属组织的组织题库 ∪ 全站公开题（orgs.md）。
         """
@@ -457,7 +457,7 @@ class ProblemRepository:
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Problem], int]:
-        """组织题库列表（docs/contracts/orgs.md）：缺省仅 published；status='draft'
+        """组织题库列表（docs/contracts.md §5）：缺省仅 published；status='draft'
         草稿视图（全组织草稿均可见可编辑，无个人私稿）；归档任何视图不返回。"""
         conditions: list = [Problem.org_id == org_id]
         if status == ProblemStatus.DRAFT:

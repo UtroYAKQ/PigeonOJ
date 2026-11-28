@@ -1,4 +1,4 @@
-"""utils/validation 单元测试：邮箱格式校验与规范化（docs/contracts/users.md）。"""
+"""utils/validation 单元测试：邮箱格式校验与规范化（docs/contracts.md §4）。"""
 from __future__ import annotations
 
 import pytest

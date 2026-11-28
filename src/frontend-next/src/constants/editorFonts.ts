@@ -1,5 +1,5 @@
 /**
- * 代码编辑器字体偏好（docs/contracts/users.md）：
+ * 代码编辑器字体偏好（docs/contracts.md §4）：
  * value 与后端白名单一致；stack 为 CSS 字体栈；ligatures 控制 Monaco 连字。
  * 仅 JetBrains Mono 随应用打包，其余字体使用系统已安装版本，未安装时回退等宽字体。
  */

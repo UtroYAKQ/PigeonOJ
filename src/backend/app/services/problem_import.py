@@ -1,6 +1,6 @@
 """FPS（freeproblemset，HUSTOJ 题库交换格式）题库导入服务。
 
-解析与入库核心，供两个入口共用（docs/contracts/problems.md「FPS 题库导入」）：
+解析与入库核心，供两个入口共用（docs/contracts.md §7.8）：
 - `POST /admin/problems/import`（管理端点，ZIP 上传一键导入，admin 权限）
 - `scripts/import_fps_problems.py`（CLI，支持 URL / 目录 / dry-run）
 
@@ -39,7 +39,7 @@ from app.models.user import User
 MAX_CASE_BYTES = 8 * 1024 * 1024
 MAX_SAMPLE_BYTES = 64 * 1024
 MAX_SOLUTION_BYTES = 256 * 1024
-# 特判程序源码上限（与 PUT /problems/{id}/spj 契约一致，docs/contracts/problems.md）
+# 特判程序源码上限（与 PUT /problems/{id}/spj 契约一致，docs/contracts.md §7）
 MAX_SPJ_BYTES = 256 * 1024
 # 单次请求 / CLI 单轮最多**尝试**的题目数（约束请求时长，超出 truncated 标记；
 # 重复 / 跳过 / 失败计入尝试数，超过部分由分批导入处理）
@@ -50,7 +50,7 @@ MAX_ARCHIVE_BYTES = 0
 MAX_EXPORT_PROBLEMS = 20
 MAX_EXPORT_TOTAL_BYTES = 256 * 1024 * 1024
 
-# 题面图片（docs/contracts/problems.md「FPS 题库导入 / 导出」）：
+# 题面图片（docs/contracts.md §7.8）：
 # 平台只认 Markdown 生态（Hydro 系 fps 导出同款）——图片是题面字段里的
 # ![](data:image/...;base64,...)。HTML <img> 形态不识别（原样保留；前端
 # markdown-it html:false 下本就不渲染）。

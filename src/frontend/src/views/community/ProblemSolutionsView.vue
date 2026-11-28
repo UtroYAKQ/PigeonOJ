@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 题解页（docs/contracts/community.md）：官方题解 + 题解分享双 tab。
+ * 题解页（docs/contracts.md §11）：官方题解 + 题解分享双 tab。
  * 各业务上下文（题库 / 题单 / 比赛 / 组织）复用本组件，返回与跳转封闭在当前上下文；
  * 比赛进行中门禁由后端 3002 拦截（错误信封提示）。
  */

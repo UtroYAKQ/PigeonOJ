@@ -42,7 +42,7 @@ def invalidate_config_cache(category: str | None = None, key: str | None = None)
     _site_public_cache = None
 
 
-# 邮箱验证码安全策略默认值（docs/contracts/admin.md auth_email 域；可经系统配置覆盖）
+# 邮箱验证码安全策略默认值（docs/contracts.md §12 auth_email 域；可经系统配置覆盖）
 EMAIL_CODE_DEFAULT = {
     "expire_seconds": 600,
     "resend_seconds": 60,
@@ -50,7 +50,7 @@ EMAIL_CODE_DEFAULT = {
 }
 
 # SMTP 发信配置默认值（host 为空 = 未接入邮件服务，验证码打印到后端日志）
-# SMTP 发信配置默认值（docs/contracts/admin.md auth_email.smtp 域；可经系统配置覆盖）
+# SMTP 发信配置默认值（docs/contracts.md §12 auth_email.smtp 域；可经系统配置覆盖）
 # 旧部署可能仅写入 email.smtp.use_ssl（bool），get_email_smtp_config 会向下兼容推导 smtp_mode。
 EMAIL_SMTP_DEFAULT = {
     "host": "",

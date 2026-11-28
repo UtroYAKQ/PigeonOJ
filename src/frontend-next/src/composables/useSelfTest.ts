@@ -6,7 +6,7 @@ import { message } from '@/utils/feedback'
 import type { ProblemLanguage, SelfTestPayload, SelfTestResult } from '@/types'
 
 /**
- * 用户自测状态与会话（docs/contracts/judge.md「用户自测」）：
+ * 用户自测状态与会话（docs/contracts.md §10.8）：
  * 输入 / 结果仅在当前页保留，不计分、不入提交记录；
  * 详情页与验题页工作台共用同一套控制台行为。
  * options.runner 允许引用上下文替换端点（如团队题目走团队自测端点，豁免题库可见性）。

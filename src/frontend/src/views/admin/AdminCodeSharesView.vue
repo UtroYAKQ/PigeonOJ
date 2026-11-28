@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 代码分享管理（docs/contracts/community.md「代码广场」）：全状态列表 + 预览弹窗
+ * 代码分享管理（docs/contracts.md §11.5）：全状态列表 + 预览弹窗
  * （说明 / 只读代码 / 评论治理下钻）。举报处理页经 ?code=<id> 跳转本页预览。
  */
 import { computed, h, onMounted, reactive, ref } from 'vue'

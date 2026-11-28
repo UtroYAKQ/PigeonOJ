@@ -1,4 +1,4 @@
-"""平台级系统配置表：system_configs（docs/contracts/admin.md system_configs）。
+"""平台级系统配置表：system_configs（docs/contracts.md §12.1）。
 
 系统配置是横切基础设施——中间件与各业务 Service 都要读取策略值，
 模型独立于业务模块；读写服务见 app.services.system_config，
@@ -18,7 +18,7 @@ from app.enums import ConfigCategory
 
 
 class SystemConfig(Base):
-    """系统配置：KV + 分域（docs/contracts/admin.md system_configs）。"""
+    """系统配置：KV + 分域（docs/contracts.md §12.1）。"""
 
     __tablename__ = "system_configs"
 

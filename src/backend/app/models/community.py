@@ -1,4 +1,4 @@
-"""社区模块数据模型：题解、评论。表结构对应 docs/contracts/community.md。
+"""社区模块数据模型：题解、评论。表结构对应 docs/contracts.md §11。
 
 举报模型在 admin 模块（models/admin.py）；通知 / 私信 / 讨论区为规划项（契约留档未建表）。
 官方题解为 problems.solution（题库模块），不在本模块建表。
@@ -26,7 +26,7 @@ from app.enums import CodeShareStatus, CommentTargetType, SolutionStatus
 
 
 class Solution(Base):
-    """用户题解（docs/contracts/community.md solutions）。
+    """用户题解（docs/contracts.md §11 solutions）。
 
     可见性继承题目：读写先过题目访问检查（services/community.py 复用 ProblemService 门控）。
     """
@@ -56,7 +56,7 @@ class Solution(Base):
 
 
 class CodeShare(Base):
-    """代码广场分享（docs/contracts/community.md code_shares）。
+    """代码广场分享（docs/contracts.md §11 code_shares）。
 
     无草稿态：创建即 published；removed 仅作者与 admin 可读；关联题目可选。
     """
@@ -91,7 +91,7 @@ class CodeShare(Base):
 
 
 class Comment(Base):
-    """评论（docs/contracts/community.md comments）：多态 target + 两级回复 + 软删除。
+    """评论（docs/contracts.md §11 comments）：多态 target + 两级回复 + 软删除。
 
     parent_id 仅允许挂一级评论（父评论的 parent_id 必须为 NULL），校验在服务层。
     """

@@ -262,7 +262,7 @@ class RoleRepository:
         return result
 
     async def replace_global_roles(self, user_id: uuid.UUID, role_ids: list[uuid.UUID]) -> None:
-        """替换用户全局角色：先删后插（唯一索引兜底防重复，docs/contracts/admin.md）。"""
+        """替换用户全局角色：先删后插（唯一索引兜底防重复，docs/contracts.md §12）。"""
         await self.db.execute(
             delete(UserRole).where(
                 UserRole.user_id == user_id,
@@ -274,7 +274,7 @@ class RoleRepository:
             self.db.add(UserRole(user_id=user_id, role_id=role_id, scope=UserRoleScope.GLOBAL, object_id=None))
         await self.db.flush()
 
-    # ---- 团队作用域授权（scope='team'、object_id=team_id，docs/contracts/teams.md） ----
+    # ---- 团队作用域授权（scope='team'、object_id=team_id，docs/contracts.md §6） ----
 
     async def get_team_role_codes(self, user_id: uuid.UUID, team_id: uuid.UUID) -> list[str]:
         """读取用户在指定团队的角色 code 列表。"""
@@ -387,7 +387,7 @@ class RoleRepository:
         )
         await self.db.flush()
 
-    # ---- 组织作用域授权（scope='org'、object_id=org_id，docs/contracts/orgs.md） ----
+    # ---- 组织作用域授权（scope='org'、object_id=org_id，docs/contracts.md §5） ----
 
     async def get_org_role_codes(self, user_id: uuid.UUID, org_id: uuid.UUID) -> list[str]:
         """读取用户在指定组织的角色 code 列表。"""

@@ -52,7 +52,7 @@ async def _should_record_get() -> bool:
 
 
 class RequestLoggingMiddleware:
-    """请求级审计：request_id 追踪 + 落库（写入失败不影响主流程，docs/contracts/admin.md）。
+    """请求级审计：request_id 追踪 + 落库（写入失败不影响主流程，docs/contracts.md §12）。
 
     纯 ASGI：应用整链（含异常处理器与依赖 teardown / 事务提交）返回后再写
     request_logs / exception_logs；response.start 捕获状态码并回填 request_id 头。

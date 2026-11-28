@@ -14,7 +14,7 @@ down_revision = "0003"
 branch_labels = None
 depends_on = None
 
-# docs/contracts/judge.md 语言限制换算：cpp17 为基准；python/java 按平台默认比例
+# docs/contracts.md §10.4：cpp17 为基准；python/java 按平台默认比例
 # output_limit_kb=5120（5MB）：0021 迁移对齐行业水平后的默认值，新装环境与存量一致
 _DEFAULT_CONFIGS = [
     # language, time_ratio, memory_ratio, memory_min_mb, output_limit_kb, cpu_cores, process_limit

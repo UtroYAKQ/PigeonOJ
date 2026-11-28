@@ -1,6 +1,6 @@
 """请求元信息提取：真实客户端 IP（X-Forwarded-For 优先）与 User-Agent 轻量解析。
 
-IP 信任模型（docs/security.md）：应用部署在 nginx 反代之后，XFF 由可信代理追加；
+IP 信任模型（docs/architecture.md §5）：应用部署在 nginx 反代之后，XFF 由可信代理追加；
 取 XFF 左起第一个非私有 / 保留段地址为客户端 IP（伪造值只能污染最左侧序列，
 真实客户端在可信代理追加段之前），全部为私有段（纯内网部署）时取最左侧合法值；
 无 XFF / 全非法时回退直连 peer，IP 合法性最终由 parse_client_ip 兜底。

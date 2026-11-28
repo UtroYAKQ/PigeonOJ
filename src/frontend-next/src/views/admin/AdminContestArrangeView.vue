@@ -99,7 +99,7 @@ function addFromPool(item: PoolCandidate): void {
   draftProblems.value.push({
     problem_id: item.problem_id,
     letter: null,
-    // IOI 未填分值默认 100（后端 _replace_problems 同款兜底，docs/contracts/contests.md）
+    // IOI 未填分值默认 100（后端 _replace_problems 同款兜底，docs/contracts.md §9）
     score: isIOI.value ? 100 : 0,
     sort_order: draftProblems.value.length,
     title: item.title,

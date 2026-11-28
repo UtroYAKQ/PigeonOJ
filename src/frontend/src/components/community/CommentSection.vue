@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 多态评论区（docs/contracts/community.md comments）：一级评论分页 + 回复预览 +
+ * 多态评论区（docs/contracts.md §11 comments）：一级评论分页 + 回复预览 +
  * 「查看全部回复」；发表 / 回复（两级，parent_id 仅挂一级评论）、软删（owner / admin）、
  * 恢复（admin）、举报。管理端题解预览传 admin-mode 含被删评论并开放恢复。
  */

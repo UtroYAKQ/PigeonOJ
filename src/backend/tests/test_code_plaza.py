@@ -1,5 +1,5 @@
 """代码广场集成测试：分享生命周期、管理端点、功能开关与评论
-（docs/contracts/community.md「代码广场」；分享不关联题目，评论挂 code_share 目标）。"""
+（docs/contracts.md §11.5；分享不关联题目，评论挂 code_share 目标）。"""
 from __future__ import annotations
 
 import pytest

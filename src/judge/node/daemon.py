@@ -1,7 +1,7 @@
-﻿"""PigeonOJ 判题节点守护进程。
+"""PigeonOJ 判题节点守护进程。
 
 - 主动出站连接后端 gRPC 网关（穿 NAT，无需开放入站端口）
-- 注册认证 → 接收 SubmitJob → 拉取/命中题目数据缓存 → nsjail 判题 → 回传结果
+- 注册认证 → 接收 SubmitJob → 拉取/命中题目数据缓存 → isolate 判题 → 回传结果
 - capacity 并发（asyncio.Semaphore），心跳按间隔上行
 
 用法：python daemon.py --config node.toml
@@ -22,9 +22,16 @@ import grpc
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config import JudgeNodeConfig, load_config  # noqa: E402
+from config import JudgeNodeConfig, NODE_VERSION, load_config  # noqa: E402
 from datacache import ProblemDataCache  # noqa: E402
-from executor import JudgeCase, JudgeWorker, NsjailExecutor, ResourceLimits  # noqa: E402
+from executor import (  # noqa: E402
+    IsolateExecutor,
+    JudgeCase,
+    JudgeWorker,
+    ResourceLimits,
+    SPJ_CACHE_NAME,
+    SPJ_SOURCE_NAME,
+)
 from gen import judge_pb2, judge_pb2_grpc  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -38,6 +45,9 @@ _GRPC_CHANNEL_OPTIONS = (
     ("grpc.max_receive_message_length", _GRPC_MAX_MESSAGE_BYTES),
 )
 
+# 编译阶段内存下限：低内存题目（如 64MB）直接复用会因 cc1plus / javac 自身
+# 开销把编译 OOM 误判成 compile_error，与运行阶段限额解耦
+_COMPILE_MEMORY_MIN_MB = 512
 
 def classify_gateway_error(*, code: str = "", details: str = "", text: str = "") -> tuple[str, str]:
     """把 gRPC / 传输失败收成管理页可读原因：(code, message)。"""
@@ -120,9 +130,14 @@ class NodeDaemon:
         self.node_id = cfg.node.id or f"{socket.gethostname()}-{os.getpid()}"
         self.outbox: asyncio.Queue[judge_pb2.NodeMessage] = asyncio.Queue()
         self.cache = ProblemDataCache(Path(cfg.paths.data_cache))
-        # 节点固定运行在 Linux 容器内：nsjail 原生执行，无 Docker 包装分支
+        # 节点固定运行在 Linux 容器内：isolate 以 box 池原生执行，无 Docker 包装分支
         self.executor = JudgeWorker(
-            NsjailExecutor(cfg.sandbox.nsjail_binary, cfg.sandbox.nsjail_config),
+            IsolateExecutor(
+                cfg.sandbox.isolate_binary,
+                cfg.sandbox.box_pool_size,
+                cfg.sandbox.box_id_base,
+                cfg.sandbox.box_acquire_timeout_seconds,
+            ),
             cfg.paths.workspace,
         )
         self.semaphore: asyncio.Semaphore | None = None
@@ -140,6 +155,28 @@ class NodeDaemon:
         self._had_connection = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._channel = None
+        self._warn_sandbox_sizing()
+
+    def _warn_sandbox_sizing(self) -> None:
+        """启动期校验池容量与并行度：配置不当只告警，不阻断节点启动。"""
+        cfg = self.cfg
+        capacity = max(1, cfg.node.capacity)
+        parallel = max(1, cfg.sandbox.case_parallel)
+        needed = capacity * (parallel + 1)
+        if cfg.sandbox.box_pool_size < needed:
+            log.warning(
+                "box 池偏小：%d < capacity(%d)×(case_parallel(%d)+1)=%d，"
+                "并发判题可能等不到 box 而报 system_error",
+                cfg.sandbox.box_pool_size, capacity, parallel, needed,
+            )
+        running = capacity * parallel
+        cpus = os.cpu_count() or 1
+        if running > cpus:
+            log.warning(
+                "并发判题度 %d 超过可用 CPU 核数 %d：CPU 争抢会推高 wall 时间，"
+                "可能把 AC 误判为 TLE（建议下调 capacity 或 case_parallel）",
+                running, cpus,
+            )
 
     def request_reconnect(self) -> None:
         self.reconnect_requested = True
@@ -197,7 +234,7 @@ class NodeDaemon:
                 node_id=self.node_id,
                 name=cfg.node.name or self.node_id,
                 capacity=cfg.node.capacity,
-                version="nsjail-node-1.3",
+                version=NODE_VERSION,
                 supports_spj=True,
             ))
             while True:
@@ -355,20 +392,28 @@ class NodeDaemon:
         )
         compile_limits = ResourceLimits(
             time_limit_ms=max(10_000, limits.time_limit_ms * 10),
-            memory_limit_mb=limits.memory_limit_mb,
+            memory_limit_mb=max(limits.memory_limit_mb, _COMPILE_MEMORY_MIN_MB),
             output_limit_kb=limits.output_limit_kb,
             cpu_cores=limits.cpu_cores,
             process_limit=limits.process_limit,
         )
-        # SPJ 特判（docs/contracts/judge.md「SPJ 特判」）：编译预算与提交一致；
+        # SPJ 特判（docs/contracts.md §10.6）：编译预算与提交一致；
         # 运行时限 max(2×单点时限, 5s)、内存与提交一致、输出上限 16KB（超出即 checker 故障）
         spj_source: bytes | None = None
+        spj_cache_path: Path | None = None
         if job.spj:
-            spj_path = data_dir / "spj.cpp"
+            spj_path = data_dir / SPJ_SOURCE_NAME
             if not spj_path.is_file():
                 return {"submission_id": job.submission_id, "status": "system_error",
                         "time_used_ms": 0, "memory_used_kb": None,
                         "error_message": "special judge data missing (spj.cpp)", "cases": []}
+            spj_cache_path = data_dir / SPJ_CACHE_NAME
+            try:
+                # 同 data_version 复用已编译二进制；spj.cpp 被重新上传（mtime 更新）则失效
+                if spj_cache_path.is_file() and spj_cache_path.stat().st_mtime < spj_path.stat().st_mtime:
+                    spj_cache_path.unlink(missing_ok=True)
+            except OSError:
+                spj_cache_path = None
             spj_source = spj_path.read_bytes()
         spj_limits = ResourceLimits(
             time_limit_ms=max(2 * limits.time_limit_ms, 5_000),
@@ -388,6 +433,7 @@ class NodeDaemon:
             stop_on_failure=job.stop_on_failure,
             spj_source=spj_source,
             spj_limits=spj_limits,
+            spj_cache_path=spj_cache_path,
             cancel_event=cancel,
             max_parallel=self.cfg.sandbox.case_parallel,
         )
@@ -425,7 +471,7 @@ class NodeDaemon:
         return cases
 
     async def _execute_run_code(self, job: judge_pb2.RunCodeJob) -> None:
-        """用户自测：单次独立运行，无测试点、无比对、不落库（docs/contracts/judge.md「用户自测」）。"""
+        """用户自测：单次独立运行，无测试点、无比对、不落库（docs/contracts.md §10.8）。"""
         async with self.semaphore:
             self.running_tasks += 1
             try:
@@ -460,7 +506,7 @@ class NodeDaemon:
         # 与正式判题一致：编译预算独立于单点运行限制（PreparedSubmission 编译一次）
         compile_limits = ResourceLimits(
             time_limit_ms=max(10_000, limits.time_limit_ms * 10),
-            memory_limit_mb=limits.memory_limit_mb,
+            memory_limit_mb=max(limits.memory_limit_mb, _COMPILE_MEMORY_MIN_MB),
             output_limit_kb=limits.output_limit_kb,
             cpu_cores=limits.cpu_cores,
             process_limit=limits.process_limit,

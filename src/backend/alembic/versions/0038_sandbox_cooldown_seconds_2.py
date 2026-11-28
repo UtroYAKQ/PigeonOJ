@@ -1,7 +1,7 @@
 """自测（运行样例）提交冷却默认 10s → 2s
 
 开发体验调整：写代码时反复运行样例，10s 冷却过久；默认改为 2s。
-仅更新系统配置行，不涉及表结构（docs/contracts/admin.md sandbox 配置项）。
+仅更新系统配置行，不涉及表结构（docs/contracts.md §12 sandbox 配置项）。
 
 Revision ID: 0038
 Revises: 0037

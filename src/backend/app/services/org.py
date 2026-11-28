@@ -1,6 +1,6 @@
 """组织域服务：创建 / 编辑 / 解散 / 成员与组织角色授权管理 / 组织内建团。
 
-组织角色经 user_roles（scope='org'、object_id=org_id）授权（docs/contracts/orgs.md）；
+组织角色经 user_roles（scope='org'、object_id=org_id）授权（docs/contracts.md §5）；
 组织是内容的所有者——组织题库管理权按组织成员资格判定（见 problem.py 组织分支）。
 """
 from __future__ import annotations
@@ -52,18 +52,26 @@ from app.schemas.org import (
     OrgTeamAssign,
     OrgUpdate,
 )
+from app.schemas.problem import ProblemCreate, TeamProblemSummary
 from app.schemas.team import TeamCreate, TeamSummary
 from app.utils.validation import validate_email
 from app.core.dependency import get_user_role_codes
+from app.services.ports import ProblemDetailPort
 from app.services.team import summarize_teams  # 团队列表装配复用，避免同构循环
 
 
 class OrgService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, *, problems: ProblemDetailPort | None = None) -> None:
         self.db = db
         self.orgs = OrgRepository(db)
         self.roles = RoleRepository(db)
         self.teams = TeamRepository(db)
+        self._problems = problems
+
+    def _require_problems(self) -> ProblemDetailPort:
+        if self._problems is None:
+            raise RuntimeError("OrgService 未装配 ProblemDetailPort（请经 deps Provider 构造）")
+        return self._problems
 
     # ---------------- 权限辅助 ----------------
 
@@ -87,7 +95,7 @@ class OrgService:
     ) -> set[str]:
         """校验组织角色：level='admin' 组织管理员；'member' 任意组织角色。
 
-        站点 admin 视同拥有全部组织管理权（docs/contracts/orgs.md）。
+        站点 admin 视同拥有全部组织管理权（docs/contracts.md §5）。
         """
         if await self._is_site_admin(user):
             return {RoleCode.ORG_ADMIN, RoleCode.ORG_MEMBER}
@@ -230,7 +238,7 @@ class OrgService:
         )
         # 名下团队级联软解散（软删除）：对齐团队软解散语义——授权全清、
         # 在册成员置 exited，避免 teams.org_id 悬挂在已解散组织上无人治理
-        # （docs/contracts/orgs.md 解散流程；团队题目为快照副本，不受源题归档影响）
+        # （docs/contracts.md §5 解散流程；团队题目为快照副本，不受源题归档影响）
         team_rows = list(
             (
                 await self.db.execute(
@@ -452,7 +460,7 @@ class OrgService:
 
         自我撤销保护：org_admin 不得撤销自己的管理员身份（避免误操作后失去管理权，
         需由其他组织管理员或站点 admin 代执行）；站点 admin 例外，可对任意成员执行
-        （治理逃生门，与 teams 模块 creator 保护同语义，docs/contracts/orgs.md）。
+        （治理逃生门，与 teams 模块 creator 保护同语义，docs/contracts.md §5）。
         """
         org = await self._org_or_404(org_id)
         await self._require_org_roles(user, org.id, level="admin")
@@ -508,6 +516,53 @@ class OrgService:
             member_count=1,
             my_role="creator",
         )
+
+    # ---------------- 组织题库（管理动作复用 /problems/{id}/... 统一端点） ----------------
+
+    async def list_problems(
+        self,
+        user: User,
+        org_id: uuid.UUID,
+        *,
+        keyword: str | None = None,
+        status: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[TeamProblemSummary], int]:
+        """组织题库列表（组织成员门 + 题库上下文装配）：management 视图回填待复验标记。"""
+        await self.require_roles(user, org_id, level=RoleLevel.MEMBER)
+        problems = self._require_problems()
+        rows, total = await problems.list_org_problems(
+            org_id, keyword=keyword, status=status, page=page, page_size=page_size
+        )
+        items = [TeamProblemSummary.model_validate(row) for row in rows]
+        flags = await problems.verification_flags([row.id for row in rows])
+        for item in items:
+            item.needs_reverification = flags.get(item.id, False)
+        await problems.attach_counters(items)
+        await problems.attach_tags(items)
+        await problems.attach_solve_status(items, user)
+        return items, total
+
+    async def create_problem(
+        self, user: User, org_id: uuid.UUID, body: ProblemCreate
+    ) -> TeamProblemSummary:
+        """组织题库直建题目（org_member）：visibility 恒 org_visible，owner_id 为创建人署名。"""
+        await self.require_roles(user, org_id, level=RoleLevel.MEMBER)
+        problems = self._require_problems()
+        problem = await problems.create(user, body, org_id=org_id)
+        item = TeamProblemSummary.model_validate(problem)
+        await problems.attach_counters([item])
+        await problems.attach_tags([item])
+        return item
+
+    async def get_problem(
+        self, user: User, org_id: uuid.UUID, problem_id: uuid.UUID
+    ) -> TeamProblemSummary:
+        """组织题目详情（组织上下文统一入口）：归属校验后复用题库详情装配。"""
+        await self.require_roles(user, org_id, level=RoleLevel.MEMBER)
+        detail = await self._require_problems().get_org_problem_detail(org_id, problem_id, user)
+        return TeamProblemSummary.model_validate(detail)
 
     async def list_teams(
         self,

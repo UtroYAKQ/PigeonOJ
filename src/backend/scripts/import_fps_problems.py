@@ -1,10 +1,10 @@
 """FPS（freeproblemset，HUSTOJ 题库交换格式）XML 题目导入本地数据库。
 
 CLI 入口：解析 / 入库核心在 app/services/problem_import.py（与
-POST /admin/problems/import 管理端点共用，docs/contracts/problems.md「FPS 题库导入」）。
+POST /admin/problems/import 管理端点共用，docs/contracts.md §7.8）。
 本脚本补充 CLI 特有能力：URL（含 github blob 回退）/ 目录批量扫描 / dry-run。
 
-状态语义（docs/contracts/problems.md）：
+状态语义（docs/contracts.md §7）：
 - 有测试点且无 SPJ → published 直接可做；无测试点 → draft（待人工补点验题）
 - 带 spj：默认跳过；--include-spj 时 checker 源码写暂存集并导入为草稿
   （验题通过后 apply 晋升，不再按标准比对导入）

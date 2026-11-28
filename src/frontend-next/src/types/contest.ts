@@ -1,5 +1,5 @@
 /**
- * 比赛模块类型（docs/contracts/contests.md）。
+ * 比赛模块类型（docs/contracts.md §9）。
  * 团队比赛（contest_type='team'）随 teams 模块开放，当前接口不产生。
  */
 import type { SubmissionStatus } from './judge'

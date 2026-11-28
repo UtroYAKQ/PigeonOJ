@@ -1,10 +1,10 @@
 /**
- * 用户模块类型（docs/contracts/users.md）。
+ * 用户模块类型（docs/contracts.md §4）。
  */
 
 export type UserStatus = 'active' | 'frozen' | 'banned' | 'deleted'
 
-/** 全局角色 code（docs/security.md；tutor 已随组织化改造下线） */
+/** 全局角色 code（docs/architecture.md §5；tutor 已随组织化改造下线） */
 export type GlobalRoleCode = 'admin' | 'user'
 
 export interface User {
@@ -15,7 +15,7 @@ export interface User {
   avatar_url: string | null
   signature: string | null
   theme: string // 'light' | 'dark'
-  /** 编辑器偏好（Monaco 字号 / 字体，docs/contracts/users.md） */
+  /** 编辑器偏好（Monaco 字号 / 字体，docs/contracts.md §4） */
   editor_font_size: number
   editor_font_family: string
   status: UserStatus

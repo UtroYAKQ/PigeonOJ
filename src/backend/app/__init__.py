@@ -1,7 +1,7 @@
 """PigeonOJ 后端应用工厂（组合根：唯一允许直接引用各层路由与控制器的位置）。
 
-- 统一响应信封 {code, message, data}（docs/contracts/common.md）
-- 全量请求日志 → request_logs（含 request_id 追踪，docs/contracts/admin.md）
+- 统一响应信封 {code, message, data}（docs/contracts.md §1）
+- 全量请求日志 → request_logs（含 request_id 追踪，docs/contracts.md §12）
 - 未处理异常 → exception_logs
 - 业务路由统一前缀 /api/v1；判题节点 gRPC 网关（:50051）随应用生命周期启停
 - 开发启动：python run.py（等价 uvicorn app:app --reload）

@@ -1,6 +1,6 @@
 """比赛模型：contests / contest_problems / contest_registrations / contest_rankings。
 
-表结构对应 docs/contracts/contests.md。团队比赛（team_id 非空）随 teams 模块开放：
+表结构对应 docs/contracts.md §9。团队比赛（team_id 非空）随 teams 模块开放：
 列与 CHECK 约束先按契约落齐，teams 表建立后由其迁移补 FK 约束。
 """
 from __future__ import annotations
@@ -120,7 +120,7 @@ class ContestRanking(Base):
 
     封榜不再整行冻结：封榜时按 submissions 重算至封榜时刻（只统计封榜前提交），
     快照照常展示；封榜后提交只在解冻后全量重算回填。更新带 WHERE is_frozen = false
-    的条件写入（docs/contracts/contests.md 第 4 条）。
+    的条件写入（docs/contracts.md §9.4）。
     """
 
     __tablename__ = "contest_rankings"

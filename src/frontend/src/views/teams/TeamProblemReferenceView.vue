@@ -1,7 +1,7 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 /**
  * 团队题目引用页（/teams/:teamId/problems/new）：团队题目 = 引用制
- * （docs/contracts/teams.md 团队空间节），页面即团队的「创建题目」入口。
+ * （docs/contracts.md §6.4），页面即团队的「创建题目」入口。
  * 候选 = 所属组织题库 ∪ 全站公开题（referenceable 端点服务端过滤，
  * 引用能力由团队角色 team_creator / team_admin 承担），点「引用」快照复制进团队题库。
  * 成功后 replace 回团队详情。

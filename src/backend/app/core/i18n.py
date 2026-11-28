@@ -1,6 +1,6 @@
 """后端错误消息 i18n：按请求 Accept-Language 在异常处理出口翻译信封 message。
 
-约定（docs/contracts/common.md）：
+约定（docs/contracts.md §1）：
 - 业务代码继续抛中文消息（APIError / 校验器 ValueError），零改动；
 - 本模块在全局异常处理器出口查「中文原文 → 英文」目录翻译，未命中原样返回（回退中文）；
 - 仅两种语言：zh-CN（默认）/ en-US；错误码 code 不受语言影响。

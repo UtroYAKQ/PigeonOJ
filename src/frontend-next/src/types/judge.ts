@@ -1,5 +1,5 @@
 /**
- * 判题 / 提交模块类型（docs/contracts/judge.md）。
+ * 判题 / 提交模块类型（docs/contracts.md §10）。
  */
 import type { ProblemLanguage } from './problem'
 

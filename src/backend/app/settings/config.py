@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     minio_bucket: str
     minio_secure: bool
 
-    # ---- 判题节点网关（docs/contracts/judge.md 节点网关协议）----
+    # ---- 判题节点网关（docs/contracts.md §10.10）----
     # 注册令牌（逗号分隔多个）；为空则网关不启动。判题节点凭其一完成注册。
     judge_gateway_tokens: str
     judge_grpc_host: str

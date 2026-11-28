@@ -1,4 +1,4 @@
-"""社区仓储：Solution / Comment / CodeShare 数据访问（纯 CRUD，docs/contracts/community.md）。"""
+"""社区仓储：Solution / Comment / CodeShare 数据访问（纯 CRUD，docs/contracts.md §11）。"""
 from __future__ import annotations
 
 import uuid
@@ -83,7 +83,7 @@ class SolutionRepository:
         return await self._page(conditions, page, page_size)
 
     async def count_comments(self, solution_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
-        """题解未删评论总数（一级 + 回复；docs/contracts/community.md 列表聚合口径）。"""
+        """题解未删评论总数（一级 + 回复；docs/contracts.md §11 列表聚合口径）。"""
         if not solution_ids:
             return {}
         stmt = (

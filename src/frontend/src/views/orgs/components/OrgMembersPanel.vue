@@ -2,7 +2,7 @@
 /**
  * 组织详情 · 成员面板：成员表格（搜索 / 分页 / ⋯ 行操作）+ 添加成员弹窗。
  * 行操作：备注（本人 / org_admin 共用弹窗，空值 = 清除备注）、移出（org_admin）；
- * 授·撤组织管理员不放组织空间页（收敛到管理后台组织详情，docs/contracts/orgs.md）。
+ * 授·撤组织管理员不放组织空间页（收敛到管理后台组织详情，docs/contracts.md §5）。
  * 移出 / 添加成功后 emit changed，宿主刷新组织概要（成员数等）。
  */
 import { computed, h, onMounted, ref } from 'vue'

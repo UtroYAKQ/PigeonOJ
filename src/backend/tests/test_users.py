@@ -1,4 +1,4 @@
-"""用户中心集成测试（docs/contracts/users.md）：资料 / 注销 / 会话管理 / 注册开关。
+"""用户中心集成测试（docs/contracts.md §4）：资料 / 注销 / 会话管理 / 注册开关。
 
 数据所有权：所有查询限定当前用户（越权访问他人会话 → 3001）。
 """
@@ -110,12 +110,12 @@ async def test_update_profile(client: httpx.AsyncClient) -> None:
     assert data["theme"] == "dark"
     assert data["signature"] == "你好世界"
 
-    # 非法主题 → Pydantic Literal 校验失败，统一转 1001 信封（docs/contracts/common.md 响应信封）
+    # 非法主题 → Pydantic Literal 校验失败，统一转 1001 信封（docs/contracts.md §1 响应信封）
     resp = await client.put("/api/v1/users/me", json={"theme": "red"}, headers=headers)
     assert resp.status_code == 400
     assert resp.json()["code"] == 1001
 
-    # 头像形态（docs/contracts/users.md）：拒绝裸 oss_id 与越权站内 URL，接受本人站内 URL
+    # 头像形态（docs/contracts.md §4）：拒绝裸 oss_id 与越权站内 URL，接受本人站内 URL
     uid = data["id"]
     resp = await client.put("/api/v1/users/me", json={"avatar_url": f"users/{uid}/avatar/abc"}, headers=headers)
     assert resp.status_code == 400 and resp.json()["code"] == 1001
@@ -305,7 +305,7 @@ async def test_revoke_others_session_forbidden(client: httpx.AsyncClient) -> Non
 
 @pytest.mark.asyncio
 async def test_editor_preferences(client, user_headers):
-    """编辑器偏好随资料更新持久化；非法字号 / 字体 1001（docs/contracts/users.md）。"""
+    """编辑器偏好随资料更新持久化；非法字号 / 字体 1001（docs/contracts.md §4）。"""
     resp = await client.put(
         "/api/v1/users/me",
         json={"editor_font_size": 18, "editor_font_family": "fira-code"},

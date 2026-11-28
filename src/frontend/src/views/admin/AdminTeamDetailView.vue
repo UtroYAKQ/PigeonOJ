@@ -1,6 +1,6 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 /**
- * 团队详情（管理后台，admin；docs/contracts/teams.md 管理端）：
+ * 团队详情（管理后台，admin；docs/contracts.md §6.5）：
  * 顶部团队信息卡（头像 / 名称 / 状态 / 创建人 / 成员数 / 资源统计）+
  * 模块 tab（成员 / 团队题库 / 团队题单 / 团队比赛），全部走 /admin/teams*
  * 管理端只读视图（免团队角色；含已解散团队与草稿 / 归档 / 已下线资源）。

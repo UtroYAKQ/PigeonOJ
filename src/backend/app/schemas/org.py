@@ -1,4 +1,4 @@
-"""组织模块请求 / 响应模型（docs/contracts/orgs.md）。"""
+"""组织模块请求 / 响应模型（docs/contracts.md §5）。"""
 from __future__ import annotations
 
 import uuid

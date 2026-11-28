@@ -1,6 +1,6 @@
 """Alembic 迁移环境。
 
-表结构唯一来源是迁移 SQL（见 docs/contracts/index.md）。本文件提供
+表结构唯一来源是迁移 SQL（见 docs/contracts.md）。本文件提供
 异步连接与 autogenerate 支持；业务表模型随后续各模块逐步接入
 target_metadata。
 """

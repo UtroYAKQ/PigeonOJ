@@ -22,6 +22,11 @@
 6. 判题上下文（services/judge、repositories/judge、models/judge）禁止依赖比赛上下文
    （赛制经命令快照进提交行，满分基准 / 榜单回写经 ContestService 端口）；
    判题派发层（rpc/judge_jobs）禁止直查比赛模型
+7. 路由层事务与判题基础设施收口（app/api/v1/**）：
+   禁止 commit/rollback/flush、commit_and_dispatch、import app.rpc、直接使用 REGISTRY
+   （提交由 Service 经 SubmissionDispatcher 端口完成，沙箱状态经 SandboxService Provider）
+8. 服务方法体禁止自构协作者（app/services/**，__init__ 与自有聚合仓储除外）：
+   禁止 XxxService(...) / XxxRepository(...)（跨上下文依赖一律构造注入 / Protocol 端口）
 
 用法：
     python scripts/check_import_rules.py
@@ -130,6 +135,64 @@ def check_file(path: Path) -> list[str]:
                 problems.append(
                     f"{dotted(path)}:{line}: 判题派发层禁止直查比赛模型（满分基准经 ContestService.full_score_for）-> {target}"
                 )
+                continue
+
+    module = dotted(path)
+    if module.startswith("app.api.v1"):
+        problems.extend(check_api_boundary(module, tree))
+    if module.startswith("app.services"):
+        problems.extend(check_service_method_construction(module, tree))
+    return problems
+
+
+SESSION_WRITE_METHODS = {"commit", "rollback", "flush"}
+FORBIDDEN_ROUTER_NAMES = {"REGISTRY", "commit_and_dispatch"}
+
+
+def check_api_boundary(module: str, tree: ast.AST) -> list[str]:
+    """规则 7：路由层不得直接提交事务 / 依赖判题基础设施。"""
+    problems: list[str] = []
+    reported: set[tuple[int, str]] = set()
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", "?")
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for target in imported_targets(node, module.rsplit(".", 1)[0]):
+                if target == "app.rpc" or target.startswith("app.rpc."):
+                    key = (line, target)
+                    if key not in reported:
+                        reported.add(key)
+                        problems.append(f"{module}:{line}: 路由层禁止 import 判题基础设施 -> {target}")
+        elif isinstance(node, ast.Name) and node.id in FORBIDDEN_ROUTER_NAMES:
+            problems.append(
+                f"{module}:{line}: 路由层禁止直接使用 {node.id}（提交经 Service 端口，沙箱状态经 Provider）"
+            )
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr in SESSION_WRITE_METHODS:
+                problems.append(
+                    f"{module}:{line}: 路由层禁止 {func.attr}()（事务提交归属 Service / UnitOfWork）"
+                )
+    return problems
+
+
+def check_service_method_construction(module: str, tree: ast.AST) -> list[str]:
+    """规则 8：服务方法体不得自构 Service / Repository（构造注入或窄端口）。"""
+    problems: list[str] = []
+    for cls in (node for node in tree.body if isinstance(node, ast.ClassDef)):
+        for fn in cls.body:
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if fn.name in ("__init__", "__post_init__"):
+                continue
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                    continue
+                name = node.func.id
+                if name.endswith(("Service", "Repository")):
+                    line = getattr(node, "lineno", "?")
+                    problems.append(
+                        f"{module}:{line}: 服务方法体禁止自构协作者 {name}(...)（改为构造注入 / Protocol 端口）"
+                    )
     return problems
 
 

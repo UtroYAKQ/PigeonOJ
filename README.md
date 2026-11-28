@@ -53,38 +53,37 @@ PigeonOJ 是一个面向编程学习、训练和竞赛的平台：
 | --- | --- |
 | 后端 | FastAPI · SQLAlchemy · Alembic · gRPC（判题节点网关） |
 | 存储 | PostgreSQL · Redis · MinIO |
-| 沙箱 | nsjail（进程级隔离代码执行） |
-| 前端 | Vue 3 · Pinia · Naive UI · Tailwind CSS v4 · vue-i18n · Monaco Editor |
+| 沙箱 | isolate（IOI 官方沙箱，cgroup v2 记账 + namespace 隔离） |
+| 前端 | Vue 3 · Pinia · shadcn-vue · Tailwind CSS v4 · vue-i18n · Monaco Editor |
 | 部署 | Docker Compose |
 
 完整选型与「明确不使用的技术」见 [docs/architecture.md](docs/architecture.md)。
 
 ## 文档索引
 
-> 按任务范围读相关文档；AI 协作工作流见 [docs/workflow.md](docs/workflow.md)。
+> 按任务范围读相关文档；AI 协作工作流见 [docs/architecture.md](docs/architecture.md) §6。
 
 | 文档 | 内容 | 何时读 |
 | --- | --- | --- |
-| [docs/architecture.md](docs/architecture.md) | 技术栈、分层架构、编码规范 | 写代码前必读 |
-| [docs/security.md](docs/security.md) | 安全规则、RBAC 权限矩阵、越权约束 | 改接口 / 涉及权限时 |
-| [docs/contracts/](docs/contracts/index.md) | 数据模型、API 契约、错误码（按模块拆分） | 改表结构 / API / 错误码时 |
-| [docs/operations.md](docs/operations.md) | 运行、测试、部署、Redis/调度/存储约定 | 改配置 / 环境 / 测试时 |
+| [docs/architecture.md](docs/architecture.md) | 技术栈、分层架构、编码规范、安全与权限、AI 工作流 | 写代码前必读 |
+| [docs/contracts.md](docs/contracts.md) | 数据模型、API 契约、错误码、所有权 / 可见性规则 | 改表结构 / API / 错误码时 |
+| [docs/operations.md](docs/operations.md) | 运行、测试、部署、Redis/调度/存储、判题节点 | 改配置 / 环境 / 测试时 |
 | [docs/frontend.md](docs/frontend.md) | 前端设计系统、布局、i18n 与质量门禁 | 改前端时必读 |
+
 ## 仓库结构
 
 | 位置 | 内容 |
 | --- | --- |
 | `AGENTS.md` | AI 统·一入口（必读顺序 + 任务→文档映射 + 工作规则） |
-| `docs/architecture.md` | 技术栈、分层架构、编码规范 |
-| `docs/security.md` | 安全规则、RBAC 权限矩阵、越权约束 |
-| `docs/contracts/` | 数据模型、API 契约、错误码（按模块拆分） |
-| `docs/operations.md` | 运行、测试、部署、Redis/调度/存储约定 |
+| `docs/architecture.md` | 技术栈、分层架构、编码规范、安全与权限、AI 工作流 |
+| `docs/contracts.md` | 数据模型、API 契约、错误码、所有权 / 可见性规则 |
+| `docs/operations.md` | 运行、测试、部署、Redis/调度/存储、判题节点 |
 | `docs/frontend.md` | 前端设计系统、布局、i18n 与质量门禁 |
-| `docs/workflow.md` | AI 协作工作流与文档同步映射 |
 | `docker/` | Docker Compose 编排（生产 `docker-compose.yml` 与判题节点 `docker-compose-node.yml`） |
 | `src/backend` / `src/frontend-next` / `src/frontend` / `src/judge` | 后端 / 新前端（shadcn-vue） / 旧前端（参考） / 判题节点 |
 
 ## 说明
 
-- 当前阶段：文档契约已完成。**后端已实现 users（认证 / 用户中心 / 用户管理）/ files / problems（题库 · 测试点 · 验题记录）/ judge（提交判题调度 · 沙箱配置 · gRPC 节点网关）/ admin 模块**（含 Alembic 迁移与集成测试；模块间经 `api.py` 门面通信，规则由 `src/backend/scripts/check_import_rules.py` 检查）；**前端已重构为 `src/frontend-next`**（Vue 3 + shadcn-vue + Tailwind v4）：中后台统一应用壳（侧栏 / 命令面板 / 面包屑）、题库与出题向导、题单、比赛、团队、用户设置与管理后台均已迁移，直连真实后端 API，并建立 ESLint / Prettier / Vitest（含 i18n key 完整性）质量门禁。判题链路为「后端 gRPC 网关 + 判题节点双向流注册/心跳负载 + 维护循环兜底重调度」架构——后端进程不执行任何用户代码，本地由 `run-local.bat` 一键拉起。AI / 社区等模块按 `docs/contracts/` 各模块契约逐步实现（AI 模块及其模型配置 / Token 用量暂缓）。
+- 当前阶段：**后端 users / files / problems / problem-sets / contests / judge / teams / orgs / community / admin 模块均已实现**（含 Alembic 迁移与集成测试；分层导入规则由 `src/backend/scripts/check_import_rules.py` 检查）；**前端为 `src/frontend-next`**（Vue 3 + shadcn-vue + Tailwind v4）：中后台统一应用壳（侧栏 / 命令面板 / 面包屑）、题库与出题向导、题单、比赛、团队、组织、社区、用户设置与管理后台均已迁移，直连真实后端 API，并建立 ESLint / Prettier / Vitest（含 i18n key 完整性）质量门禁。判题链路为「后端 gRPC 网关 + 判题节点双向流注册/心跳负载 + 维护循环兜底重调度」架构——后端进程不执行任何用户代码，本地由 `run-local.bat` 一键拉起。模块详情见 [docs/contracts.md](docs/contracts.md) §13。
 - 沙箱执行环境首批支持 Python 3.12、C++17、Java 21。
+- ⚠️ `run-local.bat` 目前仍指向旧前端 `src/frontend`，用一键脚本做前端开发前需改为 `src/frontend-next`（compose 已切）。

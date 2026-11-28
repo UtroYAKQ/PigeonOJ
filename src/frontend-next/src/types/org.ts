@@ -1,5 +1,5 @@
 /**
- * 组织模块类型（docs/contracts/orgs.md）。
+ * 组织模块类型（docs/contracts.md §5）。
  * 组织是多机构共用一个 OJ 的租户单元；组织角色经 user_roles（scope='org'）授权。
  */
 import type { UserLookupItem } from './user'

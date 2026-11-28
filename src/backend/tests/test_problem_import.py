@@ -1,4 +1,4 @@
-"""FPS 题库一键导入端点测试（POST /admin/problems/import，docs/contracts/problems.md）。"""
+"""FPS 题库一键导入端点测试（POST /admin/problems/import，docs/contracts.md §7）。"""
 from __future__ import annotations
 
 import io
@@ -340,7 +340,7 @@ async def test_export_guards(client, admin_headers, user_headers, fake_storage):
     assert resp.status_code == 403
 
 
-# ---- 题面图片双向转换（docs/contracts/problems.md「FPS 题库导入 / 导出」） ----
+# ---- 题面图片双向转换（docs/contracts.md §7.8） ----
 
 
 @pytest.mark.asyncio

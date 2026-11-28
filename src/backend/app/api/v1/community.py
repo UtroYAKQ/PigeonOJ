@@ -1,4 +1,4 @@
-"""社区路由（docs/contracts/community.md 端点，统一前缀 /api/v1）。
+"""社区路由（docs/contracts.md §11 端点，统一前缀 /api/v1）。
 
 官方题解 / 用户题解 / 评论 / 举报；管理端点（/admin/solutions*、/admin/comments*）
 注册在 admin 路由（与举报处理同层）。
@@ -11,7 +11,6 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import (
     CommunityServiceDep,
-    SessionDep,
     get_current_user,
     get_optional_user,
 )
@@ -81,11 +80,9 @@ async def create_solution(
     problem_id: uuid.UUID,
     body: SolutionCreate,
     service: CommunityServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SolutionDetail]:
     detail = await service.create_solution(problem_id, user, body)
-    await db.commit()  # 显式提交：确保数据持久化后再返回
     return ok(detail)
 
 
@@ -103,11 +100,9 @@ async def update_solution(
     solution_id: uuid.UUID,
     body: SolutionUpdate,
     service: CommunityServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[SolutionDetail]:
     detail = await service.update_solution(solution_id, user, body)
-    await db.commit()
     return ok(detail)
 
 
@@ -115,11 +110,9 @@ async def update_solution(
 async def remove_solution(
     solution_id: uuid.UUID,
     service: CommunityServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     await service.remove_solution(solution_id, user)
-    await db.commit()
     return ok(None)
 
 
@@ -151,11 +144,9 @@ async def list_comments(
 async def create_comment(
     body: CommentCreate,
     service: CommunityServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[CommentOut]:
     comment = await service.create_comment(user, body)
-    await db.commit()
     return ok(comment)
 
 
@@ -163,11 +154,9 @@ async def create_comment(
 async def delete_comment(
     comment_id: uuid.UUID,
     service: CommunityServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     await service.delete_comment(comment_id, user)
-    await db.commit()
     return ok(None)
 
 
@@ -194,11 +183,9 @@ async def list_code_shares(
 async def create_code_share(
     body: CodeShareCreate,
     service: CommunityServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[CodeShareDetail]:
     detail = await service.create_code_share(user, body)
-    await db.commit()
     return ok(detail)
 
 
@@ -216,11 +203,9 @@ async def update_code_share(
     share_id: uuid.UUID,
     body: CodeShareUpdate,
     service: CommunityServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[CodeShareDetail]:
     detail = await service.update_code_share(share_id, user, body)
-    await db.commit()
     return ok(detail)
 
 
@@ -228,11 +213,9 @@ async def update_code_share(
 async def remove_code_share(
     share_id: uuid.UUID,
     service: CommunityServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     await service.remove_code_share(share_id, user)
-    await db.commit()
     return ok(None)
 
 
@@ -243,9 +226,7 @@ async def remove_code_share(
 async def create_report(
     body: ReportCreate,
     service: CommunityServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     await service.create_report(user, body)
-    await db.commit()
     return ok(None)

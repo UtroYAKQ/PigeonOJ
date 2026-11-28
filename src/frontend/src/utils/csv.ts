@@ -1,4 +1,4 @@
-/** 前端导出 CSV 工具（日志导出等场景，见 docs/contracts/admin.md 日志端点「导出」） */
+/** 前端导出 CSV 工具（日志导出等场景，见 docs/contracts.md §12.3） */
 export function downloadCsv(filename: string, headers: string[], rows: unknown[][]): void {
   const esc = (v: unknown) => {
     const s = String(v ?? '')

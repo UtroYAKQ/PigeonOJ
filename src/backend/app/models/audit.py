@@ -1,4 +1,4 @@
-"""平台级审计日志表：login_logs / request_logs / exception_logs（docs/contracts/admin.md）。
+"""平台级审计日志表：login_logs / request_logs / exception_logs（docs/contracts.md §12）。
 
 三类日志由中间件与各业务流程写入（登录、请求、异常），属横切基础设施；
 admin 路由仅提供查询端点。写入助手与查询仓储见 app.repositories.audit。
@@ -17,7 +17,7 @@ from app.enums import LogLevel, LoginAction
 
 
 class RequestLog(Base):
-    """请求日志（docs/contracts/admin.md request_logs；沙箱执行子记录写入 extra）。"""
+    """请求日志（docs/contracts.md §12 request_logs；沙箱执行子记录写入 extra）。"""
 
     __tablename__ = "request_logs"
 
@@ -45,7 +45,7 @@ class RequestLog(Base):
 
 
 class LoginLog(Base):
-    """登录 / 认证日志（docs/contracts/admin.md login_logs）。"""
+    """登录 / 认证日志（docs/contracts.md §12 login_logs）。"""
 
     __tablename__ = "login_logs"
 
@@ -69,7 +69,7 @@ class LoginLog(Base):
 
 
 class ExceptionLog(Base):
-    """异常日志（docs/contracts/admin.md exception_logs）。"""
+    """异常日志（docs/contracts.md §12 exception_logs）。"""
 
     __tablename__ = "exception_logs"
 

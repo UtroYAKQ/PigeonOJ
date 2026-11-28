@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 团队比赛创建页（/teams/:teamId/contests/new）：团队空间直接创建
- * （contest_type='team'，team_creator / team_admin，docs/contracts/teams.md 团队空间节）。
+ * （contest_type='team'，team_creator / team_admin，docs/contracts.md §6.4）。
  * 精简表单：标题 / 赛制 / 起止时间 / 报名截止；创建成功 → replace 回团队详情，
  * 编排题目在比赛编辑页进行（与后台向导一致）。
  */

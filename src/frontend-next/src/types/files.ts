@@ -1,5 +1,5 @@
 /**
- * 文件服务类型（docs/contracts/files.md）：上传结果。
+ * 文件服务类型（docs/contracts.md §12.3）：上传结果。
  */
 
 export interface UploadResult {

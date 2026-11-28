@@ -1,6 +1,6 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 /**
- * 题单管理（管理后台，admin；docs/contracts/problem-sets.md）：
+ * 题单管理（管理后台，admin；docs/contracts.md §8）：
  * 全量题单列表（含私有 / 已下线）+ 新建；行整行点击进入题单详情
  * （编辑信息 / 编排题目 / 下线均收敛在详情页）。
  */

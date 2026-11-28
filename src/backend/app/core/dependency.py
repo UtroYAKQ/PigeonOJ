@@ -1,4 +1,4 @@
-"""认证授权依赖与权限检查（RBAC 应用层分支判定，docs/security.md）。
+"""认证授权依赖与权限检查（RBAC 应用层分支判定，docs/architecture.md §5）。
 
 - 会话 Token 从 Authorization: Bearer <token> 提取，哈希后查 user_sessions（有效 / 未过期 / 未撤销）
 - 会话热点缓存：Redis `session:<token_hash>` → user_id，TTL 与会话过期时间一致
@@ -41,7 +41,7 @@ def _utcnow() -> datetime:
 # 认证成功后 user_id 在 request.state 上的键名（写：_load_user；读：请求日志中间件落库）
 REQUEST_STATE_USER_ID = "log_user_id"
 
-# 题目管理角色集合（docs/contracts/problems.md 端点表）
+# 题目管理角色集合（docs/contracts.md §7.7）
 # admin: 系统管理员（全站题创建；tutor 已随组织化改造下线，出题收敛到组织题库）
 # team_creator: 团队创建者（团队空间引用动作承载）
 MANAGER_ROLE_CODES: set[str] = {RoleCode.ADMIN, RoleCode.TEAM_CREATOR}
@@ -123,7 +123,7 @@ async def _load_user(request: Request, db: AsyncSession, raw_token: str) -> User
     if user is None:
         raise APIError(AUTH_NOT_LOGGED_IN, "用户不存在", 401)
 
-    # 账号状态拦截（frozen / banned / deleted 语义见 docs/contracts/users.md「账号状态语义」）
+    # 账号状态拦截（frozen / banned / deleted 语义见 docs/contracts.md §4.3）
     # frozen 为短时封禁：frozen_until 已到期视为恢复 active（只读判定不回写，状态在下次登录时治愈）
     if user.status == UserStatus.FROZEN:
         frozen_active = user.frozen_until is None or user.frozen_until > _utcnow()
@@ -162,7 +162,7 @@ async def get_current_admin(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """管理员依赖：非 admin 访问管理端点抛 2003（docs/contracts/admin.md）。"""
+    """管理员依赖：非 admin 访问管理端点抛 2003（docs/contracts.md §12）。"""
     roles = await RoleRepository(db).get_global_role_codes(current_user.id)
     if RoleCode.ADMIN not in roles:
         raise APIError(AUTH_FORBIDDEN, "无权限：需要管理员角色", 403)
@@ -179,7 +179,7 @@ async def is_manager(db: AsyncSession, user: User) -> bool:
 
     全局角色（admin / team_creator）之外，团队角色（team_creator / team_admin，
     scope='team'）同样可出题——团队空间「出团队题目」由引用动作承载
-    （docs/contracts/problems.md 端点表；管理范围仍按单一所有权限制为本人资源）。
+    （docs/contracts.md §7.7；管理范围仍按单一所有权限制为本人资源）。
     """
     codes = await get_user_role_codes(db, user.id)
     if MANAGER_ROLE_CODES.intersection(codes):

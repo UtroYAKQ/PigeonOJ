@@ -2,7 +2,7 @@
 /**
  * 管理视角 · 提交评测详情（复用组件，两个上下文路由）：
  * 题目管理 /admin/problems/:id/submissions/:sid、提交查看 /admin/submissions/problems/:problemId/submissions/:sid。
- * 经题目上下文统一入口读取（管理权限 + 归属校验，docs/contracts/judge.md）；
+ * 经题目上下文统一入口读取（管理权限 + 归属校验，docs/contracts.md §10）；
  * 返回与面包屑按上下文挂回（提交查看上下文经 meta.backFallback 声明，不入题目管理动线）。
  * 轮询与渲染经 useSubmissionDetail + SubmissionResultView 复用（H4 收敛）。
  */

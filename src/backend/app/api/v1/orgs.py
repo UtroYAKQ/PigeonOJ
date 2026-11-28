@@ -1,4 +1,4 @@
-"""组织路由（docs/contracts/orgs.md /orgs* 端点，统一前缀 /api/v1）。
+"""组织路由（docs/contracts.md §5 /orgs* 端点，统一前缀 /api/v1）。
 
 组织角色经 user_roles（scope='org'）应用层判定；路由仅做 HTTP 装配，
 权限 / 状态校验收敛在 OrgService。组织管理端点在 /admin 前缀（admin.py），
@@ -12,12 +12,9 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import (
     OrgServiceDep,
-    ProblemServiceDep,
-    SessionDep,
     get_current_admin,
     get_current_user,
 )
-from app.enums import RoleLevel
 from app.models.user import User
 from app.schemas.org import (
     OrgAdminFlag,
@@ -42,12 +39,10 @@ router = APIRouter(prefix="/orgs", tags=["orgs"])
 async def create_org(
     body: OrgCreate,
     service: OrgServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_admin),
 ) -> ApiResponse[OrgDetail]:
     """创建组织（站点 admin）：可同时任命初始组织管理员。"""
     detail = await service.create(user, body)
-    await db.commit()
     return ok(detail)
 
 
@@ -79,12 +74,10 @@ async def update_org(
     org_id: uuid.UUID,
     body: OrgUpdate,
     service: OrgServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[OrgDetail]:
     """编辑组织信息（org_admin；缺省不动）。"""
     detail = await service.update(user, org_id, body)
-    await db.commit()
     return ok(detail)
 
 
@@ -92,12 +85,10 @@ async def update_org(
 async def disband_org(
     org_id: uuid.UUID,
     service: OrgServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_admin),
 ) -> ApiResponse[None]:
     """解散组织（软解散，仅站点 admin）：清理 org 授权与成员状态，题库题目归档。"""
     await service.disband(user, org_id)
-    await db.commit()
     return ok(None)
 
 
@@ -135,12 +126,10 @@ async def add_members(
     org_id: uuid.UUID,
     body: OrgMemberAdd,
     service: OrgServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """直接添加成员（org_admin 拉人，可批量；已在册跳过）。"""
     await service.add_members(user, org_id, body)
-    await db.commit()
     return ok(None)
 
 
@@ -149,12 +138,10 @@ async def remove_member(
     org_id: uuid.UUID,
     user_id: uuid.UUID,
     service: OrgServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """移出成员（org_admin；最后一名 org_admin 3004）。"""
     await service.remove_member(user, org_id, user_id)
-    await db.commit()
     return ok(None)
 
 
@@ -164,12 +151,10 @@ async def set_admin(
     user_id: uuid.UUID,
     body: OrgAdminFlag,
     service: OrgServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """授予 / 撤销组织管理员（org_admin 或站点 admin；最后一名 3004）。"""
     await service.set_admin(user, org_id, user_id, body)
-    await db.commit()
     return ok(None)
 
 
@@ -179,12 +164,10 @@ async def set_member_note(
     user_id: uuid.UUID,
     body: OrgMemberNote,
     service: OrgServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[None]:
     """设置成员备注（本人可备注自己；org_admin 可备注任意成员；空串 = 清除）。"""
     await service.set_member_note(user, org_id, user_id, body)
-    await db.commit()
     return ok(None)
 
 
@@ -193,12 +176,10 @@ async def create_team(
     org_id: uuid.UUID,
     body: TeamCreate,
     service: OrgServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[TeamSummary]:
     """在组织内创建团队（org_admin）：团队 org_id 落本组织，创建者自动 team_creator。"""
     summary = await service.create_team(user, org_id, body)
-    await db.commit()
     return ok(summary)
 
 
@@ -217,7 +198,7 @@ async def list_teams(
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
 
 
-# ---- 组织题库（docs/contracts/orgs.md；管理动作复用 /problems/{id}/... 统一端点） ----
+# ---- 组织题库（docs/contracts.md §5；管理动作复用 /problems/{id}/... 统一端点） ----
 
 
 @router.get(
@@ -226,7 +207,6 @@ async def list_teams(
 async def list_org_problems(
     org_id: uuid.UUID,
     service: OrgServiceDep,
-    problems: ProblemServiceDep,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     keyword: str | None = Query(default=None, max_length=128),
@@ -235,17 +215,9 @@ async def list_org_problems(
 ) -> ApiResponse[PaginatedResponse[TeamProblemSummary]]:
     """组织题库列表：缺省仅 published；status='draft' 草稿视图（全组织草稿均可见，
     无个人私稿）；归档任何视图不返回；管理视图回填 needs_reverification。"""
-    await service.require_roles(user, org_id, level=RoleLevel.MEMBER)
-    rows, total = await problems.list_org_problems(
-        org_id, keyword=keyword, status=status, page=page, page_size=page_size
+    items, total = await service.list_problems(
+        user, org_id, keyword=keyword, status=status, page=page, page_size=page_size
     )
-    items = [TeamProblemSummary.model_validate(row) for row in rows]
-    flags = await problems.verification_flags([row.id for row in rows])
-    for item in items:
-        item.needs_reverification = flags.get(item.id, False)
-    await problems.attach_counters(items)
-    await problems.attach_tags(items)
-    await problems.attach_solve_status(items, user)
     return ok(PaginatedResponse(items=items, total=total, page=page, page_size=page_size))
 
 
@@ -254,18 +226,10 @@ async def create_org_problem(
     org_id: uuid.UUID,
     body: ProblemCreate,
     service: OrgServiceDep,
-    problems: ProblemServiceDep,
-    db: SessionDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[TeamProblemSummary]:
     """组织题库直建题目（org_member）：visibility 恒 org_visible，owner_id 为创建人署名。"""
-    await service.require_roles(user, org_id, level=RoleLevel.MEMBER)
-    problem = await problems.create(user, body, org_id=org_id)
-    await db.commit()
-    item = TeamProblemSummary.model_validate(problem)
-    await problems.attach_counters([item])
-    await problems.attach_tags([item])
-    return ok(item)
+    return ok(await service.create_problem(user, org_id, body))
 
 
 @router.get("/{org_id}/problems/{problem_id}", response_model=ApiResponse[TeamProblemSummary])
@@ -273,10 +237,7 @@ async def get_org_problem(
     org_id: uuid.UUID,
     problem_id: uuid.UUID,
     service: OrgServiceDep,
-    problems: ProblemServiceDep,
     user: User = Depends(get_current_user),
 ) -> ApiResponse[TeamProblemSummary]:
     """组织题目详情（组织上下文统一入口）：归属校验后复用题库详情装配。"""
-    await service.require_roles(user, org_id, level=RoleLevel.MEMBER)
-    detail = await problems.get_org_problem_detail(org_id, problem_id, user)
-    return ok(TeamProblemSummary.model_validate(detail))
+    return ok(await service.get_problem(user, org_id, problem_id))

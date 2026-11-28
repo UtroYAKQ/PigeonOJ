@@ -1,5 +1,5 @@
 // 统一请求封装（axios）：请求拦截器自动携带会话 Token，
-// 响应拦截器处理后端 {code, message, data} 信封（见 docs/contracts/common.md）。
+// 响应拦截器处理后端 {code, message, data} 信封（见 docs/contracts.md §1）。
 // code = 0 表示成功；非 0 抛 ApiError 并携带错误码 / 消息。
 
 import axios, { AxiosError, type AxiosInstance } from 'axios'
@@ -45,7 +45,7 @@ function readToken(): string | null {
   }
 }
 
-/** 信封体形状：code 必须为数值（docs/contracts/common.md） */
+/** 信封体形状：code 必须为数值（docs/contracts.md §1） */
 interface EnvelopeBody {
   code: number
   message?: string
@@ -60,7 +60,7 @@ function isEnvelopeBody(value: unknown): value is EnvelopeBody {
 export const httpClient: AxiosInstance = axios.create({ baseURL: BASE_URL })
 
 // 请求拦截器：自动携带 Bearer Token（localStorage 持久化，与 stores/user.ts 共用）；
-// 同时携带 Accept-Language，后端据此返回对应语言的错误 message（docs/contracts/common.md）
+// 同时携带 Accept-Language，后端据此返回对应语言的错误 message（docs/contracts.md §1）
 httpClient.interceptors.request.use((config) => {
   const token = readToken()
   if (token && !config.headers.Authorization) {

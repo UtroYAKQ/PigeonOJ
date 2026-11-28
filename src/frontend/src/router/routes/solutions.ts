@@ -1,7 +1,7 @@
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from 'vue-router'
 
 /**
- * 题解页路由工厂（docs/contracts/community.md「官方题解」/ frontend.md「路由上下文隔离」）。
+ * 题解页路由工厂（docs/contracts.md §11.2/ frontend.md「路由上下文隔离」）。
  *
  * 同一题解页面被多个业务上下文复用（题库 / 题单 / 比赛 / 组织）时，每个上下文在
  * 自己的 URL 前缀下声明独立路由实例，写题页「题解」按钮只在当前上下文内跳转；

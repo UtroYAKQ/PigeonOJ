@@ -1,4 +1,4 @@
-"""团队模块请求 / 响应模型（docs/contracts/teams.md）。"""
+"""团队模块请求 / 响应模型（docs/contracts.md §6）。"""
 from __future__ import annotations
 
 import uuid
@@ -79,7 +79,7 @@ class TeamDetail(TeamSummary):
 
 
 class TeamAdminSummary(TeamSummary):
-    """团队管理列表项（admin 视图，docs/contracts/teams.md 管理端）：
+    """团队管理列表项（admin 视图，docs/contracts.md §6.5）：
     带团队状态与创建人昵称；my_role 恒为 None（管理视图不代表成员身份）。"""
 
     status: TeamStatus
@@ -168,7 +168,7 @@ class TeamAdminFlag(BaseModel):
     is_admin: bool
 
 
-# ==================== 团队空间（题库 / 题单 / 比赛，docs/contracts/teams.md 团队空间节） ====================
+# ==================== 团队空间（题库 / 题单 / 比赛，docs/contracts.md §6.4） ====================
 
 
 class TeamProblemReferenceCreate(BaseModel):

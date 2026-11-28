@@ -596,7 +596,7 @@ async def dispatch_submission(submission_id: uuid.UUID) -> str | None:
     """负载均衡派发：任务数（判题 + 自测）最少者优先。无在线节点返回 None（留待巡检）。
 
     SPJ 题只派给 supports_spj 节点（旧节点会忽略 spj 标记、退化为默认比对静默误判）；
-    无支持节点时落 system_error（docs/contracts/judge.md「SPJ 特判」）。
+    无支持节点时落 system_error（docs/contracts.md §10.6）。
     """
     nodes = _available_nodes()
     if not nodes:
@@ -640,7 +640,7 @@ async def dispatch_run_code(
     stdin_data: bytes,
     max_concurrent: int,
 ) -> jobs.RunCodeOutcome:
-    """用户自测派发（docs/contracts/judge.md「用户自测」）：
+    """用户自测派发（docs/contracts.md §10.8）：
 
     - 负载最低节点优先；作业不落库，等待节点沿流回传 RunCodeResult。
     - 无在线节点 / 并发上限已满 → 立即失败；整链路超时兜底 _RUN_TIMEOUT_SECONDS。

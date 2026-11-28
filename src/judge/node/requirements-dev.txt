@@ -1,0 +1,4 @@
+# 判题节点测试依赖（不进生产镜像；容器内跑集成测试时安装）
+-r requirements.txt
+pytest==8.4.1
+pytest-asyncio==1.4.0

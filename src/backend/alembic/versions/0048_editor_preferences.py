@@ -1,4 +1,4 @@
-"""用户偏好：编辑器字号与字体（docs/contracts/users.md；前端 Monaco 消费）。
+"""用户偏好：编辑器字号与字体（docs/contracts.md §4；前端 Monaco 消费）。
 
 Revision ID: 0048
 Revises: 0047

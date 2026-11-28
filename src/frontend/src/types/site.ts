@@ -1,6 +1,6 @@
 /**
  * 公开站点配置（GET /site-config，未登录可读）。
- * 来源 system_configs 的 site 域白名单字段，见 docs/contracts/admin.md。
+ * 来源 system_configs 的 site 域白名单字段，见 docs/contracts.md §12。
  */
 
 /** 首页轮播海报项（site.banners 配置元素；image 必填，title / link 可选） */

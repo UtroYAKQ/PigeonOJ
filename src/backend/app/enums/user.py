@@ -17,7 +17,7 @@ class Theme(StrEnum):
 
 
 class EditorFontFamily(StrEnum):
-    """代码编辑器字体白名单（前端 @fontsource 打包或系统等宽栈，docs/contracts/users.md）。"""
+    """代码编辑器字体白名单（前端 @fontsource 打包或系统等宽栈，docs/contracts.md §4）。"""
 
     JETBRAINS_MONO = "jetbrains-mono"
     FIRA_CODE = "fira-code"
@@ -34,7 +34,7 @@ class UserRoleScope(StrEnum):
 
 
 class RoleCode(StrEnum):
-    """roles.code 种子值（docs/contracts/users.md；tutor 已随组织化改造下线）。"""
+    """roles.code 种子值（docs/contracts.md §4；tutor 已随组织化改造下线）。"""
 
     ADMIN = "admin"
     USER = "user"
@@ -46,7 +46,7 @@ class RoleCode(StrEnum):
 
 
 class RoleLevel(StrEnum):
-    """角色检查层级 / my_role 输出词汇（creator ⊇ admin ⊇ member，docs/contracts/teams.md）。"""
+    """角色检查层级 / my_role 输出词汇（creator ⊇ admin ⊇ member，docs/contracts.md §6）。"""
 
     CREATOR = "creator"
     ADMIN = "admin"
