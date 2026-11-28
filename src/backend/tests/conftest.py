@@ -173,6 +173,14 @@ class FakeStorage:
             raise OSError("missing object")
         return self.store[key]
 
+    async def iter_object(self, key, chunk_size=1024 * 1024):
+        # 直接读内存字典：流式链路不应调用 get_bytes（测试会用 monkeypatch 禁止整对象读取）
+        if key not in self.store:
+            raise OSError("missing object")
+        content, _ = self.store[key]
+        for offset in range(0, len(content), chunk_size):
+            yield content[offset:offset + chunk_size]
+
     async def delete(self, key):
         self.store.pop(key, None)
 
@@ -190,7 +198,9 @@ def fake_storage(monkeypatch) -> FakeStorage:
         "app.rpc.judge_jobs.get_storage",
         "app.rpc.judge_gateway.get_storage",
     ):
-        monkeypatch.setattr(target, lambda: storage)
+        # 服务移除 storage 依赖后对应符号可能已不存在（如 judge 详情不再读输出），
+        # 仅替换仍持有该符号的模块，避免夹具因历史 patch 列表整体失败。
+        monkeypatch.setattr(target, lambda: storage, raising=False)
     return storage
 
 

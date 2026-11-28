@@ -3,7 +3,7 @@
 - build_job_bundle：读取提交/题目/测试点（仅元数据），换算有效限制，
   原子认领（pending→judging），产出 JobBundle 作业描述（含 data_version 指纹）；
   测试点数据本体由节点经 FetchProblemData 拉取（stream_problem_data）。
-- apply_job_result：把节点回传的判题结果写回 DB 与 MinIO（幂等，可重复应用）。
+- apply_job_result：把节点回传的判题结果写回 DB（幂等，可重复应用；运行输出不落库）。
 
 data_version 指纹 = sha256(测试点数量 | 最大 updated_at | 特判程序对象 key)，按**判定集**计算：
 练习/比赛=生效集（active_case_ids + spj_oss_id），验题=暂存集（pending_case_ids / pending_spj_oss_id，
@@ -13,7 +13,6 @@ data_version 指纹 = sha256(测试点数量 | 最大 updated_at | 特判程序�
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import uuid
@@ -21,11 +20,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import select, update
+from sqlalchemy.orm import defer
 
 from app.core.database import SessionLocal
 from app.enums import RuleType, SubmissionStatus, SubmitType
 from app.models.judge import SandboxConfig, Submission
-from app.models.problem import TestCase
+from app.models.problem import Problem, TestCase
 from app.repositories.judge import JudgeRepository
 from app.schemas.judge import CaseResultRow
 from app.services import problem as problems
@@ -42,8 +42,6 @@ _FULL_SCORE = 100
 _MANIFEST_OBJECT_NAME = "manifest.json"
 # 数据包内特判程序源码文件名（题目配置了 SPJ 时随流下发，节点编译后逐测试点运行）
 SPJ_DATA_NAME = "spj.cpp"
-# 测试点对象存储读写的限并发（结果回传上传 / 数据包下发共用，参照 services/judge 同名常量）
-_CASE_IO_CONCURRENCY = 8
 
 
 def case_data_name(test_case_id: str, kind: str) -> str:
@@ -121,6 +119,56 @@ class JudgeOutcome:
 
 
 @dataclass(frozen=True)
+class DispatchProblem:
+    """派发所需题面字段（不含 description / solution / samples 等大字段）。"""
+
+    id: uuid.UUID
+    time_limit_ms: int
+    memory_limit_mb: int
+    active_case_ids: list
+    pending_case_ids: list | None
+    spj_oss_id: str | None
+    pending_spj_oss_id: str | None
+
+
+@dataclass(frozen=True)
+class DispatchCase:
+    """判定集测试点元数据（数据本体由节点按 data_version 自行拉取）。"""
+
+    id: uuid.UUID
+    name: str | None
+    sort_order: int
+    input_oss_id: str | None
+    expected_output_oss_id: str | None
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class DispatchContext:
+    """一次会话内装配的派发快照，供 SPJ 节点选择与 build_job_bundle 复用。
+
+    Submission 仅延迟 error_message（终态错误由 UPDATE 写入）；题面大字段不读取。
+    """
+
+    submission: Submission
+    problem: DispatchProblem
+    config: SandboxConfig | None
+    cases: tuple[DispatchCase, ...]
+    spj_key: str | None
+    data_version: str
+    limits: ResourceLimits
+    compile_limits: ResourceLimits
+
+    @property
+    def is_verify(self) -> bool:
+        return self.submission.submit_type == SubmitType.VERIFY
+
+    @property
+    def spj(self) -> bool:
+        return self.spj_key is not None
+
+
+@dataclass(frozen=True)
 class RunCodeOutcome:
     """节点回传的用户自测结果：dispatch_run_code 的返回值（不落库）。"""
     request_id: str
@@ -169,40 +217,118 @@ async def compute_data_version(db, problem, *, verify: bool = False) -> tuple[st
     return data_fingerprint(rows, spj_key=spj_key), rows
 
 
-async def build_job_bundle(db, submission_id: uuid.UUID) -> JobBundle | None:
+async def _load_dispatch_cases(
+    db, problem_id: uuid.UUID, case_ids: list[uuid.UUID]
+) -> tuple[DispatchCase, ...]:
+    """判定集测试点元数据（显式投影 + 保持集合顺序）。"""
+    if not case_ids:
+        return ()
+    rows = {
+        row.id: DispatchCase(
+            id=row.id,
+            name=row.name,
+            sort_order=row.sort_order,
+            input_oss_id=row.input_oss_id,
+            expected_output_oss_id=row.expected_output_oss_id,
+            updated_at=row.updated_at,
+        )
+        for row in (
+            await db.execute(
+                select(
+                    TestCase.id,
+                    TestCase.name,
+                    TestCase.sort_order,
+                    TestCase.input_oss_id,
+                    TestCase.expected_output_oss_id,
+                    TestCase.updated_at,
+                ).where(TestCase.problem_id == problem_id, TestCase.id.in_(case_ids))
+            )
+        ).all()
+    }
+    return tuple(rows[cid] for cid in case_ids if cid in rows)
+
+
+async def load_dispatch_context(db, submission_id: uuid.UUID) -> DispatchContext | None:
+    """单次会话装配派发快照：提交（含 code）/ 题目派发列 / 沙箱配置 / 判定集元数据。
+
+    题目只取派发列，绝不读取 description / solution / samples；返回 None 表示
+    提交或题目不存在。后续 SPJ 节点筛选与 build_job_bundle 均复用本快照。
+    """
+    submission = (
+        await db.execute(
+            select(Submission)
+            .options(defer(Submission.error_message))
+            .where(Submission.id == submission_id)
+        )
+    ).scalar_one_or_none()
+    if submission is None:
+        return None
+    row = (
+        await db.execute(
+            select(
+                Problem.id,
+                Problem.time_limit_ms,
+                Problem.memory_limit_mb,
+                Problem.active_case_ids,
+                Problem.pending_case_ids,
+                Problem.spj_oss_id,
+                Problem.pending_spj_oss_id,
+            ).where(Problem.id == submission.problem_id)
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    problem = DispatchProblem(*row)
+    config = await db.scalar(
+        select(SandboxConfig).where(SandboxConfig.language == submission.language)
+    )
+    is_verify = submission.submit_type == SubmitType.VERIFY
+    cases = await _load_dispatch_cases(
+        db, problem.id, problems.judged_case_ids(problem, verify=is_verify)
+    )
+    spj_key = problems.judged_spj_key(problem, verify=is_verify)
+    limits, compile_limits = resolve_limits(problem, config)
+    return DispatchContext(
+        submission=submission,
+        problem=problem,
+        config=config,
+        cases=cases,
+        spj_key=spj_key,
+        data_version=data_fingerprint(cases, spj_key=spj_key),
+        limits=limits,
+        compile_limits=compile_limits,
+    )
+
+
+async def build_job_bundle(
+    db, submission_id: uuid.UUID, *, context: DispatchContext | None = None
+) -> JobBundle | None:
     """构建作业描述（测试点仅元数据）并原子认领（pending→judging）。
 
+    context 由派发入口一次会话预加载；缺省时自行加载，保持旧调用方 / 测试兼容。
     返回 None 表示提交不存在 / 已被其他执行方认领 / 前置校验失败（校验失败会直接落 system_error）。
     """
     repository = JudgeRepository()
-    submission = await db.get(Submission, submission_id)
-    if submission is None:
+    if context is None:
+        context = await load_dispatch_context(db, submission_id)
+    if context is None:
         return None
+    submission = context.submission
     # 原子认领：仅当仍为 pending 时置 judging，杜绝双执行方并发判同一题；
     # 认领失败说明已被其他执行方处理，静默放弃
     if not await _claim_submission(db, submission_id, [SubmissionStatus.PENDING], clear_error=True):
         return None
-    problem = await problems.get_problem(db, submission.problem_id)
-    if problem is None:
-        await db.rollback()
-        return None
-    config = await db.scalar(select(SandboxConfig).where(SandboxConfig.language == submission.language))
-    if config is not None and not config.is_enabled:
+    if context.config is not None and not context.config.is_enabled:
         await _finish_with_error(db, repository, submission, "language is disabled")
         return None
-
-    # 判定集：验题提交判暂存集（先试新点），练习 / 比赛恒用生效集
-    is_verify = submission.submit_type == SubmitType.VERIFY
-    data_version, cases = await compute_data_version(db, problem, verify=is_verify)
-    if not cases:
+    if not context.cases:
         await _finish_with_error(db, repository, submission, "no test cases")
         return None
-    missing = [c for c in cases if not c.input_oss_id or not c.expected_output_oss_id]
+    missing = [c for c in context.cases if not c.input_oss_id or not c.expected_output_oss_id]
     if missing:
         await _finish_with_error(db, repository, submission, "test case storage reference is missing")
         return None
 
-    limits, compile_limits = resolve_limits(problem, config)
     code = submission.code.encode("utf-8")
     # ACM 赛制短路标记：首个非 accepted 测试点后节点停止执行后续测试点
     stop_on_failure = (
@@ -213,23 +339,21 @@ async def build_job_bundle(db, submission_id: uuid.UUID) -> JobBundle | None:
     # 仅携带元数据；测试点数据本体由节点经 FetchProblemData 拉取（本地缓存按 data_version）
     case_files = tuple(
         TestCaseFile(test_case_id=str(case.id), name=case.name or str(case.sort_order))
-        for case in cases
+        for case in context.cases
     )
-    # SPJ 特判：判定集特判程序非空时置标记，数据包内含 spj.cpp（节点编译后逐点运行）
-    spj_key = problems.judged_spj_key(problem, verify=is_verify)
 
     await db.commit()
     return JobBundle(
         submission_id=str(submission_id),
         language=submission.language,
         code=code,
-        limits=limits,
-        compile_limits=compile_limits,
+        limits=context.limits,
+        compile_limits=context.compile_limits,
         problem_id=str(submission.problem_id),
-        data_version=data_version,
+        data_version=context.data_version,
         cases=case_files,
         stop_on_failure=stop_on_failure,
-        spj=spj_key is not None,
+        spj=context.spj,
     )
 
 
@@ -328,10 +452,9 @@ async def _persist_result(
     contest_service = ContestService(db)
     problem_service = ProblemService(db)
     result_rows: list[CaseResultRow] = []
-    pending_uploads: list[tuple[str, bytes]] = []
     for case, test_case, score in scored:
-        output_key = f"submissions/{submission.id}/cases/{test_case.id}/output"
-        pending_uploads.append((output_key, case.output or b""))
+        # 运行输出不落 MinIO、不在详情回传（详见 docs/contracts.md §10.2）：
+        # 生产单点上限 5MB，20 点即 100MB，上传/读取都是纯内存放大；保留列兼容历史数据。
         # SPJ 判定信息（特判程序 stdout ≤2KB；非 SPJ 提交为空）
         message = (case.message or b"").decode("utf-8", errors="replace")[:2000].strip() or None
         result_rows.append(CaseResultRow(
@@ -341,18 +464,9 @@ async def _persist_result(
             time_used_ms=case.time_used_ms,
             memory_used_kb=case.memory_used_kb,
             score=score,
-            output=output_key,
+            output="",
             message=message,
         ))
-    # 测试点运行输出并行上传 MinIO（限并发，避免逐点串行往返）
-    if pending_uploads:
-        semaphore = asyncio.Semaphore(_CASE_IO_CONCURRENCY)
-
-        async def _put(key: str, data: bytes) -> None:
-            async with semaphore:
-                await storage.put_bytes(key, data, "text/plain")
-
-        await asyncio.gather(*(_put(key, data) for key, data in pending_uploads))
     # 结果行单次批量 upsert（替代逐点 SELECT + INSERT/UPDATE + flush）
     await repository.write_case_results(db, result_rows)
     await repository.finish_submission(
@@ -474,52 +588,57 @@ async def build_problem_data_plan(
     )
 
 
-async def stream_plan_files(plan: ProblemDataPlan):
-    """按 plan 从 MinIO 拉文件；与 DB 会话无关。"""
+async def stream_plan_files(plan: ProblemDataPlan, *, chunk_size: int = 1024 * 1024):
+    """按 case 顺序逐块下发文件；任一时点仅持有一个 chunk，不与 DB 会话耦合。
+
+    同一 path 连续多块由节点按序追加（契约 §10.10）；空对象发一个空块，保持
+    旧实现「每文件至少一个 FileChunk」的语义。
+    """
     storage = get_storage()
     yield _MANIFEST_OBJECT_NAME, plan.manifest
-    semaphore = asyncio.Semaphore(_CASE_IO_CONCURRENCY)
 
-    async def _fetch(key: str) -> bytes:
-        async with semaphore:
-            data, _ = await storage.get_bytes(key)
-            return data
+    async def _yield_file(path: str, key: str):
+        sent = False
+        async for chunk in storage.iter_object(key, chunk_size):
+            sent = True
+            yield path, chunk
+        if not sent:
+            yield path, b""
 
-    input_keys = [key for _, key in plan.inputs]
-    expected_keys = [key for _, key in plan.expected]
-    inputs = await asyncio.gather(*(_fetch(key) for key in input_keys)) if input_keys else []
-    expected = await asyncio.gather(*(_fetch(key) for key in expected_keys)) if expected_keys else []
-    for (in_path, _), in_bytes, (out_path, _), out_bytes in zip(
-        plan.inputs, inputs, plan.expected, expected
-    ):
-        yield in_path, in_bytes
-        yield out_path, out_bytes
+    for path, key in plan.inputs:
+        async for item in _yield_file(path, key):
+            yield item
+    for path, key in plan.expected:
+        async for item in _yield_file(path, key):
+            yield item
     if plan.spj_key:
-        spj_bytes, _ = await storage.get_bytes(plan.spj_key)
-        yield SPJ_DATA_NAME, spj_bytes
+        async for item in _yield_file(SPJ_DATA_NAME, plan.spj_key):
+            yield item
 
 
-async def stream_problem_data(db, problem_id: uuid.UUID, requested_version: str | None = None):
-    """兼容测试：组 plan 后立刻拉全量文件（网关走 build + stream_plan_files + 分片）。"""
+async def stream_problem_data(
+    db, problem_id: uuid.UUID, requested_version: str | None = None, *, chunk_size: int = 1024 * 1024
+):
+    """兼容测试：组 plan 后逐块拉文件（网关走 build + stream_plan_files）。"""
     plan = await build_problem_data_plan(db, problem_id, requested_version=requested_version)
     if plan is None:
         return
-    async for item in stream_plan_files(plan):
+    async for item in stream_plan_files(plan, chunk_size=chunk_size):
         yield item
 
 
-async def submission_needs_spj(submission_id: uuid.UUID) -> bool:
-    """提交是否需要 SPJ 特判（派发前节点能力过滤依据；提交 / 题目缺失按 False）。"""
+async def submission_needs_spj(
+    submission_id: uuid.UUID, *, context: DispatchContext | None = None
+) -> bool:
+    """提交是否需要 SPJ 特判（派发前节点能力过滤依据；提交 / 题目缺失按 False）。
+
+    dispatch_submission 传入已加载的 context 时不额外查库；独立调用保留薄包装语义。
+    """
+    if context is not None:
+        return context.spj
     async with SessionLocal() as db:
-        submission = await db.get(Submission, submission_id)
-        if submission is None:
-            return False
-        problem = await problems.get_problem(db, submission.problem_id)
-        if problem is None:
-            return False
-        return problems.judged_spj_key(
-            problem, verify=submission.submit_type == SubmitType.VERIFY
-        ) is not None
+        loaded = await load_dispatch_context(db, submission_id)
+        return loaded.spj if loaded is not None else False
 
 
 async def fail_no_spj_node(submission_id: uuid.UUID) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import threading
 import uuid
 from io import BytesIO
 from typing import TypeVar
@@ -10,9 +11,10 @@ from typing import TypeVar
 from fastapi import UploadFile
 from PIL import Image
 
-# 上传侧像素上限：5MB 扁平 PNG 可伪造数亿像素（解码即数百 MB~GB 内存），
-# 放宽默认炸弹阈值到 1.2 亿像素（用户当前 9500 万像素横幅可通过），超过直接拒绝
-Image.MAX_IMAGE_PIXELS = 120_000_000
+# 上传侧像素上限：5MB 扁平 PNG 可伪造数亿像素（解码即数百 MB~GB 内存）。
+# 40MP RGBA 解码约 160MB，叠加 resize/convert 副本仍在 512MB 预算内；超限直接拒绝
+_MAX_IMAGE_PIXELS = 40_000_000
+Image.MAX_IMAGE_PIXELS = _MAX_IMAGE_PIXELS
 
 from app.core.exceptions import APIError, PARAM_FORMAT_INVALID, RATE_LIMITED, SYSTEM_UPSTREAM_FAILURE
 from app.core.redis import UPLOAD_RATE_KEY_PREFIX, redis_incr
@@ -36,6 +38,8 @@ _WEBP_TYPE = "image/webp"
 _WEBP_QUALITY = 82
 # 缩略图只接受固定宽度档位：前端按展示尺寸就近取档，任意 w 会生成无限派生对象
 THUMB_WIDTHS = (96, 192, 384, 640, 960, 1280)
+# 解码在 to_thread 中进行，用线程信号量限制同时驻留的大位图数量（上传 + 按需缩略图共用）
+_IMAGE_ENCODE_SEMAPHORE = threading.Semaphore(2)
 
 
 def thumb_object_key(object_key: str, width: int) -> str:
@@ -133,43 +137,66 @@ async def _validate_image(
         raise APIError(PARAM_FORMAT_INVALID, size_error, 400)
     if not content:
         raise APIError(PARAM_FORMAT_INVALID, empty_error, 400)
-    if content_type == _GIF_TYPE or max_width <= 0:
-        return content_type, content
     try:
+        if content_type == _GIF_TYPE or max_width <= 0:
+            # GIF 不重编码，但仍按头部尺寸拒绝像素炸弹（避免前端解码巨型位图）
+            await asyncio.to_thread(_check_image_pixels, content)
+            return content_type, content
         encoded, converted = await asyncio.to_thread(_encode_webp, content, max_width)
     except Exception as exc:
-        # 像素炸弹（Image.MAX_IMAGE_PIXELS）/ 解码失败 / 格式伪装
+        # 像素预算超限 / 解码失败 / 格式伪装
         raise APIError(PARAM_FORMAT_INVALID, "图片尺寸或内容无效", 400) from exc
     return (_WEBP_TYPE if converted else content_type), encoded
+
+
+def _check_image_pixels(content: bytes) -> None:
+    """在 img.load() 前用头部尺寸拦截像素炸弹；不解码整图。"""
+    with Image.open(BytesIO(content)) as img:
+        if img.width * img.height > _MAX_IMAGE_PIXELS:
+            raise ValueError(f"image pixel budget exceeded: {img.width}x{img.height}")
 
 
 def _encode_webp(content: bytes, max_width: int) -> tuple[bytes, bool]:
     """PNG/JPEG/WEBP 重编码为 WebP，返回 (内容, 是否已转码)。
 
     动图（多帧）保留原格式；编码失败或转码后体积不降时回退原图。
+    解码/缩放/转换/编码全程在线程信号量内，峰值位图数受控，中间图及时 close。
     """
-    with Image.open(BytesIO(content)) as img:
-        img.load()
-        if getattr(img, "is_animated", False):
-            return content, False
-        resized = False
-        if max_width > 0 and img.width > max_width:
-            height = max(1, round(img.height * max_width / img.width))
-            img = img.resize((max_width, height), Image.LANCZOS)
-            resized = True
-        has_alpha = img.mode in ("RGBA", "LA") or (
-            img.mode == "P" and "transparency" in img.info
-        )
-        target = img.convert("RGBA" if has_alpha else "RGB")
-    try:
-        buf = BytesIO()
-        target.save(buf, format="WEBP", quality=_WEBP_QUALITY, method=4)
-    except Exception:
-        return content, False
-    encoded = buf.getvalue()
+    with _IMAGE_ENCODE_SEMAPHORE:
+        with Image.open(BytesIO(content)) as img:
+            _check_image_pixels(content)
+            if getattr(img, "is_animated", False):
+                return content, False
+            img.load()
+            resized_img = None
+            target = None
+            try:
+                working = img
+                resized = False
+                if max_width > 0 and img.width > max_width:
+                    height = max(1, round(img.height * max_width / img.width))
+                    resized_img = img.resize((max_width, height), Image.LANCZOS)
+                    working = resized_img
+                    resized = True
+                has_alpha = working.mode in ("RGBA", "LA") or (
+                    working.mode == "P" and "transparency" in working.info
+                )
+                target = working.convert("RGBA" if has_alpha else "RGB")
+                buf = BytesIO()
+                try:
+                    target.save(buf, format="WEBP", quality=_WEBP_QUALITY, method=4)
+                except Exception:
+                    return content, False
+                encoded = buf.getvalue()
+            finally:
+                if target is not None:
+                    target.close()
+                if resized_img is not None:
+                    resized_img.close()
     if not resized and len(encoded) >= len(content):
         return content, False
     return encoded, True
+
 
 
 async def _read_public_file(object_key: str, width: int | None) -> tuple[bytes, str, str]:

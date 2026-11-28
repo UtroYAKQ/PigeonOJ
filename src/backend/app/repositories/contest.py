@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import delete, func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.enums import (
     ContestStatus,
@@ -25,6 +27,18 @@ from app.models.contest import Contest, ContestProblem, ContestRanking, ContestR
 from app.models.judge import Submission
 from app.models.problem import Problem
 from app.models.user import User
+
+
+@dataclass(frozen=True)
+class ContestSubmissionRow:
+    """榜单聚合所需的最小提交投影（避免把 code 等大字段载入内存）。"""
+
+    id: uuid.UUID
+    user_id: uuid.UUID
+    problem_id: uuid.UUID
+    status: str
+    score: int
+    created_at: datetime
 
 
 class ContestRepository:
@@ -55,6 +69,8 @@ class ContestRepository:
             (
                 await self.db.execute(
                     select(Contest)
+                    # 摘要不需要公告正文（潜在大字段），但保留 description 供 ContestSummary
+                    .options(defer(Contest.announcement))
                     .where(*conditions)
                     .order_by(Contest.start_time.desc())
                     .offset((page - 1) * page_size)
@@ -87,6 +103,7 @@ class ContestRepository:
             (
                 await self.db.execute(
                     select(Contest)
+                    .options(defer(Contest.announcement))
                     .where(*conditions)
                     .order_by(Contest.start_time.desc())
                     .offset((page - 1) * page_size)
@@ -509,21 +526,31 @@ class ContestSubmissionQueryRepository:
 
     async def list_contest_submissions(
         self, contest_id: uuid.UUID
-    ) -> list[Submission]:
-        """比赛内正式提交（不含赛后补题），按提交时间正序。"""
-        return list(
-            (
-                await self.db.execute(
-                    select(Submission)
-                    .where(
-                        Submission.contest_id == contest_id,
-                        Submission.submit_type == SubmitType.CONTEST,
-                        Submission.is_after_contest == False,  # noqa: E712
-                    )
-                    .order_by(Submission.created_at)
+    ) -> list[ContestSubmissionRow]:
+        """比赛内正式提交的最小投影（不含赛后补题），按提交时间正序。
+
+        榜单聚合只用 id/user_id/problem_id/status/score/created_at；不加载 code，
+        避免 1 万提交时 TOAST 大字段占满会话与进程内存。
+        """
+        rows = (
+            await self.db.execute(
+                select(
+                    Submission.id,
+                    Submission.user_id,
+                    Submission.problem_id,
+                    Submission.status,
+                    Submission.score,
+                    Submission.created_at,
                 )
-            ).scalars()
-        )
+                .where(
+                    Submission.contest_id == contest_id,
+                    Submission.submit_type == SubmitType.CONTEST,
+                    Submission.is_after_contest == False,  # noqa: E712
+                )
+                .order_by(Submission.created_at)
+            )
+        ).all()
+        return [ContestSubmissionRow(*row) for row in rows]
 
     async def list_records_with_users(
         self, contest_id: uuid.UUID, *, page: int, page_size: int,
@@ -558,6 +585,7 @@ class ContestSubmissionQueryRepository:
         rows = (
             await self.db.execute(
                 select(Submission, User)
+                .options(defer(Submission.code))
                 .join(User, User.id == Submission.user_id)
                 .where(*conditions)
                 .order_by(Submission.created_at.desc())
@@ -587,6 +615,7 @@ class ContestSubmissionQueryRepository:
             (
                 await self.db.execute(
                     select(Submission)
+                    .options(defer(Submission.code))
                     .where(
                         Submission.contest_id == contest_id,
                         Submission.user_id == user_id,

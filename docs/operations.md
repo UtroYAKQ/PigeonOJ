@@ -102,7 +102,7 @@ docker compose --env-file .env.node --project-directory . -f docker/docker-compo
 - SPJ 二进制缓存：同一 `problem_id + data_version` 的 `spj.cpp` 只编译一次，产物 `spj.bin` 落在题目 `/cache` 目录并随 LRU 回收；`spj.cpp` mtime 更新会自动失效重编
 
 - 并发度与 CPU：`CAPACITY × CASE_PARALLEL` 不应超过容器可用 CPU 核数；超卖会让程序争抢 CPU、推高 wall 时间，可能把 AC 误判为 TLE（启动校验并告警，不阻断）
-- gRPC 收发上限 128MB（网关与节点 channel 对齐）；测试点 ≤8MB、默认输出 5MB×N——默认 4MB 会卡死 Connect / FetchProblemData
+- gRPC 收发上限 128MB（网关与节点 channel 对齐）；测试点 ≤8MB，FetchProblemData 按 1MB 分块、服务端并发 ≤4；JudgeResult 不再携带逐点 stdout（自测 RunCodeResult 除外），避免 5MB×N 逼近上限
 
 ## 4. 后端配置
 
@@ -167,7 +167,8 @@ docker compose --env-file .env.node --project-directory . -f docker/docker-compo
 | 机制 | 说明 |
 | --- | --- |
 | gRPC 网关派发 | 按任务数最少优先选节点（跳过上行消息超时的僵死节点），原子认领后沿双向流推送；无在线节点保持 pending |
-| 网关维护循环 | pending 不设滞留门槛（有空位即派）；节点容量释放 / 注册 / 重连即踢醒巡检，30s 周期兜底；judging 超时（5min）复位重派、断线节点 in-flight 回收 |
+| 网关维护循环 | pending 不设滞留门槛（有空位即派），只取提交 id 并按在线节点空闲容量限制单轮派发；节点容量释放 / 注册 / 重连即踢醒巡检，30s 周期兜底；judging 超时（5min）复位重派、断线节点 in-flight 回收 |
+| 请求日志批量写 | 中间件响应后入有界进程队列，单写协程按 100 条 / 200ms 批量 commit；队列满时丢 GET 日志，写操作 / 异常兜底直写，优雅关闭 drain；IP→地区 LRU 缓存 |
 | 节点心跳桥接 | 上行 Heartbeat → 写 Redis `sandbox:node:<id>`；单条消息处理失败只记日志不终止流 |
 | 节点判活护栏 | 派发与并发统计跳过超过 max(2×心跳间隔, 心跳 TTL) 无上行消息的节点；上行泵退出经 watchdog 触发连接清理 |
 | 比赛状态推进 | `contest_transition`：开赛 / 自动封榜 / 结束重算 |
@@ -179,17 +180,17 @@ docker compose --env-file .env.node --project-directory . -f docker/docker-compo
 | `problems/{problem_id}/cases/{case_id}/input` | 测试点输入 |
 | `problems/{problem_id}/cases/{case_id}/output` | 测试点期望输出 |
 | `problems/{problem_id}/spj/{uuid}/code` | SPJ 特判程序源码 |
-| `submissions/{submission_id}/cases/{case_id}/output` | 提交运行输出 |
+| `submissions/{submission_id}/cases/{case_id}/output` | 历史提交运行输出（兼容保留；新结果不再写入 / 详情不再读取） |
 | `users/{user_id}/avatar` | 用户头像 |
 | `users/{user_id}/avatar/{uuid}@w{width}.webp` | 头像缩略图（首次生成，width ∈ 96/192/384/640/960/1280） |
 | `users/{user_id}/images/{uuid}@w{width}.webp` | 公共图片缩略图（题面插图等） |
 | `site/logo/{uuid}` | 站点 Logo |
 
-上传经 `POST /files/upload` 校验后转存 MinIO，key 由服务端生成。**判题节点不访问 MinIO**：经网关按 `data_version` 流式拉取到本地缓存。测试点不向前端签发预签名 URL。
+上传经 `POST /files/upload` 校验后转存 MinIO，key 由服务端生成（插图解码预算 40MP、2 路并发）。**判题节点不访问 MinIO**：经网关按 `data_version` 流式拉取（1MB 分块、服务端并发 ≤4）到本地缓存；同题同版本并发拉取合并为一次，缓存大小增量维护、LRU 回收不再全树扫描。测试点不向前端签发预签名 URL。
 
 ## 8. 可观测性
 
-- `request_logs`：全量请求（含 `request_id` 追踪）；沙箱执行日志作为子记录归入 `extra`
+- `request_logs`：全量请求（含 `request_id` 追踪），有界队列批量落库（100 条 / 200ms，关闭时 drain）；沙箱执行日志作为子记录归入 `extra`
 - `login_logs`：登录 / 登出 / 注册 / 换绑
 - `exception_logs`：level（`error` / `warning` / `fatal`）+ traceback + request_id
 

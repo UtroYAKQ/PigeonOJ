@@ -6,15 +6,33 @@ import uuid
 from datetime import datetime, timedelta
 
 import httpx
+import pytest
 from sqlalchemy import select
 
 from app.models.user import User, UserSession
 from app.core.database import SessionLocal
+from app.core.dependency import REQUEST_STATE_USER_ID
+from app.core.middlewares import (
+    AuditLogWriter,
+    ExceptionLogRecord,
+    RequestLogRecord,
+    RequestLoggingMiddleware,
+    audit_log_writer,
+    flush_audit_logs,
+)
 from app.models.system_config import SystemConfig
 
 from .conftest import api_login, register_user
 
 PASSWORD = "Pass@123"
+
+
+@pytest.fixture(autouse=True)
+async def _drain_audit_logs():
+    """日志异步入队：每例前后显式 flush，避免跨用例残留与依赖 sleep。"""
+    await flush_audit_logs()
+    yield
+    await flush_audit_logs()
 
 
 async def test_admin_requires_admin_role(client: httpx.AsyncClient, user_headers: dict[str, str]) -> None:
@@ -322,6 +340,7 @@ async def test_admin_logs(client: httpx.AsyncClient, admin_headers: dict[str, st
     # 触发一些请求/登录日志
     await client.get("/api/v1/admin/configs", headers=admin_headers)
     await api_login(client, "user@pigeonoj.dev", "User@123")
+    await flush_audit_logs()
     for log_type in ("request", "login", "exception"):
         resp = await client.get(f"/api/v1/admin/logs/{log_type}", headers=admin_headers)
         assert resp.json()["code"] == 0
@@ -347,6 +366,7 @@ async def test_admin_logs_nickname_filter(
 
     # 管理员（昵称「管理员」）触发认证请求日志 → user_id 落库
     await client.get(f"/api/v1/admin/configs?probe={marker}", headers=admin_headers)
+    await flush_audit_logs()
 
     # 昵称模糊命中：返回行全部带该昵称
     for log_type in ("request", "login"):
@@ -428,6 +448,8 @@ async def test_request_log_records_forwarded_ip_and_request_id(
     assert resp.status_code == 200
     request_id = resp.headers.get("x-request-id")
     assert request_id
+    # 中间件先入队，测试显式等待写协程/drain 后再查库（不依赖 sleep）
+    await flush_audit_logs()
 
     resp = await client.get(
         f"/api/v1/admin/logs/request?keyword={request_id}", headers=admin_headers
@@ -440,6 +462,126 @@ async def test_request_log_records_forwarded_ip_and_request_id(
     # 认证请求的 user_id 落库（中间件经 request.state 读取），nickname 关联显示
     assert row["user_id"] is not None
     assert row["nickname"], "登录请求的日志行应关联出用户昵称"
+
+
+async def test_request_logs_enqueued_then_flushed(
+    client: httpx.AsyncClient,
+) -> None:
+    """中间件响应后只入队，显式 flush 后才落库（测试不靠 sleep）。"""
+    from app.models.audit import RequestLog
+
+    assert audit_log_writer.queued == 0
+    resp = await client.get("/api/v1/site-config")
+    request_id = resp.headers.get("x-request-id")
+    assert request_id
+    assert audit_log_writer.queued > 0, "响应返回时应已完成 enqueue 而非直写提交"
+
+    await flush_audit_logs()
+    assert audit_log_writer.queued == 0
+    async with SessionLocal() as db:
+        row = (
+            await db.execute(select(RequestLog).where(RequestLog.request_id == request_id))
+        ).scalar_one()
+    assert row.method == "GET" and row.path == "/api/v1/site-config"
+    assert row.status_code == 200 and row.duration_ms is not None
+    assert row.extra and "device" in row.extra
+
+
+async def test_queue_full_drops_get_but_keeps_write_and_exception(
+    client: httpx.AsyncClient,
+) -> None:
+    """队列满：GET 可丢；非 GET 与异常日志兜底直写，不丢。"""
+    from app.models.audit import ExceptionLog, RequestLog
+
+    marker = uuid.uuid4().hex[:10]
+    async with SessionLocal() as db:
+        user = (await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))).scalar_one()
+
+    writer = AuditLogWriter(maxsize=1)
+    # 先用一条记录占满队列，后续 GET 才落入「队列满可丢弃」分支
+    await writer.enqueue(
+        RequestLogRecord(
+            request_id=f"filler-{marker}", method="POST", path=f"/filler/{marker}",
+            status_code=200, user_id=user.id, duration_ms=0,
+        ),
+        required=True,
+    )
+    await writer.enqueue(
+        RequestLogRecord(
+            request_id=f"drop-{marker}", method="GET", path=f"/drop/{marker}",
+            status_code=200, user_id=user.id, duration_ms=1,
+        ),
+        required=False,
+    )
+    await writer.enqueue(
+        RequestLogRecord(
+            request_id=f"keep-{marker}", method="POST", path=f"/keep/{marker}",
+            status_code=200, user_id=user.id, duration_ms=2,
+        ),
+        required=True,
+    )
+    await writer.enqueue(
+        ExceptionLogRecord(
+            level="error", message=f"boom-{marker}", traceback="tb",
+            request_id=f"exc-{marker}", user_id=user.id,
+        ),
+        required=True,
+    )
+    assert writer.queued == 1
+    await writer.flush()
+
+    async with SessionLocal() as db:
+        paths = (
+            await db.execute(select(RequestLog.path).where(RequestLog.path.like(f"%{marker}%")))
+        ).scalars().all()
+        exc = (
+            await db.execute(
+                select(ExceptionLog).where(ExceptionLog.request_id == f"exc-{marker}")
+            )
+        ).scalar_one()
+    assert not any("/drop/" in p for p in paths)
+    assert any("/keep/" in p for p in paths)
+    assert exc.user_id == user.id and exc.message == f"boom-{marker}"
+
+
+async def test_exception_log_enqueued_with_request_meta(
+    client: httpx.AsyncClient,
+) -> None:
+    """未捕获异常：异常日志入队，携带 level / message / traceback / request_id / user_id。"""
+    from app.enums import LogLevel
+    from app.models.audit import ExceptionLog
+
+    marker = uuid.uuid4().hex[:10]
+    async with SessionLocal() as db:
+        user = (await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))).scalar_one()
+
+    async def exploding(scope, receive, send) -> None:
+        scope.setdefault("state", {})[REQUEST_STATE_USER_ID] = user.id
+        raise RuntimeError(f"boom-{marker}")
+
+    scope = {"type": "http", "method": "POST", "path": "/boom", "headers": [], "state": {}}
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        return None
+
+    with pytest.raises(RuntimeError, match=marker):
+        await RequestLoggingMiddleware(exploding)(scope, receive, send)
+    request_id = scope["state"]["request_id"]
+    await flush_audit_logs()
+
+    async with SessionLocal() as db:
+        row = (
+            await db.execute(
+                select(ExceptionLog).where(ExceptionLog.request_id == request_id)
+            )
+        ).scalar_one()
+    assert row.level == LogLevel.ERROR
+    assert marker in row.message
+    assert "RuntimeError" in row.traceback
+    assert row.user_id == user.id
 
 
 async def test_record_get_logs_switch(
@@ -475,6 +617,7 @@ async def test_record_get_logs_switch(
 
     # 触发一次 GET 使缓存刷新为「关闭」
     await client.get("/api/v1/site-config")
+    await flush_audit_logs()
     get_total_before = await total_of("site-config")
     post_total_before = await total_of("email-code")
 
@@ -485,6 +628,7 @@ async def test_record_get_logs_switch(
         "/api/v1/auth/email-code",
         json={"email": f"probe-{uuid.uuid4().hex[:8]}@t.local", "purpose": "register"},
     )
+    await flush_audit_logs()
 
     assert await total_of("site-config") == get_total_before, "关闭开关后 GET 不应新增记录"
     assert await total_of("email-code") >= post_total_before + 1, "写操作始终记录"

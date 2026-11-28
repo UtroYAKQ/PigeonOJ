@@ -260,3 +260,19 @@ def test_prepare_spj_writes_cache_after_compile(tmp_path):
         (submission.workdir / "spj").write_bytes(b"ELF2")  # 模拟编译产物
         submission.prepare_spj(SPJ_SOURCE, LIMITS, cache_path=cache)
     assert cache.read_bytes() == b"ELF2"
+
+
+def test_result_message_omits_case_stdout_but_keeps_spj_message():
+    from daemon import _to_result_message
+
+    msg = _to_result_message({
+        "submission_id": "s-9", "status": "wrong_answer", "error_message": "",
+        "cases": [{
+            "test_case_id": "c1", "status": "wrong_answer",
+            "time_used_ms": 12, "memory_used_kb": 0,
+            "output": b"x" * 1024, "message": b"wrong answer expected 3",
+        }],
+    })
+    case = msg.result.cases[0]
+    assert case.output == b""
+    assert case.message == b"wrong answer expected 3"

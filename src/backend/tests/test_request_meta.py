@@ -152,3 +152,28 @@ def test_parse_user_agent(
     assert parsed.browser == browser
     assert parsed.os == os_name
     assert parsed.device == device
+
+
+@pytest.mark.no_db
+async def test_lookup_location_async_lru_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """进程内 IP→地区 LRU：重复 IP 不重复查表；失败仍按降级语义返回 None。"""
+    import app.utils.geolocation as geo
+
+    calls: list[str | None] = []
+
+    def fake_lookup(ip: str | None) -> str | None:
+        calls.append(ip)
+        return f"loc:{ip}" if ip != "bad-ip" else None
+
+    monkeypatch.setattr(geo, "lookup_location", fake_lookup)
+    geo.lookup_location_async.cache_clear()
+    try:
+        assert await geo.lookup_location_async("8.8.8.8") == "loc:8.8.8.8"
+        assert await geo.lookup_location_async("8.8.8.8") == "loc:8.8.8.8"
+        assert calls.count("8.8.8.8") == 1
+        assert await geo.lookup_location_async(None) is None
+        assert await geo.lookup_location_async("bad-ip") is None
+        assert await geo.lookup_location_async("bad-ip") is None
+        assert calls.count("bad-ip") == 1
+    finally:
+        geo.lookup_location_async.cache_clear()

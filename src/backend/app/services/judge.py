@@ -1,8 +1,6 @@
 """判题域服务：提交创建、历史查询、详情、用户自测。"""
 from __future__ import annotations
 
-import asyncio
-import logging
 import uuid
 from dataclasses import dataclass
 
@@ -20,7 +18,6 @@ from app.core.exceptions import (
     SYSTEM_UPSTREAM_FAILURE,
 )
 from app.core.redis import get_redis, JUDGE_SELFTEST_KEY_PREFIX
-from app.core.storage import get_storage
 from app.models.judge import SandboxConfig, Submission, SubmissionTestCaseResult
 from app.models.problem import Problem, TestCase
 from app.repositories.judge import SubmissionRepository, TestCaseRepository
@@ -55,13 +52,7 @@ from app.services.problem import (
 from app.services.ports import ProblemVerificationPort, SubmissionDispatcher
 from app.services.system_config import ConfigService
 
-logger = logging.getLogger(__name__)
-
 # 自测冷却 Redis Key（docs/operations.md Redis 约定；存在即冷却中）
-
-# 提交详情逐测试点程序输出并发拉取上限（对象存储往返；串行随测试点数线性恶化，
-# 限并发既压平延迟又避免瞬时打满 MinIO 连接）
-_CASE_OUTPUT_CONCURRENCY = 8
 
 
 @dataclass(frozen=True)
@@ -386,7 +377,6 @@ class SubmissionService:
         按 id 排序会乱序（回归修复）。sort_order 列在纯调序后可能滞后，
         不作为排序依据；不在集合内的历史行（测试点已被替换 / 删除）按落库顺序排尾。
         """
-        storage = get_storage()
         results = list(
             (
                 await self.db.execute(
@@ -404,21 +394,8 @@ class SubmissionService:
             if case_ids
             else {}
         )
-        # 逐点程序输出并发拉取（受限并发）：串行 await 使详情延迟随测试点数线性增长
-        semaphore = asyncio.Semaphore(_CASE_OUTPUT_CONCURRENCY)
-
-        async def _fetch_output(key: str | None) -> str | None:
-            if not key:
-                return None
-            async with semaphore:
-                try:
-                    raw, _ = await storage.get_bytes(key)
-                    return raw.decode("utf-8", errors="replace")
-                except Exception:
-                    logger.warning("拉取测试点输出失败，详情中该点输出置空: key=%s", key, exc_info=True)
-                    return None
-
-        outputs = await asyncio.gather(*(_fetch_output(r.output) for r in results))
+        # 运行输出不保存、不在详情回传（docs/contracts.md §10.2）：历史上已写 MinIO
+        # 的对象也不再读取，避免详情请求被单点 5MB × N 的巨型 JSON 打爆内存。
         cases = [
             TestCaseResult(
                 id=r.id,
@@ -427,10 +404,10 @@ class SubmissionService:
                 time_used_ms=r.time_used_ms,
                 memory_used_kb=r.memory_used_kb,
                 score=r.score,
-                output=output,
+                output=None,
                 message=r.message,
             )
-            for r, output in zip(results, outputs, strict=True)
+            for r in results
         ]
         detail = SubmissionDetailOut.model_validate(submission)
         detail.cases = cases

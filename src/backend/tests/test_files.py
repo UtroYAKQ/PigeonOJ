@@ -99,7 +99,7 @@ async def test_upload_image_rejects_oversize(client, user_headers):
 
 async def test_upload_image_downsamples_overwide(client, user_headers, fake_storage):
     """超宽图上传时等比降采样到 1920px（超大图整图解码是前端卡顿主因）。"""
-    big_png = _png_bytes(15000, 6340)
+    big_png = _png_bytes(8000, 4000)
     resp = await client.post(
         "/api/v1/files/upload/image",
         headers=user_headers,
@@ -110,8 +110,23 @@ async def test_upload_image_downsamples_overwide(client, user_headers, fake_stor
     read = await client.get(url)
     assert read.status_code == 200
     assert read.headers["content-type"].startswith("image/webp")
-    assert _image_size(read.content) == (1920, 812)  # 6340 * 1920 / 15000 ≈ 811（round 后 812）
+    assert _image_size(read.content) == (1920, 960)  # 4000 * 1920 / 8000 = 960
     assert len(read.content) < len(big_png)
+
+
+async def test_upload_image_rejects_pixel_bomb(client, user_headers, fake_storage, monkeypatch):
+    """头部尺寸超过像素预算即拒绝，不进入 img.load() 解码。"""
+    from app.services import file as file_service
+
+    monkeypatch.setattr(file_service, "_MAX_IMAGE_PIXELS", 1000)
+    resp = await client.post(
+        "/api/v1/files/upload/image",
+        headers=user_headers,
+        files={"file": ("bomb.png", PNG_BYTES, "image/png")},
+    )
+    body = resp.json()
+    assert body["code"] == 1001
+    assert "图片尺寸或内容无效" in body["message"]
 
 
 async def test_upload_image_does_not_inflate_small_file(client, user_headers, fake_storage):

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from app.core.database import SessionLocal
 from app.core.exceptions import register_exception_handlers
+from app.core.middlewares import audit_log_writer
 from app.core.redis import close_redis
 
 
@@ -17,22 +18,27 @@ async def lifespan(_: FastAPI):
     from app.rpc import judge_gateway
 
     grpc_server = await judge_gateway.start_grpc_server()
+    await audit_log_writer.start()
     maint_task = asyncio.create_task(judge_gateway.maintenance_loop())
     contest_task = asyncio.create_task(contest_transition_loop())
-    yield
-    maint_task.cancel()
     try:
-        await maint_task
-    except asyncio.CancelledError:
-        pass
-    contest_task.cancel()
-    try:
-        await contest_task
-    except asyncio.CancelledError:
-        pass
-    if grpc_server is not None:
-        await grpc_server.stop(grace=5)
-    await close_redis()
+        yield
+    finally:
+        maint_task.cancel()
+        try:
+            await maint_task
+        except asyncio.CancelledError:
+            pass
+        contest_task.cancel()
+        try:
+            await contest_task
+        except asyncio.CancelledError:
+            pass
+        if grpc_server is not None:
+            await grpc_server.stop(grace=5)
+        # 停 gRPC 后、关 Redis 前 drain 日志队列（写库仍可用）
+        await audit_log_writer.close()
+        await close_redis()
 
 
 async def contest_transition_loop(interval: int = 30) -> None:

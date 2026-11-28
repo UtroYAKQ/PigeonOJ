@@ -438,7 +438,15 @@ async def import_fps_problems(
     上传 ZIP（内含 fps XML，兼容 cp437 中文文件名）或单个 XML；逐题建库，
     有测试点直接发布、带 checker 写暂存并保持草稿；单次最多尝试 20 题，
     超出分批上传。导入人即题目 owner。格式错误经服务层转 1001 信封。"""
-    data = await file.read()
+    # 只多读 1 字节即可判定超限，避免整包先入内存（i18n 复用「压缩包超过 NMB 上限」）
+    max_bytes = service.max_archive_bytes
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise APIError(
+            PARAM_FORMAT_INVALID,
+            f"压缩包超过 {max_bytes // (1024 * 1024)}MB 上限",
+            400,
+        )
     summary = await service.import_archive(data, file.filename or "", owner=admin)
     return ok(FpsImportResult(
         total_parsed=summary.total_parsed,

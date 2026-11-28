@@ -39,6 +39,7 @@ from app.repositories.contest import (
     ContestRankingRepository,
     ContestRepository,
     ContestSubmissionQueryRepository,
+    ContestSubmissionRow,
 )
 from app.repositories.user import RoleRepository
 from app.schemas.contest import (
@@ -129,9 +130,11 @@ def _row_key(rule_type: str, row: BoardRow) -> tuple:
     return (-row.total_score, -row.solved, row.nickname)
 
 
-def _group_terminal(subs: list[Submission]) -> dict[tuple[uuid.UUID, uuid.UUID], list[Submission]]:
+def _group_terminal(
+    subs: list[ContestSubmissionRow],
+) -> dict[tuple[uuid.UUID, uuid.UUID], list[ContestSubmissionRow]]:
     """过滤非终态提交后按 (user, problem) 分组（榜单聚合唯一事实源预处理）。"""
-    grouped: dict[tuple[uuid.UUID, uuid.UUID], list[Submission]] = {}
+    grouped: dict[tuple[uuid.UUID, uuid.UUID], list[ContestSubmissionRow]] = {}
     for s in subs:
         if s.status in (
             SubmissionStatus.PENDING,
@@ -145,9 +148,9 @@ def _group_terminal(subs: list[Submission]) -> dict[tuple[uuid.UUID, uuid.UUID],
 
 def _aggregate_cells(
     contest: Contest,
-    subs: list[Submission],
+    subs: list[ContestSubmissionRow],
     factor: int,
-) -> dict[tuple[uuid.UUID, uuid.UUID], tuple[CellState, Submission | None]]:
+) -> dict[tuple[uuid.UUID, uuid.UUID], tuple[CellState, ContestSubmissionRow | None]]:
     """榜单聚合唯一实现：终态提交 → 每格 CellState + 首过提交。
 
     _aggregate_final_rows（榜单展示）与 _recompute_rankings（落库重建）共用，
@@ -156,7 +159,7 @@ def _aggregate_cells(
     """
     start = _aware(contest.start_time)
     grouped = _group_terminal(subs)
-    result: dict[tuple[uuid.UUID, uuid.UUID], tuple[CellState, Submission | None]] = {}
+    result: dict[tuple[uuid.UUID, uuid.UUID], tuple[CellState, ContestSubmissionRow | None]] = {}
     for key, group in grouped.items():
         group.sort(key=lambda s: s.created_at)
         accepted_subs = [s for s in group if s.status == SubmissionStatus.ACCEPTED]
@@ -185,7 +188,7 @@ def _aggregate_cells(
 
 def _aggregate_final_rows(
     contest: Contest,
-    subs: list[Submission],
+    subs: list[ContestSubmissionRow],
     contest_problems: list,
     factor: int,
     nickname_of: dict[uuid.UUID, str],
@@ -235,7 +238,7 @@ def _aggregate_final_rows(
 
 def build_reveal_steps(
     rule_type: str,
-    pending: list[Submission],
+    pending: list[ContestSubmissionRow],
     final_rows: list[BoardRow],
     base_rows: list[BoardRow],
     nickname_of: dict[uuid.UUID, str],
@@ -274,7 +277,7 @@ def build_reveal_steps(
         for cell in row.cells
     }
 
-    queue: dict[uuid.UUID, list[Submission]] = {}
+    queue: dict[uuid.UUID, list[ContestSubmissionRow]] = {}
     for s in sorted(pending, key=lambda s: s.created_at):
         queue.setdefault(s.user_id, []).append(s)
 

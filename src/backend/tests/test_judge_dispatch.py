@@ -11,8 +11,9 @@ import uuid as uuid_mod
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
+from app.rpc import judge_jobs as jobs
 from app.rpc.judge_gateway import (
     REGISTRY,
     NodeConnection,
@@ -31,7 +32,7 @@ from app.rpc.gen import judge_pb2
 from app.models.judge import Submission
 from app.models.problem import Problem, TestCase
 from app.models.user import User
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, engine
 from app.core.redis import get_redis
 
 
@@ -185,6 +186,41 @@ async def test_send_job_rejects_non_pending(client, admin_headers):
     conn = _add_node("gw-2")
     assert await send_job("gw-2", uuid_mod.UUID(sid)) is False
     assert conn.outbox.empty()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_loads_context_once(client, admin_headers, fake_storage):
+    """回归（查询放大）：单次派发只查一次提交/题目/配置/测试点，题面大字段不进 SQL。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    uid = uuid_mod.UUID(await _any_user_id())
+    async with SessionLocal() as db:
+        sub = Submission(
+            user_id=uid, problem_id=uuid_mod.UUID(pid), language="cpp17",
+            code="int main(){}", status="pending",
+        )
+        db.add(sub)
+        await db.commit()
+        sid = sub.id
+    conn = _add_node("ctx-node")
+
+    statements: list[str] = []
+
+    def _record(_conn, _cursor, statement, _params, _ctx, _many):
+        statements.append(statement.lower())
+
+    event.listen(engine.sync_engine, "before_cursor_execute", _record)
+    try:
+        assert await dispatch_submission(sid) == "ctx-node"
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", _record)
+
+    msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+    assert msg.job.submission_id == str(sid)
+    selects = [sql for sql in statements if sql.lstrip().startswith("select")]
+    for table in ("submissions", "problems", "sandbox_configs", "test_cases"):
+        assert len([sql for sql in selects if f"from {table}" in sql]) == 1, table
+    problem_sql = next(sql for sql in selects if "from problems" in sql)
+    assert not any(col in problem_sql for col in ("description", "solution", "samples"))
 
 
 def test_token_auth_requires_configured_tokens():
@@ -422,25 +458,40 @@ async def test_registration_kick_dispatches_backlog_immediately(client, admin_he
 
 
 @pytest.mark.asyncio
-async def test_failed_dispatch_lock_only_short_cooldown(client, admin_headers, fake_storage):
-    """回归（锁语义）：派发失败（无在线节点）只冷却一个扫描周期量级（≤60s），
-    不再冻结 300s；派发成功后锁升级为在途保护窗。"""
+async def test_failed_dispatch_lock_only_short_cooldown(client, admin_headers, fake_storage, monkeypatch):
+    """回归（锁语义）：没有空闲容量时 pending 不抢锁；派发失败仍只短冷却（≤60s），
+    派发成功后锁升级为在途保护窗。"""
     pid = await _seed_problem_with_case(fake_storage)
     sid = await _submit(client, admin_headers, pid)
     await _set_updated_at(sid, minutes_ago=10)
+    lock_key = f"judge:requeue:{sid}"
 
-    # 无在线节点 → 派发失败：冷却锁必须短（修复断线期烧 300s 锁、恢复后仍长时间排队）
+    # 无在线节点 → free_slots=0：不进入候选循环，不抢锁、保持 pending
     await maintenance_once(30)
-    ttl = await get_redis().ttl(f"judge:requeue:{sid}")
+    assert await get_redis().ttl(lock_key) == -2
+    async with SessionLocal() as db:
+        assert (await db.get(Submission, uuid_mod.UUID(sid))).status == "pending"
+
+    # 有容量但派发失败：短冷却锁（修复断线期烧 300s 锁、恢复后仍长时间排队）
+    conn = _add_node("lock-node")
+
+    async def _fail_dispatch(_sid):
+        return False
+
+    from app.rpc import judge_gateway as gw
+
+    monkeypatch.setattr(gw, "dispatch_submission", _fail_dispatch)
+    await maintenance_once(30)
+    ttl = await get_redis().ttl(lock_key)
     assert 0 < ttl <= 60
 
-    # 冷却到期（模拟 TTL 过期）→ 节点已上线 → 下一轮巡检即派发成功，锁升级为在途保护
-    await get_redis().delete(f"judge:requeue:{sid}")
-    conn = _add_node("lock-node")
+    # 冷却到期（模拟 TTL 过期）→ 下一轮巡检派发成功，锁升级为在途保护
+    await get_redis().delete(lock_key)
+    monkeypatch.setattr(gw, "dispatch_submission", dispatch_submission)
     await maintenance_once(30)
     msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
     assert msg.job.submission_id == sid
-    ttl = await get_redis().ttl(f"judge:requeue:{sid}")
+    ttl = await get_redis().ttl(lock_key)
     assert ttl > 200
 
 
@@ -531,7 +582,7 @@ async def test_stream_problem_data_includes_spj_file(client, admin_headers, fake
     async with SessionLocal() as db:
         chunks = {}
         async for path, content in judge_jobs.stream_problem_data(db, uuid_mod.UUID(pid_spj)):
-            chunks[path] = content
+            chunks[path] = chunks.get(path, b"") + content
     manifest = json.loads(chunks["manifest.json"])
     assert manifest["spj"] is True
     assert any(path.endswith(".in") for path in chunks)
@@ -541,13 +592,105 @@ async def test_stream_problem_data_includes_spj_file(client, admin_headers, fake
     async with SessionLocal() as db:
         chunks_plain = {}
         async for path, content in judge_jobs.stream_problem_data(db, uuid_mod.UUID(pid_plain)):
-            chunks_plain[path] = content
+            chunks_plain[path] = chunks_plain.get(path, b"") + content
     manifest_plain = json.loads(chunks_plain["manifest.json"])
     assert manifest_plain["spj"] is False
     assert "spj.cpp" not in chunks_plain
 
 
+@pytest.mark.asyncio
+async def test_stream_problem_data_uses_chunked_object_reader(client, admin_headers, fake_storage, monkeypatch):
+    """回归（内存）：流式下发按块读对象，不整对象 get_bytes；同 path 多块按序追加。"""
+    from app.rpc import judge_jobs
+
+    pid = await _seed_problem_with_case(fake_storage)
+    # 测试数据本体需超过 chunk_size，才能验证同 path 多片按序追加
+    for key, (content, content_type) in list(fake_storage.store.items()):
+        if key.endswith(".in"):
+            fake_storage.store[key] = (b"1234567890\n", content_type)
+
+    async def _forbid_get_bytes(key):
+        raise AssertionError("整对象读取不应出现在 FetchProblemData 链路")
+
+    monkeypatch.setattr(fake_storage, "get_bytes", _forbid_get_bytes)
+    async with SessionLocal() as db:
+        seen: dict[str, list[bytes]] = {}
+        async for path, content in judge_jobs.stream_problem_data(
+            db, uuid_mod.UUID(pid), chunk_size=4
+        ):
+            seen.setdefault(path, []).append(content)
+    manifest = json.loads(b"".join(seen["manifest.json"]))
+    assert manifest["case_count"] == 1 and manifest["spj"] is False
+    in_chunks = [parts for path, parts in seen.items() if path.endswith(".in")]
+    assert in_chunks and len(in_chunks[0]) > 1
+    input_key = next(k for k in fake_storage.store if k.endswith(".in"))
+    assert b"".join(in_chunks[0]) == fake_storage.store[input_key][0]
+
+
 # ---- 排队延迟（pending 无滞留门槛 / 容量释放即派发 / 回收释放锁） ----
+
+
+@pytest.mark.asyncio
+async def test_maintenance_pending_bounded_by_capacity(client, admin_headers, fake_storage):
+    """回归（巡检预算）：单节点 capacity=1 时，一轮巡检只投递一个 pending，其余留在队列。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    uid = uuid_mod.UUID(await _any_user_id())
+    sids = []
+    async with SessionLocal() as db:
+        for _ in range(3):
+            sub = Submission(
+                user_id=uid, problem_id=uuid_mod.UUID(pid), language="cpp17",
+                code="int main(){}", status="pending",
+            )
+            db.add(sub)
+            await db.flush()
+            sids.append(sub.id)
+        await db.commit()
+    conn = _add_node("cap-node", capacity=1)
+
+    await maintenance_once(30)
+
+    jobs = []
+    while not conn.outbox.empty():
+        jobs.append(conn.outbox.get_nowait())
+    assert len(jobs) == 1
+    assert jobs[0].job.submission_id in {str(sid) for sid in sids}
+    async with SessionLocal() as db:
+        statuses = {
+            sid: (await db.get(Submission, sid)).status for sid in sids
+        }
+    assert list(statuses.values()).count("judging") == 1
+    assert list(statuses.values()).count("pending") == 2
+
+
+@pytest.mark.asyncio
+async def test_maintenance_stale_reset_consumes_capacity(client, admin_headers, fake_storage):
+    """回归（预算顺序）：判死回收优先且复位本身占用容量，本轮不再处理 pending。"""
+    pid = await _seed_problem_with_case(fake_storage)
+    uid = uuid_mod.UUID(await _any_user_id())
+    old = datetime.now(timezone.utc) - timedelta(minutes=10)
+    async with SessionLocal() as db:
+        stale = Submission(
+            user_id=uid, problem_id=uuid_mod.UUID(pid), language="cpp17",
+            code="int main(){}", status="judging", updated_at=old,
+        )
+        pending = Submission(
+            user_id=uid, problem_id=uuid_mod.UUID(pid), language="cpp17",
+            code="int main(){}", status="pending",
+        )
+        db.add_all([stale, pending])
+        await db.commit()
+        stale_id, pending_id = stale.id, pending.id
+    conn = _add_node("stale-budget-node", capacity=1)
+
+    await maintenance_once(30)
+
+    msg = await asyncio.wait_for(conn.outbox.get(), timeout=5)
+    assert msg.job.submission_id == str(stale_id)
+    async with SessionLocal() as db:
+        assert (await db.get(Submission, stale_id)).status == "judging"
+        assert (await db.get(Submission, pending_id)).status == "pending"
+    assert await get_redis().exists(f"judge:requeue:{pending_id}") == 0
 
 
 @pytest.mark.asyncio

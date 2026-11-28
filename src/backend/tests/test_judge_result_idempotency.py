@@ -94,7 +94,7 @@ async def _case_id_of(problem_id: str) -> str:
 
 @pytest.mark.asyncio
 async def test_replay_practice_result_is_noop(fake_storage):
-    """练习提交：结果重放（第二次 apply_job_result）不重复计数 / 不重复落结果行 / 不重复上传。"""
+    """练习提交：结果重放（第二次 apply_job_result）不重复计数 / 不重复落结果行。"""
     case_id = uuid_mod.uuid4()
     pid = await _seed_judged_problem(fake_storage, case_id=case_id)
     sid = await _seed_judging_submission(pid)
@@ -107,7 +107,7 @@ async def test_replay_practice_result_is_noop(fake_storage):
     assert counter.submission_count == 1 and counter.accepted_count == 1
     assert await _case_result_count(sid) == 1
     uploads = [k for k, _, _ in fake_storage.puts if k.startswith(f"submissions/{sid}/")]
-    assert len(uploads) == 1
+    assert uploads == []  # 运行输出不再保存（docs/contracts.md §10.2）
 
     # 节点重连后重发同一条结果消息 → 状态机拒绝（非 judging），零副作用
     async with SessionLocal() as db:
@@ -116,7 +116,7 @@ async def test_replay_practice_result_is_noop(fake_storage):
     assert counter.submission_count == 1 and counter.accepted_count == 1
     assert await _case_result_count(sid) == 1
     uploads = [k for k, _, _ in fake_storage.puts if k.startswith(f"submissions/{sid}/")]
-    assert len(uploads) == 1
+    assert uploads == []  # 运行输出不再保存（docs/contracts.md §10.2）
 
     async with SessionLocal() as db:
         row = await db.get(Submission, uuid_mod.UUID(sid))

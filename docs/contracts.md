@@ -578,7 +578,7 @@ C++17 单文件 checker，存 MinIO，`problems` 只存 key，与测试点共用
 - `<spj>` 带源码 → **恒 `draft`** 且写入暂存（走验题 → apply）
 - `<spj>` 仅标记无源码 → 跳过（无法重建 checker）
 - `<difficulty>` → 写 `difficulty`；同标题 → 跳过；单题失败不阻断
-- 导入人即 owner，可见性 public；单次最多 20 题（超出 `truncated=true`）
+- 导入人即 owner，可见性 public；单次最多 20 题（超出 `truncated=true`）；导入压缩包 ≤64MB、单 XML ≤64MB、累计解压 ≤256MB
 
 导出**只导出生效集**（active 测试点、生效 SPJ、samples）；字段反向映射（`note`→`hint`、`background`→`source`、`difficulty`→`<difficulty>`）；单次 ≤20 题、总量 ≤256MB；附件下载为原始响应不经信封。
 
@@ -748,11 +748,11 @@ CHECK (
 
 ### 10.2 `submission_test_case_results`
 
-`submission_id` / `test_case_id`（ON DELETE SET NULL，历史结果保留）/ `status` / `time_used_ms` / `memory_used_kb` / `score` / `output`（MinIO key）/ `message`（SPJ stdout ≤2KB，非 SPJ 为 NULL）/ `created_at`。
+`submission_id` / `test_case_id`（ON DELETE SET NULL，历史结果保留）/ `status` / `time_used_ms` / `memory_used_kb` / `score` / `output`（兼容列，新结果写空串；历史数据为 MinIO key，不再读取）/ `message`（SPJ stdout ≤2KB，非 SPJ 为 NULL）/ `created_at`。
 
 UNIQUE(`submission_id`,`test_case_id`) WHERE `test_case_id IS NOT NULL`、INDEX(`test_case_id`)。
 
-> 只记运行输出，**不记录 / 不返回期望输出**（防反推答案）。
+> **运行输出不保存、不在提交详情回传**（生产单点上限 5MB×20 点会形成 100MB 级 JSON，详见 §10.10）；**期望输出不记录 / 不返回**（防反推答案）。用户自测 stdout 仍按 §10.8 即时回传，不落库。
 
 ### 10.3 `sandbox_configs`
 
@@ -802,7 +802,7 @@ UNIQUE(`submission_id`,`test_case_id`) WHERE `test_case_id IS NOT NULL`、INDEX(
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | POST | /submissions | auth | 提交判题 |
-| GET | /submissions/{id} | owner | 提交详情（逐测试点明细，不含期望输出） |
+| GET | /submissions/{id} | owner | 提交详情（逐测试点状态 / 用量 / SPJ 信息；不含运行输出与期望输出） |
 | GET | /submissions | auth | 本人提交历史 |
 | GET | /problems/{id}/submissions | 题目管理者 | 题目全员提交列表 |
 | GET | /problems/{id}/submissions/{sid} | 题目管理者 | 题目视角提交详情 |
@@ -827,15 +827,15 @@ UNIQUE(`submission_id`,`test_case_id`) WHERE `test_case_id IS NOT NULL`、INDEX(
      → dispatch：只选 task_count < capacity 的活节点，任务数最少优先
        build_job_bundle 原子认领（UPDATE ... WHERE status='pending'）后沿双向流推 SubmitJob
      → 满载 / 无在线节点：保持 pending；节点腾容量或注册 / 重连即踢醒巡检
-节点 → FetchProblemData 拉测试点到 /cache（未命中时）；按比例换算有效限制
+节点 → FetchProblemData 按 1MB 分块拉测试点到 /cache（未命中时，同题并发合并，网关全局 ≤4 路）；按比例换算有效限制
      → isolate 编译一次 + 逐点运行（ACM 串行短路；IOI/练习/验题默认 4 点并发）
-     → 回传 JudgeResult；服务端写 submission_test_case_results + submissions
+     → 回传 JudgeResult（不含逐点 stdout，仅状态 / 用量 / SPJ message）；服务端写 submission_test_case_results + submissions
        + problem_counters（练习/比赛终态）或 verification 回写（验题）
 ```
 
 **维护循环**（进程内 asyncio，与网关同生命周期，无 Celery）：
 
-- 30s 周期兜底；pending 不设滞留门槛（有空位即派）
+- 30s 周期兜底；pending 不设滞留门槛（有空位即派），巡检只取提交 id 并按在线节点空闲容量限制单轮派发，无容量时空转不抢 Redis 锁
 - `judging > 5min` 复位重派（先下发 CancelJob）
 - Redis SETNX 防重复投递：失败 5s 冷却、成功 300s 在途保护
 - 断线 / 超时回收计入 `judge:attempts:<sid>`，满 3 次转 `system_error`
@@ -847,8 +847,8 @@ UNIQUE(`submission_id`,`test_case_id`) WHERE `test_case_id IS NOT NULL`、INDEX(
 - `Connect(stream NodeMessage) returns (stream ServerMessage)`：首条 Register 带令牌（`JUDGE_GATEWAY_TOKENS` 其一），不符 UNAUTHENTICATED。上行 Heartbeat / JudgeResult / RunCodeResult；下行 SubmitJob / RunCodeJob / CancelJob
 - Heartbeat 带 `running_tasks` 与宿主 `cpu_usage` / `memory_usage`（0-100）；`load` 由服务端按 capacity 计算
 - Register 带能力位 `supports_spj`：网关派发 SPJ 题只选支持节点（无支持节点 → `system_error`），旧节点默认 false（防止退化为默认比对静默误判）
-- `FetchProblemData(ProblemDataRequest) returns (stream FileChunk)`：按 `data_version` 流式传 manifest / cases / spj.cpp，单文件可拆片（同 path 连续追加），令牌经 metadata `x-node-token`
-- **数据指纹** = `sha256(测试点数量 | 最大 updated_at | 特判程序对象 key)`，**按判定集统计**（练习 / 比赛用生效集，验题用暂存集）；节点按 `<problem_id>-<data_version>` 缓存，跨提交复用
+- `FetchProblemData(ProblemDataRequest) returns (stream FileChunk)`：按 `data_version` 流式传 manifest / cases / spj.cpp，单文件按 1MB 拆片（同 path 连续追加），令牌经 metadata `x-node-token`；服务端逐文件有界预取、同时最多 4 路，峰值内存约 16MB，不整包加载
+- **数据指纹** = `sha256(测试点数量 | 最大 updated_at | 特判程序对象 key)`，**按判定集统计**（练习 / 比赛用生效集，验题用暂存集）；节点按 `<problem_id>-<data_version>` 缓存，跨提交复用；同题同版本并发拉取合并为一次，缓存目录写入在线程中按序完成
 - **断线语义**：连接断开即离线，其名下 in-flight 重置 pending 重派；在途自测即时置错；判题写入幂等
 - **同 ID 重连竞态**：重连时 in-flight 移交新连接并清空旧副本；旧（僵尸）连接的迟到清理视为空回收
 - **僵尸连接防护**：单条消息处理失败只记日志不终止流；派发与并发统计跳过超过 `max(2×心跳间隔, 心跳 TTL)` 无上行消息的节点
@@ -866,7 +866,7 @@ UNIQUE(`submission_id`,`test_case_id`) WHERE `test_case_id IS NOT NULL`、INDEX(
 | 默认比对 | 忽略行尾空白与末尾换行、行内严格 |
 | 输出上限 | `--fsize=(上限+1)KB` 内核封顶（超限收 SIGXFSZ）；执行器最多读 `limit+1` 字节 → OLE |
 | 沙箱隔离 | 每次运行前清空可写区；作业目录只读挂 `/box/prog`、测试点只读挂 `/box/data`；namespace 隔离 mount / PID / IPC / UTS / net（无网络）；`--processes` 恒下发（编译 64、运行取 `process_limit`——不给时任何 fork 报 EAGAIN）；执行环境注入 `TMPDIR=/tmp`、`HOME=/box`、`PYTHONDONTWRITEBYTECODE=1`、`LANG=C.UTF-8` |
-| box 池 | 启动时 `isolate --init --cg` 预建池（最多 8 路并行 `--init`），热路径只跑 `--run`；归还前清空可写区；超时 / meta 缺失 / **OOM 后**均标记不健康、清理重建；等不到 box 超 60s 报 `system_error`；启动校验池容量 ≥ `capacity×(case_parallel+1)` 且并发 ≤ CPU 核数（不满足只告警） |
+| box 池 | 启动时 `isolate --init --cg` 预建池（最多 8 路并行 `--init`），热路径只跑 `--run`；归还前清空可写区；超时 / meta 缺失 / **OOM 后**均标记不健康、入队由专用线程异步清理重建（不占 case worker）；等不到 box 超 60s 报 `system_error`；启动校验池容量 ≥ `capacity×(case_parallel+1)` 且并发 ≤ CPU 核数（不满足只告警） |
 | 挂载点 | `--dir` 不替调用方建目录，执行器每次预建 `/box/prog`、`/box/data`；编译产物拷回后保留可执行位（否则只读挂载后 execve 报 Permission denied） |
 | 状态映射 | `status=XX` → system_error；TO / 超限 → TLE；`cg-oom-killed` 或 RSS 超限或 stderr 含 MemoryError/bad_alloc/OutOfMemoryError → MLE；SIGXFSZ 或输出超限 → OLE；RE/SG 或退出码非 0 → runtime_error；否则 ok |
 
@@ -957,7 +957,7 @@ KV + 分域（`category`：`site` / `auth_email` / `team` / `contest` / `sandbox
 
 ### 12.2 日志表
 
-- **`request_logs`**：`request_id` / `user_id` / `method` / `path` / `status_code` / `ip_address`（解析后真实客户端 IP）/ `user_agent` / `duration_ms` / `extra`（JSONB，沙箱执行子记录按 request_id 归入）。索引 INDEX(`user_id`,`created_at`)、INDEX(`path`,`created_at`)、INDEX(`created_at`,`id`)
+- **`request_logs`**：`request_id` / `user_id` / `method` / `path` / `status_code` / `ip_address`（解析后真实客户端 IP）/ `user_agent` / `duration_ms` / `extra`（JSONB，沙箱执行子记录按 request_id 归入）。索引 INDEX(`user_id`,`created_at`)、INDEX(`path`,`created_at`)、INDEX(`created_at`,`id`)；进程内有界队列 + 单写协程批量落库（100 条或 200ms，关闭时 drain），队列满时 GET 日志可丢弃、写操作 / 异常日志兜底直写
 - **`login_logs`**：`user_id` / `email` / `action`（`login`/`logout`/`register`/`reset_password`/`change_email`）/ IP / UA / `success` / `reason`
 - **`exception_logs`**：`level`（`error`/`warning`/`fatal`）/ `message` / `traceback` / `request_id` / `user_id`
 
@@ -988,7 +988,7 @@ KV + 分域（`category`：`site` / `auth_email` / `team` / `contest` / `sandbox
 | 见 §7.7 | /admin/tags* | 标签管理 |
 | 见 §5.5、§6.5、§9.3、§8.2 | /admin/orgs*、/admin/teams*、/admin/contests、/admin/problem-sets | 各模块管理视图 |
 
-**图片链路**：非 GIF 上传即转 WebP（质量 82，超宽先缩）；前端按展示尺寸请求 `?w=` 缩略图；`/api/v1/files/` 带长缓存 + ETag，前端 nginx 对 `/api/v1/files/` 做 30 天边缘缓存。
+**图片链路**：非 GIF 上传即转 WebP（质量 82，超宽先缩）；解码前按头部尺寸校验 ≤40MP（上传与按需缩略图共用 2 路信号量）；前端按展示尺寸请求 `?w=` 缩略图；`/api/v1/files/` 带长缓存 + ETag，前端 nginx 对 `/api/v1/files/` 做 30 天边缘缓存。
 
 ### 12.4 深分页查询
 

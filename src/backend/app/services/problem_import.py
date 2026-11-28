@@ -44,8 +44,11 @@ MAX_SPJ_BYTES = 256 * 1024
 # 单次请求 / CLI 单轮最多**尝试**的题目数（约束请求时长，超出 truncated 标记；
 # 重复 / 跳过 / 失败计入尝试数，超过部分由分批导入处理）
 MAX_IMPORT_ATTEMPTS = 20
-# 上传压缩包大小上限（0 = 无限制；需同步调整网关 client_max_body_size）
-MAX_ARCHIVE_BYTES = 0
+# 上传压缩包大小上限（需同步调整网关 client_max_body_size）
+MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
+# ZIP 解压炸弹护栏：单 XML ≤64MB、累计解压 ≤256MB
+MAX_XML_BYTES = 64 * 1024 * 1024
+MAX_EXTRACTED_BYTES = 256 * 1024 * 1024
 # 导出上限：单次最多 20 题（与导入尝试数一致）；原始内容总量护栏（XML 内存构建）
 MAX_EXPORT_PROBLEMS = 20
 MAX_EXPORT_TOTAL_BYTES = 256 * 1024 * 1024
@@ -357,19 +360,34 @@ async def embed_export_images(
 
 
 def extract_zip_xmls(data: bytes, name: str) -> list[tuple[str, bytes]]:
-    """ZIP → [(归档内路径, xml 字节)]；兼容 cp437 编码的中文文件名。"""
-    out = []
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        for info in zf.infolist():
-            if info.is_dir():
-                continue
-            try:
-                filename = info.filename.encode("cp437").decode("gbk")
-            except (UnicodeDecodeError, UnicodeEncodeError):
-                filename = info.filename
-            if Path(filename).suffix.lower() not in (".xml", ".fps"):
-                continue
-            out.append((f"{name}/{filename}", zf.read(info)))
+    """ZIP → [(归档内路径, xml 字节)]；兼容 cp437 中文文件名，逐条解压防炸弹。"""
+    out: list[tuple[str, bytes]] = []
+    total = 0
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                try:
+                    filename = info.filename.encode("cp437").decode("gbk")
+                except (UnicodeDecodeError, UnicodeEncodeError):
+                    filename = info.filename
+                if Path(filename).suffix.lower() not in (".xml", ".fps"):
+                    continue
+                # 先按声明大小拦截，再按实际解压字节复核（逐条 read，不批量展开）
+                if info.file_size > MAX_XML_BYTES:
+                    raise FpsError(f"压缩包超过 {MAX_XML_BYTES // (1024 * 1024)}MB 上限")
+                if total + info.file_size > MAX_EXTRACTED_BYTES:
+                    raise FpsError(f"压缩包超过 {MAX_EXTRACTED_BYTES // (1024 * 1024)}MB 上限")
+                content = zf.read(info)
+                if len(content) > MAX_XML_BYTES:
+                    raise FpsError(f"压缩包超过 {MAX_XML_BYTES // (1024 * 1024)}MB 上限")
+                if total + len(content) > MAX_EXTRACTED_BYTES:
+                    raise FpsError(f"压缩包超过 {MAX_EXTRACTED_BYTES // (1024 * 1024)}MB 上限")
+                total += len(content)
+                out.append((f"{name}/{filename}", content))
+    except zipfile.BadZipFile as exc:
+        raise FpsError("ZIP 文件解析失败") from exc
     if not out:
         raise FpsError(f"zip 内没有 .xml/.fps 文件: {name}")
     return out
@@ -380,10 +398,7 @@ def read_archive(data: bytes, name: str) -> list[tuple[str, bytes]]:
     if MAX_ARCHIVE_BYTES and len(data) > MAX_ARCHIVE_BYTES:
         raise FpsError(f"压缩包超过 {MAX_ARCHIVE_BYTES // (1024 * 1024)}MB 上限")
     if name.lower().endswith(".zip") or data[:2] == b"PK":
-        try:
-            return extract_zip_xmls(data, name)
-        except zipfile.BadZipFile as exc:
-            raise FpsError("ZIP 文件解析失败") from exc
+        return extract_zip_xmls(data, name)
     if not data.lstrip():
         raise FpsError("上传内容为空")
     return [(name or "fps.xml", data)]
@@ -564,6 +579,11 @@ class ProblemImportService:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    @property
+    def max_archive_bytes(self) -> int:
+        """供 HTTP 入口按同一限额预读，避免路由层直连 services 模块。"""
+        return MAX_ARCHIVE_BYTES
 
     async def import_archive(self, data: bytes, filename: str, *, owner: User) -> ImportSummary:
         """ZIP / XML 上传 → 解析 → 逐题导入（staged SPJ 模式）。"""

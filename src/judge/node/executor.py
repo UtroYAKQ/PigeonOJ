@@ -126,6 +126,7 @@ _COMPILE_PROCESS_LIMIT = 64
 _WALL_GRACE_MS = 500
 # 执行器自身兜底：isolate 进程超过该时间仍未退出即强杀并重置 box
 _ISOLATE_GRACE_S = 15.0
+_REBUILD_STOP = object()  # 重建线程退出哨兵
 _MEMORY_ERROR_MARKERS = (
     b"MemoryError",
     b"std::bad_alloc",
@@ -235,6 +236,9 @@ class BoxPool:
         self._started = False
         self._closed = False
         self._version = ""
+        # 不健康 box 的 destroy/create 交给专用线程，避免占用 case worker
+        self._rebuild_queue: queue.Queue[_Box | object] = queue.Queue()
+        self._rebuild_thread: threading.Thread | None = None
 
     # ---- 生命周期 ----
 
@@ -272,12 +276,14 @@ class BoxPool:
                     self._boxes[box.box_id] = box
                     self._free.put(box)
                 self._started = True
+            self._ensure_rebuild_thread()
 
     def close(self) -> None:
         with self._lock:
             self._closed = True
             boxes = list(self._boxes.values())
             self._boxes.clear()
+            thread = self._rebuild_thread
         for box in boxes:
             self._destroy(box)
         while True:
@@ -285,6 +291,19 @@ class BoxPool:
                 self._free.get_nowait()
             except queue.Empty:
                 break
+        if thread is not None and thread is not threading.current_thread():
+            # 让重建线程处理完在途任务后退出；余下排队项在下方统一清理
+            self._rebuild_queue.put(_REBUILD_STOP)
+            thread.join(timeout=95)
+        while True:
+            try:
+                item = self._rebuild_queue.get_nowait()
+            except queue.Empty:
+                break
+            if isinstance(item, _Box):
+                self._destroy(item)
+        with self._lock:
+            self._rebuild_thread = None
 
     @property
     def version(self) -> str:
@@ -315,25 +334,59 @@ class BoxPool:
             raise JudgeWorkerError("no free sandbox box") from exc
 
     def release(self, box: _Box, *, healthy: bool = True) -> None:
-        """归还未借出的 box；不健康则清理后按原 box-id 重建（池容量恒定）。"""
+        """归还未借出的 box；不健康只入队，由专用线程按原 box-id 重建。"""
         with self._lock:
             if self._closed:
                 return
             if not healthy:
                 self._boxes.pop(box.box_id, None)
+                # 入队与 closed 判定同一把锁：close 不会漏掉刚排入的 box
+                self._rebuild_queue.put(box)
+            else:
+                self._free.put(box)
         if not healthy:
-            self._destroy(box)
-            try:
-                fresh = self._create(box.box_id)
-            except Exception:  # noqa: BLE001 - 重建失败只缩容，下一轮启动自愈
-                return
-            with self._lock:
-                self._boxes[fresh.box_id] = fresh
-            self._free.put(fresh)
-            return
-        self._free.put(box)
+            self._ensure_rebuild_thread()
 
     # ---- 内部 ----
+
+    def _ensure_rebuild_thread(self) -> None:
+        with self._lock:
+            if self._closed or self._rebuild_thread is not None:
+                return
+            thread = threading.Thread(target=self._rebuild_loop, name="isolate-rebuild", daemon=True)
+            self._rebuild_thread = thread
+            thread.start()
+
+    def _rebuild_loop(self) -> None:
+        while True:
+            item = self._rebuild_queue.get()
+            try:
+                if item is _REBUILD_STOP:
+                    return
+                box = item
+                if not isinstance(box, _Box):
+                    continue
+                with self._lock:
+                    closed = self._closed
+                self._destroy(box)
+                if closed:
+                    continue
+                try:
+                    fresh = self._create(box.box_id)
+                except Exception:  # noqa: BLE001 - 重建失败只缩容，下一轮启动自愈
+                    continue
+                with self._lock:
+                    closed = self._closed
+                    if not closed:
+                        self._boxes[fresh.box_id] = fresh
+                if closed:
+                    self._destroy(fresh)
+                else:
+                    self._free.put(fresh)
+            except Exception:  # noqa: BLE001 - 重建线程必须存活，后续 box 仍可恢复
+                pass
+            finally:
+                self._rebuild_queue.task_done()
 
     def _create(self, box_id: int) -> _Box:
         result = subprocess.run(

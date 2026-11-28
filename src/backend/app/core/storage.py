@@ -68,6 +68,23 @@ class MinioStorage:
             response.close()
             response.release_conn()
 
+    async def iter_object(self, object_key: str, chunk_size: int = 1024 * 1024):
+        """按块读取对象：每次 read 在线程中执行，峰值内存约为一个 chunk。
+
+        用于 FetchProblemData 等大对象下发；与 get_bytes 的整对象读取互补。
+        """
+        response = await asyncio.to_thread(self.client.get_object, self.bucket, object_key)
+        try:
+            while True:
+                chunk = await asyncio.to_thread(response.read, chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            # close/release_conn 仅归还连接，不做网络等待，直接在当前线程收尾
+            response.close()
+            response.release_conn()
+
     async def delete(self, object_key: str) -> None:
         await asyncio.to_thread(self.client.remove_object, self.bucket, object_key)
 

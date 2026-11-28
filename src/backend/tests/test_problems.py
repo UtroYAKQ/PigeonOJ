@@ -730,6 +730,77 @@ async def test_submission_history_and_detail(client, admin_headers, user_headers
 
 
 @pytest.mark.asyncio
+async def test_submission_lists_defer_large_fields(client, admin_headers, fake_storage):
+    """提交列表三种视图都不读 code / error_message（仅详情按需加载）。"""
+    from sqlalchemy import inspect
+
+    from app.repositories.judge import SubmissionRepository
+
+    data = await _create_problem(client, admin_headers)
+    pid = uuid.UUID(data["id"])
+    async with SessionLocal() as db:
+        row = await db.get(Problem, pid)
+        row.status = "published"
+        row.verified_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    resp = await client.post(
+        "/api/v1/submissions",
+        json={"problem_id": data["id"], "language": "cpp17", "code": "int main(){}"},
+        headers=admin_headers,
+    )
+    assert resp.json()["code"] == 0, resp.text
+
+    async with SessionLocal() as db:
+        uid = (await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))).scalar_one().id
+        repo = SubmissionRepository(db)
+        mine, _ = await repo.list_for_user(uid, None, None, 1, 20)
+        by_problem, _ = await repo.list_for_problem(pid, None, None, None, None, 1, 20)
+        admin_rows, _, _ = await repo.list_all_for_admin(
+            submit_type=None, user_id=None, problem_id=None, status=None,
+            language=None, keyword=None, page=1, page_size=20,
+        )
+    assert mine and by_problem and admin_rows
+    for submission in (mine[0], by_problem[0][0], admin_rows[0][0]):
+        unloaded = inspect(submission).unloaded
+        assert "code" in unloaded
+        assert "error_message" in unloaded
+
+
+@pytest.mark.asyncio
+async def test_problem_list_projection_covers_summary_fields(client, admin_headers):
+    """题库列表显式投影覆盖摘要与验题标记依赖列，且不加载题面大字段。"""
+    from app.enums import ProblemScope
+    from app.repositories.problem import ProblemRepository
+    from app.schemas.problem import ProblemQuery, ProblemSummary
+
+    data = await _create_problem(client, admin_headers, title="投影题")
+    async with SessionLocal() as db:
+        row = await db.get(Problem, uuid.UUID(data["id"]))
+        row.status = "published"
+        row.verified_at = datetime.now(timezone.utc)
+        await db.commit()
+        uid = (await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))).scalar_one().id
+        rows, total = await ProblemRepository(db).list_published(
+            ProblemQuery(scope=ProblemScope.MINE), uid, see_all=True
+        )
+    assert total >= 1
+    projected = next(row for row in rows if row.title == "投影题")
+    for field in (
+        "id", "title", "time_limit_ms", "memory_limit_mb", "status", "visibility",
+        "is_verified", "created_at", "difficulty", "verified_at",
+        "samples_updated_at", "pending_case_ids", "pending_spj_oss_id",
+    ):
+        assert hasattr(projected, field), field
+    assert not hasattr(projected, "description")
+    assert not hasattr(projected, "solution")
+    assert not hasattr(projected, "samples")
+    summary = ProblemSummary.model_validate(projected)
+    assert summary.id == projected.id
+    assert summary.is_verified is True
+
+
+@pytest.mark.asyncio
 async def test_problem_submissions_manage_view(client, admin_headers, user_headers):
     """题目管理视角全员提交：题目管理角色可见所有人提交（含提交人昵称），
     非管理角色 403；支持状态 / 昵称 / 语言过滤（docs/contracts.md §10）。"""
@@ -890,6 +961,8 @@ async def test_submission_detail_cases_follow_judged_order(client, admin_headers
 
         detail = await SubmissionService(db).build_detail(submission)
     assert [c.case_name for c in detail.cases] == ["c3", "c1", "c2", None]
+    # 运行输出不再随详情回传（避免历史巨型对象被按需读出）
+    assert all(c.output is None for c in detail.cases)
 
 
 @pytest.mark.asyncio

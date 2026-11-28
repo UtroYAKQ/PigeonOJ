@@ -12,12 +12,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 
 logger = logging.getLogger(__name__)
 
 _XDB_PATH = Path(__file__).resolve().parent.parent / "data" / "ip2region.xdb"
+# 进程内 IP → location LRU：日志批量写与登录路径反复解析同一批 IP，缓存上限有界
+_LOCATION_CACHE_SIZE = 4096
+_MISS = object()
 
 _searcher = None
 _lock = Lock()
@@ -72,9 +76,21 @@ def lookup_location(ip: str | None) -> str | None:
     return " ".join(dict.fromkeys(parts))
 
 
+@lru_cache(maxsize=_LOCATION_CACHE_SIZE)
+def _lookup_location_cached(ip: str) -> str | object:
+    """同步查表 + LRU（lru_cache 线程安全）；失败用哨兵缓存，异步层降级为 None。"""
+    return lookup_location(ip) or _MISS
+
+
 async def lookup_location_async(ip: str | None) -> str | None:
     """lookup_location 的异步包装：xdb file 模式查询含磁盘 IO，放线程池执行，
-    避免阻塞事件循环（请求日志中间件 / 登录路径使用）。"""
+    避免阻塞事件循环（请求日志中间件 / 登录路径使用）；同一 IP 命中进程内 LRU。"""
     if not ip:
         return None
-    return await asyncio.to_thread(lookup_location, ip)
+    result = await asyncio.to_thread(_lookup_location_cached, ip)
+    return None if result is _MISS else result
+
+
+# 便于测试与数据文件热更新后清理缓存（不把 lru_cache 直接套在协程上）
+lookup_location_async.cache_clear = _lookup_location_cached.cache_clear
+lookup_location_async.cache_info = _lookup_location_cached.cache_info

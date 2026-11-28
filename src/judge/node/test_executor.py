@@ -1,6 +1,8 @@
 """执行器 argv、isolate meta 判定、Java -Xmx、测试点懒加载。"""
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from executor import (
@@ -16,6 +18,14 @@ from executor import (
     _same_output,
     parse_meta,
 )
+
+
+def _wait_until(predicate, timeout: float = 3.0) -> None:
+    """等待专用重建线程完成（不占 case worker 的异步重建）。"""
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        assert time.monotonic() < deadline, "等待 box 重建超时"
+        time.sleep(0.01)
 
 
 class _StubExecutor(IsolateExecutor):
@@ -397,9 +407,52 @@ def test_box_pool_rebuilds_unhealthy_box(tmp_path, monkeypatch):
     pool.start()
     box = pool.acquire()
     pool.release(box, healthy=False)
-    assert len(created) == 2          # 同 box-id 重建
+    _wait_until(lambda: len(created) == 2 and pool.stats()["pool_idle"] == 1)
+    assert created == [0, 0]          # 同 box-id 重建
     assert pool.stats()["pool_total"] == 1
-    assert pool.stats()["pool_idle"] == 1
+    pool.close()
+
+
+def test_box_pool_release_unhealthy_does_not_wait_for_rebuild(tmp_path, monkeypatch):
+    """release 只入队：重建线程慢时不占用 case worker 线程。"""
+    import threading
+
+    from executor import BoxPool, _Box
+
+    pool = BoxPool("isolate", 1, 0)
+    gate = threading.Event()
+    calls: list[int] = []
+
+    def fake_create(box_id):
+        calls.append(box_id)
+        if len(calls) > 1:
+            gate.wait(3)
+        box = tmp_path / f"box{box_id}-{len(calls)}"
+        (box / "box").mkdir(parents=True, exist_ok=True)
+        return _Box(box_id=box_id, host_dir=box)
+
+    monkeypatch.setattr(pool, "_create", fake_create)
+    monkeypatch.setattr(pool, "_destroy", lambda box: None)
+    monkeypatch.setattr(pool, "_probe_version", lambda: "isolate 2.0")
+
+    pool.start()
+    box = pool.acquire()
+    released = threading.Event()
+
+    def do_release() -> None:
+        pool.release(box, healthy=False)
+        released.set()
+
+    worker = threading.Thread(target=do_release, daemon=True)
+    worker.start()
+    try:
+        assert released.wait(1), "release 被重建阻塞"
+        assert pool.stats()["pool_idle"] == 0
+    finally:
+        gate.set()
+        worker.join(timeout=5)
+    _wait_until(lambda: pool.stats()["pool_idle"] == 1)
+    assert calls == [0, 0]
     pool.close()
 
 

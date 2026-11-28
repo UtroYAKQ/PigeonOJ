@@ -162,7 +162,8 @@ class TestCaseResult(BaseModel):
     time_used_ms: int | None
     memory_used_kb: int | None
     score: int | None
-    output: str | None
+    # 兼容字段：运行输出不再保存/回传，恒为 None（docs/contracts.md §10.2）
+    output: str | None = None
     # SPJ 判定信息（特判程序输出，如 "wrong answer expected 3, found 4"；非 SPJ 为 None）
     message: str | None = None
 

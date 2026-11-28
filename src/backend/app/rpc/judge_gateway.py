@@ -64,6 +64,9 @@ _ATTEMPT_TTL_SECONDS = 3600
 _MAINTENANCE_SCAN_LIMIT = 200
 # FetchProblemData 单片上限（同一 path 连续多片，节点按序追加）
 _FILE_CHUNK_BYTES = 1024 * 1024
+# 同时拉取数据包的最大流数：每路峰值 ≈1MB，防止多节点同时拉取放大内存
+_FETCH_DATA_CONCURRENCY = 4
+_FETCH_DATA_SEMAPHORE = asyncio.Semaphore(_FETCH_DATA_CONCURRENCY)
 # 与判题节点 daemon._GRPC_MAX_MESSAGE_BYTES 对齐（测试点 ≤8MB，默认输出 5MB×N）
 _GRPC_MAX_MESSAGE_BYTES = 128 * 1024 * 1024
 _GRPC_SERVER_OPTIONS = (
@@ -263,7 +266,7 @@ def _to_outcome(result: judge_pb2.JudgeResult) -> jobs.JudgeOutcome:
                 status=c.status,
                 time_used_ms=c.time_used_ms,
                 memory_used_kb=c.memory_used_kb or None,
-                output=c.output,
+                output=b"",  # 运行输出不落库/不回传（节点侧亦不再随 JudgeResult 携带）
                 message=c.message or None,
             )
             for c in result.cases
@@ -383,9 +386,9 @@ class JudgeGatewayService(judge_pb2_grpc.JudgeGatewayServicer):
             )
         if plan is None:
             return
-        async for path, content in jobs.stream_plan_files(plan):
-            for chunk in _iter_rpc_chunks(path, content):
-                yield chunk
+        async with _FETCH_DATA_SEMAPHORE:
+            async for path, content in jobs.stream_plan_files(plan, chunk_size=_FILE_CHUNK_BYTES):
+                yield judge_pb2.FileChunk(path=path, content=content)
 
 
 def _attach_pump_watchdog(incoming: asyncio.Task, conn: NodeConnection) -> None:
@@ -435,35 +438,46 @@ async def _pump_incoming(request_iterator, context: grpc.aio.ServicerContext, co
         logger.warning("节点 %s 上行流断开，触发连接清理", conn.node_id, exc_info=True)
 
 
-async def send_job(node_id: str, submission_id: uuid.UUID) -> bool:
-    """构建作业并推入指定节点的下行队列；返回是否成功。"""
+def _job_message(bundle: jobs.JobBundle) -> judge_pb2.ServerMessage:
+    """冻结作业描述 → gRPC 下行消息。"""
+    return judge_pb2.ServerMessage(job=judge_pb2.SubmitJob(
+        submission_id=bundle.submission_id,
+        language=bundle.language,
+        code=bundle.code,
+        limits=_to_pb_limits(bundle.limits),
+        problem_id=bundle.problem_id,
+        data_version=bundle.data_version,
+        stop_on_failure=bundle.stop_on_failure,
+        spj=bundle.spj,
+        cases=[
+            judge_pb2.TestCaseFile(test_case_id=c.test_case_id, name=c.name)
+            for c in bundle.cases
+        ],
+    ))
+
+
+async def send_job(node_id: str, job: jobs.JobBundle | uuid.UUID) -> bool:
+    """把作业推入指定节点的下行队列；返回是否成功。
+
+    常规入口传已认领的 JobBundle（派发链路一次会话装配）；UUID 为旧调用兼容，
+    自行 build_job_bundle。enqueue 与 inflight 簿记保持不变。
+    """
     conn = REGISTRY.get(node_id)
     if conn is None:
         return False
-    sid_str = str(submission_id)
+    sid_str = job.submission_id if isinstance(job, jobs.JobBundle) else str(job)
     # 残留簿记清理：重复派发的正确性由 build_job_bundle 的原子认领保证
     conn.inflight.discard(sid_str)
-    async with SessionLocal() as db:
-        bundle = await jobs.build_job_bundle(db, submission_id)
-        if bundle is None:
-            return False
-        job_msg = judge_pb2.SubmitJob(
-            submission_id=bundle.submission_id,
-            language=bundle.language,
-            code=bundle.code,
-            limits=_to_pb_limits(bundle.limits),
-            problem_id=bundle.problem_id,
-            data_version=bundle.data_version,
-            stop_on_failure=bundle.stop_on_failure,
-            spj=bundle.spj,
-            cases=[
-                judge_pb2.TestCaseFile(test_case_id=c.test_case_id, name=c.name)
-                for c in bundle.cases
-            ],
-        )
-        conn.outbox.put_nowait(judge_pb2.ServerMessage(job=job_msg))
-        conn.inflight.add(sid_str)
-        return True
+    if isinstance(job, jobs.JobBundle):
+        bundle = job
+    else:
+        async with SessionLocal() as db:
+            bundle = await jobs.build_job_bundle(db, job)
+            if bundle is None:
+                return False
+    conn.outbox.put_nowait(_job_message(bundle))
+    conn.inflight.add(sid_str)
+    return True
 
 
 async def _reset_to_pending(
@@ -524,52 +538,65 @@ def _send_cancel(submission_id: str) -> None:
 async def maintenance_once(scan_interval: int, now: datetime | None = None) -> None:
     """单轮巡检（maintenance_loop 循环体，独立成函数便于测试注入）。
 
-    - pending：不再设置滞留门槛，只要有可用节点就派发（容量释放事件即时
-      踢醒巡检；scan_interval 仅作兜底周期，不参与候选判定）；
-    - judging：超过 _JUDGING_STALE_SECONDS 才取消并复位，避免误伤长作业。
-
-    两类候选分开查询，积压的 pending 不会把判死回收饿死。
+    - 候选只取提交 id，不把 submissions.code 等大字段载入巡检会话；
+    - judging 超过 _JUDGING_STALE_SECONDS 先取消 / 复位回收（占用容量预算）；
+    - pending 不设滞留门槛，单轮至多处理在线节点空闲槽位数（+ 少量缓冲），
+      free_slots <= 0 时直接返回、不抢 Redis 锁（容量释放事件会再次踢醒）。
     """
     now = now or datetime.now(timezone.utc)
     judging_deadline = now - timedelta(seconds=_JUDGING_STALE_SECONDS)
     r = get_redis()
+    # 空闲槽位按活节点计算；离线节点不贡献容量。stale 复位后重派同样占一个槽位。
+    free_slots = sum(max(0, conn.capacity - conn.task_count) for conn in _live_nodes())
     async with SessionLocal() as db:
-        stale_judging = list(
+        stale_ids = list(
             (
                 await db.execute(
-                    select(Submission).where(
+                    select(Submission.id).where(
                         Submission.status == SubmissionStatus.JUDGING,
                         Submission.updated_at < judging_deadline,
                     ).order_by(Submission.updated_at, Submission.id).limit(_MAINTENANCE_SCAN_LIMIT)
                 )
             ).scalars().all()
         )
-        pending = list(
+        pending_ids = list(
             (
                 await db.execute(
-                    select(Submission).where(
+                    select(Submission.id).where(
                         Submission.status == SubmissionStatus.PENDING,
                     ).order_by(Submission.updated_at, Submission.id).limit(_MAINTENANCE_SCAN_LIMIT)
                 )
             ).scalars().all()
         )
-    # 判死回收优先，随后按提交时间消化 pending（积压时先到先派，避免新提交反复抢占）
-    candidates = [(row, True) for row in stale_judging] + [(row, False) for row in pending]
-    for submission, expired in candidates:
-        lock_key = f"{JUDGE_REQUEUE_KEY_PREFIX}{submission.id}"
+
+    async def _recover(submission_id: uuid.UUID) -> None:
+        lock_key = f"{JUDGE_REQUEUE_KEY_PREFIX}{submission_id}"
         # 先以短 TTL 上锁防同轮 / 并发轮次重复处理；派发成功后再升级为在途保护窗。
         # 失败（无在线节点、满载）只冷却数秒，容量释放踢醒后即可立即重试。
         if not await r.set(lock_key, "1", nx=True, ex=_REQUEUE_RETRY_TTL_SECONDS):
-            continue
-        if expired:
-            _send_cancel(str(submission.id))
-            # 已持有本轮短锁：重置时不释放，随后派发成功再升级为在途保护
-            await _reset_to_pending(
-                {str(submission.id)}, reason="judging stale", release_dispatch_lock=False
-            )
-        if await dispatch_submission(submission.id):
-            logger.info("巡检重派提交 %s", submission.id)
+            return
+        if await dispatch_submission(submission_id):
+            logger.info("巡检重派提交 %s", submission_id)
             await r.set(lock_key, "1", ex=_REQUEUE_LOCK_TTL_SECONDS)
+
+    # 判死回收优先：每个复位条目重派时也占用一个空闲槽位。
+    for sid in stale_ids:
+        lock_key = f"{JUDGE_REQUEUE_KEY_PREFIX}{sid}"
+        if not await r.set(lock_key, "1", nx=True, ex=_REQUEUE_RETRY_TTL_SECONDS):
+            continue
+        _send_cancel(str(sid))
+        # 已持有本轮短锁：重置时不释放，随后派发成功再升级为在途保护
+        await _reset_to_pending({str(sid)}, reason="judging stale", release_dispatch_lock=False)
+        free_slots = max(0, free_slots - 1)
+        if await dispatch_submission(sid):
+            logger.info("巡检重派提交 %s", sid)
+            await r.set(lock_key, "1", ex=_REQUEUE_LOCK_TTL_SECONDS)
+
+    if free_slots <= 0:
+        return
+    # 缓冲少量候选，抵消锁冲突 / 校验失败导致的空转；dispatch_submission 自身仍按容量选节点。
+    for sid in pending_ids[:free_slots + 4]:
+        await _recover(sid)
 
 
 async def maintenance_loop(interval: int | None = None) -> None:
@@ -593,24 +620,30 @@ async def maintenance_loop(interval: int | None = None) -> None:
 
 
 async def dispatch_submission(submission_id: uuid.UUID) -> str | None:
-    """负载均衡派发：任务数（判题 + 自测）最少者优先。无在线节点返回 None（留待巡检）。
+    """单会话派发：加载上下文 → SPJ 能力过滤 → 最小负载节点 → 原子认领 → 投递。
 
+    无在线 / 可用节点时不认领，提交保持 pending 留待巡检（容量释放事件会踢醒）。
     SPJ 题只派给 supports_spj 节点（旧节点会忽略 spj 标记、退化为默认比对静默误判）；
-    无支持节点时落 system_error（docs/contracts.md §10.6）。
+    完全无支持节点时由 fail_no_spj_node 原子认领后落 system_error（docs/contracts.md §10.6）。
     """
-    nodes = _available_nodes()
-    if not nodes:
-        return None
-    if await jobs.submission_needs_spj(submission_id):
-        nodes = _available_nodes([n for n in nodes if n.supports_spj])
-        if not nodes:
-            if not any(n.supports_spj for n in _live_nodes()):
-                await jobs.fail_no_spj_node(submission_id)
+    async with SessionLocal() as db:
+        context = await jobs.load_dispatch_context(db, submission_id)
+        if context is None:
             return None
-    best = min(nodes, key=lambda n: (n.task_count, n.node_id))
-    if await send_job(best.node_id, submission_id):
-        return best.node_id
-    return None
+        nodes = _available_nodes()
+        if not nodes:
+            return None
+        if context.spj:
+            nodes = _available_nodes([n for n in nodes if n.supports_spj])
+            if not nodes:
+                if not any(n.supports_spj for n in _live_nodes()):
+                    await jobs.fail_no_spj_node(submission_id)
+                return None
+        best = min(nodes, key=lambda n: (n.task_count, n.node_id))
+        bundle = await jobs.build_job_bundle(db, submission_id, context=context)
+        if bundle is None:
+            return None
+    return best.node_id if await send_job(best.node_id, bundle) else None
 
 
 async def commit_and_dispatch(db: AsyncSession, submission: Submission) -> None:

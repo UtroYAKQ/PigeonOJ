@@ -14,6 +14,7 @@ from sqlalchemy import select
 from app.models.problem import Problem, TestCase
 from app.models.user import User
 from app.core.database import SessionLocal
+from app.services import problem_import
 
 
 def _fps_xml(items: list[str]) -> bytes:
@@ -52,6 +53,35 @@ def _zip_bytes(xml: bytes) -> bytes:
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("problems/fps.xml", xml)
     return buf.getvalue()
+
+
+@pytest.mark.no_db
+def test_extract_zip_xmls_normal_zip_still_extracts():
+    """正常 ZIP 仍按 .xml/.fps 过滤并保留 cp437 路径，单条内容原样返回。"""
+    xml = _fps_xml([_fps_item("正常 ZIP 题")])
+    entries = problem_import.read_archive(_zip_bytes(xml), "fps.zip")
+    assert entries == [("fps.zip/problems/fps.xml", xml)]
+    assert [item.title for item in problem_import.parse_fps(entries[0][1])] == ["正常 ZIP 题"]
+
+
+@pytest.mark.no_db
+def test_extract_zip_xmls_rejects_single_xml_over_limit(monkeypatch):
+    """单 XML 解压后超 64MB（测试中小常量模拟）→ FpsError。"""
+    monkeypatch.setattr(problem_import, "MAX_XML_BYTES", 8)
+    with pytest.raises(problem_import.FpsError):
+        problem_import.extract_zip_xmls(_zip_bytes(b"<fps>12345</fps>"), "bomb.zip")
+
+
+@pytest.mark.no_db
+def test_extract_zip_xmls_rejects_cumulative_limit(monkeypatch):
+    """多条 XML 累计解压超限（小常量模拟）→ FpsError，逐条读取不批量展开。"""
+    monkeypatch.setattr(problem_import, "MAX_EXTRACTED_BYTES", 8)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("a.xml", "<fps>1</fps>")
+        zf.writestr("b.xml", "<fps>2</fps>")
+    with pytest.raises(problem_import.FpsError):
+        problem_import.extract_zip_xmls(buf.getvalue(), "bomb.zip")
 
 
 async def _problem_by_title(title: str) -> Problem | None:
@@ -145,6 +175,30 @@ async def test_import_rejects_invalid_payload(client, admin_headers):
         headers=admin_headers,
     )
     assert resp.json()["code"] == 1001
+
+
+@pytest.mark.asyncio
+async def test_import_rejects_oversized_archive(client, admin_headers, monkeypatch):
+    """HTTP 入口只读 max+1 字节即拒绝超限包，错误码 1001 + 现有 i18n 文案。"""
+    from app.core.exceptions import PARAM_FORMAT_INVALID
+
+    monkeypatch.setattr(problem_import, "MAX_ARCHIVE_BYTES", 1024 * 1024)
+    payload = b"x" * (1024 * 1024 + 1)
+    resp = await client.post(
+        "/api/v1/admin/problems/import",
+        files={"file": ("big.zip", payload, "application/zip")},
+        headers=admin_headers,
+    )
+    body = resp.json()
+    assert resp.status_code == 400 and body["code"] == PARAM_FORMAT_INVALID
+    assert body["message"] == "压缩包超过 1MB 上限"
+
+    resp = await client.post(
+        "/api/v1/admin/problems/import",
+        files={"file": ("big.zip", payload, "application/zip")},
+        headers={**admin_headers, "Accept-Language": "en-US"},
+    )
+    assert resp.json()["message"] == "Archive exceeds 1MB limit"
 
 
 @pytest.mark.asyncio

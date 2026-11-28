@@ -97,6 +97,21 @@ def read_cpu_times(path: str = "/proc/stat") -> tuple[int, int] | None:
     return idle, sum(fields)
 
 
+def _load_spj_files_sync(data_dir: Path) -> tuple[bytes | None, Path | None]:
+    """同步读取 SPJ 源码并处理二进制缓存失效；由调用方放到线程池执行。"""
+    spj_path = data_dir / SPJ_SOURCE_NAME
+    if not spj_path.is_file():
+        return None, None
+    spj_cache_path: Path | None = data_dir / SPJ_CACHE_NAME
+    try:
+        # 同 data_version 复用已编译二进制；spj.cpp 被重新上传（mtime 更新）则失效
+        if spj_cache_path.is_file() and spj_cache_path.stat().st_mtime < spj_path.stat().st_mtime:
+            spj_cache_path.unlink(missing_ok=True)
+    except OSError:
+        spj_cache_path = None
+    return spj_path.read_bytes(), spj_cache_path
+
+
 def read_memory_usage(path: str = "/proc/meminfo") -> int | None:
     """读 /proc/meminfo，返回内存使用率（0-100）；无 MemAvailable 时按 MemFree+Buffers+Cached 估算。"""
     total = available = free = buffers = cached = None
@@ -155,6 +170,8 @@ class NodeDaemon:
         self._had_connection = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._channel = None
+        # 同题同版本的数据拉取去重；run() 每次重连都会重置，避免绑定已关闭的事件循环
+        self._data_locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._warn_sandbox_sizing()
 
     def _warn_sandbox_sizing(self) -> None:
@@ -208,6 +225,13 @@ class NodeDaemon:
     async def run(self) -> None:
         cfg = self.cfg
         self._loop = asyncio.get_running_loop()
+        # 每次 asyncio.run 都是新事件循环：锁字典必须重建，不能跨重连复用
+        self._data_locks = {}
+        try:
+            # isolate --init 会阻塞 1~2s，放线程池预热；失败只记录，判题 acquire 时再 lazy 重试
+            await asyncio.to_thread(self.executor.start)
+        except Exception:  # noqa: BLE001 - 预热失败不阻断网关连接
+            log.warning("box 池预热失败，判题时将按需重试", exc_info=True)
         # outbox 必须随事件循环重建：asyncio.Queue 首次使用即绑定当前 loop，
         # 而 main() 每次重连用 asyncio.run() 新建 loop，复用旧 Queue 会
         # 抛 "bound to a different event loop"，节点无法自愈
@@ -330,19 +354,24 @@ class NodeDaemon:
             try:
                 removed = await asyncio.to_thread(self.cache.collect, max_bytes)
                 if removed:
-                    total_mb = await asyncio.to_thread(lambda: round(self.cache.total_size() / 1048576, 1))
-                    log.info("缓存回收 %d 个目录，剩余 %.1fMB", len(removed), total_mb)
+                    # total_size 读内存索引，无需再 to_thread 做一次全树扫描
+                    log.info("缓存回收 %d 个目录，剩余 %.1fMB",
+                             len(removed), round(self.cache.total_size() / 1048576, 1))
             except Exception:  # noqa: BLE001 - 回收失败不影响判题
                 log.warning("缓存回收失败", exc_info=True)
 
     async def _ensure_data(self, stub, job: judge_pb2.SubmitJob) -> Path:
-        if not self.cache.has(job.problem_id, job.data_version):
-            metadata = (("x-node-token", self.cfg.server.token),)
-            call = stub.FetchProblemData(
-                judge_pb2.ProblemDataRequest(problem_id=job.problem_id, data_version=job.data_version),
-                metadata=metadata,
-            )
-            await self.cache.sync(job.problem_id, job.data_version, call)
+        # 同题同版本并发只拉一次：等锁的任务在锁内二次检查命中后直接复用
+        key = (job.problem_id, job.data_version)
+        lock = self._data_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            if not await self.cache.has_async(job.problem_id, job.data_version):
+                metadata = (("x-node-token", self.cfg.server.token),)
+                call = stub.FetchProblemData(
+                    judge_pb2.ProblemDataRequest(problem_id=job.problem_id, data_version=job.data_version),
+                    metadata=metadata,
+                )
+                await self.cache.sync(job.problem_id, job.data_version, call)
         return self.cache.dir_for(job.problem_id, job.data_version)
 
     async def _execute_job(self, stub, job: judge_pb2.SubmitJob) -> None:
@@ -402,19 +431,12 @@ class NodeDaemon:
         spj_source: bytes | None = None
         spj_cache_path: Path | None = None
         if job.spj:
-            spj_path = data_dir / SPJ_SOURCE_NAME
-            if not spj_path.is_file():
+            # 文件存在性 / stat / unlink / 读取都移出事件循环线程
+            spj_source, spj_cache_path = await asyncio.to_thread(_load_spj_files_sync, data_dir)
+            if spj_source is None:
                 return {"submission_id": job.submission_id, "status": "system_error",
                         "time_used_ms": 0, "memory_used_kb": None,
                         "error_message": "special judge data missing (spj.cpp)", "cases": []}
-            spj_cache_path = data_dir / SPJ_CACHE_NAME
-            try:
-                # 同 data_version 复用已编译二进制；spj.cpp 被重新上传（mtime 更新）则失效
-                if spj_cache_path.is_file() and spj_cache_path.stat().st_mtime < spj_path.stat().st_mtime:
-                    spj_cache_path.unlink(missing_ok=True)
-            except OSError:
-                spj_cache_path = None
-            spj_source = spj_path.read_bytes()
         spj_limits = ResourceLimits(
             time_limit_ms=max(2 * limits.time_limit_ms, 5_000),
             memory_limit_mb=limits.memory_limit_mb,
@@ -540,7 +562,9 @@ def _to_result_message(result: dict) -> judge_pb2.NodeMessage:
             judge_pb2.CaseResult(
                 test_case_id=c["test_case_id"], status=c["status"],
                 time_used_ms=c["time_used_ms"], memory_used_kb=c["memory_used_kb"],
-                output=c["output"], message=c.get("message") or b"",
+                # 逐点 stdout 不回传：单条 JudgeResult 从 100MB 级降到 KB 级；
+                # SPJ message 与 error_message 保持原样（判定依据）
+                output=b"", message=c.get("message") or b"",
             )
             for c in result.get("cases", [])
         ],

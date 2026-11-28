@@ -250,6 +250,65 @@ async def test_admin_manage_list(client: httpx.AsyncClient, user_headers, admin_
     assert resp.json()["data"]["total"] == 0
 
 
+async def test_contest_list_queries_defer_large_fields(client: httpx.AsyncClient) -> None:
+    """比赛列表不读公告正文；提交记录列表不读代码，详情仍为全量加载。"""
+    from sqlalchemy import inspect
+
+    from app.repositories.contest import ContestRepository, ContestSubmissionQueryRepository
+
+    async with SessionLocal() as db:
+        uid = (await db.execute(select(User).where(User.email == "admin@pigeonoj.dev"))).scalar_one().id
+        now = datetime.now(timezone.utc)
+        contest = Contest(
+            title="延迟字段比赛", description="比赛简介", announcement="长公告正文",
+            owner_id=uid, contest_type="public", rule_type="ACM",
+            start_time=now - timedelta(hours=1), end_time=now + timedelta(hours=1),
+            register_start_time=now - timedelta(hours=2), register_end_time=now - timedelta(minutes=10),
+        )
+        problem = Problem(
+            title="延迟字段题", description="D", owner_id=uid,
+            status="published", visibility="public", verified_at=now,
+        )
+        db.add_all([contest, problem])
+        await db.flush()
+        submission = Submission(
+            user_id=uid, problem_id=problem.id, contest_id=contest.id,
+            submit_type="contest", language="cpp17", code="int main(){}", status="accepted",
+        )
+        db.add(submission)
+        await db.commit()
+        contest_id, problem_id, submission_id = contest.id, problem.id, submission.id
+
+    async with SessionLocal() as db:
+        repo = ContestRepository(db)
+        public, total = await repo.list_public(page=1, page_size=20, status=None)
+        assert total == 1 and len(public) == 1
+        assert "announcement" in inspect(public[0]).unloaded
+        assert "description" not in inspect(public[0]).unloaded  # ContestSummary 需要简介
+        assert public[0].description == "比赛简介"
+        managed, _ = await repo.list_manage(page=1, page_size=20, status=None)
+        assert len(managed) == 1
+        assert "announcement" in inspect(managed[0]).unloaded
+
+    async with SessionLocal() as db:
+        query = ContestSubmissionQueryRepository(db)
+        records, total = await query.list_records_with_users(
+            contest_id, page=1, page_size=20,
+        )
+        assert total == 1
+        assert "code" in inspect(records[0][0]).unloaded
+        accepted = await query.list_accepted_submissions(contest_id, uid, problem_id)
+        assert len(accepted) == 1
+        assert "code" in inspect(accepted[0]).unloaded
+
+    async with SessionLocal() as db:
+        detail = await ContestSubmissionQueryRepository(db).get_contest_submission(
+            contest_id, submission_id
+        )
+        assert detail is not None
+        assert "code" not in inspect(detail).unloaded
+
+
 async def test_register_window(client: httpx.AsyncClient, user_headers, admin_headers) -> None:
     """报名窗口：未开始/已截止 → 3002；窗口内 → 0；重复 → 3003。"""
     p1 = await _seed_problem("报名题")

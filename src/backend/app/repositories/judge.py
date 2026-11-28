@@ -6,6 +6,7 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.models.judge import Submission, SubmissionTestCaseResult
 from app.models.problem import Problem, TestCase
@@ -75,6 +76,8 @@ class SubmissionRepository:
             (
                 await self.db.execute(
                     select(Submission)
+                    # 列表摘要不读 code / error_message，避免大字段进入会话与响应装配
+                    .options(defer(Submission.code), defer(Submission.error_message))
                     .where(*conditions)
                     .order_by(Submission.created_at.desc())
                     .offset((page - 1) * page_size)
@@ -113,6 +116,7 @@ class SubmissionRepository:
         rows = (
             await self.db.execute(
                 select(Submission, User)
+                .options(defer(Submission.code), defer(Submission.error_message))
                 .join(User, User.id == Submission.user_id)
                 .where(*conditions)
                 .order_by(Submission.created_at.desc())
@@ -160,7 +164,8 @@ class SubmissionRepository:
         total = (await self.db.scalar(count_stmt)) or 0
         rows = (
             await self.db.execute(
-                rows_stmt.order_by(Submission.created_at.desc())
+                rows_stmt.options(defer(Submission.code), defer(Submission.error_message))
+                .order_by(Submission.created_at.desc())
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )

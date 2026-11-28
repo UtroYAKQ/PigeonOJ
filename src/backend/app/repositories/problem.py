@@ -6,6 +6,7 @@ import uuid
 
 from sqlalchemy import delete, false, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
@@ -27,6 +28,25 @@ from app.models.problem import (
     TestCase,
 )
 from app.schemas.problem import ProblemQuery
+
+
+# 题库列表只取摘要与验题标记所需列：不含 description / solution / samples 大字段。
+# is_verified 与 Problem.is_verified 派生属性同义（verified_at 非空）。
+_PROBLEM_LIST_COLUMNS = (
+    Problem.id,
+    Problem.title,
+    Problem.time_limit_ms,
+    Problem.memory_limit_mb,
+    Problem.status,
+    Problem.visibility,
+    Problem.verified_at.is_not(None).label("is_verified"),
+    Problem.verified_at,
+    Problem.samples_updated_at,
+    Problem.pending_case_ids,
+    Problem.pending_spj_oss_id,
+    Problem.difficulty,
+    Problem.created_at,
+)
 
 
 class ProblemRepository:
@@ -212,7 +232,7 @@ class ProblemRepository:
         viewer_id: uuid.UUID | None,
         see_all: bool,
         org_ids: list[uuid.UUID] | None = None,
-    ) -> tuple[list[Problem], int]:
+    ) -> tuple[list[Row], int]:
         """题库列表：scope=all 仅 published+public（组织题不进题库中心）；
         scope=mine 为管理视图（admin 见全量，其余用户见所在组织的组织题聚合 +
         本人创建的存量题，docs/contracts.md §7 / orgs.md）。"""
@@ -268,13 +288,13 @@ class ProblemRepository:
         rows = list(
             (
                 await self.db.execute(
-                    select(Problem)
+                    select(*_PROBLEM_LIST_COLUMNS)
                     .where(*conditions)
                     .order_by(Problem.created_at.desc())
                     .offset((query.page - 1) * query.page_size)
                     .limit(query.page_size)
                 )
-            ).scalars()
+            ).all()
         )
         return rows, int(total)
 
